@@ -11,19 +11,25 @@ const authenticateUser = async (req, res, next) => {
   }
 
   const token = authHeader.split(' ')[1];
+  console.log('📥 Extracted token (short):', token.slice(0, 10), '...');
 
   try {
     const decodedToken = await admin.auth().verifyIdToken(token);
+
+    const nowInSeconds = Math.floor(Date.now() / 1000);
+    if (decodedToken.exp && decodedToken.exp < nowInSeconds) {
+      console.warn('❌ [authMiddleware] Token has expired:', decodedToken.exp, '<', nowInSeconds);
+      return res.status(403).json({ error: 'Token has expired' });
+    }
 
     console.log('✅ [authMiddleware] Token verified successfully');
     console.log('🔎 UID:', decodedToken.uid);
     console.log('🔐 Claims:', decodedToken);
 
-    // Attach user data to request
     req.user = decodedToken;
     req.firebaseId = decodedToken.uid;
 
-    // ✅ Optional admin enforcement (uncomment if needed)
+    // ✅ Optional admin-only enforcement
     // if (!decodedToken.admin) {
     //   console.warn('⚠️ [authMiddleware] Admin privileges required');
     //   return res.status(403).json({ error: 'Forbidden: Admin access required' });
