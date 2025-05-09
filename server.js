@@ -1,3 +1,4 @@
+// ✅ Full production-grade server.js for Aced Platform
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -8,7 +9,7 @@ const path = require('path');
 
 dotenv.config();
 
-// ✅ Debug Firebase ENV
+// ✅ Firebase ENV Debug
 console.log("🧪 Firebase ENV DEBUG:", {
   projectId: process.env.FIREBASE_PROJECT_ID,
   clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
@@ -21,17 +22,13 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // ✅ Security & Performance Middleware
-app.use(helmet());
+app.use(helmet({
+  crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' }, // ✅ fixes Google login popup issue
+}));
 app.use(compression());
 
 // ✅ Body Parsing
 app.use(express.json());
-
-// ✅ Log incoming request origin
-app.use((req, res, next) => {
-  console.log('🌐 Incoming request origin:', req.headers.origin || 'null');
-  next();
-});
 
 // ✅ CORS Setup
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',');
@@ -53,7 +50,7 @@ app.use(cors({
 
 // ✅ Logger
 app.use((req, res, next) => {
-  console.log(`📥 [${req.method}] ${req.url}`);
+  console.log(`📥 [${req.method}] ${req.url} from ${req.headers.origin || 'unknown origin'}`);
   next();
 });
 

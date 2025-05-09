@@ -1,3 +1,4 @@
+// ✅ Firebase Admin SDK configuration for backend
 const admin = require('firebase-admin');
 
 const {
@@ -6,16 +7,19 @@ const {
   FIREBASE_PRIVATE_KEY,
 } = process.env;
 
-// ✅ DEBUG LOGGING
-console.log("📛 Firebase init debug:", {
-  FIREBASE_PROJECT_ID,
-  FIREBASE_CLIENT_EMAIL,
-  hasKey: !!FIREBASE_PRIVATE_KEY,
-  keyLength: FIREBASE_PRIVATE_KEY?.length,
+// 🔍 Debug Firebase ENV (safe preview)
+console.log("🧪 Firebase Admin ENV:", {
+  projectId: FIREBASE_PROJECT_ID,
+  clientEmail: FIREBASE_CLIENT_EMAIL,
+  keyExists: !!FIREBASE_PRIVATE_KEY,
+  keyPreview: FIREBASE_PRIVATE_KEY?.slice(0, 40),
+  endsWith: FIREBASE_PRIVATE_KEY?.slice(-20),
+  hasEscapedNewlines: FIREBASE_PRIVATE_KEY?.includes('\\n')
 });
 
+// ❗ Exit if any required env vars are missing
 if (!FIREBASE_PROJECT_ID || !FIREBASE_CLIENT_EMAIL || !FIREBASE_PRIVATE_KEY) {
-  console.error('❌ Missing Firebase environment variables');
+  console.error('❌ Missing one or more required Firebase environment variables');
   process.exit(1);
 }
 
@@ -28,10 +32,10 @@ try {
         privateKey: FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
       }),
     });
-    console.log('✅ Firebase Admin initialized');
+    console.log('✅ Firebase Admin SDK successfully initialized');
   }
 } catch (error) {
-  console.error('❌ Firebase Admin init failed:', error.message);
+  console.error('❌ Firebase Admin SDK initialization failed:', error.message);
   process.exit(1);
 }
 
