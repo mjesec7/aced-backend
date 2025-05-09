@@ -1,0 +1,36 @@
+{
+  "name": "aced-backend",
+  "version": "1.0.0",
+  "description": "ACED backend with frontend build in /dist",
+  "main": "server.js",
+  "scripts": {
+    "dev": "nodemon server.js",
+    "start": "node server.js",
+    "fetch:harvard": "node scripts/fetchHarvardWithPuppeteer.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.8.4",
+    "cheerio": "^1.0.0",
+    "compression": "^1.8.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "firebase-admin": "^13.2.0",
+    "helmet": "^8.1.0",
+    "html-pdf": "^3.0.1",
+    "mongodb": "4.0",
+    "mongoose": "^8.12.1",
+    "nodemailer": "^6.10.1",
+    "pupeteer": "^0.0.1",
+    "puppeteer": "^24.6.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
