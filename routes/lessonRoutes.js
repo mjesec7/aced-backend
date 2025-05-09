@@ -6,14 +6,14 @@ const verifyToken = require('../middlewares/authMiddleware');
 
 // ✅ Log every request
 router.use((req, res, next) => {
-  console.log(`\u{1F4E2} [${req.method}] ${req.originalUrl}`);
+  console.log(`📢 [${req.method}] ${req.originalUrl}`);
   next();
 });
 
 // ✅ Validate ObjectId param
 function validateObjectId(req, res, next) {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-    console.warn(`\u26A0\uFE0F Invalid ObjectId: ${req.params.id}`);
+    console.warn(`⚠️ Invalid ObjectId: ${req.params.id}`);
     return res.status(400).json({ message: '❌ Invalid lesson ID format' });
   }
   next();
