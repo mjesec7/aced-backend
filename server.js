@@ -8,6 +8,15 @@ const path = require('path');
 
 dotenv.config();
 
+// ✅ Debug Firebase ENV
+console.log("🧪 Firebase ENV DEBUG:", {
+  projectId: process.env.FIREBASE_PROJECT_ID,
+  clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+  keyPreview: process.env.FIREBASE_PRIVATE_KEY?.slice(0, 40),
+  endsWith: process.env.FIREBASE_PRIVATE_KEY?.slice(-20),
+  hasNewlinesEscaped: process.env.FIREBASE_PRIVATE_KEY?.includes('\\n')
+});
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -51,6 +60,12 @@ app.use((req, res, next) => {
 // ✅ Health Check
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'OK' });
+});
+
+// ✅ Firebase Auth Test Route
+const authenticateUser = require('./middlewares/authMiddleware');
+app.get('/auth-test', authenticateUser, (req, res) => {
+  res.json({ message: `✅ Hello ${req.user.email}, you are authorized!`, uid: req.user.uid });
 });
 
 // ✅ API Routes
