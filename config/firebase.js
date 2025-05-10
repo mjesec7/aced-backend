@@ -33,7 +33,7 @@ try {
       credential: admin.credential.cert({
         projectId: FIREBASE_PROJECT_ID.trim(),
         clientEmail: FIREBASE_CLIENT_EMAIL.trim(),
-        privateKey: FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+        privateKey: FIREBASE_PRIVATE_KEY.replace(/\\\\n/g, '\n'),
       }),
     });
     console.log('✅ Firebase Admin SDK successfully initialized');
