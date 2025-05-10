@@ -46,6 +46,7 @@ router.post('/save', async (req, res) => {
       user.name = name;
       user.subscriptionPlan = subscriptionPlan || user.subscriptionPlan;
       await user.save();
+      console.log(`🔁 Updated existing user: ${uid}`);
       return res.json(user);
     }
 
@@ -58,6 +59,7 @@ router.post('/save', async (req, res) => {
     });
 
     await newUser.save();
+    console.log(`✅ Created new user: ${uid}`);
     return res.status(201).json(newUser);
 
   } catch (err) {
@@ -65,6 +67,7 @@ router.post('/save', async (req, res) => {
     return res.status(500).json({ error: '❌ Failed to verify token or save user' });
   }
 });
+
 
 // ✅ Fetch user info
 router.get('/:firebaseId', validateFirebaseId, async (req, res) => {
