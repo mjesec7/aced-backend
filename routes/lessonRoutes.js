@@ -89,21 +89,28 @@ router.post('/', verifyToken, async (req, res) => {
     lessonName,
     subject,
     level,
+    type,
+    topicId,
     description,
     explanation,
     examples,
+    content,
     hint,
     exercises,
-    quizzes
+    quizzes,
+    relatedSubjects
   } = req.body;
 
   if (
     !lessonName ||
     !subject ||
     level === undefined ||
+    !type ||
+    !topicId ||
     !description ||
     !explanation ||
     !examples ||
+    !content ||
     !hint ||
     !Array.isArray(exercises) ||
     !Array.isArray(quizzes)
@@ -114,15 +121,18 @@ router.post('/', verifyToken, async (req, res) => {
   try {
     const newLesson = new Lesson({
       lessonName,
-      topic: lessonName, // fallback topic if not explicitly provided
       subject,
       level,
+      type,
+      topic: topicId,
       description,
       explanation,
       examples,
+      content,
       hint,
       exercises,
-      quizzes
+      quizzes,
+      relatedSubjects: Array.isArray(relatedSubjects) ? relatedSubjects : []
     });
 
     console.log('🧪 Saving lesson:', newLesson);
