@@ -21,14 +21,11 @@ const authenticateUser = async (req, res, next) => {
     console.log('🔍 [authMiddleware] Extracted token (preview):', token.slice(0, 40), '...');
     console.log('⏳ [authMiddleware] Verifying token with Firebase Admin SDK...');
 
-    // 🕒 Timestamp debug
     const nowInSeconds = Math.floor(Date.now() / 1000);
-    console.log('[DEBUG] Server time (UTC seconds):', nowInSeconds);
 
     // 🔐 Verify token via Firebase Admin
     const decodedToken = await admin.auth().verifyIdToken(token);
 
-    // 📄 Token metadata log
     console.log('✅ [authMiddleware] Token verified:', {
       uid: decodedToken.uid,
       email: decodedToken.email,
@@ -38,19 +35,17 @@ const authenticateUser = async (req, res, next) => {
       iss: decodedToken.iss,
     });
 
-    // 🎯 Ensure token matches the correct Firebase project
-    const expectedProjectId = process.env.FIREBASE_PROJECT_ID;
-    const tokenAud = decodedToken.aud;
+    const expectedProjectId = (process.env.FIREBASE_PROJECT_ID || '').trim();
+    const tokenAud = (decodedToken.aud || '').trim();
 
-    console.log('[DEBUG] Expected projectId:', expectedProjectId);
+    console.log('[DEBUG] Comparing expected projectId:', expectedProjectId);
     console.log('[DEBUG] Token aud claim:', tokenAud);
 
     if (expectedProjectId && tokenAud !== expectedProjectId) {
-      console.warn(`❌ [authMiddleware] Token aud mismatch. Expected ${expectedProjectId}, got ${tokenAud}`);
+      console.warn(`❌ [authMiddleware] Token aud mismatch. Expected "${expectedProjectId}", got "${tokenAud}"`);
       return res.status(403).json({ error: 'Token audience mismatch' });
     }
 
-    // ⌛ Check for expiration
     if (decodedToken.exp && decodedToken.exp < nowInSeconds) {
       console.warn(`❌ [authMiddleware] Token expired at ${decodedToken.exp}, now is ${nowInSeconds}`);
       return res.status(403).json({ error: 'Token has expired' });
