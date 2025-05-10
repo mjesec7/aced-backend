@@ -1,70 +1,54 @@
 const mongoose = require('mongoose');
 
-// ✅ Exercises inside lesson
+// ✅ Exercise schema
 const exerciseSchema = new mongoose.Schema({
   question: { type: String, required: true },
-  correctAnswer: { type: String, default: '' }
+  answer: { type: String, required: true },
+  options: { type: [String], default: [] }
 }, { _id: false });
 
-// ✅ Quiz options inside lesson
-const quizOptionSchema = new mongoose.Schema({
-  option: { type: String, required: true }
-}, { _id: false });
-
-// ✅ Quiz block inside lesson
+// ✅ Quiz schema
 const quizSchema = new mongoose.Schema({
   question: { type: String, required: true },
   options: {
-    type: [quizOptionSchema],
+    type: [String],
     default: [],
-    validate: [arrayLimit, '❌ Квиз должен иметь как минимум два варианта ответа.']
+    validate: [val => val.length >= 2, '❌ Квиз должен иметь как минимум два варианта ответа.']
   },
-  correctAnswer: { type: String, required: true }
+  answer: { type: String, required: true }
 }, { _id: false });
 
-// ✅ Helper to validate at least 2 quiz options
-function arrayLimit(val) {
-  return val.length >= 2;
-}
-
-// ✅ Lesson schema
+// ✅ Main lesson schema
 const lessonSchema = new mongoose.Schema({
-  // 🎯 Basic metadata
+  // 🧠 Metadata
   subject: { type: String, required: true, trim: true },
   level: { type: Number, required: true, min: 1 },
-  topic: { type: String, required: true, trim: true }, // ✅ CHANGED from ObjectId to String
+  topic: { type: String, required: true, trim: true },
+  topicId: { type: String, required: true, trim: true },
   lessonName: { type: String, required: true, trim: true },
-
-  // 🧠 Main lesson content
-  explanation: { type: String, default: '' },
-  content: { type: String, default: '' },
-  examples: { type: String, default: '' },
-
-  // 💡 Additional fields
-  hint: { type: String, default: '' },
-  exercise: { type: String, default: '' },
-  exercises: {
-    type: [exerciseSchema],
-    default: []
-  },
-  quiz: {
-    type: [quizSchema],
-    default: []
-  },
-  relatedSubjects: {
-    type: [String],
-    default: []
-  },
-
-  // 🔓 Access level
   type: {
     type: String,
     enum: ['free', 'premium'],
     default: 'free'
-  }
+  },
+
+  // 📝 Main content
+  description: { type: String, required: true },
+  explanation: { type: String, default: '' },
+  examples: { type: String, default: '' },
+  content: { type: String, default: '' },
+  hint: { type: String, default: '' },
+
+  // 🧪 Exercises and quizzes
+  exercises: { type: [exerciseSchema], default: [] },
+  quizzes: { type: [quizSchema], default: [] },
+
+  // 🧩 Related subjects
+  relatedSubjects: { type: [String], default: [] }
+
 }, { timestamps: true });
 
-/* ──────── LOGGING HOOKS ──────── */
+// ✅ Logging hooks
 lessonSchema.pre('save', function (next) {
   console.log(`🛠️ [Pre-Save] Saving lesson: "${this.lessonName}"`);
   next();

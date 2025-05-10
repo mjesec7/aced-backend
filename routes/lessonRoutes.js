@@ -1,4 +1,3 @@
-// routes/lessonRoutes.js
 const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
@@ -111,7 +110,6 @@ router.post('/', verifyToken, async (req, res) => {
     !explanation ||
     !examples ||
     !content ||
-    !hint ||
     !Array.isArray(exercises) ||
     !Array.isArray(quizzes)
   ) {
@@ -125,6 +123,7 @@ router.post('/', verifyToken, async (req, res) => {
       level,
       type,
       topic: topicId,
+      topicId,
       description,
       explanation,
       examples,
