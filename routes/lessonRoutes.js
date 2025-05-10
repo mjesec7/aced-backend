@@ -1,3 +1,4 @@
+// routes/lessonRoutes.js
 const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
@@ -84,20 +85,47 @@ router.delete('/topic/:subjectName/:level/:topicName', verifyToken, async (req, 
 // =====================
 
 router.post('/', verifyToken, async (req, res) => {
-  const { lessonName, topic, subject, content } = req.body;
+  const {
+    lessonName,
+    subject,
+    level,
+    description,
+    explanation,
+    examples,
+    hint,
+    exercises,
+    quizzes
+  } = req.body;
 
-  if (!lessonName || !topic || !subject || !content) {
+  if (
+    !lessonName ||
+    !subject ||
+    level === undefined ||
+    !description ||
+    !explanation ||
+    !examples ||
+    !hint ||
+    !Array.isArray(exercises) ||
+    !Array.isArray(quizzes)
+  ) {
     return res.status(400).json({ message: '❌ Missing required lesson fields' });
   }
 
-  if (!mongoose.Types.ObjectId.isValid(topic)) {
-    console.warn(`⚠️ Invalid topic ObjectId: ${topic}`);
-    return res.status(400).json({ message: '❌ Invalid topic ID format' });
-  }
-
   try {
-    const newLesson = new Lesson(req.body);
-    console.log('🧪 Attempting to save lesson:', newLesson);
+    const newLesson = new Lesson({
+      lessonName,
+      topic: lessonName, // fallback topic if not explicitly provided
+      subject,
+      level,
+      description,
+      explanation,
+      examples,
+      hint,
+      exercises,
+      quizzes
+    });
+
+    console.log('🧪 Saving lesson:', newLesson);
     const savedLesson = await newLesson.save();
     console.log(`✅ Новый урок добавлен: "${savedLesson.lessonName}" (${savedLesson._id})`);
     res.status(201).json(savedLesson);
