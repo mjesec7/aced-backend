@@ -76,6 +76,8 @@ try {
   app.use('/api/email', require('./routes/emailRoutes'));
   app.use('/api/topics', require('./routes/topicRoutes'));
   app.use('/api/user-progress', require('./routes/userProgressRoutes'));
+  app.use('/api', require('./routes/recommendationRoutes'));
+
 } catch (routeError) {
   console.error('❌ Failed to load route:', routeError);
 }
