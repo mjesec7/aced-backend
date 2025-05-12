@@ -141,12 +141,12 @@ router.post('/', verifyToken, async (req, res) => {
       description,
       explanation,
       examples,
-      content: content || {},
-      hint: hint || {},
+      content: typeof content === 'object' ? content : {},
+      hint: typeof hint === 'object' ? hint : {},
       exercises: Array.isArray(exercises) ? exercises : [],
       quizzes: Array.isArray(quizzes) ? quizzes : [],
       relatedSubjects: Array.isArray(relatedSubjects) ? relatedSubjects : [],
-      translations: translations || {}
+      translations: typeof translations === 'object' ? translations : {}
     });
 
     console.log('🧪 Saving lesson:', JSON.stringify(newLesson, null, 2));
