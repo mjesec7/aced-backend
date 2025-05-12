@@ -42,11 +42,13 @@ exports.addLesson = async (req, res) => {
         return res.status(404).json({ error: '❌ Тема с указанным ID не найдена' });
       }
     } else {
-      resolvedTopic = await Topic.findOne({
+      resolvedTopic = new Topic({
+        name: { en: topic?.trim() || 'Untitled Topic' },
         subject,
         level,
-        'name.en': topic?.trim()
+        description: { en: topicDescription?.trim() || '' }
       });
+      
 
       if (!resolvedTopic) {
         resolvedTopic = new Topic({
