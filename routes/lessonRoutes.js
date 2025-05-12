@@ -90,51 +90,54 @@ router.delete('/topic/:subjectName/:level/:topicName', verifyToken, async (req, 
 // =====================
 
 router.post('/', verifyToken, async (req, res) => {
-  const {
-    lessonName,
-    subject,
-    level,
-    type,
-    topicId,
-    description,
-    explanation,
-    examples,
-    content,
-    hint,
-    exercises,
-    quizzes,
-    relatedSubjects,
-    translations
-  } = req.body;
-
-  if (
-    !lessonName ||
-    !subject ||
-    level === undefined ||
-    !type ||
-    !topicId ||
-    !description ||
-    !explanation ||
-    !examples
-  ) {
-    return res.status(400).json({ message: '❌ Missing required lesson fields' });
-  }
-
-  if (!mongoose.Types.ObjectId.isValid(topicId)) {
-    return res.status(400).json({ message: '❌ Invalid topicId format' });
-  }
-
   try {
-    const topic = await Topic.findById(topicId);
-    if (!topic) return res.status(404).json({ message: '❌ Topic not found' });
+    let {
+      lessonName,
+      subject,
+      level,
+      type,
+      topicId,
+      topic,
+      topicDescription,
+      description,
+      explanation,
+      examples,
+      content,
+      hint,
+      exercises,
+      quizzes,
+      relatedSubjects,
+      translations
+    } = req.body;
+
+    if (!lessonName || !subject || level === undefined || !type || !description || !explanation || !examples) {
+      return res.status(400).json({ message: '❌ Missing required lesson fields' });
+    }
+
+    let resolvedTopic;
+
+    if (topicId && mongoose.Types.ObjectId.isValid(topicId)) {
+      resolvedTopic = await Topic.findById(topicId);
+    }
+
+    if (!resolvedTopic) {
+      resolvedTopic = new Topic({
+        name: topic || 'Untitled Topic',
+        subject,
+        level,
+        description: topicDescription || ''
+      });
+      await resolvedTopic.save();
+      console.log(`✅ Created new topic: ${resolvedTopic.name} (${resolvedTopic._id})`);
+    }
 
     const newLesson = new Lesson({
       lessonName,
       subject,
       level,
       type,
-      topic: topicId,
-      topicId,
+      topic: resolvedTopic._id,
+      topicId: resolvedTopic._id,
       description,
       explanation,
       examples,
