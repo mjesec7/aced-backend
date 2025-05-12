@@ -1,5 +1,6 @@
 const Lesson = require('../models/lesson');
 const Topic = require('../models/topic');
+const mongoose = require('mongoose');
 
 // ✅ Add a new lesson
 exports.addLesson = async (req, res) => {
@@ -10,6 +11,8 @@ exports.addLesson = async (req, res) => {
       subject,
       level,
       topicId,
+      topic,
+      topicDescription,
       lessonName,
       explanation,
       examples,
@@ -27,29 +30,52 @@ exports.addLesson = async (req, res) => {
       explanation = content;
     }
 
-    if (!subject || !level || !topicId || !lessonName || !explanation || !examples || !description) {
+    if (!subject || !level || !lessonName || !explanation || !examples || !description) {
       return res.status(400).json({ error: '❌ Обязательные поля отсутствуют' });
     }
 
-    const topic = await Topic.findById(topicId);
-    if (!topic) {
-      return res.status(404).json({ error: '❌ Тема не найдена' });
+    let resolvedTopic = null;
+
+    if (topicId && mongoose.Types.ObjectId.isValid(topicId)) {
+      resolvedTopic = await Topic.findById(topicId);
+      if (!resolvedTopic) {
+        return res.status(404).json({ error: '❌ Тема с указанным ID не найдена' });
+      }
+    } else {
+      resolvedTopic = await Topic.findOne({
+        subject,
+        level,
+        'name.en': topic?.trim()
+      });
+
+      if (!resolvedTopic) {
+        resolvedTopic = new Topic({
+          name: { en: topic?.trim() || 'Untitled Topic' },
+          subject,
+          level,
+          description: { en: topicDescription?.trim() || '' }
+        });
+        await resolvedTopic.save();
+        console.log(`✅ [Создание темы] Тема успешно создана: "${resolvedTopic.name.en}" (ID: ${resolvedTopic._id})`);
+      } else {
+        console.log(`ℹ️ [Использование существующей темы] ${resolvedTopic.name.en} (ID: ${resolvedTopic._id})`);
+      }
     }
 
     const newLesson = new Lesson({
       subject,
       level,
-      topic: topicId,
-      topicId,
+      topic: resolvedTopic._id,
+      topicId: resolvedTopic._id,
       lessonName,
       description,
       explanation,
       examples,
       content: content || '',
       hint: hint || '',
-      exercises: exercises || [],
-      quizzes: quizzes || [],
-      relatedSubjects: relatedSubjects || [],
+      exercises: Array.isArray(exercises) ? exercises : [],
+      quizzes: Array.isArray(quizzes) ? quizzes : [],
+      relatedSubjects: Array.isArray(relatedSubjects) ? relatedSubjects : [],
       type: type || 'free'
     });
 
@@ -58,6 +84,9 @@ exports.addLesson = async (req, res) => {
     res.status(201).json(newLesson);
   } catch (error) {
     console.error('❌ Ошибка при добавлении урока:', error);
+    if (error.code === 11000) {
+      return res.status(409).json({ error: '❌ Дублирование: похожая тема или урок уже существует' });
+    }
     res.status(500).json({ error: error.message || '❌ Ошибка при добавлении урока' });
   }
 };
