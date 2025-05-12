@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
 const Lesson = require('../models/lesson');
+const Topic = require('../models/topic');
 const verifyToken = require('../middlewares/authMiddleware');
 
 // ✅ Log every request
@@ -27,13 +28,18 @@ router.get('/test-auth', verifyToken, (req, res) => {
 
 // ✅ Find lesson by subject & name
 router.get('/by-name', async (req, res) => {
-  const { subject, name } = req.query;
+  const { subject, name, lang } = req.query;
   if (!subject || !name) {
     return res.status(400).json({ message: '❌ Missing subject or name' });
   }
   try {
     const lesson = await Lesson.findOne({ subject, topic: name });
     if (!lesson) return res.status(404).json({ message: '❌ Lesson not found' });
+
+    if (lang && lesson.translations && lesson.translations[lang]) {
+      return res.json({ ...lesson.toObject(), ...lesson.translations[lang] });
+    }
+
     res.json(lesson);
   } catch (err) {
     console.error('❌ [GET /lessons/by-name] Error:', err);
@@ -97,7 +103,8 @@ router.post('/', verifyToken, async (req, res) => {
     hint,
     exercises,
     quizzes,
-    relatedSubjects
+    relatedSubjects,
+    translations
   } = req.body;
 
   if (
@@ -108,15 +115,15 @@ router.post('/', verifyToken, async (req, res) => {
     !topicId ||
     !description ||
     !explanation ||
-    !examples ||
-    !content ||
-    !Array.isArray(exercises) ||
-    !Array.isArray(quizzes)
+    !examples
   ) {
     return res.status(400).json({ message: '❌ Missing required lesson fields' });
   }
 
   try {
+    const topic = await Topic.findById(topicId);
+    if (!topic) return res.status(404).json({ message: '❌ Topic not found' });
+
     const newLesson = new Lesson({
       lessonName,
       subject,
@@ -127,11 +134,12 @@ router.post('/', verifyToken, async (req, res) => {
       description,
       explanation,
       examples,
-      content,
-      hint,
-      exercises,
-      quizzes,
-      relatedSubjects: Array.isArray(relatedSubjects) ? relatedSubjects : []
+      content: content || '',
+      hint: hint || '',
+      exercises: Array.isArray(exercises) ? exercises : [],
+      quizzes: Array.isArray(quizzes) ? quizzes : [],
+      relatedSubjects: Array.isArray(relatedSubjects) ? relatedSubjects : [],
+      translations: translations || {}
     });
 
     console.log('🧪 Saving lesson:', newLesson);
@@ -174,6 +182,12 @@ router.get('/:id', validateObjectId, async (req, res) => {
       console.warn(`⚠️ Урок не найден: ${req.params.id}`);
       return res.status(404).json({ message: '❌ Lesson not found' });
     }
+
+    const lang = req.query.lang;
+    if (lang && lesson.translations && lesson.translations[lang]) {
+      return res.json({ ...lesson.toObject(), ...lesson.translations[lang] });
+    }
+
     console.log(`📅 Урок успешно получен: ${lesson.lessonName} (${lesson._id})`);
     res.status(200).json(lesson);
   } catch (error) {

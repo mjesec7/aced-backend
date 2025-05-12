@@ -18,6 +18,13 @@ const quizSchema = new mongoose.Schema({
   answer: { type: String, required: true }
 }, { _id: false });
 
+// ✅ Multilingual string schema
+const localizedString = {
+  en: { type: String, default: '' },
+  ru: { type: String, default: '' },
+  uz: { type: String, default: '' }
+};
+
 // ✅ Main lesson schema
 const lessonSchema = new mongoose.Schema({
   // 🧠 Metadata
@@ -25,7 +32,7 @@ const lessonSchema = new mongoose.Schema({
   level: { type: Number, required: true, min: 1 },
   topic: { type: String, required: true, trim: true },
   topicId: { type: String, required: true, trim: true },
-  lessonName: { type: String, required: true, trim: true },
+  lessonName: { type: localizedString, required: true },
   type: {
     type: String,
     enum: ['free', 'premium'],
@@ -33,11 +40,11 @@ const lessonSchema = new mongoose.Schema({
   },
 
   // 📝 Main content
-  description: { type: String, required: true },
-  explanation: { type: String, default: '' },
-  examples: { type: String, default: '' },
-  content: { type: String, default: '' },
-  hint: { type: String, default: '' },
+  description: { type: localizedString, required: true },
+  explanation: { type: localizedString, default: () => ({}) },
+  examples: { type: localizedString, default: () => ({}) },
+  content: { type: localizedString, default: () => ({}) },
+  hint: { type: localizedString, default: () => ({}) },
 
   // 🧪 Exercises and quizzes
   exercises: { type: [exerciseSchema], default: [] },
@@ -50,12 +57,12 @@ const lessonSchema = new mongoose.Schema({
 
 // ✅ Logging hooks
 lessonSchema.pre('save', function (next) {
-  console.log(`🛠️ [Pre-Save] Saving lesson: "${this.lessonName}"`);
+  console.log(`🛠️ [Pre-Save] Saving lesson: "${this.lessonName.en || 'Unnamed'}"`);
   next();
 });
 
 lessonSchema.post('save', function (doc) {
-  console.log(`✅ [Post-Save] Lesson saved: "${doc.lessonName}" (ID: ${doc._id})`);
+  console.log(`✅ [Post-Save] Lesson saved: "${doc.lessonName.en || 'Unnamed'}" (ID: ${doc._id})`);
 });
 
 lessonSchema.post('find', function (docs) {
@@ -64,7 +71,7 @@ lessonSchema.post('find', function (docs) {
 
 lessonSchema.post('findOne', function (doc) {
   if (doc) {
-    console.log(`🔍 [FindOne] Lesson found: "${doc.lessonName}" (ID: ${doc._id})`);
+    console.log(`🔍 [FindOne] Lesson found: "${doc.lessonName.en || 'Unnamed'}" (ID: ${doc._id})`);
   } else {
     console.warn('⚠️ [FindOne] No lesson found.');
   }
@@ -72,7 +79,7 @@ lessonSchema.post('findOne', function (doc) {
 
 lessonSchema.post('findOneAndUpdate', function (doc) {
   if (doc) {
-    console.log(`🔄 [Update] Lesson updated: "${doc.lessonName}" (ID: ${doc._id})`);
+    console.log(`🔄 [Update] Lesson updated: "${doc.lessonName.en || 'Unnamed'}" (ID: ${doc._id})`);
   } else {
     console.warn('⚠️ [Update] No lesson found to update.');
   }
@@ -80,7 +87,7 @@ lessonSchema.post('findOneAndUpdate', function (doc) {
 
 lessonSchema.post('findOneAndDelete', function (doc) {
   if (doc) {
-    console.log(`🗑️ [Delete] Lesson deleted: "${doc.lessonName}" (ID: ${doc._id})`);
+    console.log(`🗑️ [Delete] Lesson deleted: "${doc.lessonName.en || 'Unnamed'}" (ID: ${doc._id})`);
   } else {
     console.warn('⚠️ [Delete] No lesson found to delete.');
   }
