@@ -49,12 +49,15 @@ exports.addLesson = async (req, res) => {
       });
 
       if (!resolvedTopic) {
-        resolvedTopic = new Topic({
+        const newTopicPayload = {
           name: { en: topic?.trim() || 'Untitled Topic' },
           subject,
           level,
           description: { en: topicDescription?.trim() || '' }
-        });
+        };
+        console.log('🧪 Creating Topic with:', newTopicPayload);
+
+        resolvedTopic = new Topic(newTopicPayload);
         await resolvedTopic.save();
         console.log(`✅ [Создание темы] Тема успешно создана: "${resolvedTopic.name.en}" (ID: ${resolvedTopic._id})`);
       } else {
