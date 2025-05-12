@@ -120,6 +120,10 @@ router.post('/', verifyToken, async (req, res) => {
     return res.status(400).json({ message: '❌ Missing required lesson fields' });
   }
 
+  if (!mongoose.Types.ObjectId.isValid(topicId)) {
+    return res.status(400).json({ message: '❌ Invalid topicId format' });
+  }
+
   try {
     const topic = await Topic.findById(topicId);
     if (!topic) return res.status(404).json({ message: '❌ Topic not found' });
@@ -134,20 +138,20 @@ router.post('/', verifyToken, async (req, res) => {
       description,
       explanation,
       examples,
-      content: content || '',
-      hint: hint || '',
+      content: content || {},
+      hint: hint || {},
       exercises: Array.isArray(exercises) ? exercises : [],
       quizzes: Array.isArray(quizzes) ? quizzes : [],
       relatedSubjects: Array.isArray(relatedSubjects) ? relatedSubjects : [],
       translations: translations || {}
     });
 
-    console.log('🧪 Saving lesson:', newLesson);
+    console.log('🧪 Saving lesson:', JSON.stringify(newLesson, null, 2));
     const savedLesson = await newLesson.save();
     console.log(`✅ Новый урок добавлен: "${savedLesson.lessonName}" (${savedLesson._id})`);
     res.status(201).json(savedLesson);
   } catch (error) {
-    console.error('❌ Ошибка добавления урока:', error);
+    console.error('❌ Ошибка добавления урока:', error.stack || error);
     res.status(500).json({ message: '❌ Server error adding lesson', error: error.message });
   }
 });

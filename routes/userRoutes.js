@@ -68,7 +68,6 @@ router.post('/save', async (req, res) => {
   }
 });
 
-
 // ✅ Fetch user info
 router.get('/:firebaseId', validateFirebaseId, async (req, res) => {
   try {
@@ -77,6 +76,17 @@ router.get('/:firebaseId', validateFirebaseId, async (req, res) => {
     res.json(user);
   } catch (err) {
     res.status(500).json({ error: '❌ Server error fetching user' });
+  }
+});
+
+// ✅ Fetch user subscription status
+router.get('/:firebaseId/status', validateFirebaseId, async (req, res) => {
+  try {
+    const user = await User.findOne({ firebaseId: req.params.firebaseId });
+    if (!user) return res.status(404).json({ error: '❌ User not found' });
+    res.json({ status: user.subscriptionPlan || 'free' });
+  } catch (err) {
+    res.status(500).json({ error: '❌ Server error fetching user status' });
   }
 });
 
@@ -121,7 +131,7 @@ router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOw
 // 🎯 Recommendations
 router.get('/:firebaseId/recommendations', validateFirebaseId, async (req, res) => {
   try {
-    const topics = await Topic.find().limit(5);
+    const topics = await Topic.aggregate([{ $sample: { size: 6 } }]);
     res.json(topics);
   } catch (err) {
     res.status(500).json({ error: '❌ Error fetching recommendations' });
