@@ -125,13 +125,26 @@ router.post('/', verifyToken, async (req, res) => {
       const topicName = typeof topic === 'string' ? topic.trim() : (topic?.en || 'Untitled Topic');
       const topicDesc = typeof topicDescription === 'string' ? topicDescription.trim() : (topicDescription?.en || '');
 
-      resolvedTopic = new Topic({
-        name: { en: topicName },
+      // 🔍 Try to find existing topic by name, subject, level
+      resolvedTopic = await Topic.findOne({
         subject,
         level,
-        description: { en: topicDesc }
+        'name.en': topicName
       });
-      await resolvedTopic.save();
+
+      if (!resolvedTopic) {
+        resolvedTopic = new Topic({
+          name: { en: topicName },
+          subject,
+          level,
+          description: { en: topicDesc }
+        });
+        await resolvedTopic.save();
+        console.log(`✅ Created new topic: ${resolvedTopic.name.en} (${resolvedTopic._id})`);
+      } else {
+        console.log(`ℹ️ Reusing existing topic: ${resolvedTopic.name.en} (${resolvedTopic._id})`);
+      }
+    }
       console.log(`✅ Created new topic: ${resolvedTopic.name.en} (${resolvedTopic._id})`);
     }
 
