@@ -5,13 +5,11 @@ const Lesson = require('../models/lesson');
 const Topic = require('../models/topic');
 const verifyToken = require('../middlewares/authMiddleware');
 
-// ✅ Log every request
 router.use((req, res, next) => {
   console.log(`📢 [${req.method}] ${req.originalUrl}`);
   next();
 });
 
-// ✅ Validate ObjectId param
 function validateObjectId(req, res, next) {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     console.warn(`⚠️ Invalid ObjectId: ${req.params.id}`);
@@ -20,13 +18,11 @@ function validateObjectId(req, res, next) {
   next();
 }
 
-// ✅ Auth Test
 router.get('/test-auth', verifyToken, (req, res) => {
   console.log('✅ /test-auth passed. User UID:', req.user.uid);
   res.json({ message: 'Auth works ✅', uid: req.user.uid });
 });
 
-// ✅ Find lesson by subject & name
 router.get('/by-name', async (req, res) => {
   const { subject, name, lang } = req.query;
   if (!subject || !name) {
@@ -46,10 +42,6 @@ router.get('/by-name', async (req, res) => {
     res.status(500).json({ message: '❌ Server error', error: err.message });
   }
 });
-
-// =====================
-// 🧹 MASS DELETE ROUTES
-// =====================
 
 router.delete('/all', verifyToken, async (req, res) => {
   try {
@@ -85,10 +77,6 @@ router.delete('/topic/:subjectName/:level/:topicName', verifyToken, async (req, 
   }
 });
 
-// =====================
-// 📚 LESSON CRUD ROUTES
-// =====================
-
 router.post('/', verifyToken, async (req, res) => {
   try {
     let {
@@ -121,14 +109,17 @@ router.post('/', verifyToken, async (req, res) => {
     }
 
     if (!resolvedTopic) {
+      const topicName = typeof topic === 'string' ? topic.trim() : (topic?.en || 'Untitled Topic');
+      const topicDesc = typeof topicDescription === 'string' ? topicDescription.trim() : (topicDescription?.en || '');
+
       resolvedTopic = new Topic({
-        name: topic || 'Untitled Topic',
+        name: { en: topicName },
         subject,
         level,
-        description: topicDescription || ''
+        description: { en: topicDesc }
       });
       await resolvedTopic.save();
-      console.log(`✅ Created new topic: ${resolvedTopic.name} (${resolvedTopic._id})`);
+      console.log(`✅ Created new topic: ${resolvedTopic.name.en} (${resolvedTopic._id})`);
     }
 
     const newLesson = new Lesson({

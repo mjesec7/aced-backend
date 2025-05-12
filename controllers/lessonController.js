@@ -42,18 +42,21 @@ exports.addLesson = async (req, res) => {
         return res.status(404).json({ error: '❌ Тема с указанным ID не найдена' });
       }
     } else {
+      const topicName = typeof topic === 'string' ? topic.trim() : (topic?.en || 'Untitled Topic');
+      const topicDesc = typeof topicDescription === 'string' ? topicDescription.trim() : (topicDescription?.en || '');
+
       resolvedTopic = await Topic.findOne({
         subject,
         level,
-        'name.en': topic?.trim()
+        'name.en': topicName
       });
 
       if (!resolvedTopic) {
         const newTopicPayload = {
-          name: { en: topic?.trim() || 'Untitled Topic' },
+          name: { en: topicName },
           subject,
           level,
-          description: { en: topicDescription?.trim() || '' }
+          description: { en: topicDesc }
         };
         console.log('🧪 Creating Topic with:', newTopicPayload);
 
