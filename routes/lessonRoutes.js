@@ -102,6 +102,19 @@ router.post('/', verifyToken, async (req, res) => {
       return res.status(400).json({ message: '❌ Missing required lesson fields' });
     }
 
+    const wrapLocalized = val => {
+      if (typeof val === 'string') return { en: val.trim() };
+      if (val && typeof val === 'object' && 'en' in val) return val;
+      return { en: '' };
+    };
+
+    lessonName = wrapLocalized(lessonName);
+    description = wrapLocalized(description);
+    explanation = wrapLocalized(explanation);
+    examples = wrapLocalized(examples);
+    content = wrapLocalized(content);
+    hint = wrapLocalized(hint);
+
     let resolvedTopic;
 
     if (topicId && mongoose.Types.ObjectId.isValid(topicId)) {
@@ -132,8 +145,8 @@ router.post('/', verifyToken, async (req, res) => {
       description,
       explanation,
       examples,
-      content: typeof content === 'object' ? content : {},
-      hint: typeof hint === 'object' ? hint : {},
+      content,
+      hint,
       exercises: Array.isArray(exercises) ? exercises : [],
       quizzes: Array.isArray(quizzes) ? quizzes : [],
       relatedSubjects: Array.isArray(relatedSubjects) ? relatedSubjects : [],
@@ -142,7 +155,7 @@ router.post('/', verifyToken, async (req, res) => {
 
     console.log('🧪 Saving lesson:', JSON.stringify(newLesson, null, 2));
     const savedLesson = await newLesson.save();
-    console.log(`✅ Новый урок добавлен: "${savedLesson.lessonName}" (${savedLesson._id})`);
+    console.log(`✅ Новый урок добавлен: "${savedLesson.lessonName.en}" (${savedLesson._id})`);
     res.status(201).json(savedLesson);
   } catch (error) {
     console.error('❌ Ошибка добавления урока:', error.stack || error);
@@ -186,7 +199,7 @@ router.get('/:id', validateObjectId, async (req, res) => {
       return res.json({ ...lesson.toObject(), ...lesson.translations[lang] });
     }
 
-    console.log(`📅 Урок успешно получен: ${lesson.lessonName} (${lesson._id})`);
+    console.log(`📅 Урок успешно получен: ${lesson.lessonName.en} (${lesson._id})`);
     res.status(200).json(lesson);
   } catch (error) {
     console.error('❌ Ошибка по идентификатору:', error);
@@ -201,7 +214,7 @@ router.put('/:id', verifyToken, validateObjectId, async (req, res) => {
       console.warn(`⚠️ Невозможно обновить, урок не найден: ${req.params.id}`);
       return res.status(404).json({ message: '❌ Lesson not found' });
     }
-    console.log(`🔄 Урок обновлён: ${updatedLesson.lessonName} (${updatedLesson._id})`);
+    console.log(`🔄 Урок обновлён: ${updatedLesson.lessonName.en} (${updatedLesson._id})`);
     res.status(200).json(updatedLesson);
   } catch (error) {
     console.error('❌ Ошибка обновления урока:', error);
@@ -216,7 +229,7 @@ router.delete('/:id', verifyToken, validateObjectId, async (req, res) => {
       console.warn(`⚠️ Урок не найден для удаления: ${req.params.id}`);
       return res.status(404).json({ message: '❌ Lesson not found' });
     }
-    console.log(`🗑️ Урок удалён: ${deletedLesson.lessonName} (${deletedLesson._id})`);
+    console.log(`🗑️ Урок удалён: ${deletedLesson.lessonName.en} (${deletedLesson._id})`);
     res.status(200).json({ message: '✅ Lesson successfully deleted' });
   } catch (error) {
     console.error('❌ Ошибка удаления урока:', error);
