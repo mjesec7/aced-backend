@@ -4,11 +4,12 @@ const applyPromoCode = async (req, res) => {
   try {
     const { userId, plan, promoCode } = req.body;
 
+    // 🔍 Validate input presence
     if (!userId || !plan || !promoCode) {
       return res.status(400).json({ message: '❌ Все поля обязательны: userId, plan, promoCode' });
     }
 
-    // 🔐 Validate promocode
+    // 🔐 Validate promo code
     const validPromoCode = 'acedpromocode2406';
     if (promoCode.trim() !== validPromoCode) {
       return res.status(400).json({ message: '❌ Неверный промокод' });
@@ -20,12 +21,13 @@ const applyPromoCode = async (req, res) => {
       return res.status(400).json({ message: '❌ Неверный тариф. Возможные значения: start, pro' });
     }
 
-    // 🧑 Find user and update
+    // 🧑 Find user by ID
     const user = await User.findById(userId);
     if (!user) {
-      return res.status(404).json({ message: '❌ Пользователь не найден' });
+      return res.status(404).json({ message: '❌ Пользователь не найден по ID' });
     }
 
+    // 💾 Update plan and status
     user.subscriptionPlan = plan;
     user.paymentStatus = 'paid';
     await user.save();

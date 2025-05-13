@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 
-// ✅ Study List Topic Entry
+// ✅ Study List Topic Entry Schema
 const studyTopicSchema = new mongoose.Schema({
   topicId: { type: mongoose.Schema.Types.ObjectId, ref: 'Topic', required: true },
   subject: { type: String, required: true },
@@ -9,7 +9,7 @@ const studyTopicSchema = new mongoose.Schema({
   addedAt: { type: Date, default: Date.now }
 }, { _id: false });
 
-// ✅ Learning Goal
+// ✅ Goal Schema
 const goalSchema = new mongoose.Schema({
   title: { type: String, required: true },
   subject: String,
@@ -20,7 +20,7 @@ const goalSchema = new mongoose.Schema({
   progress: { type: Number, default: 0 }
 }, { _id: false });
 
-// ✅ Diary Entry
+// ✅ Diary Entry Schema
 const diaryEntrySchema = new mongoose.Schema({
   date: { type: Date, required: true },
   studyMinutes: Number,
@@ -28,7 +28,7 @@ const diaryEntrySchema = new mongoose.Schema({
   averageGrade: Number
 }, { _id: false });
 
-// ✅ User Model
+// ✅ User Schema
 const userSchema = new mongoose.Schema({
   firebaseId: { type: String, required: true, unique: true },
   name: String,
@@ -37,11 +37,11 @@ const userSchema = new mongoose.Schema({
 
   role: { type: String, enum: ['admin', 'user'], default: 'user' },
 
-  // 🔐 Subscription System
+  // 🔐 Subscription Info
   subscriptionPlan: { type: String, enum: ['free', 'start', 'pro'], default: 'free' },
   paymentStatus: { type: String, enum: ['pending', 'paid', 'failed'], default: 'pending' },
 
-  // 🧠 Study
+  // 📚 Learning
   studyList: [studyTopicSchema],
   progress: { type: Object, default: {} },
 
@@ -49,7 +49,7 @@ const userSchema = new mongoose.Schema({
   goals: [goalSchema],
   diary: [diaryEntrySchema],
 
-  // 🏆 XP, Leveling, Badges
+  // 🏆 Gamification
   xp: { type: Number, default: 0 },
   level: { type: Number, default: 1 },
   badges: { type: [String], default: [] },

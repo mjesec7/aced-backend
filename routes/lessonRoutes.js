@@ -23,7 +23,7 @@ router.get('/', async (req, res) => {
   try {
     const filter = req.query.type ? { type: req.query.type } : {};
     const lessons = await Lesson.find(filter);
-    console.log(`📤 Отправлено ${lessons.length} урок(ов) (фильтр: ${filter.type || 'all'})`);
+    console.log(`📄 Отправлено ${lessons.length} урок(ов) (фильтр: ${filter.type || 'all'})`);
     res.status(200).json(lessons);
   } catch (error) {
     console.error('❌ Ошибка получения всех уроков:', error);
@@ -61,7 +61,16 @@ router.get('/by-name', async (req, res) => {
   }
 
   try {
-    const lessons = await Lesson.find({ subject, $or: [ { topic: name }, { 'topic.en': name } ] });
+    const lessons = await Lesson.find({
+      subject,
+      $or: [
+        { 'topic': name },
+        { 'topic.en': name },
+        { 'translations.en.topic': name },
+        { 'translations.ru.topic': name }
+      ]
+    });
+
     if (!lessons.length) return res.status(404).json({ message: '❌ Lesson not found' });
     res.json(lessons[0]);
   } catch (err) {
@@ -106,33 +115,18 @@ router.delete('/:id', verifyToken, validateObjectId, async (req, res) => {
 router.post('/', verifyToken, async (req, res) => {
   try {
     let {
-      lessonName,
-      subject,
-      level,
-      type,
-      topicId,
-      topic,
-      topicDescription,
-      description,
-      explanation,
-      examples,
-      content,
-      hint,
-      exercises,
-      quizzes,
-      relatedSubjects,
-      translations
+      lessonName, subject, level, type, topicId, topic, topicDescription,
+      description, explanation, examples, content, hint,
+      exercises, quizzes, relatedSubjects, translations
     } = req.body;
 
     if (!lessonName || !subject || level === undefined || !type || !description || !explanation || !examples) {
       return res.status(400).json({ message: '❌ Missing required lesson fields' });
     }
 
-    const wrapLocalized = val => {
-      if (typeof val === 'string') return { en: val.trim() };
-      if (val && typeof val === 'object' && 'en' in val) return val;
-      return { en: '' };
-    };
+    const wrapLocalized = val =>
+      typeof val === 'string' ? { en: val.trim() } :
+      (val && typeof val === 'object' && 'en' in val) ? val : { en: '' };
 
     lessonName = wrapLocalized(lessonName);
     description = wrapLocalized(description);
@@ -189,12 +183,11 @@ router.post('/', verifyToken, async (req, res) => {
       translations: typeof translations === 'object' ? translations : {}
     });
 
-    console.log('🧪 Saving lesson:', JSON.stringify(newLesson, null, 2));
     const savedLesson = await newLesson.save();
     console.log(`✅ Новый урок добавлен: "${savedLesson.lessonName.en}" (${savedLesson._id})`);
     res.status(201).json(savedLesson);
   } catch (error) {
-    console.error('❌ Ошибка добавления урока:', error.stack || error);
+    console.error('❌ Ошибка добавления урока:', error);
     res.status(500).json({ message: '❌ Server error adding lesson', error: error.message });
   }
 });

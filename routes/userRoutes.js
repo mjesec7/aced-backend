@@ -23,10 +23,8 @@ function verifyOwnership(req, res, next) {
   next();
 }
 
-// ✅ Save or update user (Google or Email login)
+// ✅ Save or update user
 router.post('/save', async (req, res) => {
-  console.log('📥 Incoming /users/save request:', req.body);
-
   const { token, name, subscriptionPlan } = req.body;
   if (!token || !name) {
     return res.status(400).json({ error: '❌ Missing token or name' });
@@ -36,9 +34,7 @@ router.post('/save', async (req, res) => {
     const decoded = await admin.auth().verifyIdToken(token);
     const { uid, email, picture } = decoded;
 
-    if (!uid || !email) {
-      return res.status(400).json({ error: '❌ Invalid token: missing uid/email' });
-    }
+    if (!uid || !email) return res.status(400).json({ error: '❌ Invalid token: missing uid/email' });
 
     let user = await User.findOne({ firebaseId: uid });
 
@@ -46,7 +42,6 @@ router.post('/save', async (req, res) => {
       user.name = name;
       user.subscriptionPlan = subscriptionPlan || user.subscriptionPlan;
       await user.save();
-      console.log(`🔁 Updated existing user: ${uid}`);
       return res.json(user);
     }
 
@@ -59,12 +54,10 @@ router.post('/save', async (req, res) => {
     });
 
     await newUser.save();
-    console.log(`✅ Created new user: ${uid}`);
     return res.status(201).json(newUser);
-
   } catch (err) {
-    console.error('❌ Firebase token verification or DB error:', err);
-    return res.status(500).json({ error: '❌ Failed to verify token or save user' });
+    console.error('❌ Failed to save user:', err);
+    return res.status(500).json({ error: '❌ Server error saving user' });
   }
 });
 
@@ -79,7 +72,7 @@ router.get('/:firebaseId', validateFirebaseId, async (req, res) => {
   }
 });
 
-// ✅ Fetch user subscription status
+// ✅ Subscription status
 router.get('/:firebaseId/status', validateFirebaseId, async (req, res) => {
   try {
     const user = await User.findOne({ firebaseId: req.params.firebaseId });
@@ -103,7 +96,7 @@ router.get('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOwn
 
 // 📚 Study List (POST)
 router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  const { subject, level, topic } = req.body;
+  const { subject, level, topic, topicId } = req.body;
   if (!subject || !topic) return res.status(400).json({ error: '❌ Subject and topic are required' });
 
   try {
@@ -111,10 +104,15 @@ router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOw
     if (!user) return res.status(404).json({ error: '❌ User not found' });
 
     if (!user.studyList) user.studyList = [];
-    const exists = user.studyList.some(entry => entry.name === topic && entry.subject === subject);
 
+    const exists = user.studyList.some(entry => entry.name === topic && entry.subject === subject);
     if (!exists) {
-      user.studyList.push({ name: topic, subject, level });
+      user.studyList.push({
+        name: topic,
+        subject,
+        level,
+        topicId: topicId || null
+      });
       await user.save();
     }
 
@@ -131,7 +129,10 @@ router.delete('/:firebaseId/study-list/:topicId', validateFirebaseId, verifyToke
     const user = await User.findOne({ firebaseId: req.params.firebaseId });
     if (!user) return res.status(404).json({ error: '❌ User not found' });
 
-    user.studyList = (user.studyList || []).filter(entry => entry._id?.toString() !== topicId);
+    user.studyList = (user.studyList || []).filter(entry => {
+      return entry.topicId?.toString() !== topicId && entry._id?.toString() !== topicId;
+    });
+
     await user.save();
     res.json({ message: '✅ Study topic removed', studyList: user.studyList });
   } catch (err) {
