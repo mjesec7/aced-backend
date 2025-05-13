@@ -4,9 +4,6 @@ const mongoose = require('mongoose');
 const Topic = require('../models/topic');
 const Lesson = require('../models/lesson');
 
-// 🔐 Optionally protect with token
-// const verifyToken = require('../middlewares/authMiddleware');
-
 // ✅ Validate ObjectId
 function validateObjectId(req, res, next) {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
@@ -41,15 +38,14 @@ router.post('/', async (req, res) => {
   }
 
   try {
-    // 🔁 Check for duplicates
-    const existing = await Topic.findOne({ subject, level, name });
+    const existing = await Topic.findOne({ subject, level, 'name.en': name.en });
     if (existing) {
       return res.status(409).json({ message: '⚠️ Topic already exists' });
     }
 
     const topic = new Topic({ subject, level, name, description });
     const saved = await topic.save();
-    console.log(`✅ [POST /topics] Added: ${saved.name}`);
+    console.log(`✅ [POST /topics] Added: ${saved.name.en}`);
     res.status(201).json(saved);
   } catch (err) {
     console.error('❌ Error creating topic:', err);
@@ -58,7 +54,7 @@ router.post('/', async (req, res) => {
 });
 
 // =============================
-// ✅ GET topic by ID
+// ✅ GET topic by ID with lessons
 // =============================
 router.get('/:id', validateObjectId, async (req, res) => {
   try {
@@ -66,9 +62,16 @@ router.get('/:id', validateObjectId, async (req, res) => {
     if (!topic) {
       return res.status(404).json({ message: '❌ Topic not found' });
     }
-    res.json(topic);
+
+    const lessons = await Lesson.find({ topic: topic._id });
+    const fullTopic = {
+      ...topic.toObject(),
+      lessons: lessons || []
+    };
+
+    res.json(fullTopic);
   } catch (err) {
-    console.error('❌ Error fetching topic:', err);
+    console.error('❌ Error fetching topic with lessons:', err);
     res.status(500).json({ message: '❌ Server error' });
   }
 });

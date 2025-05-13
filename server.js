@@ -23,7 +23,7 @@ const PORT = process.env.PORT || 5000;
 
 // ✅ Security & Performance Middleware
 app.use(helmet({
-  crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' }, // ✅ fixes Google login popup issue
+  crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
 }));
 app.use(compression());
 
@@ -50,7 +50,7 @@ app.use(cors({
 
 // ✅ Logger
 app.use((req, res, next) => {
-  console.log(`📥 [${req.method}] ${req.url} from ${req.headers.origin || 'unknown origin'}`);
+  console.log(`📅 [${req.method}] ${req.url} from ${req.headers.origin || 'unknown origin'}`);
   next();
 });
 
@@ -77,6 +77,7 @@ try {
   app.use('/api/topics', require('./routes/topicRoutes'));
   app.use('/api/user-progress', require('./routes/userProgressRoutes'));
   app.use('/api', require('./routes/recommendationRoutes'));
+  app.use('/api/payments', require('./routes/payments')); // ✅ Added promo route
 
 } catch (routeError) {
   console.error('❌ Failed to load route:', routeError);

@@ -1,11 +1,13 @@
 const mongoose = require('mongoose');
 
+// ✅ Study Plan
 const studyPlanSchema = new mongoose.Schema({
   subject: { type: String, required: true },
   levels: { type: [Number], default: [] },
   topics: { type: [String], default: [] },
 }, { _id: false });
 
+// ✅ User Goals
 const goalSchema = new mongoose.Schema({
   title: { type: String, required: true },
   subject: String,
@@ -16,6 +18,7 @@ const goalSchema = new mongoose.Schema({
   progress: { type: Number, default: 0 },
 }, { _id: false });
 
+// ✅ User Diary Entries
 const diaryEntrySchema = new mongoose.Schema({
   date: { type: Date, required: true },
   studyMinutes: Number,
@@ -23,6 +26,7 @@ const diaryEntrySchema = new mongoose.Schema({
   averageGrade: Number,
 }, { _id: false });
 
+// ✅ User Schema
 const userSchema = new mongoose.Schema({
   firebaseId: { type: String, required: true, unique: true },
   name: String,
@@ -40,7 +44,7 @@ const userSchema = new mongoose.Schema({
 
   xp: { type: Number, default: 0 },
   level: { type: Number, default: 1 },
-  badges: [String],
+  badges: { type: [String], default: [] },
 
   createdAt: { type: Date, default: Date.now }
 });
