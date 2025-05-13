@@ -18,6 +18,7 @@ function validateObjectId(req, res, next) {
   next();
 }
 
+// ✅ Get all lessons
 router.get('/', async (req, res) => {
   try {
     const filter = req.query.type ? { type: req.query.type } : {};
@@ -30,6 +31,7 @@ router.get('/', async (req, res) => {
   }
 });
 
+// ✅ Get lesson by ID
 router.get('/:id', validateObjectId, async (req, res) => {
   try {
     const lesson = await Lesson.findById(req.params.id);
@@ -51,6 +53,24 @@ router.get('/:id', validateObjectId, async (req, res) => {
   }
 });
 
+// ✅ Get lesson by subject and topic name
+router.get('/by-name', async (req, res) => {
+  const { subject, name } = req.query;
+  if (!subject || !name) {
+    return res.status(400).json({ message: '❌ Missing subject or topic name' });
+  }
+
+  try {
+    const lessons = await Lesson.find({ subject, $or: [ { topic: name }, { 'topic.en': name } ] });
+    if (!lessons.length) return res.status(404).json({ message: '❌ Lesson not found' });
+    res.json(lessons[0]);
+  } catch (err) {
+    console.error('❌ Error fetching lesson by name:', err);
+    res.status(500).json({ message: '❌ Server error fetching lesson by name', error: err.message });
+  }
+});
+
+// ✅ Update lesson
 router.put('/:id', verifyToken, validateObjectId, async (req, res) => {
   try {
     const updatedLesson = await Lesson.findByIdAndUpdate(req.params.id, req.body, { new: true });
@@ -66,6 +86,7 @@ router.put('/:id', verifyToken, validateObjectId, async (req, res) => {
   }
 });
 
+// ✅ Delete lesson
 router.delete('/:id', verifyToken, validateObjectId, async (req, res) => {
   try {
     const deletedLesson = await Lesson.findByIdAndDelete(req.params.id);
@@ -81,6 +102,7 @@ router.delete('/:id', verifyToken, validateObjectId, async (req, res) => {
   }
 });
 
+// ✅ Create new lesson
 router.post('/', verifyToken, async (req, res) => {
   try {
     let {

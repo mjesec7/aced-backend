@@ -55,7 +55,7 @@ router.post('/save', async (req, res) => {
       name,
       email,
       photoURL: picture || '',
-      subscriptionPlan: subscriptionPlan || 'start',
+      subscriptionPlan: subscriptionPlan || 'free',
     });
 
     await newUser.save();
@@ -90,41 +90,52 @@ router.get('/:firebaseId/status', validateFirebaseId, async (req, res) => {
   }
 });
 
-// 📚 Study Plan (GET)
+// 📚 Study List (GET)
 router.get('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   try {
     const user = await User.findOne({ firebaseId: req.params.firebaseId });
     if (!user) return res.status(404).json({ error: '❌ User not found' });
-    res.json(user.studyPlan || []);
+    res.json(user.studyList || []);
   } catch (err) {
     res.status(500).json({ error: '❌ Server error fetching study list' });
   }
 });
 
-// 📚 Study Plan (POST)
+// 📚 Study List (POST)
 router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   const { subject, level, topic } = req.body;
-  if (!subject) return res.status(400).json({ error: '❌ Subject is required' });
+  if (!subject || !topic) return res.status(400).json({ error: '❌ Subject and topic are required' });
 
   try {
     const user = await User.findOne({ firebaseId: req.params.firebaseId });
     if (!user) return res.status(404).json({ error: '❌ User not found' });
 
-    if (!user.studyPlan) user.studyPlan = [];
-    let entry = user.studyPlan.find(s => s.subject === subject);
+    if (!user.studyList) user.studyList = [];
+    const exists = user.studyList.some(entry => entry.name === topic && entry.subject === subject);
 
-    if (!entry) {
-      entry = { subject, levels: [], topics: [] };
-      user.studyPlan.push(entry);
+    if (!exists) {
+      user.studyList.push({ name: topic, subject, level });
+      await user.save();
     }
 
-    if (level && !entry.levels.includes(level)) entry.levels.push(level);
-    if (topic && !entry.topics.includes(topic)) entry.topics.push(topic);
-
-    await user.save();
-    res.json(user.studyPlan);
+    res.json(user.studyList);
   } catch (err) {
-    res.status(500).json({ error: '❌ Error adding to study plan' });
+    res.status(500).json({ error: '❌ Error adding to study list' });
+  }
+});
+
+// 📚 Study List (DELETE)
+router.delete('/:firebaseId/study-list/:topicId', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
+  const { topicId } = req.params;
+  try {
+    const user = await User.findOne({ firebaseId: req.params.firebaseId });
+    if (!user) return res.status(404).json({ error: '❌ User not found' });
+
+    user.studyList = (user.studyList || []).filter(entry => entry._id?.toString() !== topicId);
+    await user.save();
+    res.json({ message: '✅ Study topic removed', studyList: user.studyList });
+  } catch (err) {
+    res.status(500).json({ error: '❌ Error removing topic from study list' });
   }
 });
 
