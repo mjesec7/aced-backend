@@ -5,13 +5,13 @@ const Lesson = require('../models/lesson');
 const Topic = require('../models/topic');
 const verifyToken = require('../middlewares/authMiddleware');
 
-// 🔎 Log all incoming routes
+// 🔎 Log all incoming requests
 router.use((req, res, next) => {
   console.log(`📢 [${req.method}] ${req.originalUrl}`);
   next();
 });
 
-// 🔒 Validate MongoDB ObjectId
+// 🔒 Validate ObjectId middleware
 function validateObjectId(req, res, next) {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     console.warn(`⚠️ Invalid ObjectId: ${req.params.id}`);
@@ -20,7 +20,7 @@ function validateObjectId(req, res, next) {
   next();
 }
 
-// ✅ Get all lessons (with optional type filter)
+// ✅ GET all lessons (optionally filtered by type)
 router.get('/', async (req, res) => {
   try {
     const filter = req.query.type ? { type: req.query.type } : {};
@@ -33,7 +33,19 @@ router.get('/', async (req, res) => {
   }
 });
 
-// ✅ Get lesson by ID with optional translation merge
+// ✅ DELETE all lessons (MUST BE ABOVE `/:id`)
+router.delete('/all', verifyToken, async (req, res) => {
+  try {
+    const result = await Lesson.deleteMany({});
+    console.log(`🧹 Удалено уроков: ${result.deletedCount}`);
+    res.status(200).json({ message: `✅ Удалено уроков: ${result.deletedCount}` });
+  } catch (err) {
+    console.error('❌ Ошибка при массовом удалении уроков:', err);
+    res.status(500).json({ message: '❌ Server error deleting all lessons', error: err.message });
+  }
+});
+
+// ✅ GET lesson by ID (supports lang query for translation)
 router.get('/:id', validateObjectId, async (req, res) => {
   try {
     const lesson = await Lesson.findById(req.params.id);
@@ -43,19 +55,19 @@ router.get('/:id', validateObjectId, async (req, res) => {
     }
 
     const lang = req.query.lang;
-    if (lang && lesson.translations && lesson.translations[lang]) {
+    if (lang && lesson.translations?.[lang]) {
       return res.json({ ...lesson.toObject(), ...lesson.translations[lang] });
     }
 
-    console.log(`📅 Урок успешно получен: ${lesson.lessonName?.en || lesson.lessonName} (${lesson._id})`);
+    console.log(`📅 Урок получен: ${lesson.lessonName?.en || lesson.lessonName}`);
     res.status(200).json(lesson);
   } catch (error) {
-    console.error('❌ Ошибка по идентификатору:', error);
+    console.error('❌ Ошибка получения урока:', error);
     res.status(500).json({ message: '❌ Server error fetching lesson', error: error.message });
   }
 });
 
-// ✅ Get lesson by subject and topic name (supports localized & translated names)
+// ✅ GET lesson by subject and topic name (handles translations)
 router.get('/by-name', async (req, res) => {
   const { subject, name } = req.query;
   if (!subject || !name) {
@@ -75,27 +87,27 @@ router.get('/by-name', async (req, res) => {
     });
 
     if (!lessons.length) {
-      console.warn(`⚠️ No lesson found for subject "${subject}" and topic "${name}"`);
+      console.warn(`⚠️ Lesson not found: ${subject} + ${name}`);
       return res.status(404).json({ message: '❌ Lesson not found' });
     }
 
-    console.log(`📘 Найден урок по имени: "${name}" в предмете "${subject}"`);
+    console.log(`📘 Найден урок по имени: "${name}" в "${subject}"`);
     res.status(200).json(lessons[0]);
   } catch (err) {
-    console.error('❌ Error fetching lesson by name:', err);
+    console.error('❌ Ошибка получения урока по имени:', err);
     res.status(500).json({ message: '❌ Server error fetching lesson by name', error: err.message });
   }
 });
 
-// ✅ Update lesson by ID
+// ✅ PUT update lesson
 router.put('/:id', verifyToken, validateObjectId, async (req, res) => {
   try {
     const updatedLesson = await Lesson.findByIdAndUpdate(req.params.id, req.body, { new: true });
     if (!updatedLesson) {
-      console.warn(`⚠️ Невозможно обновить, урок не найден: ${req.params.id}`);
+      console.warn(`⚠️ Не найден для обновления: ${req.params.id}`);
       return res.status(404).json({ message: '❌ Lesson not found' });
     }
-    console.log(`🔄 Урок обновлён: ${updatedLesson.lessonName?.en || updatedLesson.lessonName} (${updatedLesson._id})`);
+    console.log(`🔄 Урок обновлён: ${updatedLesson.lessonName?.en || updatedLesson.lessonName}`);
     res.status(200).json(updatedLesson);
   } catch (error) {
     console.error('❌ Ошибка обновления урока:', error);
@@ -103,7 +115,7 @@ router.put('/:id', verifyToken, validateObjectId, async (req, res) => {
   }
 });
 
-// ✅ Delete lesson by ID
+// ✅ DELETE single lesson
 router.delete('/:id', verifyToken, validateObjectId, async (req, res) => {
   try {
     const deletedLesson = await Lesson.findByIdAndDelete(req.params.id);
@@ -111,7 +123,7 @@ router.delete('/:id', verifyToken, validateObjectId, async (req, res) => {
       console.warn(`⚠️ Урок не найден для удаления: ${req.params.id}`);
       return res.status(404).json({ message: '❌ Lesson not found' });
     }
-    console.log(`🗑️ Урок удалён: ${deletedLesson.lessonName?.en || deletedLesson.lessonName} (${deletedLesson._id})`);
+    console.log(`🗑️ Удалён: ${deletedLesson.lessonName?.en || deletedLesson.lessonName}`);
     res.status(200).json({ message: '✅ Lesson successfully deleted' });
   } catch (error) {
     console.error('❌ Ошибка удаления урока:', error);
@@ -119,19 +131,7 @@ router.delete('/:id', verifyToken, validateObjectId, async (req, res) => {
   }
 });
 
-// ✅ Bulk delete all lessons
-router.delete('/all', verifyToken, async (req, res) => {
-  try {
-    const result = await Lesson.deleteMany({});
-    console.log(`🧹 Удалено уроков: ${result.deletedCount}`);
-    res.status(200).json({ message: `✅ Удалено уроков: ${result.deletedCount}` });
-  } catch (err) {
-    console.error('❌ Ошибка при массовом удалении уроков:', err);
-    res.status(500).json({ message: '❌ Server error deleting all lessons', error: err.message });
-  }
-});
-
-// ✅ Create new lesson (auto-resolves or creates topic)
+// ✅ POST create new lesson (with topic auto-resolution)
 router.post('/', verifyToken, async (req, res) => {
   try {
     let {
@@ -144,7 +144,7 @@ router.post('/', verifyToken, async (req, res) => {
       return res.status(400).json({ message: '❌ Missing required lesson fields' });
     }
 
-    // 🔤 Ensure localization objects
+    // 🔤 Wrap localized fields
     const wrapLocalized = val =>
       typeof val === 'string' ? { en: val.trim() } :
       (val && typeof val === 'object' && ('en' in val || 'ru' in val)) ? val : { en: '' };
@@ -158,12 +158,12 @@ router.post('/', verifyToken, async (req, res) => {
 
     let resolvedTopic;
 
-    // 🔍 Try resolving topic by ID
+    // 🔍 Try resolving by topicId
     if (topicId && mongoose.Types.ObjectId.isValid(topicId)) {
       resolvedTopic = await Topic.findById(topicId);
     }
 
-    // 🔄 If no topic found, attempt to reuse or create it
+    // 🔁 Fallback to find/create topic by name
     if (!resolvedTopic) {
       const topicName = typeof topic === 'string' ? topic.trim() : (topic?.en || 'Untitled Topic');
       const topicDesc = typeof topicDescription === 'string' ? topicDescription.trim() : (topicDescription?.en || '');
@@ -186,13 +186,12 @@ router.post('/', verifyToken, async (req, res) => {
           description: { en: topicDesc }
         });
         await resolvedTopic.save();
-        console.log(`✅ Created new topic: ${resolvedTopic.name.en} (${resolvedTopic._id})`);
+        console.log(`✅ Created topic: ${resolvedTopic.name.en}`);
       } else {
-        console.log(`ℹ️ Reusing existing topic: ${resolvedTopic.name.en} (${resolvedTopic._id})`);
+        console.log(`ℹ️ Reusing topic: ${resolvedTopic.name.en}`);
       }
     }
 
-    // 🆕 Create and save lesson
     const newLesson = new Lesson({
       lessonName,
       subject,
@@ -212,10 +211,10 @@ router.post('/', verifyToken, async (req, res) => {
     });
 
     const savedLesson = await newLesson.save();
-    console.log(`✅ Новый урок добавлен: "${savedLesson.lessonName?.en || savedLesson.lessonName}" (${savedLesson._id})`);
+    console.log(`✅ Новый урок: "${savedLesson.lessonName?.en || savedLesson.lessonName}"`);
     res.status(201).json(savedLesson);
   } catch (error) {
-    console.error('❌ Ошибка добавления урока:', error);
+    console.error('❌ Ошибка при добавлении урока:', error);
     res.status(500).json({ message: '❌ Server error adding lesson', error: error.message });
   }
 });
