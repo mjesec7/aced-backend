@@ -4,9 +4,10 @@ const mongoose = require('mongoose');
 const Topic = require('../models/topic');
 const Lesson = require('../models/lesson');
 
-// ✅ Validate ObjectId middleware
+// ✅ Middleware to validate MongoDB ObjectId
 function validateObjectId(req, res, next) {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+    console.warn(`⚠️ Invalid ObjectId: ${req.params.id}`);
     return res.status(400).json({ message: '❌ Invalid topic ID format' });
   }
   next();
@@ -26,6 +27,7 @@ router.get('/', async (req, res) => {
 // ✅ POST new topic
 router.post('/', async (req, res) => {
   const { subject, level, name, description } = req.body;
+
   if (!subject || !level || !name?.en) {
     return res.status(400).json({ message: '❌ Required: subject, level, and name.en' });
   }
@@ -45,12 +47,13 @@ router.post('/', async (req, res) => {
   }
 });
 
-// ✅ GET single topic with lessons
+// ✅ GET topic and related lessons (fallback to {} if not found)
 router.get('/:id', validateObjectId, async (req, res) => {
   try {
     const topic = await Topic.findById(req.params.id);
     if (!topic) {
-      return res.status(404).json({ message: '❌ Topic not found' });
+      console.warn(`⚠️ Topic not found for ID: ${req.params.id}`);
+      return res.json({}); // fallback to empty object instead of 404
     }
 
     const lessons = await Lesson.find({ topic: topic._id });
@@ -61,14 +64,20 @@ router.get('/:id', validateObjectId, async (req, res) => {
 
     res.json(response);
   } catch (err) {
-    console.error('❌ Error fetching topic:', err);
+    console.error('❌ Error fetching topic with lessons:', err);
     res.status(500).json({ message: '❌ Server error while fetching topic and lessons' });
   }
 });
 
-// ✅ GET only lessons by topic ID
+// ✅ GET only lessons by topic ID (fallback to empty array)
 router.get('/:id/lessons', validateObjectId, async (req, res) => {
   try {
+    const topicExists = await Topic.exists({ _id: req.params.id });
+    if (!topicExists) {
+      console.warn(`⚠️ Topic ID not valid or not found: ${req.params.id}`);
+      return res.json([]); // fallback to empty array instead of 500
+    }
+
     const lessons = await Lesson.find({ topic: req.params.id });
     res.json(lessons);
   } catch (err) {

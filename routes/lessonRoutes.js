@@ -5,11 +5,13 @@ const Lesson = require('../models/lesson');
 const Topic = require('../models/topic');
 const verifyToken = require('../middlewares/authMiddleware');
 
+// 🔎 Log all incoming routes
 router.use((req, res, next) => {
   console.log(`📢 [${req.method}] ${req.originalUrl}`);
   next();
 });
 
+// 🔒 Validate MongoDB ObjectId
 function validateObjectId(req, res, next) {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     console.warn(`⚠️ Invalid ObjectId: ${req.params.id}`);
@@ -18,7 +20,7 @@ function validateObjectId(req, res, next) {
   next();
 }
 
-// ✅ Get all lessons
+// ✅ Get all lessons (with optional type filter)
 router.get('/', async (req, res) => {
   try {
     const filter = req.query.type ? { type: req.query.type } : {};
@@ -31,7 +33,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// ✅ Get lesson by ID
+// ✅ Get lesson by ID with optional translation merge
 router.get('/:id', validateObjectId, async (req, res) => {
   try {
     const lesson = await Lesson.findById(req.params.id);
@@ -45,7 +47,7 @@ router.get('/:id', validateObjectId, async (req, res) => {
       return res.json({ ...lesson.toObject(), ...lesson.translations[lang] });
     }
 
-    console.log(`📅 Урок успешно получен: ${lesson.lessonName.en} (${lesson._id})`);
+    console.log(`📅 Урок успешно получен: ${lesson.lessonName?.en || lesson.lessonName} (${lesson._id})`);
     res.status(200).json(lesson);
   } catch (error) {
     console.error('❌ Ошибка по идентификатору:', error);
@@ -53,7 +55,7 @@ router.get('/:id', validateObjectId, async (req, res) => {
   }
 });
 
-// ✅ Get lesson by subject and topic name
+// ✅ Get lesson by subject and topic name (supports localized & translated names)
 router.get('/by-name', async (req, res) => {
   const { subject, name } = req.query;
   if (!subject || !name) {
@@ -64,22 +66,28 @@ router.get('/by-name', async (req, res) => {
     const lessons = await Lesson.find({
       subject,
       $or: [
-        { 'topic': name },
+        { topic: name },
         { 'topic.en': name },
+        { 'topic.ru': name },
         { 'translations.en.topic': name },
         { 'translations.ru.topic': name }
       ]
     });
 
-    if (!lessons.length) return res.status(404).json({ message: '❌ Lesson not found' });
-    res.json(lessons[0]);
+    if (!lessons.length) {
+      console.warn(`⚠️ No lesson found for subject "${subject}" and topic "${name}"`);
+      return res.status(404).json({ message: '❌ Lesson not found' });
+    }
+
+    console.log(`📘 Найден урок по имени: "${name}" в предмете "${subject}"`);
+    res.status(200).json(lessons[0]);
   } catch (err) {
     console.error('❌ Error fetching lesson by name:', err);
     res.status(500).json({ message: '❌ Server error fetching lesson by name', error: err.message });
   }
 });
 
-// ✅ Update lesson
+// ✅ Update lesson by ID
 router.put('/:id', verifyToken, validateObjectId, async (req, res) => {
   try {
     const updatedLesson = await Lesson.findByIdAndUpdate(req.params.id, req.body, { new: true });
@@ -87,7 +95,7 @@ router.put('/:id', verifyToken, validateObjectId, async (req, res) => {
       console.warn(`⚠️ Невозможно обновить, урок не найден: ${req.params.id}`);
       return res.status(404).json({ message: '❌ Lesson not found' });
     }
-    console.log(`🔄 Урок обновлён: ${updatedLesson.lessonName.en} (${updatedLesson._id})`);
+    console.log(`🔄 Урок обновлён: ${updatedLesson.lessonName?.en || updatedLesson.lessonName} (${updatedLesson._id})`);
     res.status(200).json(updatedLesson);
   } catch (error) {
     console.error('❌ Ошибка обновления урока:', error);
@@ -95,7 +103,7 @@ router.put('/:id', verifyToken, validateObjectId, async (req, res) => {
   }
 });
 
-// ✅ Delete lesson
+// ✅ Delete lesson by ID
 router.delete('/:id', verifyToken, validateObjectId, async (req, res) => {
   try {
     const deletedLesson = await Lesson.findByIdAndDelete(req.params.id);
@@ -103,7 +111,7 @@ router.delete('/:id', verifyToken, validateObjectId, async (req, res) => {
       console.warn(`⚠️ Урок не найден для удаления: ${req.params.id}`);
       return res.status(404).json({ message: '❌ Lesson not found' });
     }
-    console.log(`🗑️ Урок удалён: ${deletedLesson.lessonName.en} (${deletedLesson._id})`);
+    console.log(`🗑️ Урок удалён: ${deletedLesson.lessonName?.en || deletedLesson.lessonName} (${deletedLesson._id})`);
     res.status(200).json({ message: '✅ Lesson successfully deleted' });
   } catch (error) {
     console.error('❌ Ошибка удаления урока:', error);
@@ -111,7 +119,7 @@ router.delete('/:id', verifyToken, validateObjectId, async (req, res) => {
   }
 });
 
-// ✅ Delete all lessons
+// ✅ Bulk delete all lessons
 router.delete('/all', verifyToken, async (req, res) => {
   try {
     const result = await Lesson.deleteMany({});
@@ -123,7 +131,7 @@ router.delete('/all', verifyToken, async (req, res) => {
   }
 });
 
-// ✅ Create new lesson
+// ✅ Create new lesson (auto-resolves or creates topic)
 router.post('/', verifyToken, async (req, res) => {
   try {
     let {
@@ -136,9 +144,10 @@ router.post('/', verifyToken, async (req, res) => {
       return res.status(400).json({ message: '❌ Missing required lesson fields' });
     }
 
+    // 🔤 Ensure localization objects
     const wrapLocalized = val =>
       typeof val === 'string' ? { en: val.trim() } :
-      (val && typeof val === 'object' && 'en' in val) ? val : { en: '' };
+      (val && typeof val === 'object' && ('en' in val || 'ru' in val)) ? val : { en: '' };
 
     lessonName = wrapLocalized(lessonName);
     description = wrapLocalized(description);
@@ -149,10 +158,12 @@ router.post('/', verifyToken, async (req, res) => {
 
     let resolvedTopic;
 
+    // 🔍 Try resolving topic by ID
     if (topicId && mongoose.Types.ObjectId.isValid(topicId)) {
       resolvedTopic = await Topic.findById(topicId);
     }
 
+    // 🔄 If no topic found, attempt to reuse or create it
     if (!resolvedTopic) {
       const topicName = typeof topic === 'string' ? topic.trim() : (topic?.en || 'Untitled Topic');
       const topicDesc = typeof topicDescription === 'string' ? topicDescription.trim() : (topicDescription?.en || '');
@@ -160,7 +171,11 @@ router.post('/', verifyToken, async (req, res) => {
       resolvedTopic = await Topic.findOne({
         subject,
         level,
-        'name.en': topicName
+        $or: [
+          { 'name': topicName },
+          { 'name.en': topicName },
+          { 'name.ru': topicName }
+        ]
       });
 
       if (!resolvedTopic) {
@@ -177,6 +192,7 @@ router.post('/', verifyToken, async (req, res) => {
       }
     }
 
+    // 🆕 Create and save lesson
     const newLesson = new Lesson({
       lessonName,
       subject,
@@ -196,7 +212,7 @@ router.post('/', verifyToken, async (req, res) => {
     });
 
     const savedLesson = await newLesson.save();
-    console.log(`✅ Новый урок добавлен: "${savedLesson.lessonName.en}" (${savedLesson._id})`);
+    console.log(`✅ Новый урок добавлен: "${savedLesson.lessonName?.en || savedLesson.lessonName}" (${savedLesson._id})`);
     res.status(201).json(savedLesson);
   } catch (error) {
     console.error('❌ Ошибка добавления урока:', error);
