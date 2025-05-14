@@ -6,8 +6,8 @@ const Lesson = require('../models/lesson');
 const Topic = require('../models/topic');
 const admin = require('../config/firebase');
 const verifyToken = require('../middlewares/authMiddleware');
+const mongoose = require('mongoose');
 
-// 🔍 Validate firebaseId param
 function validateFirebaseId(req, res, next) {
   if (!req.params.firebaseId) {
     return res.status(400).json({ error: '❌ Missing firebaseId in request' });
@@ -15,7 +15,6 @@ function validateFirebaseId(req, res, next) {
   next();
 }
 
-// 🔐 Ensure token UID matches route param
 function verifyOwnership(req, res, next) {
   if (!req.user || req.user.uid !== req.params.firebaseId) {
     return res.status(403).json({ error: '❌ Access denied: user mismatch' });
@@ -23,7 +22,15 @@ function verifyOwnership(req, res, next) {
   next();
 }
 
-// ✅ Save or update user
+// 🔐 Validate ObjectId middleware
+function validateObjectId(req, res, next) {
+  const { id } = req.params;
+  if (id && !mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(400).json({ error: '❌ Invalid ObjectId format' });
+  }
+  next();
+}
+
 router.post('/save', async (req, res) => {
   const { token, name, subscriptionPlan } = req.body;
   if (!token || !name) {
@@ -61,7 +68,6 @@ router.post('/save', async (req, res) => {
   }
 });
 
-// ✅ Fetch user info
 router.get('/:firebaseId', validateFirebaseId, async (req, res) => {
   try {
     const user = await User.findOne({ firebaseId: req.params.firebaseId });
@@ -72,7 +78,6 @@ router.get('/:firebaseId', validateFirebaseId, async (req, res) => {
   }
 });
 
-// ✅ Subscription status
 router.get('/:firebaseId/status', validateFirebaseId, async (req, res) => {
   try {
     const user = await User.findOne({ firebaseId: req.params.firebaseId });
@@ -83,7 +88,6 @@ router.get('/:firebaseId/status', validateFirebaseId, async (req, res) => {
   }
 });
 
-// 📚 Study List (GET)
 router.get('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   try {
     const user = await User.findOne({ firebaseId: req.params.firebaseId });
@@ -94,7 +98,6 @@ router.get('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOwn
   }
 });
 
-// 📚 Study List (POST)
 router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   const { subject, level, topic, topicId } = req.body;
   if (!subject || !topic) return res.status(400).json({ error: '❌ Subject and topic are required' });
@@ -122,7 +125,6 @@ router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOw
   }
 });
 
-// 📚 Study List (DELETE)
 router.delete('/:firebaseId/study-list/:topicId', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   const { topicId } = req.params;
   try {
@@ -140,7 +142,6 @@ router.delete('/:firebaseId/study-list/:topicId', validateFirebaseId, verifyToke
   }
 });
 
-// 🎯 Recommendations
 router.get('/:firebaseId/recommendations', validateFirebaseId, async (req, res) => {
   try {
     const topics = await Topic.aggregate([{ $sample: { size: 6 } }]);
@@ -150,7 +151,6 @@ router.get('/:firebaseId/recommendations', validateFirebaseId, async (req, res) 
   }
 });
 
-// ✅ Lesson Progress
 router.post('/:firebaseId/progress', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   const { lessonId, section } = req.body;
   if (!lessonId || !section) return res.status(400).json({ error: '❌ Missing lessonId or section' });
@@ -170,7 +170,6 @@ router.post('/:firebaseId/progress', validateFirebaseId, verifyToken, verifyOwne
   }
 });
 
-// ✅ Topic Progress
 router.post('/:firebaseId/progress-topic', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   const { topicId } = req.body;
   if (!topicId) return res.status(400).json({ error: '❌ Missing topicId' });
@@ -188,7 +187,7 @@ router.post('/:firebaseId/progress-topic', validateFirebaseId, verifyToken, veri
         totalLessons,
         completedLessons: 0,
         percent: 0,
-        medal: 'none',
+        medal: 'none'
       });
     }
 
@@ -209,7 +208,6 @@ router.post('/:firebaseId/progress-topic', validateFirebaseId, verifyToken, veri
   }
 });
 
-// 📓 Diary (GET)
 router.get('/:firebaseId/diary', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   try {
     const user = await User.findOne({ firebaseId: req.params.firebaseId });
@@ -221,7 +219,6 @@ router.get('/:firebaseId/diary', validateFirebaseId, verifyToken, verifyOwnershi
   }
 });
 
-// 📓 Diary (POST)
 router.post('/:firebaseId/diary', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   const { date, studyMinutes, completedTopics, averageGrade } = req.body;
   if (!date || studyMinutes == null || completedTopics == null || averageGrade == null) {

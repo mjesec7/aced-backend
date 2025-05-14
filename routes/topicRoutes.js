@@ -54,21 +54,26 @@ router.get('/:id', validateObjectId, async (req, res) => {
     }
 
     const lessons = await Lesson.find({ topic: topic._id });
-    res.json({ ...topic.toObject(), lessons });
+    const response = {
+      ...topic.toObject(),
+      lessons
+    };
+
+    res.json(response);
   } catch (err) {
     console.error('❌ Error fetching topic:', err);
-    res.status(500).json({ message: '❌ Server error' });
+    res.status(500).json({ message: '❌ Server error while fetching topic and lessons' });
   }
 });
 
-// ✅ GET lessons for a topic
+// ✅ GET only lessons by topic ID
 router.get('/:id/lessons', validateObjectId, async (req, res) => {
   try {
     const lessons = await Lesson.find({ topic: req.params.id });
     res.json(lessons);
   } catch (err) {
     console.error('❌ Error fetching topic lessons:', err);
-    res.status(500).json({ message: '❌ Server error' });
+    res.status(500).json({ message: '❌ Server error while fetching lessons' });
   }
 });
 

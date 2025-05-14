@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 
-// ✅ Study List Topic Entry Schema
+// ✅ Study List Entry Schema
 const studyTopicSchema = new mongoose.Schema({
   topicId: { type: mongoose.Schema.Types.ObjectId, ref: 'Topic', required: true },
   subject: { type: String, required: true },
