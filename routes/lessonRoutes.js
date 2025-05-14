@@ -111,6 +111,18 @@ router.delete('/:id', verifyToken, validateObjectId, async (req, res) => {
   }
 });
 
+// ✅ Delete all lessons
+router.delete('/all', verifyToken, async (req, res) => {
+  try {
+    const result = await Lesson.deleteMany({});
+    console.log(`🧹 Удалено уроков: ${result.deletedCount}`);
+    res.status(200).json({ message: `✅ Удалено уроков: ${result.deletedCount}` });
+  } catch (err) {
+    console.error('❌ Ошибка при массовом удалении уроков:', err);
+    res.status(500).json({ message: '❌ Server error deleting all lessons', error: err.message });
+  }
+});
+
 // ✅ Create new lesson
 router.post('/', verifyToken, async (req, res) => {
   try {
