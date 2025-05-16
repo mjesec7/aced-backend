@@ -18,6 +18,18 @@ const quizSchema = new mongoose.Schema({
   answer: { type: String, required: true }
 }, { _id: false });
 
+// ✅ ABC Exercise schema
+const abcExerciseSchema = new mongoose.Schema({
+  question: { type: String, required: true },
+  instruction: { type: String, default: '' },
+  options: {
+    type: [String],
+    required: true,
+    validate: [val => val.length >= 2, '❌ ABC упражнение должно иметь как минимум два варианта ответа.']
+  },
+  correctAnswer: { type: String, required: true }
+}, { _id: false });
+
 // ✅ Multilingual string schema
 const localizedString = {
   en: { type: String, default: '' },
@@ -49,6 +61,7 @@ const lessonSchema = new mongoose.Schema({
   // 🧪 Exercises and quizzes
   exercises: { type: [exerciseSchema], default: [] },
   quizzes: { type: [quizSchema], default: [] },
+  abcExercises: { type: [abcExerciseSchema], default: [] },
 
   // 🧩 Related subjects
   relatedSubjects: { type: [String], default: [] }

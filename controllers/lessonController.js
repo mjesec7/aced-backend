@@ -20,6 +20,7 @@ exports.addLesson = async (req, res) => {
       hint,
       exercises,
       quizzes,
+      abcExercises,
       relatedSubjects,
       type,
       description
@@ -81,6 +82,7 @@ exports.addLesson = async (req, res) => {
       hint: hint || '',
       exercises: Array.isArray(exercises) ? exercises : [],
       quizzes: Array.isArray(quizzes) ? quizzes : [],
+      abcExercises: Array.isArray(abcExercises) ? abcExercises : [],
       relatedSubjects: Array.isArray(relatedSubjects) ? relatedSubjects : [],
       type: type || 'free'
     });
@@ -109,6 +111,10 @@ exports.updateLesson = async (req, res) => {
 
     if (!updates.explanation && updates.content) {
       updates.explanation = updates.content;
+    }
+
+    if (!updates.abcExercises) {
+      updates.abcExercises = [];
     }
 
     const updatedLesson = await Lesson.findByIdAndUpdate(lessonId, updates, { new: true });

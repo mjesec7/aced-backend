@@ -11,7 +11,6 @@ router.use((req, res, next) => {
   next();
 });
 
-// 🔒 Validate ObjectId middleware
 function validateObjectId(req, res, next) {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     console.warn(`⚠️ Invalid ObjectId: ${req.params.id}`);
@@ -20,7 +19,6 @@ function validateObjectId(req, res, next) {
   next();
 }
 
-// ✅ GET all lessons (optionally filtered by type)
 router.get('/', async (req, res) => {
   try {
     const filter = req.query.type ? { type: req.query.type } : {};
@@ -33,7 +31,6 @@ router.get('/', async (req, res) => {
   }
 });
 
-// ✅ DELETE all lessons (MUST BE ABOVE `/:id`)
 router.delete('/all', verifyToken, async (req, res) => {
   try {
     const result = await Lesson.deleteMany({});
@@ -45,7 +42,6 @@ router.delete('/all', verifyToken, async (req, res) => {
   }
 });
 
-// ✅ GET lesson by ID (supports lang query for translation)
 router.get('/:id', validateObjectId, async (req, res) => {
   try {
     const lesson = await Lesson.findById(req.params.id);
@@ -67,7 +63,6 @@ router.get('/:id', validateObjectId, async (req, res) => {
   }
 });
 
-// ✅ GET lesson by subject and topic name (handles translations)
 router.get('/by-name', async (req, res) => {
   const { subject, name } = req.query;
   if (!subject || !name) {
@@ -99,10 +94,30 @@ router.get('/by-name', async (req, res) => {
   }
 });
 
-// ✅ PUT update lesson
 router.put('/:id', verifyToken, validateObjectId, async (req, res) => {
   try {
-    const updatedLesson = await Lesson.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const updates = req.body;
+
+    if (!updates.explanation && updates.content) {
+      updates.explanation = updates.content;
+    }
+
+    if (!updates.abcExercises) {
+      updates.abcExercises = [];
+    }
+
+    const updatedLesson = await Lesson.findByIdAndUpdate(req.params.id, updates, { new: true });
+    if (!updatedLesson) {
+      console.warn(`⚠️ Не найден для обновления: ${req.params.id}`);
+      return res.status(404).json({ message: '❌ Lesson not found' });
+    }
+    console.log(`🔄 Урок обновлён: ${updatedLesson.lessonName?.en || updatedLesson.lessonName}`);
+    res.status(200).json(updatedLesson);
+  } catch (error) {
+    console.error('❌ Ошибка обновления урока:', error);
+    res.status(500).json({ message: '❌ Server error updating lesson', error: error.message });
+  }
+});
     if (!updatedLesson) {
       console.warn(`⚠️ Не найден для обновления: ${req.params.id}`);
       return res.status(404).json({ message: '❌ Lesson not found' });
@@ -115,7 +130,6 @@ router.put('/:id', verifyToken, validateObjectId, async (req, res) => {
   }
 });
 
-// ✅ DELETE single lesson
 router.delete('/:id', verifyToken, validateObjectId, async (req, res) => {
   try {
     const deletedLesson = await Lesson.findByIdAndDelete(req.params.id);
@@ -131,20 +145,18 @@ router.delete('/:id', verifyToken, validateObjectId, async (req, res) => {
   }
 });
 
-// ✅ POST create new lesson (with topic auto-resolution)
 router.post('/', verifyToken, async (req, res) => {
   try {
     let {
       lessonName, subject, level, type, topicId, topic, topicDescription,
       description, explanation, examples, content, hint,
-      exercises, quizzes, relatedSubjects, translations
+      exercises, quizzes, abcExercises, relatedSubjects, translations
     } = req.body;
 
     if (!lessonName || !subject || level === undefined || !type || !description || !explanation || !examples) {
       return res.status(400).json({ message: '❌ Missing required lesson fields' });
     }
 
-    // 🔤 Wrap localized fields
     const wrapLocalized = val =>
       typeof val === 'string' ? { en: val.trim() } :
       (val && typeof val === 'object' && ('en' in val || 'ru' in val)) ? val : { en: '' };
@@ -158,12 +170,10 @@ router.post('/', verifyToken, async (req, res) => {
 
     let resolvedTopic;
 
-    // 🔍 Try resolving by topicId
     if (topicId && mongoose.Types.ObjectId.isValid(topicId)) {
       resolvedTopic = await Topic.findById(topicId);
     }
 
-    // 🔁 Fallback to find/create topic by name
     if (!resolvedTopic) {
       const topicName = typeof topic === 'string' ? topic.trim() : (topic?.en || 'Untitled Topic');
       const topicDesc = typeof topicDescription === 'string' ? topicDescription.trim() : (topicDescription?.en || '');
@@ -206,6 +216,7 @@ router.post('/', verifyToken, async (req, res) => {
       hint,
       exercises: Array.isArray(exercises) ? exercises : [],
       quizzes: Array.isArray(quizzes) ? quizzes : [],
+      abcExercises: Array.isArray(abcExercises) ? abcExercises : [],
       relatedSubjects: Array.isArray(relatedSubjects) ? relatedSubjects : [],
       translations: typeof translations === 'object' ? translations : {}
     });
