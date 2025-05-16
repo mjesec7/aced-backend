@@ -20,11 +20,11 @@ const topicSchema = new mongoose.Schema({
     min: [1, '❌ Level must be 1 or higher']
   },
   name: {
-    type: localizedString,
+    type: new mongoose.Schema(localizedString, { _id: false }),
     required: [true, '❌ Topic name is required']
   },
   description: {
-    type: localizedString,
+    type: new mongoose.Schema(localizedString, { _id: false }),
     default: () => ({})
   }
 }, {
