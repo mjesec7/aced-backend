@@ -1,12 +1,5 @@
 const mongoose = require('mongoose');
 
-// ✅ Multilingual string schema
-const localizedString = {
-  en: { type: String, default: '' },
-  ru: { type: String, default: '' },
-  uz: { type: String, default: '' }
-};
-
 // ✅ Exercise schema
 const exerciseSchema = new mongoose.Schema({
   question: { type: String, required: true },
@@ -39,46 +32,37 @@ const abcExerciseSchema = new mongoose.Schema({
 
 // ✅ Main lesson schema
 const lessonSchema = new mongoose.Schema({
-  // 🧠 Metadata
   subject: { type: String, required: true, trim: true },
   level: { type: Number, required: true, min: 1 },
-  topic: {
-    type: new mongoose.Schema(localizedString, { _id: false }),
-    required: true
-  },
-  topicId: { type: String, required: true, trim: true },
-  lessonName: { type: localizedString, required: true },
+  topic: { type: String, required: true, trim: true },
+  topicId: { type: mongoose.Schema.Types.ObjectId, required: true, ref: 'Topic' },
+  lessonName: { type: String, required: true, trim: true },
   type: {
     type: String,
     enum: ['free', 'premium'],
     default: 'free'
   },
 
-  // 📝 Main content
-  description: { type: localizedString, required: true },
-  explanation: { type: localizedString, default: () => ({}) },
-  examples: { type: localizedString, default: () => ({}) },
-  content: { type: localizedString, default: () => ({}) },
-  hint: { type: localizedString, default: () => ({}) },
+  description: { type: String, required: true, trim: true },
+  explanation: { type: String, default: '', trim: true },
+  examples: { type: String, default: '', trim: true },
+  content: { type: String, default: '', trim: true },
+  hint: { type: String, default: '', trim: true },
 
-  // 🧪 Exercises and quizzes
   exercises: { type: [exerciseSchema], default: [] },
   quizzes: { type: [quizSchema], default: [] },
   abcExercises: { type: [abcExerciseSchema], default: [] },
-
-  // 🧩 Related subjects
   relatedSubjects: { type: [String], default: [] }
 
 }, { timestamps: true });
 
-// ✅ Logging hooks
 lessonSchema.pre('save', function (next) {
-  console.log(`🛠️ [Pre-Save] Saving lesson: "${this.lessonName.en || 'Unnamed'}"`);
+  console.log(`🛠️ [Pre-Save] Saving lesson: "${this.lessonName || 'Unnamed'}"`);
   next();
 });
 
 lessonSchema.post('save', function (doc) {
-  console.log(`✅ [Post-Save] Lesson saved: "${doc.lessonName.en || 'Unnamed'}" (ID: ${doc._id})`);
+  console.log(`✅ [Post-Save] Lesson saved: "${doc.lessonName}" (ID: ${doc._id})`);
 });
 
 lessonSchema.post('find', function (docs) {
@@ -87,7 +71,7 @@ lessonSchema.post('find', function (docs) {
 
 lessonSchema.post('findOne', function (doc) {
   if (doc) {
-    console.log(`🔍 [FindOne] Lesson found: "${doc.lessonName.en || 'Unnamed'}" (ID: ${doc._id})`);
+    console.log(`🔍 [FindOne] Lesson found: "${doc.lessonName}" (ID: ${doc._id})`);
   } else {
     console.warn('⚠️ [FindOne] No lesson found.');
   }
@@ -95,7 +79,7 @@ lessonSchema.post('findOne', function (doc) {
 
 lessonSchema.post('findOneAndUpdate', function (doc) {
   if (doc) {
-    console.log(`🔄 [Update] Lesson updated: "${doc.lessonName.en || 'Unnamed'}" (ID: ${doc._id})`);
+    console.log(`🔄 [Update] Lesson updated: "${doc.lessonName}" (ID: ${doc._id})`);
   } else {
     console.warn('⚠️ [Update] No lesson found to update.');
   }
@@ -103,7 +87,7 @@ lessonSchema.post('findOneAndUpdate', function (doc) {
 
 lessonSchema.post('findOneAndDelete', function (doc) {
   if (doc) {
-    console.log(`🗑️ [Delete] Lesson deleted: "${doc.lessonName.en || 'Unnamed'}" (ID: ${doc._id})`);
+    console.log(`🗑️ [Delete] Lesson deleted: "${doc.lessonName}" (ID: ${doc._id})`);
   } else {
     console.warn('⚠️ [Delete] No lesson found to delete.');
   }

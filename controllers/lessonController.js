@@ -43,14 +43,8 @@ exports.addLesson = async (req, res) => {
         return res.status(404).json({ error: '❌ Тема с указанным ID не найдена' });
       }
     } else {
-      console.log('🧪 Raw topic input:', topic);
-console.log('🧪 Raw topicDescription input:', topicDescription);
-
-const topicName = typeof topic === 'string' ? topic.trim() : (topic?.en?.trim?.() || '');
-const topicDesc = typeof topicDescription === 'string' ? topicDescription.trim() : (topicDescription?.en?.trim?.() || '');
-
-console.log('📌 Parsed topicName:', topicName);
-console.log('📝 Parsed topicDesc:', topicDesc);
+      const topicName = typeof topic === 'string' ? topic.trim() : '';
+      const topicDesc = typeof topicDescription === 'string' ? topicDescription.trim() : '';
 
       if (!topicName) {
         return res.status(400).json({ error: '❌ Название темы отсутствует' });
@@ -59,27 +53,23 @@ console.log('📝 Parsed topicDesc:', topicDesc);
       resolvedTopic = await Topic.findOne({
         subject,
         level,
-        $or: [
-          { 'name': { en: topicName } },
-          { 'name.en': topicName },
-          { 'name.ru': topicName }
-        ]
+        name: topicName
       });
 
       if (!resolvedTopic) {
         const newTopicPayload = {
-          name: { en: topicName },
+          name: topicName,
           subject,
           level,
-          description: { en: topicDesc }
+          description: topicDesc
         };
         console.log('🧪 Creating Topic with:', newTopicPayload);
 
         resolvedTopic = new Topic(newTopicPayload);
         await resolvedTopic.save();
-        console.log(`✅ [Создание темы] Тема успешно создана: "${resolvedTopic.name.en}" (ID: ${resolvedTopic._id})`);
+        console.log(`✅ [Создание темы] Тема успешно создана: "${resolvedTopic.name}" (ID: ${resolvedTopic._id})`);
       } else {
-        console.log(`ℹ️ [Использование существующей темы] ${resolvedTopic.name.en} (ID: ${resolvedTopic._id})`);
+        console.log(`ℹ️ [Использование существующей темы] ${resolvedTopic.name} (ID: ${resolvedTopic._id})`);
       }
     }
 
@@ -88,12 +78,12 @@ console.log('📝 Parsed topicDesc:', topicDesc);
       level,
       topic: resolvedTopic._id,
       topicId: resolvedTopic._id,
-      lessonName,
-      description,
-      explanation,
-      examples,
-      content: content || '',
-      hint: hint || '',
+      lessonName: typeof lessonName === 'string' ? lessonName.trim() : '',
+      description: typeof description === 'string' ? description.trim() : '',
+      explanation: typeof explanation === 'string' ? explanation.trim() : '',
+      examples: typeof examples === 'string' ? examples.trim() : '',
+      content: typeof content === 'string' ? content.trim() : '',
+      hint: typeof hint === 'string' ? hint.trim() : '',
       exercises: Array.isArray(exercises) ? exercises : [],
       quizzes: Array.isArray(quizzes) ? quizzes : [],
       abcExercises: Array.isArray(abcExercises) ? abcExercises : [],

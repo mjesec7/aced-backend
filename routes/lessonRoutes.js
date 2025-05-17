@@ -49,12 +49,7 @@ router.get('/:id', validateObjectId, async (req, res) => {
       return res.status(404).json({ message: '❌ Lesson not found' });
     }
 
-    const lang = req.query.lang;
-    if (lang && lesson.translations?.[lang]) {
-      return res.json({ ...lesson.toObject(), ...lesson.translations[lang] });
-    }
-
-    console.log(`📅 Урок получен: ${lesson.lessonName?.en || lesson.lessonName}`);
+    console.log(`📅 Урок получен: ${lesson.lessonName}`);
     res.status(200).json(lesson);
   } catch (error) {
     console.error('❌ Ошибка получения урока:', error);
@@ -71,13 +66,7 @@ router.get('/by-name', async (req, res) => {
   try {
     const lessons = await Lesson.find({
       subject,
-      $or: [
-        { topic: name },
-        { 'topic.en': name },
-        { 'topic.ru': name },
-        { 'translations.en.topic': name },
-        { 'translations.ru.topic': name }
-      ]
+      topic: name
     });
 
     if (!lessons.length) {
@@ -110,7 +99,7 @@ router.put('/:id', verifyToken, validateObjectId, async (req, res) => {
       console.warn(`⚠️ Не найден для обновления: ${req.params.id}`);
       return res.status(404).json({ message: '❌ Lesson not found' });
     }
-    console.log(`🔄 Урок обновлён: ${updatedLesson.lessonName?.en || updatedLesson.lessonName}`);
+    console.log(`🔄 Урок обновлён: ${updatedLesson.lessonName}`);
     res.status(200).json(updatedLesson);
   } catch (error) {
     console.error('❌ Ошибка обновления урока:', error);
@@ -125,7 +114,7 @@ router.delete('/:id', verifyToken, validateObjectId, async (req, res) => {
       console.warn(`⚠️ Урок не найден для удаления: ${req.params.id}`);
       return res.status(404).json({ message: '❌ Lesson not found' });
     }
-    console.log(`🗑️ Удалён: ${deletedLesson.lessonName?.en || deletedLesson.lessonName}`);
+    console.log(`🗑️ Удалён: ${deletedLesson.lessonName}`);
     res.status(200).json({ message: '✅ Lesson successfully deleted' });
   } catch (error) {
     console.error('❌ Ошибка удаления урока:', error);
@@ -138,23 +127,12 @@ router.post('/', verifyToken, async (req, res) => {
     let {
       lessonName, subject, level, type, topicId, topic, topicDescription,
       description, explanation, examples, content, hint,
-      exercises, quizzes, abcExercises, relatedSubjects, translations
+      exercises, quizzes, abcExercises, relatedSubjects
     } = req.body;
 
     if (!lessonName || !subject || level === undefined || !type || !description || !explanation || !examples) {
       return res.status(400).json({ message: '❌ Missing required lesson fields' });
     }
-
-    const wrapLocalized = val =>
-      typeof val === 'string' ? { en: val.trim() } :
-      (val && typeof val === 'object' && ('en' in val || 'ru' in val)) ? val : { en: '' };
-
-    lessonName = wrapLocalized(lessonName);
-    description = wrapLocalized(description);
-    explanation = wrapLocalized(explanation);
-    examples = wrapLocalized(examples);
-    content = wrapLocalized(content);
-    hint = wrapLocalized(hint);
 
     let resolvedTopic;
 
@@ -163,58 +141,53 @@ router.post('/', verifyToken, async (req, res) => {
     }
 
     if (!resolvedTopic) {
-      const topicNameWrapped = wrapLocalized(topic);
-      const topicDescWrapped = wrapLocalized(topicDescription);
+      const topicName = typeof topic === 'string' ? topic.trim() : '';
+      const topicDesc = typeof topicDescription === 'string' ? topicDescription.trim() : '';
 
-      if (!topicNameWrapped.en) {
+      if (!topicName) {
         return res.status(400).json({ message: '❌ Topic name is required' });
       }
 
       resolvedTopic = await Topic.findOne({
         subject,
         level,
-        $or: [
-          { 'name': topicNameWrapped },
-          { 'name.en': topicNameWrapped.en },
-          { 'name.ru': topicNameWrapped.ru }
-        ]
+        name: topicName
       });
 
       if (!resolvedTopic) {
         resolvedTopic = new Topic({
-          name: topicNameWrapped,
+          name: topicName,
           subject,
           level,
-          description: topicDescWrapped
+          description: topicDesc
         });
         await resolvedTopic.save();
-        console.log(`✅ Created topic: ${resolvedTopic.name.en}`);
+        console.log(`✅ Created topic: ${resolvedTopic.name}`);
       } else {
-        console.log(`ℹ️ Reusing topic: ${resolvedTopic.name.en}`);
+        console.log(`ℹ️ Reusing topic: ${resolvedTopic.name}`);
       }
     }
 
     const newLesson = new Lesson({
-      lessonName,
+      lessonName: typeof lessonName === 'string' ? lessonName.trim() : '',
       subject,
       level,
       type,
       topic: resolvedTopic._id,
       topicId: resolvedTopic._id,
-      description,
-      explanation,
-      examples,
-      content,
-      hint,
+      description: typeof description === 'string' ? description.trim() : '',
+      explanation: typeof explanation === 'string' ? explanation.trim() : '',
+      examples: typeof examples === 'string' ? examples.trim() : '',
+      content: typeof content === 'string' ? content.trim() : '',
+      hint: typeof hint === 'string' ? hint.trim() : '',
       exercises: Array.isArray(exercises) ? exercises : [],
       quizzes: Array.isArray(quizzes) ? quizzes : [],
       abcExercises: Array.isArray(abcExercises) ? abcExercises : [],
-      relatedSubjects: Array.isArray(relatedSubjects) ? relatedSubjects : [],
-      translations: typeof translations === 'object' ? translations : {}
+      relatedSubjects: Array.isArray(relatedSubjects) ? relatedSubjects : []
     });
 
     const savedLesson = await newLesson.save();
-    console.log(`✅ Новый урок: "${savedLesson.lessonName?.en || savedLesson.lessonName}"`);
+    console.log(`✅ Новый урок: "${savedLesson.lessonName}"`);
     res.status(201).json(savedLesson);
   } catch (error) {
     console.error('❌ Ошибка при добавлении урока:', error);
