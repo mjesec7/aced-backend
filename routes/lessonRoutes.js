@@ -5,7 +5,6 @@ const Lesson = require('../models/lesson');
 const Topic = require('../models/topic');
 const verifyToken = require('../middlewares/authMiddleware');
 
-// 🔎 Log all incoming requests
 router.use((req, res, next) => {
   console.log(`📢 [${req.method}] ${req.originalUrl}`);
   next();
