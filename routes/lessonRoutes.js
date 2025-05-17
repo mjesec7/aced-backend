@@ -118,17 +118,6 @@ router.put('/:id', verifyToken, validateObjectId, async (req, res) => {
     res.status(500).json({ message: '❌ Server error updating lesson', error: error.message });
   }
 });
-    if (!updatedLesson) {
-      console.warn(`⚠️ Не найден для обновления: ${req.params.id}`);
-      return res.status(404).json({ message: '❌ Lesson not found' });
-    }
-    console.log(`🔄 Урок обновлён: ${updatedLesson.lessonName?.en || updatedLesson.lessonName}`);
-    res.status(200).json(updatedLesson);
-  } catch (error) {
-    console.error('❌ Ошибка обновления урока:', error);
-    res.status(500).json({ message: '❌ Server error updating lesson', error: error.message });
-  }
-});
 
 router.delete('/:id', verifyToken, validateObjectId, async (req, res) => {
   try {
