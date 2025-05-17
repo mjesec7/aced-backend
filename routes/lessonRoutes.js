@@ -163,25 +163,25 @@ router.post('/', verifyToken, async (req, res) => {
     }
 
     if (!resolvedTopic) {
-      const topicName = typeof topic === 'string' ? topic.trim() : (topic?.en || 'Untitled Topic');
-      const topicDesc = typeof topicDescription === 'string' ? topicDescription.trim() : (topicDescription?.en || '');
+      const topicNameWrapped = wrapLocalized(topic);
+      const topicDescWrapped = wrapLocalized(topicDescription);
 
       resolvedTopic = await Topic.findOne({
         subject,
         level,
         $or: [
-          { 'name': topicName },
-          { 'name.en': topicName },
-          { 'name.ru': topicName }
+          { 'name': topicNameWrapped },
+          { 'name.en': topicNameWrapped.en },
+          { 'name.ru': topicNameWrapped.ru }
         ]
       });
 
       if (!resolvedTopic) {
         resolvedTopic = new Topic({
-          name: { en: topicName },
+          name: topicNameWrapped,
           subject,
           level,
-          description: { en: topicDesc }
+          description: topicDescWrapped
         });
         await resolvedTopic.save();
         console.log(`✅ Created topic: ${resolvedTopic.name.en}`);
