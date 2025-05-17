@@ -1,5 +1,12 @@
 const mongoose = require('mongoose');
 
+// ✅ Multilingual string schema
+const localizedString = {
+  en: { type: String, default: '' },
+  ru: { type: String, default: '' },
+  uz: { type: String, default: '' }
+};
+
 // ✅ Exercise schema
 const exerciseSchema = new mongoose.Schema({
   question: { type: String, required: true },
@@ -30,19 +37,15 @@ const abcExerciseSchema = new mongoose.Schema({
   correctAnswer: { type: String, required: true }
 }, { _id: false });
 
-// ✅ Multilingual string schema
-const localizedString = {
-  en: { type: String, default: '' },
-  ru: { type: String, default: '' },
-  uz: { type: String, default: '' }
-};
-
 // ✅ Main lesson schema
 const lessonSchema = new mongoose.Schema({
   // 🧠 Metadata
   subject: { type: String, required: true, trim: true },
   level: { type: Number, required: true, min: 1 },
-  topic: { type: String, required: true, trim: true },
+  topic: {
+    type: new mongoose.Schema(localizedString, { _id: false }),
+    required: true
+  },
   topicId: { type: String, required: true, trim: true },
   lessonName: { type: localizedString, required: true },
   type: {
