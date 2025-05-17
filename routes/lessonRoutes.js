@@ -173,7 +173,7 @@ router.post('/', verifyToken, async (req, res) => {
       subject,
       level,
       type,
-      topic: resolvedTopic._id,
+      topic: resolvedTopic.name, // store topic name instead of _id
       topicId: resolvedTopic._id,
       description: typeof description === 'string' ? description.trim() : '',
       explanation: typeof explanation === 'string' ? explanation.trim() : '',

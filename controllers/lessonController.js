@@ -76,7 +76,7 @@ exports.addLesson = async (req, res) => {
     const newLesson = new Lesson({
       subject,
       level,
-      topic: resolvedTopic._id,
+      topic: resolvedTopic.name,
       topicId: resolvedTopic._id,
       lessonName: typeof lessonName === 'string' ? lessonName.trim() : '',
       description: typeof description === 'string' ? description.trim() : '',
@@ -189,7 +189,7 @@ exports.getLessonsByTopic = async (req, res) => {
       return res.status(400).json({ error: '❌ Отсутствует TopicID' });
     }
 
-    const lessons = await Lesson.find({ topic: topicId });
+    const lessons = await Lesson.find({ topicId });
     console.log(`✅ [Получение уроков по теме] Найдено ${lessons.length} урок(ов) для TopicID: "${topicId}"`);
     res.json(lessons);
   } catch (error) {

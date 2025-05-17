@@ -34,7 +34,7 @@ const abcExerciseSchema = new mongoose.Schema({
 const lessonSchema = new mongoose.Schema({
   subject: { type: String, required: true, trim: true },
   level: { type: Number, required: true, min: 1 },
-  topic: { type: String, required: true, trim: true },
+  topic: { type: String, required: true, trim: true }, // human-readable name
   topicId: { type: mongoose.Schema.Types.ObjectId, required: true, ref: 'Topic' },
   lessonName: { type: String, required: true, trim: true },
   type: {
@@ -52,8 +52,10 @@ const lessonSchema = new mongoose.Schema({
   exercises: { type: [exerciseSchema], default: [] },
   quizzes: { type: [quizSchema], default: [] },
   abcExercises: { type: [abcExerciseSchema], default: [] },
-  relatedSubjects: { type: [String], default: [] }
+  relatedSubjects: { type: [String], default: [] },
 
+  // Optional: in case translations are re-enabled later
+  translations: { type: mongoose.Schema.Types.Mixed, default: {} }
 }, { timestamps: true });
 
 lessonSchema.pre('save', function (next) {
