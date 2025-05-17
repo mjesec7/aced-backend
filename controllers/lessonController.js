@@ -43,13 +43,21 @@ exports.addLesson = async (req, res) => {
         return res.status(404).json({ error: '❌ Тема с указанным ID не найдена' });
       }
     } else {
-      const topicName = typeof topic === 'string' ? topic.trim() : (topic?.en || 'Untitled Topic');
-      const topicDesc = typeof topicDescription === 'string' ? topicDescription.trim() : (topicDescription?.en || '');
+      const topicName = typeof topic === 'string' ? topic.trim() : (topic?.en?.trim?.() || '');
+      const topicDesc = typeof topicDescription === 'string' ? topicDescription.trim() : (topicDescription?.en?.trim?.() || '');
+
+      if (!topicName) {
+        return res.status(400).json({ error: '❌ Название темы отсутствует' });
+      }
 
       resolvedTopic = await Topic.findOne({
         subject,
         level,
-        'name.en': topicName
+        $or: [
+          { 'name': { en: topicName } },
+          { 'name.en': topicName },
+          { 'name.ru': topicName }
+        ]
       });
 
       if (!resolvedTopic) {

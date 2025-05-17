@@ -166,6 +166,10 @@ router.post('/', verifyToken, async (req, res) => {
       const topicNameWrapped = wrapLocalized(topic);
       const topicDescWrapped = wrapLocalized(topicDescription);
 
+      if (!topicNameWrapped.en) {
+        return res.status(400).json({ message: '❌ Topic name is required' });
+      }
+
       resolvedTopic = await Topic.findOne({
         subject,
         level,
