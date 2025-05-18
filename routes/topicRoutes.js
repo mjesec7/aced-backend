@@ -53,10 +53,10 @@ router.get('/:id', validateObjectId, async (req, res) => {
     const topic = await Topic.findById(req.params.id);
     if (!topic) {
       console.warn(`⚠️ Topic not found for ID: ${req.params.id}`);
-      return res.json({}); // fallback to empty object instead of 404
+      return res.json({});
     }
 
-    const lessons = await Lesson.find({ topic: topic._id });
+    const lessons = await Lesson.find({ topicId: req.params.id });
     const response = {
       ...topic.toObject(),
       lessons
@@ -75,10 +75,10 @@ router.get('/:id/lessons', validateObjectId, async (req, res) => {
     const topicExists = await Topic.exists({ _id: req.params.id });
     if (!topicExists) {
       console.warn(`⚠️ Topic ID not valid or not found: ${req.params.id}`);
-      return res.json([]); // fallback to empty array instead of 500
+      return res.json([]);
     }
 
-    const lessons = await Lesson.find({ topic: req.params.id });
+    const lessons = await Lesson.find({ topicId: req.params.id });
     res.json(lessons);
   } catch (err) {
     console.error('❌ Error fetching topic lessons:', err);
