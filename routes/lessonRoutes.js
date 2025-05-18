@@ -85,15 +85,6 @@ router.get('/by-name', async (req, res) => {
 router.put('/:id', verifyToken, validateObjectId, async (req, res) => {
   try {
     const updates = req.body;
-
-    if (!updates.explanation && updates.content) {
-      updates.explanation = updates.content;
-    }
-
-    if (!updates.abcExercises) {
-      updates.abcExercises = [];
-    }
-
     const updatedLesson = await Lesson.findByIdAndUpdate(req.params.id, updates, { new: true });
     if (!updatedLesson) {
       console.warn(`⚠️ Не найден для обновления: ${req.params.id}`);
@@ -126,12 +117,30 @@ router.post('/', verifyToken, async (req, res) => {
   try {
     let {
       lessonName, subject, level, type, topicId, topic, topicDescription,
-      description, explanation, examples, content, hint,
-      exercises, quizzes, abcExercises, relatedSubjects
+      description, explanations, examples, content, hint,
+      exerciseGroups, quiz, relatedSubjects, translations,
+      explanation, exercises, quizzes, abcExercises
     } = req.body;
 
-    if (!lessonName || !subject || level === undefined || !type || !description || !explanation || !examples) {
+    if (!lessonName || !subject || level === undefined || !type || !description) {
       return res.status(400).json({ message: '❌ Missing required lesson fields' });
+    }
+
+    // Normalize input: support both new and old formats
+    if (!Array.isArray(explanations) && explanation) {
+      explanations = [explanation];
+    }
+    if (!Array.isArray(exerciseGroups) && Array.isArray(exercises)) {
+      exerciseGroups = [{ exercises }];
+    }
+    if (!Array.isArray(quiz) && (Array.isArray(abcExercises) || Array.isArray(quizzes))) {
+      quiz = [];
+      if (Array.isArray(abcExercises)) quiz = [...quiz, ...abcExercises];
+      if (Array.isArray(quizzes)) quiz = [...quiz, ...quizzes];
+    }
+
+    if (!Array.isArray(explanations)) {
+      return res.status(400).json({ message: '❌ explanations[] must be an array' });
     }
 
     let resolvedTopic;
@@ -173,17 +182,17 @@ router.post('/', verifyToken, async (req, res) => {
       subject,
       level,
       type,
-      topic: resolvedTopic.name, // store topic name instead of _id
+      topic: resolvedTopic.name,
       topicId: resolvedTopic._id,
       description: typeof description === 'string' ? description.trim() : '',
-      explanation: typeof explanation === 'string' ? explanation.trim() : '',
+      explanations,
       examples: typeof examples === 'string' ? examples.trim() : '',
       content: typeof content === 'string' ? content.trim() : '',
       hint: typeof hint === 'string' ? hint.trim() : '',
-      exercises: Array.isArray(exercises) ? exercises : [],
-      quizzes: Array.isArray(quizzes) ? quizzes : [],
-      abcExercises: Array.isArray(abcExercises) ? abcExercises : [],
-      relatedSubjects: Array.isArray(relatedSubjects) ? relatedSubjects : []
+      exerciseGroups: Array.isArray(exerciseGroups) ? exerciseGroups : [],
+      quiz: Array.isArray(quiz) ? quiz : [],
+      relatedSubjects: Array.isArray(relatedSubjects) ? relatedSubjects : [],
+      translations: typeof translations === 'object' ? translations : {}
     });
 
     const savedLesson = await newLesson.save();
