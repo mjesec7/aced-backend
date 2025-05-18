@@ -1,28 +1,22 @@
 const mongoose = require('mongoose');
 
-// ✅ Single exercise inside a group
-const exerciseItemSchema = new mongoose.Schema({
+// ✅ Exercise schema
+const exerciseSchema = new mongoose.Schema({
   question: { type: String, required: true },
   answer: { type: String, required: true },
-  options: { type: [String], default: [] },
-  hint: { type: String, default: '' }
+  options: { type: [String], default: [] }
 }, { _id: false });
 
-// ✅ Exercise group schema (10 questions per group)
-const exerciseGroupSchema = new mongoose.Schema({
-  groupTitle: { type: String, default: '' },
-  questions: { type: [exerciseItemSchema], required: true }
-}, { _id: false });
-
-// ✅ Quiz schema
+// ✅ Quiz schema (now also accepts correctAnswer)
 const quizSchema = new mongoose.Schema({
   question: { type: String, required: true },
   options: {
     type: [String],
-    required: true,
-    validate: [val => val.length >= 2, '❌ Квиз должен иметь минимум два варианта ответа.']
+    default: [],
+    validate: [val => val.length >= 2, '❌ Квиз должен иметь как минимум два варианта ответа.']
   },
-  answer: { type: String, required: true }
+  answer: { type: String },
+  correctAnswer: { type: String }
 }, { _id: false });
 
 // ✅ ABC Exercise schema
@@ -32,42 +26,42 @@ const abcExerciseSchema = new mongoose.Schema({
   options: {
     type: [String],
     required: true,
-    validate: [val => val.length >= 2, '❌ ABC упражнение должно иметь минимум два варианта.']
+    validate: [val => val.length >= 2, '❌ ABC упражнение должно иметь как минимум два варианта ответа.']
   },
   correctAnswer: { type: String, required: true }
 }, { _id: false });
 
-// ✅ Main Lesson schema
+// ✅ Exercise Group schema
+const exerciseGroupSchema = new mongoose.Schema({
+  exercises: [exerciseSchema]
+}, { _id: false });
+
+// ✅ Main lesson schema
 const lessonSchema = new mongoose.Schema({
   subject: { type: String, required: true, trim: true },
   level: { type: Number, required: true, min: 1 },
   topic: { type: String, required: true, trim: true },
   topicId: { type: mongoose.Schema.Types.ObjectId, required: true, ref: 'Topic' },
   lessonName: { type: String, required: true, trim: true },
-  type: { type: String, enum: ['free', 'premium'], default: 'free' },
+  type: {
+    type: String,
+    enum: ['free', 'premium'],
+    default: 'free'
+  },
+
   description: { type: String, required: true, trim: true },
-
-  // ✅ New: list of explanations
   explanations: { type: [String], default: [] },
-
-  // ✅ New: grouped exercises (10 questions each)
-  exerciseGroups: { type: [exerciseGroupSchema], default: [] },
-
-  // ✅ New: full quiz block
-  quiz: { type: [quizSchema], default: [] },
-
-  // ✅ Optional compatibility fields
-  explanation: { type: String, default: '', trim: true },
   examples: { type: String, default: '', trim: true },
   content: { type: String, default: '', trim: true },
   hint: { type: String, default: '', trim: true },
-  exercises: { type: [exerciseItemSchema], default: [] },
-  abcExercises: { type: [abcExerciseSchema], default: [] },
+
+  exerciseGroups: { type: [exerciseGroupSchema], default: [] },
+  quiz: { type: [quizSchema], default: [] },
   relatedSubjects: { type: [String], default: [] },
+
   translations: { type: mongoose.Schema.Types.Mixed, default: {} }
 }, { timestamps: true });
 
-// ✅ Hooks for logging
 lessonSchema.pre('save', function (next) {
   console.log(`🛠️ [Pre-Save] Saving lesson: "${this.lessonName || 'Unnamed'}"`);
   next();
@@ -105,4 +99,5 @@ lessonSchema.post('findOneAndDelete', function (doc) {
   }
 });
 
-module.exports = mongoose.model('Lesson', lessonSchema);
+const Lesson = mongoose.model('Lesson', lessonSchema);
+module.exports = Lesson;
