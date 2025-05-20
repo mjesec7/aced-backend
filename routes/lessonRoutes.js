@@ -64,10 +64,7 @@ router.get('/by-name', async (req, res) => {
   }
 
   try {
-    const lessons = await Lesson.find({
-      subject,
-      topic: name
-    });
+    const lessons = await Lesson.find({ subject, topic: name });
 
     if (!lessons.length) {
       console.warn(`⚠️ Lesson not found: ${subject} + ${name}`);
@@ -119,14 +116,15 @@ router.post('/', verifyToken, async (req, res) => {
       lessonName, subject, level, type, topicId, topic, topicDescription,
       description, explanations, examples, content, hint,
       exerciseGroups, quiz, relatedSubjects, translations,
-      explanation, exercises, quizzes, abcExercises
+      explanation, exercises, quizzes, abcExercises,
+      steps // ✅ NEW: added here
     } = req.body;
 
     if (!lessonName || !subject || level === undefined || !type || !description) {
       return res.status(400).json({ message: '❌ Missing required lesson fields' });
     }
 
-    // Normalize input: support both new and old formats
+    // Normalize legacy fields
     if (!Array.isArray(explanations) && explanation) {
       explanations = [explanation];
     }
@@ -143,33 +141,20 @@ router.post('/', verifyToken, async (req, res) => {
       return res.status(400).json({ message: '❌ explanations[] must be an array' });
     }
 
+    // Topic creation or reuse
     let resolvedTopic;
-
     if (topicId && mongoose.Types.ObjectId.isValid(topicId)) {
       resolvedTopic = await Topic.findById(topicId);
     }
-
     if (!resolvedTopic) {
       const topicName = typeof topic === 'string' ? topic.trim() : '';
       const topicDesc = typeof topicDescription === 'string' ? topicDescription.trim() : '';
-
       if (!topicName) {
         return res.status(400).json({ message: '❌ Topic name is required' });
       }
-
-      resolvedTopic = await Topic.findOne({
-        subject,
-        level,
-        name: topicName
-      });
-
+      resolvedTopic = await Topic.findOne({ subject, level, name: topicName });
       if (!resolvedTopic) {
-        resolvedTopic = new Topic({
-          name: topicName,
-          subject,
-          level,
-          description: topicDesc
-        });
+        resolvedTopic = new Topic({ name: topicName, subject, level, description: topicDesc });
         await resolvedTopic.save();
         console.log(`✅ Created topic: ${resolvedTopic.name}`);
       } else {
@@ -192,7 +177,8 @@ router.post('/', verifyToken, async (req, res) => {
       exerciseGroups: Array.isArray(exerciseGroups) ? exerciseGroups : [],
       quiz: Array.isArray(quiz) ? quiz : [],
       relatedSubjects: Array.isArray(relatedSubjects) ? relatedSubjects : [],
-      translations: typeof translations === 'object' ? translations : {}
+      translations: typeof translations === 'object' ? translations : {},
+      steps: Array.isArray(steps) ? steps : [] // ✅ NEW FIELD
     });
 
     const savedLesson = await newLesson.save();

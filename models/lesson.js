@@ -36,6 +36,12 @@ const exerciseGroupSchema = new mongoose.Schema({
   exercises: [exerciseSchema]
 }, { _id: false });
 
+// ✅ Step schema for custom structured lessons
+const stepSchema = new mongoose.Schema({
+  type: { type: String, required: true, enum: ['explanation', 'example', 'tryout', 'exercise', 'quiz'] },
+  data: { type: mongoose.Schema.Types.Mixed, required: true }
+}, { _id: false });
+
 // ✅ Main lesson schema
 const lessonSchema = new mongoose.Schema({
   subject: { type: String, required: true, trim: true },
@@ -59,9 +65,13 @@ const lessonSchema = new mongoose.Schema({
   quiz: { type: [quizSchema], default: [] },
   relatedSubjects: { type: [String], default: [] },
 
+  // ✅ NEW: lesson steps for dynamic ordering
+  steps: { type: [stepSchema], default: [] },
+
   translations: { type: mongoose.Schema.Types.Mixed, default: {} }
 }, { timestamps: true });
 
+// ✅ Hooks
 lessonSchema.pre('save', function (next) {
   console.log(`🛠️ [Pre-Save] Saving lesson: "${this.lessonName || 'Unnamed'}"`);
   next();
