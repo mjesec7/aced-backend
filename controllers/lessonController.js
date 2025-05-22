@@ -18,12 +18,13 @@ exports.addLesson = async (req, res) => {
       examples,
       content,
       hint,
-      exercises,
       quizzes,
       abcExercises,
       relatedSubjects,
       type,
-      description
+      description,
+      steps,
+      translations
     } = req.body;
 
     if (!explanation && content) {
@@ -31,7 +32,7 @@ exports.addLesson = async (req, res) => {
       explanation = content;
     }
 
-    if (!subject || !level || !lessonName || !explanation || !examples || !description) {
+    if (!subject || !level || !lessonName || !explanation || !description) {
       return res.status(400).json({ error: '❌ Обязательные поля отсутствуют' });
     }
 
@@ -50,11 +51,7 @@ exports.addLesson = async (req, res) => {
         return res.status(400).json({ error: '❌ Название темы отсутствует' });
       }
 
-      resolvedTopic = await Topic.findOne({
-        subject,
-        level,
-        name: topicName
-      });
+      resolvedTopic = await Topic.findOne({ subject, level, name: topicName });
 
       if (!resolvedTopic) {
         const newTopicPayload = {
@@ -80,15 +77,16 @@ exports.addLesson = async (req, res) => {
       topicId: resolvedTopic._id,
       lessonName: typeof lessonName === 'string' ? lessonName.trim() : '',
       description: typeof description === 'string' ? description.trim() : '',
-      explanation: typeof explanation === 'string' ? explanation.trim() : '',
+      explanations: [typeof explanation === 'string' ? explanation.trim() : ''],
       examples: typeof examples === 'string' ? examples.trim() : '',
       content: typeof content === 'string' ? content.trim() : '',
       hint: typeof hint === 'string' ? hint.trim() : '',
-      exercises: Array.isArray(exercises) ? exercises : [],
-      quizzes: Array.isArray(quizzes) ? quizzes : [],
-      abcExercises: Array.isArray(abcExercises) ? abcExercises : [],
+      steps: Array.isArray(steps) ? steps : [],
+      quiz: Array.isArray(quizzes) ? quizzes : [],
+      homework: Array.isArray(abcExercises) ? abcExercises : [],
       relatedSubjects: Array.isArray(relatedSubjects) ? relatedSubjects : [],
-      type: type || 'free'
+      type: type || 'free',
+      translations: typeof translations === 'object' ? translations : {}
     });
 
     await newLesson.save();
@@ -117,8 +115,8 @@ exports.updateLesson = async (req, res) => {
       updates.explanation = updates.content;
     }
 
-    if (!updates.abcExercises) {
-      updates.abcExercises = [];
+    if (!updates.homework) {
+      updates.homework = [];
     }
 
     const updatedLesson = await Lesson.findByIdAndUpdate(lessonId, updates, { new: true });
