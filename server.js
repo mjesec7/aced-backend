@@ -77,7 +77,10 @@ try {
   app.use('/api/topics', require('./routes/topicRoutes'));
   app.use('/api/user-progress', require('./routes/userProgressRoutes'));
   app.use('/api', require('./routes/recommendationRoutes'));
-  app.use('/api/payments', require('./routes/payments')); // ✅ Added promo route
+  app.use('/api/payments', require('./routes/payments'));
+
+  // ✅ NEW: Homework API Routes
+  app.use('/api', require('./routes/homeworkRoutes'));
 
 } catch (routeError) {
   console.error('❌ Failed to load route:', routeError);

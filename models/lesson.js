@@ -7,7 +7,7 @@ const exerciseSchema = new mongoose.Schema({
   options: { type: [String], default: [] }
 }, { _id: false });
 
-// ✅ Quiz schema (now also accepts correctAnswer)
+// ✅ Quiz schema
 const quizSchema = new mongoose.Schema({
   question: { type: String, required: true },
   options: {
@@ -31,6 +31,12 @@ const abcExerciseSchema = new mongoose.Schema({
   correctAnswer: { type: String, required: true }
 }, { _id: false });
 
+// ✅ Vocabulary schema
+const vocabSchema = new mongoose.Schema({
+  term: { type: String, required: true },
+  definition: { type: String, required: true }
+}, { _id: false });
+
 // ✅ Exercise Group schema
 const exerciseGroupSchema = new mongoose.Schema({
   exercises: [exerciseSchema]
@@ -38,7 +44,11 @@ const exerciseGroupSchema = new mongoose.Schema({
 
 // ✅ Step schema for custom structured lessons
 const stepSchema = new mongoose.Schema({
-  type: { type: String, required: true, enum: ['explanation', 'example', 'tryout', 'exercise', 'quiz'] },
+  type: {
+    type: String,
+    required: true,
+    enum: ['explanation', 'example', 'tryout', 'exercise', 'quiz', 'vocabulary']
+  },
   data: { type: mongoose.Schema.Types.Mixed, required: true }
 }, { _id: false });
 
@@ -65,13 +75,19 @@ const lessonSchema = new mongoose.Schema({
   quiz: { type: [quizSchema], default: [] },
   relatedSubjects: { type: [String], default: [] },
 
-  // ✅ NEW: lesson steps for dynamic ordering
+  // ✅ NEW: Dynamic steps
   steps: { type: [stepSchema], default: [] },
+
+  // ✅ NEW: Homework questions (separate from quiz)
+  homework: {
+    type: [abcExerciseSchema],
+    default: []
+  },
 
   translations: { type: mongoose.Schema.Types.Mixed, default: {} }
 }, { timestamps: true });
 
-// ✅ Hooks
+// ✅ Logging Hooks
 lessonSchema.pre('save', function (next) {
   console.log(`🛠️ [Pre-Save] Saving lesson: "${this.lessonName || 'Unnamed'}"`);
   next();
