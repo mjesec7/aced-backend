@@ -20,6 +20,8 @@ exports.addLesson = async (req, res) => {
       hint,
       quizzes,
       abcExercises,
+      homeworkABC,
+      homeworkQA,
       relatedSubjects,
       type,
       description,
@@ -36,8 +38,8 @@ exports.addLesson = async (req, res) => {
       return res.status(400).json({ error: '❌ Обязательные поля отсутствуют' });
     }
 
+    // ✅ Topic Resolution
     let resolvedTopic = null;
-
     if (topicId && mongoose.Types.ObjectId.isValid(topicId)) {
       resolvedTopic = await Topic.findById(topicId);
       if (!resolvedTopic) {
@@ -52,24 +54,23 @@ exports.addLesson = async (req, res) => {
       }
 
       resolvedTopic = await Topic.findOne({ subject, level, name: topicName });
-
       if (!resolvedTopic) {
-        const newTopicPayload = {
-          name: topicName,
-          subject,
-          level,
-          description: topicDesc
-        };
-        console.log('🧪 Creating Topic with:', newTopicPayload);
-
-        resolvedTopic = new Topic(newTopicPayload);
+        resolvedTopic = new Topic({ name: topicName, subject, level, description: topicDesc });
         await resolvedTopic.save();
-        console.log(`✅ [Создание темы] Тема успешно создана: "${resolvedTopic.name}" (ID: ${resolvedTopic._id})`);
+        console.log(`✅ [Создание темы] "${resolvedTopic.name}" (ID: ${resolvedTopic._id})`);
       } else {
         console.log(`ℹ️ [Использование существующей темы] ${resolvedTopic.name} (ID: ${resolvedTopic._id})`);
       }
     }
 
+    // ✅ Homework merging
+    const combinedHomework = [
+      ...(Array.isArray(homeworkABC) ? homeworkABC : []),
+      ...(Array.isArray(homeworkQA) ? homeworkQA : []),
+      ...(Array.isArray(abcExercises) ? abcExercises : [])
+    ];
+
+    // ✅ Construct Lesson
     const newLesson = new Lesson({
       subject,
       level,
@@ -83,14 +84,14 @@ exports.addLesson = async (req, res) => {
       hint: typeof hint === 'string' ? hint.trim() : '',
       steps: Array.isArray(steps) ? steps : [],
       quiz: Array.isArray(quizzes) ? quizzes : [],
-      homework: Array.isArray(abcExercises) ? abcExercises : [],
+      homework: combinedHomework,
       relatedSubjects: Array.isArray(relatedSubjects) ? relatedSubjects : [],
       type: type || 'free',
       translations: typeof translations === 'object' ? translations : {}
     });
 
     await newLesson.save();
-    console.log(`✅ [Добавление урока] Урок успешно сохранён: "${newLesson.lessonName}" (ID: ${newLesson._id})`);
+    console.log(`✅ [Добавление урока] Сохранено: "${newLesson.lessonName}" (ID: ${newLesson._id})`);
     res.status(201).json(newLesson);
   } catch (error) {
     console.error('❌ Ошибка при добавлении урока:', error);
@@ -105,19 +106,21 @@ exports.addLesson = async (req, res) => {
 exports.updateLesson = async (req, res) => {
   try {
     const lessonId = req.params.id;
-    const updates = req.body;
-
     if (!lessonId) {
       return res.status(400).json({ error: '❌ Отсутствует ID урока' });
     }
+
+    const updates = req.body;
 
     if (!updates.explanation && updates.content) {
       updates.explanation = updates.content;
     }
 
-    if (!updates.homework) {
-      updates.homework = [];
-    }
+    updates.homework = [
+      ...(Array.isArray(updates.homeworkABC) ? updates.homeworkABC : []),
+      ...(Array.isArray(updates.homeworkQA) ? updates.homeworkQA : []),
+      ...(Array.isArray(updates.abcExercises) ? updates.abcExercises : [])
+    ];
 
     const updatedLesson = await Lesson.findByIdAndUpdate(lessonId, updates, { new: true });
 
@@ -125,7 +128,7 @@ exports.updateLesson = async (req, res) => {
       return res.status(404).json({ error: '❌ Урок не найден' });
     }
 
-    console.log(`✅ [Обновление урока] Урок успешно обновлён: "${updatedLesson.lessonName}" (ID: ${updatedLesson._id})`);
+    console.log(`✅ [Обновление] "${updatedLesson.lessonName}" (ID: ${updatedLesson._id})`);
     res.json(updatedLesson);
   } catch (error) {
     console.error('❌ Ошибка при обновлении урока:', error);
@@ -146,7 +149,7 @@ exports.deleteLesson = async (req, res) => {
       return res.status(404).json({ error: '❌ Урок не найден' });
     }
 
-    console.log(`✅ [Удаление урока] Урок успешно удалён: "${deletedLesson.lessonName}" (ID: ${deletedLesson._id})`);
+    console.log(`🗑️ [Удаление] "${deletedLesson.lessonName}" (ID: ${deletedLesson._id})`);
     res.json({ message: '✅ Урок удалён' });
   } catch (error) {
     console.error('❌ Ошибка при удалении урока:', error);
@@ -167,11 +170,7 @@ exports.getLesson = async (req, res) => {
       return res.status(404).json({ error: '❌ Урок не найден' });
     }
 
-    if (!lesson.explanation && lesson.content) {
-      lesson.explanation = lesson.content;
-    }
-
-    console.log(`✅ [Получение урока] Урок успешно получен: "${lesson.lessonName}" (ID: ${lesson._id})`);
+    console.log(`📘 [Получение] "${lesson.lessonName}" (ID: ${lesson._id})`);
     res.json(lesson);
   } catch (error) {
     console.error('❌ Ошибка при получении урока:', error);
@@ -188,7 +187,7 @@ exports.getLessonsByTopic = async (req, res) => {
     }
 
     const lessons = await Lesson.find({ topicId });
-    console.log(`✅ [Получение уроков по теме] Найдено ${lessons.length} урок(ов) для TopicID: "${topicId}"`);
+    console.log(`📚 [Тематика] Найдено ${lessons.length} урок(ов) для TopicID: "${topicId}"`);
     res.json(lessons);
   } catch (error) {
     console.error('❌ Ошибка при получении уроков:', error);

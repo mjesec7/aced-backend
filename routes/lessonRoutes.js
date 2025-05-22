@@ -5,11 +5,13 @@ const Lesson = require('../models/lesson');
 const Topic = require('../models/topic');
 const verifyToken = require('../middlewares/authMiddleware');
 
+// ✅ Middleware: Request Logging
 router.use((req, res, next) => {
   console.log(`📢 [${req.method}] ${req.originalUrl}`);
   next();
 });
 
+// ✅ Middleware: Validate ObjectId
 function validateObjectId(req, res, next) {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     console.warn(`⚠️ Invalid ObjectId: ${req.params.id}`);
@@ -18,6 +20,7 @@ function validateObjectId(req, res, next) {
   next();
 }
 
+// ✅ Get all lessons
 router.get('/', async (req, res) => {
   try {
     const filter = req.query.type ? { type: req.query.type } : {};
@@ -30,6 +33,7 @@ router.get('/', async (req, res) => {
   }
 });
 
+// ✅ Delete all lessons
 router.delete('/all', verifyToken, async (req, res) => {
   try {
     const result = await Lesson.deleteMany({});
@@ -41,15 +45,13 @@ router.delete('/all', verifyToken, async (req, res) => {
   }
 });
 
+// ✅ Get lesson by ID
 router.get('/:id', validateObjectId, async (req, res) => {
   try {
     const lesson = await Lesson.findById(req.params.id);
     if (!lesson) {
-      console.warn(`⚠️ Урок не найден: ${req.params.id}`);
       return res.status(404).json({ message: '❌ Lesson not found' });
     }
-
-    console.log(`📅 Урок получен: ${lesson.lessonName}`);
     res.status(200).json(lesson);
   } catch (error) {
     console.error('❌ Ошибка получения урока:', error);
@@ -57,6 +59,7 @@ router.get('/:id', validateObjectId, async (req, res) => {
   }
 });
 
+// ✅ Get lesson by name + subject
 router.get('/by-name', async (req, res) => {
   const { subject, name } = req.query;
   if (!subject || !name) {
@@ -65,13 +68,9 @@ router.get('/by-name', async (req, res) => {
 
   try {
     const lessons = await Lesson.find({ subject, topic: name });
-
     if (!lessons.length) {
-      console.warn(`⚠️ Lesson not found: ${subject} + ${name}`);
       return res.status(404).json({ message: '❌ Lesson not found' });
     }
-
-    console.log(`📘 Найден урок по имени: "${name}" в "${subject}"`);
     res.status(200).json(lessons[0]);
   } catch (err) {
     console.error('❌ Ошибка получения урока по имени:', err);
@@ -79,15 +78,20 @@ router.get('/by-name', async (req, res) => {
   }
 });
 
+// ✅ Update lesson
 router.put('/:id', verifyToken, validateObjectId, async (req, res) => {
   try {
     const updates = req.body;
+    updates.homework = [
+      ...(Array.isArray(updates.homeworkABC) ? updates.homeworkABC : []),
+      ...(Array.isArray(updates.homeworkQA) ? updates.homeworkQA : []),
+      ...(Array.isArray(updates.abcExercises) ? updates.abcExercises : [])
+    ];
+
     const updatedLesson = await Lesson.findByIdAndUpdate(req.params.id, updates, { new: true });
     if (!updatedLesson) {
-      console.warn(`⚠️ Не найден для обновления: ${req.params.id}`);
       return res.status(404).json({ message: '❌ Lesson not found' });
     }
-    console.log(`🔄 Урок обновлён: ${updatedLesson.lessonName}`);
     res.status(200).json(updatedLesson);
   } catch (error) {
     console.error('❌ Ошибка обновления урока:', error);
@@ -95,14 +99,13 @@ router.put('/:id', verifyToken, validateObjectId, async (req, res) => {
   }
 });
 
+// ✅ Delete lesson by ID
 router.delete('/:id', verifyToken, validateObjectId, async (req, res) => {
   try {
     const deletedLesson = await Lesson.findByIdAndDelete(req.params.id);
     if (!deletedLesson) {
-      console.warn(`⚠️ Урок не найден для удаления: ${req.params.id}`);
       return res.status(404).json({ message: '❌ Lesson not found' });
     }
-    console.log(`🗑️ Удалён: ${deletedLesson.lessonName}`);
     res.status(200).json({ message: '✅ Lesson successfully deleted' });
   } catch (error) {
     console.error('❌ Ошибка удаления урока:', error);
@@ -110,6 +113,7 @@ router.delete('/:id', verifyToken, validateObjectId, async (req, res) => {
   }
 });
 
+// ✅ Add new lesson
 router.post('/', verifyToken, async (req, res) => {
   try {
     let {
@@ -117,32 +121,43 @@ router.post('/', verifyToken, async (req, res) => {
       description, explanations, examples, content, hint,
       exerciseGroups, quiz, relatedSubjects, translations,
       explanation, exercises, quizzes, abcExercises,
-      steps // ✅ NEW: added here
+      homeworkABC, homeworkQA,
+      steps
     } = req.body;
 
     if (!lessonName || !subject || level === undefined || !type || !description) {
       return res.status(400).json({ message: '❌ Missing required lesson fields' });
     }
 
-    // Normalize legacy fields
+    // Normalize explanations
     if (!Array.isArray(explanations) && explanation) {
       explanations = [explanation];
     }
+
+    // Normalize exercise groups
     if (!Array.isArray(exerciseGroups) && Array.isArray(exercises)) {
       exerciseGroups = [{ exercises }];
     }
+
+    // Normalize quizzes
     if (!Array.isArray(quiz) && (Array.isArray(abcExercises) || Array.isArray(quizzes))) {
       quiz = [];
       if (Array.isArray(abcExercises)) quiz = [...quiz, ...abcExercises];
       if (Array.isArray(quizzes)) quiz = [...quiz, ...quizzes];
     }
 
+    const homework = [
+      ...(Array.isArray(homeworkABC) ? homeworkABC : []),
+      ...(Array.isArray(homeworkQA) ? homeworkQA : []),
+      ...(Array.isArray(abcExercises) ? abcExercises : [])
+    ];
+
     if (!Array.isArray(explanations)) {
       return res.status(400).json({ message: '❌ explanations[] must be an array' });
     }
 
-    // Topic creation or reuse
-    let resolvedTopic;
+    // Topic resolution
+    let resolvedTopic = null;
     if (topicId && mongoose.Types.ObjectId.isValid(topicId)) {
       resolvedTopic = await Topic.findById(topicId);
     }
@@ -178,7 +193,8 @@ router.post('/', verifyToken, async (req, res) => {
       quiz: Array.isArray(quiz) ? quiz : [],
       relatedSubjects: Array.isArray(relatedSubjects) ? relatedSubjects : [],
       translations: typeof translations === 'object' ? translations : {},
-      steps: Array.isArray(steps) ? steps : [] // ✅ NEW FIELD
+      steps: Array.isArray(steps) ? steps : [],
+      homework
     });
 
     const savedLesson = await newLesson.save();

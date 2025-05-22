@@ -37,17 +37,12 @@ const vocabSchema = new mongoose.Schema({
   definition: { type: String, required: true }
 }, { _id: false });
 
-// ✅ Exercise Group schema
-const exerciseGroupSchema = new mongoose.Schema({
-  exercises: [exerciseSchema]
-}, { _id: false });
-
 // ✅ Step schema for custom structured lessons
 const stepSchema = new mongoose.Schema({
   type: {
     type: String,
     required: true,
-    enum: ['explanation', 'example', 'tryout', 'exercise', 'quiz', 'vocabulary']
+    enum: ['explanation', 'example', 'tryout', 'exercise', 'quiz', 'vocabulary', 'abc']
   },
   data: { type: mongoose.Schema.Types.Mixed, required: true }
 }, { _id: false });
@@ -71,14 +66,11 @@ const lessonSchema = new mongoose.Schema({
   content: { type: String, default: '', trim: true },
   hint: { type: String, default: '', trim: true },
 
-  exerciseGroups: { type: [exerciseGroupSchema], default: [] },
+  steps: { type: [stepSchema], default: [] },
   quiz: { type: [quizSchema], default: [] },
   relatedSubjects: { type: [String], default: [] },
 
-  // ✅ NEW: Dynamic steps
-  steps: { type: [stepSchema], default: [] },
-
-  // ✅ NEW: Homework questions (separate from quiz)
+  // ✅ Combined Homework (from both ABC and QA)
   homework: {
     type: [abcExerciseSchema],
     default: []
