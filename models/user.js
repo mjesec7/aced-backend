@@ -4,7 +4,7 @@ const mongoose = require('mongoose');
 const studyTopicSchema = new mongoose.Schema({
   topicId: { type: mongoose.Schema.Types.ObjectId, ref: 'Topic', required: true },
   subject: { type: String, required: true },
-  name: { type: String, required: true }, // Only the plain localized string (not object)
+  name: { type: String, required: true },
   level: { type: String, default: 'basic' },
   addedAt: { type: Date, default: Date.now }
 }, { _id: false });
@@ -28,6 +28,40 @@ const diaryEntrySchema = new mongoose.Schema({
   averageGrade: Number
 }, { _id: false });
 
+// ✅ Homework Submission Schema
+const homeworkSubmissionSchema = new mongoose.Schema({
+  lessonId: { type: mongoose.Schema.Types.ObjectId, ref: 'Lesson', required: true },
+  questions: [ // Manual and auto
+    {
+      question: String,
+      userAnswer: String,
+      correctAnswer: String,
+      isCorrect: Boolean,
+      submittedAt: { type: Date, default: Date.now }
+    }
+  ],
+  score: Number,
+  submittedAt: { type: Date, default: Date.now }
+}, { _id: false });
+
+// ✅ Test Result Schema
+const testResultSchema = new mongoose.Schema({
+  testId: { type: mongoose.Schema.Types.ObjectId, ref: 'Test', required: true },
+  topic: String,
+  type: { type: String, enum: ['grammar', 'vocab'] },
+  questions: [
+    {
+      question: String,
+      selected: String,
+      correctAnswer: String,
+      isCorrect: Boolean
+    }
+  ],
+  score: Number,
+  total: Number,
+  date: { type: Date, default: Date.now }
+}, { _id: false });
+
 // ✅ Main User Schema
 const userSchema = new mongoose.Schema({
   // 🔐 Firebase Credentials
@@ -43,7 +77,7 @@ const userSchema = new mongoose.Schema({
   subscriptionPlan: {
     type: String,
     enum: ['free', 'start', 'pro'],
-    default: 'free' // ✅ Always defaults to free
+    default: 'free'
   },
   paymentStatus: {
     type: String,
@@ -55,8 +89,15 @@ const userSchema = new mongoose.Schema({
   studyList: [studyTopicSchema],
   progress: {
     type: Object,
-    default: {} // { lessonId: { completed: true, score: X, ... } }
+    default: {} // e.g. { lessonId: { completedSteps: [], completed: true, stars: 3, timeSpent: 900 } }
   },
+
+  // 💡 Homework & Tests
+  homeworkSubmissions: [homeworkSubmissionSchema],
+  testResults: [testResultSchema],
+
+  // 🧠 Points System
+  totalPoints: { type: Number, default: 0 },
 
   // 🎯 Goals & Diary
   goals: [goalSchema],

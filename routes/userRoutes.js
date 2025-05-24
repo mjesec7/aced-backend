@@ -169,6 +169,34 @@ router.post('/:firebaseId/progress', validateFirebaseId, verifyToken, verifyOwne
     res.status(500).json({ error: '❌ Error updating lesson progress' });
   }
 });
+// ✅ Analytics
+router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
+  try {
+    const progress = await UserProgress.find({ userId: req.params.firebaseId });
+
+    const completed = progress.filter(p => p.completed).length;
+    const totalStars = progress.reduce((sum, p) => sum + (p.stars || 0), 0);
+    const totalPoints = progress.reduce((sum, p) => sum + (p.points || 0), 0);
+    const hintsUsed = progress.reduce((sum, p) => sum + (p.hintsUsed || 0), 0);
+
+    res.json({ completedLessons: completed, totalStars, totalPoints, hintsUsed });
+  } catch (err) {
+    console.error('❌ Error fetching analytics:', err);
+    res.status(500).json({ error: '❌ Error fetching analytics' });
+  }
+});
+
+// ✅ Total Points Only
+router.get('/:firebaseId/points', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
+  try {
+    const progress = await UserProgress.find({ userId: req.params.firebaseId });
+    const totalPoints = progress.reduce((sum, p) => sum + (p.points || 0), 0);
+    res.json({ totalPoints });
+  } catch (err) {
+    res.status(500).json({ error: '❌ Error fetching total points' });
+  }
+});
+
 
 router.post('/:firebaseId/progress-topic', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   const { topicId } = req.body;
@@ -238,5 +266,16 @@ router.post('/:firebaseId/diary', validateFirebaseId, verifyToken, verifyOwnersh
     res.status(500).json({ error: '❌ Error saving diary' });
   }
 });
+// ✅ Homework Routes
+router.get('/:firebaseId/homeworks', validateFirebaseId, verifyToken, verifyOwnership, homeworkController.getAllHomeworks);
+router.get('/:firebaseId/homeworks/lesson/:lessonId', validateFirebaseId, verifyToken, verifyOwnership, homeworkController.getHomeworkByLesson);
+router.post('/:firebaseId/homeworks/save', validateFirebaseId, verifyToken, verifyOwnership, homeworkController.saveHomework);
+router.post('/:firebaseId/homeworks/lesson/:lessonId/submit', validateFirebaseId, verifyToken, verifyOwnership, homeworkController.submitHomework);
+// ✅ Test Routes
+router.get('/:firebaseId/tests', validateFirebaseId, verifyToken, verifyOwnership, testController.getAvailableTests);
+router.get('/:firebaseId/tests/:testId', validateFirebaseId, verifyToken, verifyOwnership, testController.getTestById);
+router.post('/:firebaseId/tests/:testId/submit', validateFirebaseId, verifyToken, verifyOwnership, testController.submitTestResult);
+router.get('/:firebaseId/tests/:testId/result', validateFirebaseId, verifyToken, verifyOwnership, testController.getTestResult);
+
 
 module.exports = router;

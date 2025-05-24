@@ -1,4 +1,3 @@
-// ✅ Full production-grade server.js for Aced Platform
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -80,7 +79,13 @@ try {
   app.use('/api/payments', require('./routes/payments'));
 
   // ✅ NEW: Homework API Routes
-  app.use('/api', require('./routes/homeworkRoutes'));
+  app.use('/api/homeworks', require('./routes/homeworkRoutes'));
+
+  // ✅ NEW: Test API Routes
+  app.use('/api/tests', require('./routes/testRoutes'));
+
+  // ✅ NEW: Dedicated Progress Routes (optional if not merged into userProgress)
+  app.use('/api/progress', require('./routes/userProgressRoutes'));
 
 } catch (routeError) {
   console.error('❌ Failed to load route:', routeError);
