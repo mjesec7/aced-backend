@@ -2,7 +2,7 @@ const Test = require('../models/Test');
 const TestResult = require('../models/TestResult');
 
 // ✅ Get all available tests
-exports.getAvailableTests = async (req, res) => { 
+exports.getAvailableTests = async (req, res) => {
   try {
     const tests = await Test.find();
     res.json({ success: true, data: tests });
@@ -93,6 +93,23 @@ exports.getUserTestResults = async (req, res) => {
     res.json({ success: true, data: results });
   } catch (error) {
     console.error('❌ Error fetching test results:', error);
+    res.status(500).json({ success: false, error: 'Server error' });
+  }
+};
+
+// ✅ Get specific test result for a user
+exports.getTestResult = async (req, res) => {
+  try {
+    const { firebaseId, testId } = req.params;
+    const result = await TestResult.findOne({ userId: firebaseId, testId }).populate('testId');
+
+    if (!result) {
+      return res.status(404).json({ success: false, error: 'Result not found' });
+    }
+
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('❌ Error fetching test result:', error);
     res.status(500).json({ success: false, error: 'Server error' });
   }
 };
