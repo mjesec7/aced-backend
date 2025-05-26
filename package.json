@@ -24,7 +24,7 @@
     "mongodb": "4.0",
     "mongoose": "^8.12.1",
     "nodemailer": "^6.10.1",
-    "pupeteer": "^0.0.1",
+    "phantomjs-prebuilt": "^2.1.16",
     "puppeteer": "^24.6.0"
   },
   "devDependencies": {

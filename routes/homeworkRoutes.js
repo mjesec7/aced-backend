@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { verifyToken } = require('../middleware/auth');
+const { verifyToken } = require('../middlewares/authMiddleware');
 const controller = require('../controllers/homeworkController');
 
 // 🧠 Middleware to check if the user matches the token
