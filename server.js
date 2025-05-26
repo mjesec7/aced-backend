@@ -61,15 +61,18 @@ app.get('/auth-test', authenticateUser, (req, res) => {
   res.json({ message: `✅ Hello ${req.user.email}, you are authorized!`, uid: req.user.uid });
 });
 
-// ✅ API Routes
+// ✅ Mount API Routes
 try {
+  console.log('📦 Mounting /api/users');
   app.use('/api/users', require('./routes/userRoutes'));
+  console.log('✅ Mounted /api/users');
+
   app.use('/api/lessons', require('./routes/lessonRoutes'));
   app.use('/api/chat', require('./routes/chatRoutes'));
   app.use('/api/subjects', require('./routes/subjectRoutes'));
   app.use('/api/email', require('./routes/emailRoutes'));
   app.use('/api/topics', require('./routes/topicRoutes'));
-  app.use('/api/payments', require('./routes/paymeRoutes')); // ✅ Use only ONE
+  app.use('/api/payments', require('./routes/paymeRoutes'));
   app.use('/api/homeworks', require('./routes/homeworkRoutes'));
   app.use('/api/tests', require('./routes/testRoutes'));
   app.use('/api/progress', require('./routes/userProgressRoutes'));
@@ -78,16 +81,16 @@ try {
   console.error('❌ Failed to load route:', routeError);
 }
 
-// ✅ Fallback for unmatched API routes
-app.all('/api/*', (req, res) => {
-  res.status(404).json({ error: '❌ API route not found' });
-});
+// ❌ Temporarily DISABLED API fallback to debug /users/save route
+// app.all('/api/*', (req, res) => {
+//   res.status(404).json({ error: '❌ API route not found' });
+// });
 
 // ✅ Serve Frontend
 const distPath = path.join(__dirname, 'dist');
 app.use(express.static(distPath));
 
-// ✅ SPA fallback (Vue history mode) — only for non-API GETs
+// ✅ SPA fallback (Vue history mode)
 app.get(/^\/(?!api).*/, (req, res) => {
   const indexPath = path.join(distPath, 'index.html');
   res.sendFile(indexPath, (err) => {

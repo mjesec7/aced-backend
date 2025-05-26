@@ -2,18 +2,25 @@ const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
 
+// ✅ Models
 const User = require('../models/user');
 const TopicProgress = require('../models/topicProgress');
 const Lesson = require('../models/lesson');
 const Topic = require('../models/topic');
-const UserProgress = require('../models/userProgress'); // ✅ Added
+const UserProgress = require('../models/userProgress');
+
+// ✅ Firebase & Middleware
 const admin = require('../config/firebase');
 const verifyToken = require('../middlewares/authMiddleware');
 
-const homeworkController = require('../controllers/homeworkController'); // ✅ Added
-const testController = require('../controllers/testController'); // ✅ Added
+// ✅ Controllers
+const homeworkController = require('../controllers/homeworkController');
+const testController = require('../controllers/testController');
 
-// ✅ Middleware
+// ✅ Route file loaded confirmation
+console.log('✅ userRoutes.js loaded');
+
+// ✅ Reusable Middleware
 function validateFirebaseId(req, res, next) {
   if (!req.params.firebaseId) {
     return res.status(400).json({ error: '❌ Missing firebaseId in request' });
@@ -36,7 +43,9 @@ function validateObjectId(req, res, next) {
   next();
 }
 
-// ✅ Save or create user
+//
+// ─── AUTH / LOGIN ──────────────────────────────────────────────────────────────
+//
 router.post('/save', async (req, res) => {
   const { token, name, subscriptionPlan } = req.body;
   if (!token || !name) {
@@ -74,7 +83,6 @@ router.post('/save', async (req, res) => {
   }
 });
 
-// ✅ Fetch user by firebaseId
 router.get('/:firebaseId', validateFirebaseId, async (req, res) => {
   try {
     const user = await User.findOne({ firebaseId: req.params.firebaseId });
@@ -85,7 +93,6 @@ router.get('/:firebaseId', validateFirebaseId, async (req, res) => {
   }
 });
 
-// ✅ Subscription status
 router.get('/:firebaseId/status', validateFirebaseId, async (req, res) => {
   try {
     const user = await User.findOne({ firebaseId: req.params.firebaseId });
@@ -96,7 +103,9 @@ router.get('/:firebaseId/status', validateFirebaseId, async (req, res) => {
   }
 });
 
-// ✅ Study List
+//
+// ─── STUDY LIST ────────────────────────────────────────────────────────────────
+//
 router.get('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   try {
     const user = await User.findOne({ firebaseId: req.params.firebaseId });
@@ -115,9 +124,7 @@ router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOw
     const user = await User.findOne({ firebaseId: req.params.firebaseId });
     if (!user) return res.status(404).json({ error: '❌ User not found' });
 
-    if (!user.studyList) user.studyList = [];
-
-    const exists = user.studyList.some(entry => entry.name === topic && entry.subject === subject);
+    const exists = user.studyList?.some(entry => entry.name === topic && entry.subject === subject);
     if (!exists) {
       user.studyList.push({
         name: topic,
@@ -140,9 +147,9 @@ router.delete('/:firebaseId/study-list/:topicId', validateFirebaseId, verifyToke
     const user = await User.findOne({ firebaseId: req.params.firebaseId });
     if (!user) return res.status(404).json({ error: '❌ User not found' });
 
-    user.studyList = (user.studyList || []).filter(entry => {
-      return entry.topicId?.toString() !== topicId && entry._id?.toString() !== topicId;
-    });
+    user.studyList = (user.studyList || []).filter(entry =>
+      entry.topicId?.toString() !== topicId && entry._id?.toString() !== topicId
+    );
 
     await user.save();
     res.json({ message: '✅ Study topic removed', studyList: user.studyList });
@@ -151,7 +158,9 @@ router.delete('/:firebaseId/study-list/:topicId', validateFirebaseId, verifyToke
   }
 });
 
-// ✅ Recommendations
+//
+// ─── RECOMMENDATIONS ───────────────────────────────────────────────────────────
+//
 router.get('/:firebaseId/recommendations', validateFirebaseId, async (req, res) => {
   try {
     const topics = await Topic.aggregate([{ $sample: { size: 6 } }]);
@@ -161,7 +170,9 @@ router.get('/:firebaseId/recommendations', validateFirebaseId, async (req, res) 
   }
 });
 
-// ✅ Lesson Progress
+//
+// ─── PROGRESS ──────────────────────────────────────────────────────────────────
+//
 router.post('/:firebaseId/progress', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   const { lessonId, section } = req.body;
   if (!lessonId || !section) return res.status(400).json({ error: '❌ Missing lessonId or section' });
@@ -181,34 +192,6 @@ router.post('/:firebaseId/progress', validateFirebaseId, verifyToken, verifyOwne
   }
 });
 
-// ✅ Analytics
-router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  try {
-    const progress = await UserProgress.find({ userId: req.params.firebaseId });
-
-    const completed = progress.filter(p => p.completed).length;
-    const totalStars = progress.reduce((sum, p) => sum + (p.stars || 0), 0);
-    const totalPoints = progress.reduce((sum, p) => sum + (p.points || 0), 0);
-    const hintsUsed = progress.reduce((sum, p) => sum + (p.hintsUsed || 0), 0);
-
-    res.json({ completedLessons: completed, totalStars, totalPoints, hintsUsed });
-  } catch (err) {
-    console.error('❌ Error fetching analytics:', err);
-    res.status(500).json({ error: '❌ Error fetching analytics' });
-  }
-});
-
-router.get('/:firebaseId/points', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  try {
-    const progress = await UserProgress.find({ userId: req.params.firebaseId });
-    const totalPoints = progress.reduce((sum, p) => sum + (p.points || 0), 0);
-    res.json({ totalPoints });
-  } catch (err) {
-    res.status(500).json({ error: '❌ Error fetching total points' });
-  }
-});
-
-// ✅ Topic Progress
 router.post('/:firebaseId/progress-topic', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   const { topicId } = req.body;
   if (!topicId) return res.status(400).json({ error: '❌ Missing topicId' });
@@ -247,7 +230,38 @@ router.post('/:firebaseId/progress-topic', validateFirebaseId, verifyToken, veri
   }
 });
 
-// ✅ Diary
+//
+// ─── ANALYTICS ─────────────────────────────────────────────────────────────────
+//
+router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
+  try {
+    const progress = await UserProgress.find({ userId: req.params.firebaseId });
+
+    const completed = progress.filter(p => p.completed).length;
+    const totalStars = progress.reduce((sum, p) => sum + (p.stars || 0), 0);
+    const totalPoints = progress.reduce((sum, p) => sum + (p.points || 0), 0);
+    const hintsUsed = progress.reduce((sum, p) => sum + (p.hintsUsed || 0), 0);
+
+    res.json({ completedLessons: completed, totalStars, totalPoints, hintsUsed });
+  } catch (err) {
+    console.error('❌ Error fetching analytics:', err);
+    res.status(500).json({ error: '❌ Error fetching analytics' });
+  }
+});
+
+router.get('/:firebaseId/points', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
+  try {
+    const progress = await UserProgress.find({ userId: req.params.firebaseId });
+    const totalPoints = progress.reduce((sum, p) => sum + (p.points || 0), 0);
+    res.json({ totalPoints });
+  } catch (err) {
+    res.status(500).json({ error: '❌ Error fetching total points' });
+  }
+});
+
+//
+// ─── DIARY ─────────────────────────────────────────────────────────────────────
+//
 router.get('/:firebaseId/diary', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   try {
     const user = await User.findOne({ firebaseId: req.params.firebaseId });
@@ -279,13 +293,17 @@ router.post('/:firebaseId/diary', validateFirebaseId, verifyToken, verifyOwnersh
   }
 });
 
-// ✅ Homework
+//
+// ─── HOMEWORK ──────────────────────────────────────────────────────────────────
+//
 router.get('/:firebaseId/homeworks', validateFirebaseId, verifyToken, verifyOwnership, homeworkController.getAllHomeworks);
 router.get('/:firebaseId/homeworks/lesson/:lessonId', validateFirebaseId, verifyToken, verifyOwnership, homeworkController.getHomeworkByLesson);
 router.post('/:firebaseId/homeworks/save', validateFirebaseId, verifyToken, verifyOwnership, homeworkController.saveHomework);
 router.post('/:firebaseId/homeworks/lesson/:lessonId/submit', validateFirebaseId, verifyToken, verifyOwnership, homeworkController.submitHomework);
 
-// ✅ Tests
+//
+// ─── TESTS ─────────────────────────────────────────────────────────────────────
+//
 router.get('/:firebaseId/tests', validateFirebaseId, verifyToken, verifyOwnership, testController.getAvailableTests);
 router.get('/:firebaseId/tests/:testId', validateFirebaseId, verifyToken, verifyOwnership, testController.getTestById);
 router.post('/:firebaseId/tests/:testId/submit', validateFirebaseId, verifyToken, verifyOwnership, testController.submitTestResult);
