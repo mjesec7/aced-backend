@@ -47,27 +47,32 @@ function validateObjectId(req, res, next) {
 
 // ─── AUTH ─────────────────────────────────────────────
 router.post('/save', async (req, res) => {
-  console.log('📥 POST /save — Body:', req.body);
+  console.log('📥 [ROUTE HIT] POST /save');
+  console.log('📦 Request Body:', req.body);
+
   const { token, name, subscriptionPlan } = req.body;
   if (!token || !name) {
+    console.log('❌ Missing token or name in request body');
     return res.status(400).json({ error: '❌ Missing token or name' });
   }
 
   try {
     const decoded = await admin.auth().verifyIdToken(token);
-    console.log('🔑 Firebase decoded:', decoded);
+    console.log('🔑 Firebase token verified:', decoded);
 
     const { uid, email, picture } = decoded;
     let user = await User.findOne({ firebaseId: uid });
 
     if (user) {
-      console.log('🔁 Existing user found:', email);
+      console.log(`🔁 Updating existing user [${email}]`);
       user.name = name;
       user.subscriptionPlan = subscriptionPlan || user.subscriptionPlan;
       await user.save();
+      console.log('✅ User updated');
       return res.json(user);
     }
 
+    console.log(`🆕 Creating new user [${email}]`);
     const newUser = new User({
       firebaseId: uid,
       name,
@@ -77,14 +82,15 @@ router.post('/save', async (req, res) => {
     });
 
     await newUser.save();
-    console.log('✅ New user created:', email);
+    console.log('✅ New user saved');
     return res.status(201).json(newUser);
   } catch (err) {
-    console.error('❌ Failed to save user:', err);
+    console.error('❌ Failed to save user:', err.message || err);
     return res.status(500).json({ error: '❌ Server error saving user' });
   }
 });
 
+// ─── FETCH USER ───────────────────────────────────────
 router.get('/:firebaseId', validateFirebaseId, async (req, res) => {
   console.log('📥 GET /:firebaseId', req.params.firebaseId);
   try {
