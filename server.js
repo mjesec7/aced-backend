@@ -70,7 +70,7 @@ try {
   app.use('/api/lessons', require('./routes/lessonRoutes'));
   app.use('/api/chat', require('./routes/chatRoutes'));
   app.use('/api/subjects', require('./routes/subjectRoutes'));
-  app.use('/api/email', require('./routes/emailRoutes'));
+ // app.use('/api/email', require('./routes/emailRoutes'));
   app.use('/api/topics', require('./routes/topicRoutes'));
   app.use('/api/payments', require('./routes/paymeRoutes'));
   app.use('/api/homeworks', require('./routes/homeworkRoutes'));
