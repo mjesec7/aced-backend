@@ -1,13 +1,19 @@
 const express = require('express');
 const router = express.Router();
+const mongoose = require('mongoose');
+
 const User = require('../models/user');
 const TopicProgress = require('../models/topicProgress');
 const Lesson = require('../models/lesson');
 const Topic = require('../models/topic');
+const UserProgress = require('../models/userProgress'); // ✅ Added
 const admin = require('../config/firebase');
 const verifyToken = require('../middlewares/authMiddleware');
-const mongoose = require('mongoose');
 
+const homeworkController = require('../controllers/homeworkController'); // ✅ Added
+const testController = require('../controllers/testController'); // ✅ Added
+
+// ✅ Middleware
 function validateFirebaseId(req, res, next) {
   if (!req.params.firebaseId) {
     return res.status(400).json({ error: '❌ Missing firebaseId in request' });
@@ -22,7 +28,6 @@ function verifyOwnership(req, res, next) {
   next();
 }
 
-// 🔐 Validate ObjectId middleware
 function validateObjectId(req, res, next) {
   const { id } = req.params;
   if (id && !mongoose.Types.ObjectId.isValid(id)) {
@@ -31,6 +36,7 @@ function validateObjectId(req, res, next) {
   next();
 }
 
+// ✅ Save or create user
 router.post('/save', async (req, res) => {
   const { token, name, subscriptionPlan } = req.body;
   if (!token || !name) {
@@ -68,6 +74,7 @@ router.post('/save', async (req, res) => {
   }
 });
 
+// ✅ Fetch user by firebaseId
 router.get('/:firebaseId', validateFirebaseId, async (req, res) => {
   try {
     const user = await User.findOne({ firebaseId: req.params.firebaseId });
@@ -78,6 +85,7 @@ router.get('/:firebaseId', validateFirebaseId, async (req, res) => {
   }
 });
 
+// ✅ Subscription status
 router.get('/:firebaseId/status', validateFirebaseId, async (req, res) => {
   try {
     const user = await User.findOne({ firebaseId: req.params.firebaseId });
@@ -88,6 +96,7 @@ router.get('/:firebaseId/status', validateFirebaseId, async (req, res) => {
   }
 });
 
+// ✅ Study List
 router.get('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   try {
     const user = await User.findOne({ firebaseId: req.params.firebaseId });
@@ -142,6 +151,7 @@ router.delete('/:firebaseId/study-list/:topicId', validateFirebaseId, verifyToke
   }
 });
 
+// ✅ Recommendations
 router.get('/:firebaseId/recommendations', validateFirebaseId, async (req, res) => {
   try {
     const topics = await Topic.aggregate([{ $sample: { size: 6 } }]);
@@ -151,6 +161,7 @@ router.get('/:firebaseId/recommendations', validateFirebaseId, async (req, res) 
   }
 });
 
+// ✅ Lesson Progress
 router.post('/:firebaseId/progress', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   const { lessonId, section } = req.body;
   if (!lessonId || !section) return res.status(400).json({ error: '❌ Missing lessonId or section' });
@@ -169,6 +180,7 @@ router.post('/:firebaseId/progress', validateFirebaseId, verifyToken, verifyOwne
     res.status(500).json({ error: '❌ Error updating lesson progress' });
   }
 });
+
 // ✅ Analytics
 router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   try {
@@ -186,7 +198,6 @@ router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwne
   }
 });
 
-// ✅ Total Points Only
 router.get('/:firebaseId/points', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   try {
     const progress = await UserProgress.find({ userId: req.params.firebaseId });
@@ -197,7 +208,7 @@ router.get('/:firebaseId/points', validateFirebaseId, verifyToken, verifyOwnersh
   }
 });
 
-
+// ✅ Topic Progress
 router.post('/:firebaseId/progress-topic', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   const { topicId } = req.body;
   if (!topicId) return res.status(400).json({ error: '❌ Missing topicId' });
@@ -236,6 +247,7 @@ router.post('/:firebaseId/progress-topic', validateFirebaseId, verifyToken, veri
   }
 });
 
+// ✅ Diary
 router.get('/:firebaseId/diary', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   try {
     const user = await User.findOne({ firebaseId: req.params.firebaseId });
@@ -266,16 +278,18 @@ router.post('/:firebaseId/diary', validateFirebaseId, verifyToken, verifyOwnersh
     res.status(500).json({ error: '❌ Error saving diary' });
   }
 });
-// ✅ Homework Routes
+
+// ✅ Homework
 router.get('/:firebaseId/homeworks', validateFirebaseId, verifyToken, verifyOwnership, homeworkController.getAllHomeworks);
 router.get('/:firebaseId/homeworks/lesson/:lessonId', validateFirebaseId, verifyToken, verifyOwnership, homeworkController.getHomeworkByLesson);
 router.post('/:firebaseId/homeworks/save', validateFirebaseId, verifyToken, verifyOwnership, homeworkController.saveHomework);
 router.post('/:firebaseId/homeworks/lesson/:lessonId/submit', validateFirebaseId, verifyToken, verifyOwnership, homeworkController.submitHomework);
-// ✅ Test Routes
+
+// ✅ Tests
 router.get('/:firebaseId/tests', validateFirebaseId, verifyToken, verifyOwnership, testController.getAvailableTests);
 router.get('/:firebaseId/tests/:testId', validateFirebaseId, verifyToken, verifyOwnership, testController.getTestById);
 router.post('/:firebaseId/tests/:testId/submit', validateFirebaseId, verifyToken, verifyOwnership, testController.submitTestResult);
 router.get('/:firebaseId/tests/:testId/result', validateFirebaseId, verifyToken, verifyOwnership, testController.getTestResult);
 
-
+// ✅ Export
 module.exports = router;
