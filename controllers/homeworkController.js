@@ -4,41 +4,41 @@ const Lesson = require('../models/lesson');
 // 🔍 Get all homeworks for a user
 exports.getAllHomeworks = async (req, res) => {
   try {
-    const { userId } = req.params;
-    const homeworks = await HomeworkProgress.find({ userId });
+    const { firebaseId } = req.params;
+    const homeworks = await HomeworkProgress.find({ userId: firebaseId });
     res.json({ success: true, data: homeworks });
   } catch (err) {
     console.error('❌ Error getting homeworks:', err);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ success: false, error: 'Server error' });
   }
 };
 
 // 🔍 Get single homework by lessonId
 exports.getHomeworkByLesson = async (req, res) => {
   try {
-    const { userId, lessonId } = req.params;
-    const progress = await HomeworkProgress.findOne({ userId, lessonId });
+    const { firebaseId, lessonId } = req.params;
+    const progress = await HomeworkProgress.findOne({ userId: firebaseId, lessonId });
     res.json({ success: true, data: progress || null });
   } catch (err) {
     console.error('❌ Error getting homework:', err);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ success: false, error: 'Server error' });
   }
 };
 
-// 💾 Create or update homework (save progress)
+// 💾 Save or update homework progress
 exports.saveHomework = async (req, res) => {
   try {
-    const { userId } = req.params;
+    const { firebaseId } = req.params;
     const { lessonId, answers, completed } = req.body;
 
-    let progress = await HomeworkProgress.findOne({ userId, lessonId });
+    let progress = await HomeworkProgress.findOne({ userId: firebaseId, lessonId });
     if (progress) {
       progress.answers = answers;
       progress.completed = completed || false;
       progress.updatedAt = new Date();
     } else {
       progress = new HomeworkProgress({
-        userId,
+        userId: firebaseId,
         lessonId,
         answers,
         completed: completed || false
@@ -49,19 +49,19 @@ exports.saveHomework = async (req, res) => {
     res.json({ success: true, data: progress });
   } catch (err) {
     console.error('❌ Error saving homework:', err);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ success: false, error: 'Server error' });
   }
 };
 
-// ✅ Submit homework + auto-grade (optional)
+// ✅ Submit homework + auto-grade
 exports.submitHomework = async (req, res) => {
   try {
-    const { userId, lessonId } = req.params;
+    const { firebaseId, lessonId } = req.params;
     const { answers } = req.body;
 
     const lesson = await Lesson.findById(lessonId);
     if (!lesson || !lesson.homework || lesson.homework.length === 0) {
-      return res.status(404).json({ error: 'Homework not found for this lesson' });
+      return res.status(404).json({ success: false, error: 'Homework not found for this lesson' });
     }
 
     let score = 0;
@@ -76,7 +76,7 @@ exports.submitHomework = async (req, res) => {
     const percentage = Math.round((score / total) * 100);
 
     const updated = await HomeworkProgress.findOneAndUpdate(
-      { userId, lessonId },
+      { userId: firebaseId, lessonId },
       {
         answers,
         completed: true,
@@ -89,6 +89,6 @@ exports.submitHomework = async (req, res) => {
     res.json({ success: true, data: updated, score: percentage });
   } catch (err) {
     console.error('❌ Error submitting homework:', err);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ success: false, error: 'Server error' });
   }
 };
