@@ -8,7 +8,6 @@ const path = require('path');
 
 dotenv.config();
 
-// ✅ Firebase ENV Debug
 console.log("🧪 Firebase ENV DEBUG:", {
   projectId: process.env.FIREBASE_PROJECT_ID,
   clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
@@ -20,16 +19,14 @@ console.log("🧪 Firebase ENV DEBUG:", {
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// ✅ Security & Performance Middleware
+// ✅ Security & Performance
 app.use(helmet({
   crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
 }));
 app.use(compression());
-
-// ✅ Body Parsing
 app.use(express.json());
 
-// ✅ CORS Setup
+// ✅ CORS Configuration
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',');
 app.use(cors({
   origin(origin, callback) {
@@ -47,7 +44,7 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
-// ✅ Logger
+// ✅ Request Logger
 app.use((req, res, next) => {
   console.log(`📅 [${req.method}] ${req.url} from ${req.headers.origin || 'unknown origin'}`);
   next();
@@ -58,7 +55,7 @@ app.get('/health', (req, res) => {
   res.status(200).json({ status: 'OK' });
 });
 
-// ✅ Firebase Auth Test Route
+// ✅ Firebase Auth Test
 const authenticateUser = require('./middlewares/authMiddleware');
 app.get('/auth-test', authenticateUser, (req, res) => {
   res.json({ message: `✅ Hello ${req.user.email}, you are authorized!`, uid: req.user.uid });
@@ -66,41 +63,32 @@ app.get('/auth-test', authenticateUser, (req, res) => {
 
 // ✅ API Routes
 try {
+  app.use('/api/users', require('./routes/userRoutes'));
   app.use('/api/lessons', require('./routes/lessonRoutes'));
   app.use('/api/chat', require('./routes/chatRoutes'));
-  app.use('/api/user-analytics', require('./routes/userAnalytics'));
   app.use('/api/subjects', require('./routes/subjectRoutes'));
-  app.use('/api/payments', require('./routes/paymeRoutes'));
-  app.use('/api/users', require('./routes/userRoutes'));
   app.use('/api/email', require('./routes/emailRoutes'));
   app.use('/api/topics', require('./routes/topicRoutes'));
-  app.use('/api/user-progress', require('./routes/userProgressRoutes'));
-  app.use('/api', require('./routes/recommendationRoutes'));
-  app.use('/api/payments', require('./routes/payments'));
-
-  // ✅ NEW: Homework API Routes
+  app.use('/api/payments', require('./routes/paymeRoutes')); // ✅ Use only ONE
   app.use('/api/homeworks', require('./routes/homeworkRoutes'));
-
-  // ✅ NEW: Test API Routes
   app.use('/api/tests', require('./routes/testRoutes'));
-
-  // ✅ NEW: Dedicated Progress Routes (optional if not merged into userProgress)
   app.use('/api/progress', require('./routes/userProgressRoutes'));
-
+  app.use('/api', require('./routes/recommendationRoutes'));
 } catch (routeError) {
   console.error('❌ Failed to load route:', routeError);
 }
 
-// ✅ Serve Frontend in SPA Mode
+// ✅ Fallback for unmatched API routes
+app.all('/api/*', (req, res) => {
+  res.status(404).json({ error: '❌ API route not found' });
+});
+
+// ✅ Serve Frontend
 const distPath = path.join(__dirname, 'dist');
 app.use(express.static(distPath));
 
-// 🔁 Catch-all to support Vue Router history mode
-app.get('*', (req, res) => {
-  if (req.originalUrl.startsWith('/api')) {
-    return res.status(404).json({ error: 'API route not found' });
-  }
-
+// ✅ SPA fallback (Vue history mode) — only for non-API GETs
+app.get(/^\/(?!api).*/, (req, res) => {
   const indexPath = path.join(distPath, 'index.html');
   res.sendFile(indexPath, (err) => {
     if (err) {
@@ -116,7 +104,7 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: '❌ Unexpected server error occurred.' });
 });
 
-// ✅ MongoDB Connection & Launch
+// ✅ MongoDB Connection
 mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
