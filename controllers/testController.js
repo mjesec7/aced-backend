@@ -2,7 +2,7 @@ const Test = require('../models/Test');
 const TestResult = require('../models/TestResult');
 
 // ✅ Get all available tests
-exports.getAllTests = async (req, res) => {
+exports.getAvailableTests = async (req, res) => { 
   try {
     const tests = await Test.find();
     res.json({ success: true, data: tests });
