@@ -46,7 +46,7 @@ router.post('/', async (req, res) => {
 
     const newTopic = new Topic({ subject, level, name, description });
     const saved = await newTopic.save();
-    console.log(`✅ [Created] Topic "${saved.name}" (ID: ${saved._id})`);
+    console.log(`✅ [Created] Topic "${saved.name.en}" (ID: ${saved._id})`);
     res.status(201).json(saved);
   } catch (err) {
     console.error('❌ Error saving topic:', err);
@@ -65,8 +65,8 @@ router.get('/:id', validateObjectId, async (req, res) => {
       return res.status(404).json({ message: '❌ Topic not found' });
     }
 
-    const lessons = await Lesson.find({ topicId: id });
-    console.log(`📘 Found topic "${topic.name}" with ${lessons.length} lessons`);
+    const lessons = await Lesson.find({ topic: id });
+    console.log(`📘 Found topic "${topic.name.en}" with ${lessons.length} lessons`);
     const response = {
       ...topic.toObject(),
       lessons
@@ -90,7 +90,7 @@ router.get('/:id/lessons', validateObjectId, async (req, res) => {
       return res.status(404).json({ message: '❌ Topic not found' });
     }
 
-    const lessons = await Lesson.find({ topicId: id });
+    const lessons = await Lesson.find({ topic: id });
     console.log(`📚 Lessons found for topic ${id}: ${lessons.length}`);
     res.json(lessons);
   } catch (err) {

@@ -20,7 +20,7 @@ function validateObjectId(req, res, next) {
   next();
 }
 
-// ✅ Get all lessons
+// ✅ GET all lessons
 router.get('/', async (req, res) => {
   try {
     const filter = req.query.type ? { type: req.query.type } : {};
@@ -33,90 +33,10 @@ router.get('/', async (req, res) => {
   }
 });
 
-// ✅ Delete all lessons
-router.delete('/all', verifyToken, async (req, res) => {
-  try {
-    const result = await Lesson.deleteMany({});
-    console.log(`🧹 Удалено уроков: ${result.deletedCount}`);
-    res.status(200).json({ message: `✅ Удалено уроков: ${result.deletedCount}` });
-  } catch (err) {
-    console.error('❌ Ошибка при массовом удалении уроков:', err);
-    res.status(500).json({ message: '❌ Server error deleting all lessons', error: err.message });
-  }
-});
-
-// ✅ Get lesson by ID
-router.get('/:id', validateObjectId, async (req, res) => {
-  try {
-    const lesson = await Lesson.findById(req.params.id);
-    if (!lesson) {
-      return res.status(404).json({ message: '❌ Lesson not found' });
-    }
-    res.status(200).json(lesson);
-  } catch (error) {
-    console.error('❌ Ошибка получения урока:', error);
-    res.status(500).json({ message: '❌ Server error fetching lesson', error: error.message });
-  }
-});
-
-// ✅ Get lesson by name + subject
-router.get('/by-name', async (req, res) => {
-  const { subject, name } = req.query;
-  if (!subject || !name) {
-    return res.status(400).json({ message: '❌ Missing subject or topic name' });
-  }
-
-  try {
-    const lessons = await Lesson.find({ subject, topic: name });
-    if (!lessons.length) {
-      return res.status(404).json({ message: '❌ Lesson not found' });
-    }
-    res.status(200).json(lessons[0]);
-  } catch (err) {
-    console.error('❌ Ошибка получения урока по имени:', err);
-    res.status(500).json({ message: '❌ Server error fetching lesson by name', error: err.message });
-  }
-});
-
-// ✅ Update lesson
-router.put('/:id', verifyToken, validateObjectId, async (req, res) => {
-  try {
-    const updates = req.body;
-    updates.homework = [
-      ...(Array.isArray(updates.homeworkABC) ? updates.homeworkABC : []),
-      ...(Array.isArray(updates.homeworkQA) ? updates.homeworkQA : []),
-      ...(Array.isArray(updates.abcExercises) ? updates.abcExercises : [])
-    ];
-
-    const updatedLesson = await Lesson.findByIdAndUpdate(req.params.id, updates, { new: true });
-    if (!updatedLesson) {
-      return res.status(404).json({ message: '❌ Lesson not found' });
-    }
-    res.status(200).json(updatedLesson);
-  } catch (error) {
-    console.error('❌ Ошибка обновления урока:', error);
-    res.status(500).json({ message: '❌ Server error updating lesson', error: error.message });
-  }
-});
-
-// ✅ Delete lesson by ID
-router.delete('/:id', verifyToken, validateObjectId, async (req, res) => {
-  try {
-    const deletedLesson = await Lesson.findByIdAndDelete(req.params.id);
-    if (!deletedLesson) {
-      return res.status(404).json({ message: '❌ Lesson not found' });
-    }
-    res.status(200).json({ message: '✅ Lesson successfully deleted' });
-  } catch (error) {
-    console.error('❌ Ошибка удаления урока:', error);
-    res.status(500).json({ message: '❌ Server error deleting lesson', error: error.message });
-  }
-});
-
-// ✅ Add new lesson
+// ✅ POST new lesson
 router.post('/', verifyToken, async (req, res) => {
   try {
-    let {
+    const {
       lessonName, subject, level, type, topicId, topic, topicDescription,
       description, explanations, examples, content, hint,
       exerciseGroups, quiz, relatedSubjects, translations,
@@ -129,22 +49,26 @@ router.post('/', verifyToken, async (req, res) => {
       return res.status(400).json({ message: '❌ Missing required lesson fields' });
     }
 
-    // Normalize explanations
-    if (!Array.isArray(explanations) && explanation) {
-      explanations = [explanation];
+    const normalizedExplanations = Array.isArray(explanations)
+      ? explanations
+      : explanation
+        ? [explanation]
+        : [];
+
+    if (!Array.isArray(normalizedExplanations)) {
+      return res.status(400).json({ message: '❌ explanations[] must be an array' });
     }
 
-    // Normalize exercise groups
-    if (!Array.isArray(exerciseGroups) && Array.isArray(exercises)) {
-      exerciseGroups = [{ exercises }];
-    }
+    const normalizedExercises = Array.isArray(exerciseGroups)
+      ? exerciseGroups
+      : Array.isArray(exercises)
+        ? [{ exercises }]
+        : [];
 
-    // Normalize quizzes
-    if (!Array.isArray(quiz) && (Array.isArray(abcExercises) || Array.isArray(quizzes))) {
-      quiz = [];
-      if (Array.isArray(abcExercises)) quiz = [...quiz, ...abcExercises];
-      if (Array.isArray(quizzes)) quiz = [...quiz, ...quizzes];
-    }
+    let normalizedQuiz = [];
+    if (Array.isArray(quiz)) normalizedQuiz = quiz;
+    if (Array.isArray(abcExercises)) normalizedQuiz = [...normalizedQuiz, ...abcExercises];
+    if (Array.isArray(quizzes)) normalizedQuiz = [...normalizedQuiz, ...quizzes];
 
     const homework = [
       ...(Array.isArray(homeworkABC) ? homeworkABC : []),
@@ -152,11 +76,6 @@ router.post('/', verifyToken, async (req, res) => {
       ...(Array.isArray(abcExercises) ? abcExercises : [])
     ];
 
-    if (!Array.isArray(explanations)) {
-      return res.status(400).json({ message: '❌ explanations[] must be an array' });
-    }
-
-    // Topic resolution
     let resolvedTopic = null;
     if (topicId && mongoose.Types.ObjectId.isValid(topicId)) {
       resolvedTopic = await Topic.findById(topicId);
@@ -185,12 +104,12 @@ router.post('/', verifyToken, async (req, res) => {
       topic: resolvedTopic.name,
       topicId: resolvedTopic._id,
       description: typeof description === 'string' ? description.trim() : '',
-      explanations,
+      explanations: normalizedExplanations,
       examples: typeof examples === 'string' ? examples.trim() : '',
       content: typeof content === 'string' ? content.trim() : '',
       hint: typeof hint === 'string' ? hint.trim() : '',
-      exerciseGroups: Array.isArray(exerciseGroups) ? exerciseGroups : [],
-      quiz: Array.isArray(quiz) ? quiz : [],
+      exerciseGroups: normalizedExercises,
+      quiz: normalizedQuiz,
       relatedSubjects: Array.isArray(relatedSubjects) ? relatedSubjects : [],
       translations: typeof translations === 'object' ? translations : {},
       steps: Array.isArray(steps) ? steps : [],
@@ -203,6 +122,78 @@ router.post('/', verifyToken, async (req, res) => {
   } catch (error) {
     console.error('❌ Ошибка при добавлении урока:', error);
     res.status(500).json({ message: '❌ Server error adding lesson', error: error.message });
+  }
+});
+
+// ✅ GET lesson by ID
+router.get('/:id', validateObjectId, async (req, res) => {
+  try {
+    const lesson = await Lesson.findById(req.params.id);
+    if (!lesson) return res.status(404).json({ message: '❌ Lesson not found' });
+    res.status(200).json(lesson);
+  } catch (error) {
+    console.error('❌ Ошибка получения урока:', error);
+    res.status(500).json({ message: '❌ Server error fetching lesson', error: error.message });
+  }
+});
+
+// ✅ GET lesson by subject and name
+router.get('/by-name', async (req, res) => {
+  const { subject, name } = req.query;
+  if (!subject || !name) {
+    return res.status(400).json({ message: '❌ Missing subject or topic name' });
+  }
+
+  try {
+    const lessons = await Lesson.find({ subject, topic: name });
+    if (!lessons.length) return res.status(404).json({ message: '❌ Lesson not found' });
+    res.status(200).json(lessons[0]);
+  } catch (err) {
+    console.error('❌ Ошибка получения урока по имени:', err);
+    res.status(500).json({ message: '❌ Server error fetching lesson by name', error: err.message });
+  }
+});
+
+// ✅ PUT update lesson
+router.put('/:id', verifyToken, validateObjectId, async (req, res) => {
+  try {
+    const updates = req.body;
+    updates.homework = [
+      ...(Array.isArray(updates.homeworkABC) ? updates.homeworkABC : []),
+      ...(Array.isArray(updates.homeworkQA) ? updates.homeworkQA : []),
+      ...(Array.isArray(updates.abcExercises) ? updates.abcExercises : [])
+    ];
+
+    const updatedLesson = await Lesson.findByIdAndUpdate(req.params.id, updates, { new: true });
+    if (!updatedLesson) return res.status(404).json({ message: '❌ Lesson not found' });
+    res.status(200).json(updatedLesson);
+  } catch (error) {
+    console.error('❌ Ошибка обновления урока:', error);
+    res.status(500).json({ message: '❌ Server error updating lesson', error: error.message });
+  }
+});
+
+// ✅ DELETE lesson by ID
+router.delete('/:id', verifyToken, validateObjectId, async (req, res) => {
+  try {
+    const deletedLesson = await Lesson.findByIdAndDelete(req.params.id);
+    if (!deletedLesson) return res.status(404).json({ message: '❌ Lesson not found' });
+    res.status(200).json({ message: '✅ Lesson successfully deleted' });
+  } catch (error) {
+    console.error('❌ Ошибка удаления урока:', error);
+    res.status(500).json({ message: '❌ Server error deleting lesson', error: error.message });
+  }
+});
+
+// ✅ DELETE all lessons
+router.delete('/all', verifyToken, async (req, res) => {
+  try {
+    const result = await Lesson.deleteMany({});
+    console.log(`🧹 Удалено уроков: ${result.deletedCount}`);
+    res.status(200).json({ message: `✅ Удалено уроков: ${result.deletedCount}` });
+  } catch (err) {
+    console.error('❌ Ошибка при массовом удалении уроков:', err);
+    res.status(500).json({ message: '❌ Server error deleting all lessons', error: err.message });
   }
 });
 
