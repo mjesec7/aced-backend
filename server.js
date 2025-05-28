@@ -19,25 +19,26 @@ console.log("🧪 Firebase ENV DEBUG:", {
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// ✅ Middleware: Security + Performance
+// ✅ Security & Performance Middlewares
 app.use(helmet({
   crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
 }));
 app.use(compression());
 app.use(express.json());
 
-// ✅ DEBUG request logging
+// ✅ Debug logger
 app.use((req, res, next) => {
   console.log(`📅 [${req.method}] ${req.url} from ${req.headers.origin || 'unknown origin'}`);
   next();
 });
 
-// ✅ CORS: SAFE HARD-CODED WHITELIST (update .env later)
+// ✅ CORS Configuration (hardcoded for now, use .env later if needed)
 const allowedOrigins = [
   'https://aced.live',
   'https://admin.aced.live',
-  'http://localhost:3000'
+  'http://localhost:3000',
 ];
+
 app.use(cors({
   origin: (origin, callback) => {
     console.log('🔍 Checking CORS for:', origin);
@@ -54,7 +55,10 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
-// ✅ Health Check
+// ✅ Allow all OPTIONS preflight requests globally
+app.options('*', cors());
+
+// ✅ Health Check Endpoint
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'OK' });
 });
@@ -65,7 +69,7 @@ app.get('/auth-test', authenticateUser, (req, res) => {
   res.json({ message: `✅ Hello ${req.user.email}`, uid: req.user.uid });
 });
 
-// ✅ Mount Routes
+// ✅ Mount All Routes
 try {
   console.log('📦 Mounting /api/users');
   app.use('/api/users', require('./routes/userRoutes'));
@@ -85,11 +89,10 @@ try {
   console.error('❌ Failed to load route:', routeError);
 }
 
-// ✅ Serve Frontend from /dist
+// ✅ Serve Static Frontend Files (SPA)
 const distPath = path.join(__dirname, 'dist');
 app.use(express.static(distPath));
 
-// ✅ SPA Fallback
 app.get(/^\/(?!api).*/, (req, res) => {
   const indexPath = path.join(distPath, 'index.html');
   res.sendFile(indexPath, (err) => {
@@ -106,7 +109,7 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: '❌ Unexpected server error occurred.' });
 });
 
-// ✅ MongoDB Connection
+// ✅ Connect to MongoDB
 mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
