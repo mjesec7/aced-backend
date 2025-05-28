@@ -112,6 +112,9 @@ exports.getUserAnalytics = async (req, res) => {
     const totalPoints = all.reduce((sum, p) => sum + (p.points || 0), 0);
     const totalStars = all.reduce((sum, p) => sum + (p.stars || 0), 0);
     const avgScore = all.length ? totalPoints / all.length : 0;
+    const totalDuration = all.reduce((sum, p) => sum + (p.duration || 0), 0);
+    const totalHints = all.reduce((sum, p) => sum + (p.hintsUsed || 0), 0);
+    const totalMistakes = all.reduce((sum, p) => sum + (p.mistakes || 0), 0);
 
     res.json({
       message: '✅ Analytics generated',
@@ -119,7 +122,10 @@ exports.getUserAnalytics = async (req, res) => {
         completedLessons: completedCount,
         totalPoints,
         totalStars,
-        averageScore: avgScore.toFixed(1)
+        totalHints,
+        totalMistakes,
+        totalDuration,
+        averageScore: +avgScore.toFixed(1)
       }
     });
   } catch (error) {

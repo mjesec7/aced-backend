@@ -17,11 +17,10 @@ const verifyToken = require('../middlewares/authMiddleware');
 const homeworkController = require('../controllers/homeworkController');
 const testController = require('../controllers/testController');
 
-// ✅ Route File Initialization Log
 console.log('✅ userRoutes.js loaded');
 
+// ─── Middleware ───────────────────────────────────────
 function validateFirebaseId(req, res, next) {
-  console.log('🧪 [Middleware] validateFirebaseId:', req.params.firebaseId);
   if (!req.params.firebaseId) {
     return res.status(400).json({ error: '❌ Missing firebaseId in request' });
   }
@@ -29,7 +28,6 @@ function validateFirebaseId(req, res, next) {
 }
 
 function verifyOwnership(req, res, next) {
-  console.log('🧪 [Middleware] verifyOwnership:', { user: req.user?.uid, param: req.params.firebaseId });
   if (!req.user || req.user.uid !== req.params.firebaseId) {
     return res.status(403).json({ error: '❌ Access denied: user mismatch' });
   }
@@ -38,7 +36,6 @@ function verifyOwnership(req, res, next) {
 
 function validateObjectId(req, res, next) {
   const { id } = req.params;
-  console.log('🧪 [Middleware] validateObjectId:', id);
   if (id && !mongoose.Types.ObjectId.isValid(id)) {
     return res.status(400).json({ error: '❌ Invalid ObjectId format' });
   }
@@ -47,29 +44,35 @@ function validateObjectId(req, res, next) {
 
 // ─── AUTH ─────────────────────────────────────────────
 router.post('/save', async (req, res) => {
-  console.log('📥 [POST /save] Hit route');
-  console.log('📦 Request Body:', req.body);
-
   const { token, name, subscriptionPlan } = req.body;
   if (!token || !name) {
-    console.log('❌ Missing token or name');
     return res.status(400).json({ error: '❌ Missing token or name' });
   }
 
   try {
     const decoded = await admin.auth().verifyIdToken(token);
-    console.log('🔑 Firebase decoded:', decoded);
+    const firebaseId = decoded.uid;
+    const email = decoded.email;
 
-    // rest of your logic...
+    let user = await User.findOne({ firebaseId });
+    if (!user) {
+      user = new User({ firebaseId, email, name, subscriptionPlan: subscriptionPlan || 'free' });
+    } else {
+      user.email = email;
+      user.name = name;
+      if (subscriptionPlan) user.subscriptionPlan = subscriptionPlan;
+    }
+
+    await user.save();
+    res.json({ success: true, user });
   } catch (err) {
     console.error('❌ Firebase token verification failed:', err.message || err);
     return res.status(401).json({ error: '❌ Invalid Firebase token' });
   }
 });
 
-// ─── FETCH USER ───────────────────────────────────────
+// ─── USER FETCH ───────────────────────────────────────
 router.get('/:firebaseId', validateFirebaseId, async (req, res) => {
-  console.log('📥 GET /:firebaseId', req.params.firebaseId);
   try {
     const user = await User.findOne({ firebaseId: req.params.firebaseId });
     if (!user) return res.status(404).json({ error: '❌ User not found' });
@@ -80,7 +83,6 @@ router.get('/:firebaseId', validateFirebaseId, async (req, res) => {
 });
 
 router.get('/:firebaseId/status', validateFirebaseId, async (req, res) => {
-  console.log('📥 GET /:firebaseId/status');
   try {
     const user = await User.findOne({ firebaseId: req.params.firebaseId });
     if (!user) return res.status(404).json({ error: '❌ User not found' });
@@ -92,18 +94,16 @@ router.get('/:firebaseId/status', validateFirebaseId, async (req, res) => {
 
 // ─── STUDY LIST ───────────────────────────────────────
 router.get('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  console.log('📥 GET /:firebaseId/study-list');
   try {
     const user = await User.findOne({ firebaseId: req.params.firebaseId });
     if (!user) return res.status(404).json({ error: '❌ User not found' });
     res.json(user.studyList || []);
   } catch (err) {
-    res.status(500).json({ error: '❌ Server error fetching study list' });
+    res.status(500).json({ error: '❌ Error fetching study list' });
   }
 });
 
 router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  console.log('📥 POST /:firebaseId/study-list', req.body);
   const { subject, level, topic, topicId } = req.body;
   if (!subject || !topic) return res.status(400).json({ error: '❌ Subject and topic are required' });
 
@@ -115,7 +115,6 @@ router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOw
     if (!exists) {
       user.studyList.push({ name: topic, subject, level, topicId: topicId || null });
       await user.save();
-      console.log('✅ Topic added to study list');
     }
 
     res.json(user.studyList);
@@ -125,7 +124,6 @@ router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOw
 });
 
 router.delete('/:firebaseId/study-list/:topicId', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  console.log('🗑️ DELETE /:firebaseId/study-list/:topicId', req.params.topicId);
   try {
     const user = await User.findOne({ firebaseId: req.params.firebaseId });
     if (!user) return res.status(404).json({ error: '❌ User not found' });
@@ -137,24 +135,12 @@ router.delete('/:firebaseId/study-list/:topicId', validateFirebaseId, verifyToke
     await user.save();
     res.json({ message: '✅ Topic removed', studyList: user.studyList });
   } catch (err) {
-    res.status(500).json({ error: '❌ Error removing topic from study list' });
+    res.status(500).json({ error: '❌ Error removing topic' });
   }
 });
 
-// ─── RECOMMENDATIONS ────────────────────────────────
-router.get('/:firebaseId/recommendations', validateFirebaseId, async (req, res) => {
-  console.log('📥 GET /:firebaseId/recommendations');
-  try {
-    const topics = await Topic.aggregate([{ $sample: { size: 6 } }]);
-    res.json(topics);
-  } catch (err) {
-    res.status(500).json({ error: '❌ Error fetching recommendations' });
-  }
-});
-
-// ─── PROGRESS ────────────────────────────────────────
+// ─── PROGRESS ─────────────────────────────────────────
 router.post('/:firebaseId/progress', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  console.log('📥 POST /:firebaseId/progress', req.body);
   const { lessonId, section } = req.body;
   if (!lessonId || !section) return res.status(400).json({ error: '❌ Missing lessonId or section' });
 
@@ -169,12 +155,11 @@ router.post('/:firebaseId/progress', validateFirebaseId, verifyToken, verifyOwne
     await user.save();
     res.json(user.progress[lessonId]);
   } catch (err) {
-    res.status(500).json({ error: '❌ Error updating lesson progress' });
+    res.status(500).json({ error: '❌ Error updating progress' });
   }
 });
 
 router.post('/:firebaseId/progress-topic', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  console.log('📥 POST /:firebaseId/progress-topic', req.body);
   const { topicId } = req.body;
   if (!topicId) return res.status(400).json({ error: '❌ Missing topicId' });
 
@@ -214,7 +199,6 @@ router.post('/:firebaseId/progress-topic', validateFirebaseId, verifyToken, veri
 
 // ─── ANALYTICS ───────────────────────────────────────
 router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  console.log('📥 GET /:firebaseId/analytics');
   try {
     const progress = await UserProgress.find({ userId: req.params.firebaseId });
 
@@ -230,23 +214,20 @@ router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwne
 });
 
 router.get('/:firebaseId/points', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  console.log('📥 GET /:firebaseId/points');
   try {
     const progress = await UserProgress.find({ userId: req.params.firebaseId });
     const totalPoints = progress.reduce((sum, p) => sum + (p.points || 0), 0);
     res.json({ totalPoints });
   } catch (err) {
-    res.status(500).json({ error: '❌ Error fetching total points' });
+    res.status(500).json({ error: '❌ Error fetching points' });
   }
 });
 
 // ─── DIARY ───────────────────────────────────────────
 router.get('/:firebaseId/diary', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  console.log('📥 GET /:firebaseId/diary');
   try {
     const user = await User.findOne({ firebaseId: req.params.firebaseId });
     if (!user) return res.status(404).json({ error: '❌ User not found' });
-
     res.json(user.diary || []);
   } catch (err) {
     res.status(500).json({ error: '❌ Error fetching diary' });
@@ -254,7 +235,6 @@ router.get('/:firebaseId/diary', validateFirebaseId, verifyToken, verifyOwnershi
 });
 
 router.post('/:firebaseId/diary', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  console.log('📥 POST /:firebaseId/diary', req.body);
   const { date, studyMinutes, completedTopics, averageGrade } = req.body;
   if (!date || studyMinutes == null || completedTopics == null || averageGrade == null) {
     return res.status(400).json({ error: '❌ Invalid diary data' });
