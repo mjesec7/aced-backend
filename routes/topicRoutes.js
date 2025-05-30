@@ -65,12 +65,18 @@ router.get('/:id', validateObjectId, async (req, res) => {
       return res.status(404).json({ message: '❌ Topic not found' });
     }
 
-    const lessons = await Lesson.find({ topic: id });
+    const lessons = await Lesson.find({ topicId: id });
     console.log(`📘 Topic "${topic.name.en}" has ${lessons.length} lessons`);
+
+    // Inject topicId into each lesson for frontend use
+    const lessonsWithTopicId = lessons.map(lesson => ({
+      ...lesson.toObject(),
+      topicId: id
+    }));
 
     res.json({
       ...topic.toObject(),
-      lessons,
+      lessons: lessonsWithTopicId,
     });
   } catch (err) {
     console.error('❌ Failed to fetch topic and lessons:', err);
@@ -89,9 +95,16 @@ router.get('/:id/lessons', validateObjectId, async (req, res) => {
       return res.status(404).json({ message: '❌ Topic not found' });
     }
 
-    const lessons = await Lesson.find({ topic: id });
+    const lessons = await Lesson.find({ topicId: id });
     console.log(`📚 Found ${lessons.length} lessons for topic ID ${id}`);
-    res.json(lessons);
+
+    // Inject topicId into each lesson for frontend use
+    const lessonsWithTopicId = lessons.map(lesson => ({
+      ...lesson.toObject(),
+      topicId: id
+    }));
+
+    res.json(lessonsWithTopicId);
   } catch (err) {
     console.error('❌ Failed to fetch lessons by topic:', err);
     res.status(500).json({ message: '❌ Server error while fetching lessons' });

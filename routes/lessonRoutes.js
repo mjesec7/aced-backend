@@ -57,8 +57,7 @@ router.post('/', verifyToken, async (req, res) => {
     const normalizedExercises = Array.isArray(exerciseGroups)
       ? exerciseGroups
       : Array.isArray(exercises)
-        ? [{ exercises }]
-        : [];
+        ? [{ exercises }] : [];
 
     let normalizedQuiz = [];
     if (Array.isArray(quiz)) normalizedQuiz = [...quiz];
@@ -81,13 +80,13 @@ router.post('/', verifyToken, async (req, res) => {
       const topicDesc = typeof topicDescription === 'string' ? topicDescription.trim() : '';
       if (!topicName) return res.status(400).json({ message: '❌ Topic name is required' });
 
-      resolvedTopic = await Topic.findOne({ subject, level, name: topicName });
+      resolvedTopic = await Topic.findOne({ subject, level, 'name.en': topicName });
       if (!resolvedTopic) {
-        resolvedTopic = new Topic({ name: topicName, subject, level, description: topicDesc });
+        resolvedTopic = new Topic({ name: { en: topicName }, subject, level, description: topicDesc });
         await resolvedTopic.save();
-        console.log(`✅ Created topic "${resolvedTopic.name}"`);
+        console.log(`✅ Created topic "${resolvedTopic.name.en}"`);
       } else {
-        console.log(`ℹ️ Reused topic "${resolvedTopic.name}"`);
+        console.log(`ℹ️ Reused topic "${resolvedTopic.name.en}"`);
       }
     }
 
@@ -96,7 +95,7 @@ router.post('/', verifyToken, async (req, res) => {
       subject,
       level,
       type,
-      topic: resolvedTopic.name,
+      topic: resolvedTopic.name.en || resolvedTopic.name,
       topicId: resolvedTopic._id,
       description: description.trim(),
       explanations: normalizedExplanations,
@@ -146,6 +145,25 @@ router.get('/by-name', async (req, res) => {
   } catch (error) {
     console.error('❌ Error fetching lesson by name:', error);
     res.status(500).json({ message: '❌ Server error fetching lesson', error: error.message });
+  }
+});
+
+// ─── GET: Lessons by Topic ID ───────────────────────
+router.get('/topic/:topicId', async (req, res) => {
+  const { topicId } = req.params;
+
+  if (!mongoose.Types.ObjectId.isValid(topicId)) {
+    console.warn(`⚠️ Invalid topicId: ${topicId}`);
+    return res.status(400).json({ message: '❌ Invalid topic ID' });
+  }
+
+  try {
+    const lessons = await Lesson.find({ topicId });
+    if (!lessons.length) return res.status(404).json({ message: '❌ No lessons found for this topic' });
+    res.status(200).json(lessons);
+  } catch (error) {
+    console.error('❌ Error fetching lessons by topic ID:', error);
+    res.status(500).json({ message: '❌ Server error fetching lessons by topic', error: error.message });
   }
 });
 
