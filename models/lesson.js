@@ -70,9 +70,13 @@ const lessonSchema = new mongoose.Schema({
   quiz: { type: [quizSchema], default: [] },
   relatedSubjects: { type: [String], default: [] },
 
-  // ✅ Combined Homework (from both ABC and QA)
-  homework: {
+  // ✅ Split homework into two correct formats
+  homeworkABC: {
     type: [abcExerciseSchema],
+    default: []
+  },
+  homeworkQA: {
+    type: [exerciseSchema],
     default: []
   },
 

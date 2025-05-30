@@ -1,3 +1,4 @@
+// lessonRoutes.js (Fully corrected version)
 const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
@@ -21,6 +22,18 @@ function validateObjectId(req, res, next) {
   }
   next();
 }
+
+// ─── DELETE: All Lessons (Must come before /:id) ────
+router.delete('/all', verifyToken, async (req, res) => {
+  try {
+    const result = await Lesson.deleteMany({});
+    console.log(`🧹 Deleted ${result.deletedCount} lessons`);
+    res.status(200).json({ message: `✅ Deleted ${result.deletedCount} lessons` });
+  } catch (error) {
+    console.error('❌ Error deleting all lessons:', error);
+    res.status(500).json({ message: '❌ Server error clearing lessons', error: error.message });
+  }
+});
 
 // ─── GET: All Lessons ───────────────────────────────
 router.get('/', async (req, res) => {
@@ -81,7 +94,6 @@ router.post('/', verifyToken, async (req, res) => {
       if (!topicName) return res.status(400).json({ message: '❌ Topic name is required' });
 
       resolvedTopic = await Topic.findOne({ subject, level, name: topicName });
-
       if (!resolvedTopic) {
         resolvedTopic = new Topic({
           name: topicName,
@@ -201,18 +213,6 @@ router.delete('/:id', verifyToken, validateObjectId, async (req, res) => {
   } catch (error) {
     console.error('❌ Error deleting lesson:', error);
     res.status(500).json({ message: '❌ Server error deleting lesson', error: error.message });
-  }
-});
-
-// ─── DELETE: All Lessons ────────────────────────────
-router.delete('/all', verifyToken, async (req, res) => {
-  try {
-    const result = await Lesson.deleteMany({});
-    console.log(`🧹 Deleted ${result.deletedCount} lessons`);
-    res.status(200).json({ message: `✅ Deleted ${result.deletedCount} lessons` });
-  } catch (error) {
-    console.error('❌ Error deleting all lessons:', error);
-    res.status(500).json({ message: '❌ Server error clearing lessons', error: error.message });
   }
 });
 
