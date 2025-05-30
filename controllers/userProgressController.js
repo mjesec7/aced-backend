@@ -20,38 +20,26 @@ exports.saveOrUpdateProgress = async (req, res) => {
   }
 
   try {
-    const existing = await UserProgress.findOne({ userId, lessonId });
+    const updated = await UserProgress.findOneAndUpdate(
+      { userId, lessonId },
+      {
+        progressPercent,
+        completed,
+        mistakes,
+        medal,
+        duration,
+        stars,
+        points,
+        hintsUsed,
+        updatedAt: new Date()
+      },
+      { upsert: true, new: true }
+    );
 
-    if (existing) {
-      existing.progressPercent = progressPercent;
-      existing.completed = completed;
-      existing.mistakes = mistakes;
-      existing.medal = medal;
-      existing.duration = duration;
-      existing.stars = stars;
-      existing.points = points;
-      existing.hintsUsed = hintsUsed;
-      await existing.save();
-
-      return res.status(200).json({ message: '✅ Progress updated', data: existing });
-    }
-
-    const newProgress = new UserProgress({
-      userId,
-      lessonId,
-      progressPercent,
-      completed,
-      mistakes,
-      medal,
-      duration,
-      stars,
-      points,
-      hintsUsed
+    res.status(200).json({
+      message: '✅ Progress saved/updated',
+      data: updated
     });
-
-    await newProgress.save();
-    res.status(201).json({ message: '✅ Progress saved', data: newProgress });
-
   } catch (error) {
     console.error('❌ Error saving/updating progress:', error);
     res.status(500).json({ message: '❌ Server error', error: error.message });
@@ -111,10 +99,10 @@ exports.getUserAnalytics = async (req, res) => {
     const completedCount = all.filter(p => p.completed).length;
     const totalPoints = all.reduce((sum, p) => sum + (p.points || 0), 0);
     const totalStars = all.reduce((sum, p) => sum + (p.stars || 0), 0);
-    const avgScore = all.length ? totalPoints / all.length : 0;
     const totalDuration = all.reduce((sum, p) => sum + (p.duration || 0), 0);
     const totalHints = all.reduce((sum, p) => sum + (p.hintsUsed || 0), 0);
     const totalMistakes = all.reduce((sum, p) => sum + (p.mistakes || 0), 0);
+    const avgScore = all.length ? +(totalPoints / all.length).toFixed(1) : 0;
 
     res.json({
       message: '✅ Analytics generated',
@@ -125,7 +113,7 @@ exports.getUserAnalytics = async (req, res) => {
         totalHints,
         totalMistakes,
         totalDuration,
-        averageScore: +avgScore.toFixed(1)
+        averageScore: avgScore
       }
     });
   } catch (error) {

@@ -4,8 +4,7 @@ const mongoose = require('mongoose');
 
 const userProgressSchema = new mongoose.Schema({
   userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
+    type: String, // Was: mongoose.Schema.Types.ObjectId — should match Firebase UID if that's used
     required: true
   },
 
@@ -21,13 +20,24 @@ const userProgressSchema = new mongoose.Schema({
   },
 
   completedSteps: {
-    type: [Number], // e.g., [0, 1, 2, 3]
+    type: [Number], // e.g., [0, 1, 2]
     default: []
   },
 
-  percent: {
+  progressPercent: {
     type: Number,
-    default: 0 // 0–100
+    default: 0
+  },
+
+  completed: {
+    type: Boolean,
+    default: false
+  },
+
+  medal: {
+    type: String,
+    enum: ['none', 'bronze', 'silver', 'gold'],
+    default: 'none'
   },
 
   stars: {
@@ -36,7 +46,7 @@ const userProgressSchema = new mongoose.Schema({
     default: 0
   },
 
-  pointsEarned: {
+  points: {
     type: Number,
     default: 0
   },
@@ -46,9 +56,9 @@ const userProgressSchema = new mongoose.Schema({
     default: 0
   },
 
-  usedHints: {
-    type: Boolean,
-    default: false
+  hintsUsed: {
+    type: Number,
+    default: 0
   },
 
   submittedHomework: {
@@ -60,9 +70,9 @@ const userProgressSchema = new mongoose.Schema({
     type: Date
   },
 
-  durationSeconds: {
+  duration: {
     type: Number,
-    default: 0 // How long they spent on lesson
+    default: 0
   }
 }, { timestamps: true });
 
