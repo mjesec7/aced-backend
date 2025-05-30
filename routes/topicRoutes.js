@@ -4,57 +4,57 @@ const mongoose = require('mongoose');
 const Topic = require('../models/topic');
 const Lesson = require('../models/lesson');
 
-// ✅ Middleware to validate MongoDB ObjectId
+// ✅ Validate MongoDB ObjectId
 function validateObjectId(req, res, next) {
   const id = req.params.id;
   if (!mongoose.Types.ObjectId.isValid(id)) {
-    console.warn(`⚠️ Invalid ObjectId received in route: ${id}`);
+    console.warn(`⚠️ Invalid ObjectId: ${id}`);
     return res.status(400).json({ message: '❌ Invalid topic ID format' });
   }
   next();
 }
 
-// ✅ GET all topics
+// ─── [GET] All Topics ───────────────────────────────
 router.get('/', async (req, res) => {
   console.log('📥 [GET] /topics');
   try {
     const topics = await Topic.find();
-    console.log(`📦 Topics returned: ${topics.length}`);
+    console.log(`📦 Returned ${topics.length} topics`);
     res.json(topics);
   } catch (err) {
-    console.error('❌ Error fetching all topics:', err);
+    console.error('❌ Failed to fetch topics:', err);
     res.status(500).json({ message: '❌ Server error while fetching topics' });
   }
 });
 
-// ✅ POST new topic
+// ─── [POST] Create New Topic ─────────────────────────
 router.post('/', async (req, res) => {
   console.log('📥 [POST] /topics', req.body);
   const { subject, level, name, description } = req.body;
 
   if (!subject || !level || !name?.en) {
-    console.warn('❌ Missing required fields: subject, level, or name.en');
-    return res.status(400).json({ message: '❌ Required: subject, level, and name.en' });
+    console.warn('⚠️ Missing required: subject, level, name.en');
+    return res.status(400).json({ message: '❌ Required fields: subject, level, name.en' });
   }
 
   try {
-    const exists = await Topic.findOne({ subject, level, 'name.en': name.en });
-    if (exists) {
-      console.warn(`⚠️ Duplicate topic: "${name.en}" already exists`);
-      return res.status(409).json({ message: '⚠️ Topic already exists' });
+    const duplicate = await Topic.findOne({ subject, level, 'name.en': name.en });
+    if (duplicate) {
+      console.warn(`⚠️ Topic already exists: ${name.en}`);
+      return res.status(409).json({ message: '⚠️ Topic with this name already exists' });
     }
 
     const newTopic = new Topic({ subject, level, name, description });
     const saved = await newTopic.save();
-    console.log(`✅ [Created] Topic "${saved.name.en}" (ID: ${saved._id})`);
+    console.log(`✅ Created topic "${saved.name.en}" (ID: ${saved._id})`);
     res.status(201).json(saved);
   } catch (err) {
-    console.error('❌ Error saving topic:', err);
-    res.status(500).json({ message: '❌ Failed to create topic' });
+    console.error('❌ Failed to create topic:', err);
+    res.status(500).json({ message: '❌ Server error while creating topic' });
   }
 });
 
-// ✅ GET topic and related lessons
+// ─── [GET] Single Topic + Lessons ────────────────────
 router.get('/:id', validateObjectId, async (req, res) => {
   const id = req.params.id;
   console.log(`📥 [GET] /topics/${id}`);
@@ -66,35 +66,34 @@ router.get('/:id', validateObjectId, async (req, res) => {
     }
 
     const lessons = await Lesson.find({ topic: id });
-    console.log(`📘 Found topic "${topic.name.en}" with ${lessons.length} lessons`);
-    const response = {
-      ...topic.toObject(),
-      lessons
-    };
+    console.log(`📘 Topic "${topic.name.en}" has ${lessons.length} lessons`);
 
-    res.json(response);
+    res.json({
+      ...topic.toObject(),
+      lessons,
+    });
   } catch (err) {
-    console.error('❌ Error fetching topic and lessons:', err);
-    res.status(500).json({ message: '❌ Server error while fetching topic and lessons' });
+    console.error('❌ Failed to fetch topic and lessons:', err);
+    res.status(500).json({ message: '❌ Server error while fetching topic data' });
   }
 });
 
-// ✅ GET only lessons by topic ID
+// ─── [GET] Lessons for Topic ─────────────────────────
 router.get('/:id/lessons', validateObjectId, async (req, res) => {
   const id = req.params.id;
   console.log(`📥 [GET] /topics/${id}/lessons`);
   try {
-    const topicExists = await Topic.exists({ _id: id });
-    if (!topicExists) {
-      console.warn(`⚠️ Topic not found for ID: ${id}`);
+    const exists = await Topic.exists({ _id: id });
+    if (!exists) {
+      console.warn(`⚠️ No topic for ID: ${id}`);
       return res.status(404).json({ message: '❌ Topic not found' });
     }
 
     const lessons = await Lesson.find({ topic: id });
-    console.log(`📚 Lessons found for topic ${id}: ${lessons.length}`);
+    console.log(`📚 Found ${lessons.length} lessons for topic ID ${id}`);
     res.json(lessons);
   } catch (err) {
-    console.error('❌ Error fetching lessons by topic ID:', err);
+    console.error('❌ Failed to fetch lessons by topic:', err);
     res.status(500).json({ message: '❌ Server error while fetching lessons' });
   }
 });

@@ -1,39 +1,41 @@
 const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
+
 const Lesson = require('../models/lesson');
 const Topic = require('../models/topic');
 const verifyToken = require('../middlewares/authMiddleware');
 
-// ✅ Middleware: Request Logging
+// ─── Middleware: Logging ─────────────────────────────
 router.use((req, res, next) => {
   console.log(`📢 [${req.method}] ${req.originalUrl}`);
   next();
 });
 
-// ✅ Middleware: Validate ObjectId
+// ─── Middleware: Validate ObjectId ──────────────────
 function validateObjectId(req, res, next) {
-  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-    console.warn(`⚠️ Invalid ObjectId: ${req.params.id}`);
+  const { id } = req.params;
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    console.warn(`⚠️ Invalid ObjectId: ${id}`);
     return res.status(400).json({ message: '❌ Invalid lesson ID format' });
   }
   next();
 }
 
-// ✅ GET all lessons
+// ─── GET: All Lessons ───────────────────────────────
 router.get('/', async (req, res) => {
   try {
     const filter = req.query.type ? { type: req.query.type } : {};
     const lessons = await Lesson.find(filter);
-    console.log(`📄 Отправлено ${lessons.length} урок(ов) (фильтр: ${filter.type || 'all'})`);
+    console.log(`📄 Returned ${lessons.length} lessons (filter: ${filter.type || 'all'})`);
     res.status(200).json(lessons);
   } catch (error) {
-    console.error('❌ Ошибка получения всех уроков:', error);
+    console.error('❌ Failed to fetch all lessons:', error);
     res.status(500).json({ message: '❌ Server error fetching lessons', error: error.message });
   }
 });
 
-// ✅ POST new lesson
+// ─── POST: New Lesson ───────────────────────────────
 router.post('/', verifyToken, async (req, res) => {
   try {
     const {
@@ -41,23 +43,16 @@ router.post('/', verifyToken, async (req, res) => {
       description, explanations, examples, content, hint,
       exerciseGroups, quiz, relatedSubjects, translations,
       explanation, exercises, quizzes, abcExercises,
-      homeworkABC, homeworkQA,
-      steps
+      homeworkABC, homeworkQA, steps
     } = req.body;
 
     if (!lessonName || !subject || level === undefined || !type || !description) {
-      return res.status(400).json({ message: '❌ Missing required lesson fields' });
+      return res.status(400).json({ message: '❌ Required fields: lessonName, subject, level, type, description' });
     }
 
     const normalizedExplanations = Array.isArray(explanations)
       ? explanations
-      : explanation
-        ? [explanation]
-        : [];
-
-    if (!Array.isArray(normalizedExplanations)) {
-      return res.status(400).json({ message: '❌ explanations[] must be an array' });
-    }
+      : explanation ? [explanation] : [];
 
     const normalizedExercises = Array.isArray(exerciseGroups)
       ? exerciseGroups
@@ -66,9 +61,9 @@ router.post('/', verifyToken, async (req, res) => {
         : [];
 
     let normalizedQuiz = [];
-    if (Array.isArray(quiz)) normalizedQuiz = quiz;
-    if (Array.isArray(abcExercises)) normalizedQuiz = [...normalizedQuiz, ...abcExercises];
-    if (Array.isArray(quizzes)) normalizedQuiz = [...normalizedQuiz, ...quizzes];
+    if (Array.isArray(quiz)) normalizedQuiz = [...quiz];
+    if (Array.isArray(abcExercises)) normalizedQuiz.push(...abcExercises);
+    if (Array.isArray(quizzes)) normalizedQuiz.push(...quizzes);
 
     const homework = [
       ...(Array.isArray(homeworkABC) ? homeworkABC : []),
@@ -80,30 +75,30 @@ router.post('/', verifyToken, async (req, res) => {
     if (topicId && mongoose.Types.ObjectId.isValid(topicId)) {
       resolvedTopic = await Topic.findById(topicId);
     }
+
     if (!resolvedTopic) {
       const topicName = typeof topic === 'string' ? topic.trim() : '';
       const topicDesc = typeof topicDescription === 'string' ? topicDescription.trim() : '';
-      if (!topicName) {
-        return res.status(400).json({ message: '❌ Topic name is required' });
-      }
+      if (!topicName) return res.status(400).json({ message: '❌ Topic name is required' });
+
       resolvedTopic = await Topic.findOne({ subject, level, name: topicName });
       if (!resolvedTopic) {
         resolvedTopic = new Topic({ name: topicName, subject, level, description: topicDesc });
         await resolvedTopic.save();
-        console.log(`✅ Created topic: ${resolvedTopic.name}`);
+        console.log(`✅ Created topic "${resolvedTopic.name}"`);
       } else {
-        console.log(`ℹ️ Reusing topic: ${resolvedTopic.name}`);
+        console.log(`ℹ️ Reused topic "${resolvedTopic.name}"`);
       }
     }
 
     const newLesson = new Lesson({
-      lessonName: typeof lessonName === 'string' ? lessonName.trim() : '',
+      lessonName: lessonName.trim(),
       subject,
       level,
       type,
       topic: resolvedTopic.name,
       topicId: resolvedTopic._id,
-      description: typeof description === 'string' ? description.trim() : '',
+      description: description.trim(),
       explanations: normalizedExplanations,
       examples: typeof examples === 'string' ? examples.trim() : '',
       content: typeof content === 'string' ? content.trim() : '',
@@ -116,28 +111,28 @@ router.post('/', verifyToken, async (req, res) => {
       homework
     });
 
-    const savedLesson = await newLesson.save();
-    console.log(`✅ Новый урок: "${savedLesson.lessonName}"`);
-    res.status(201).json(savedLesson);
+    const saved = await newLesson.save();
+    console.log(`✅ Saved lesson "${saved.lessonName}"`);
+    res.status(201).json(saved);
   } catch (error) {
-    console.error('❌ Ошибка при добавлении урока:', error);
-    res.status(500).json({ message: '❌ Server error adding lesson', error: error.message });
+    console.error('❌ Error saving lesson:', error);
+    res.status(500).json({ message: '❌ Server error creating lesson', error: error.message });
   }
 });
 
-// ✅ GET lesson by ID
+// ─── GET: Lesson by ID ──────────────────────────────
 router.get('/:id', validateObjectId, async (req, res) => {
   try {
     const lesson = await Lesson.findById(req.params.id);
     if (!lesson) return res.status(404).json({ message: '❌ Lesson not found' });
     res.status(200).json(lesson);
   } catch (error) {
-    console.error('❌ Ошибка получения урока:', error);
+    console.error('❌ Error fetching lesson by ID:', error);
     res.status(500).json({ message: '❌ Server error fetching lesson', error: error.message });
   }
 });
 
-// ✅ GET lesson by subject and name
+// ─── GET: Lesson by Subject & Name ──────────────────
 router.get('/by-name', async (req, res) => {
   const { subject, name } = req.query;
   if (!subject || !name) {
@@ -148,13 +143,13 @@ router.get('/by-name', async (req, res) => {
     const lessons = await Lesson.find({ subject, topic: name });
     if (!lessons.length) return res.status(404).json({ message: '❌ Lesson not found' });
     res.status(200).json(lessons[0]);
-  } catch (err) {
-    console.error('❌ Ошибка получения урока по имени:', err);
-    res.status(500).json({ message: '❌ Server error fetching lesson by name', error: err.message });
+  } catch (error) {
+    console.error('❌ Error fetching lesson by name:', error);
+    res.status(500).json({ message: '❌ Server error fetching lesson', error: error.message });
   }
 });
 
-// ✅ PUT update lesson
+// ─── PUT: Update Lesson ─────────────────────────────
 router.put('/:id', verifyToken, validateObjectId, async (req, res) => {
   try {
     const updates = req.body;
@@ -164,36 +159,36 @@ router.put('/:id', verifyToken, validateObjectId, async (req, res) => {
       ...(Array.isArray(updates.abcExercises) ? updates.abcExercises : [])
     ];
 
-    const updatedLesson = await Lesson.findByIdAndUpdate(req.params.id, updates, { new: true });
-    if (!updatedLesson) return res.status(404).json({ message: '❌ Lesson not found' });
-    res.status(200).json(updatedLesson);
+    const updated = await Lesson.findByIdAndUpdate(req.params.id, updates, { new: true });
+    if (!updated) return res.status(404).json({ message: '❌ Lesson not found' });
+    res.status(200).json(updated);
   } catch (error) {
-    console.error('❌ Ошибка обновления урока:', error);
+    console.error('❌ Error updating lesson:', error);
     res.status(500).json({ message: '❌ Server error updating lesson', error: error.message });
   }
 });
 
-// ✅ DELETE lesson by ID
+// ─── DELETE: One Lesson ─────────────────────────────
 router.delete('/:id', verifyToken, validateObjectId, async (req, res) => {
   try {
-    const deletedLesson = await Lesson.findByIdAndDelete(req.params.id);
-    if (!deletedLesson) return res.status(404).json({ message: '❌ Lesson not found' });
-    res.status(200).json({ message: '✅ Lesson successfully deleted' });
+    const deleted = await Lesson.findByIdAndDelete(req.params.id);
+    if (!deleted) return res.status(404).json({ message: '❌ Lesson not found' });
+    res.status(200).json({ message: '✅ Lesson deleted successfully' });
   } catch (error) {
-    console.error('❌ Ошибка удаления урока:', error);
+    console.error('❌ Error deleting lesson:', error);
     res.status(500).json({ message: '❌ Server error deleting lesson', error: error.message });
   }
 });
 
-// ✅ DELETE all lessons
+// ─── DELETE: All Lessons ────────────────────────────
 router.delete('/all', verifyToken, async (req, res) => {
   try {
     const result = await Lesson.deleteMany({});
-    console.log(`🧹 Удалено уроков: ${result.deletedCount}`);
-    res.status(200).json({ message: `✅ Удалено уроков: ${result.deletedCount}` });
-  } catch (err) {
-    console.error('❌ Ошибка при массовом удалении уроков:', err);
-    res.status(500).json({ message: '❌ Server error deleting all lessons', error: err.message });
+    console.log(`🧹 Deleted ${result.deletedCount} lessons`);
+    res.status(200).json({ message: `✅ Deleted ${result.deletedCount} lessons` });
+  } catch (error) {
+    console.error('❌ Error deleting all lessons:', error);
+    res.status(500).json({ message: '❌ Server error clearing lessons', error: error.message });
   }
 });
 

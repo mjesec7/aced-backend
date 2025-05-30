@@ -1,19 +1,21 @@
 const express = require('express');
 const router = express.Router();
+
 const { verifyToken } = require('../middlewares/authMiddleware');
 const controller = require('../controllers/homeworkController');
 
-// 🧠 Middleware to ensure the Firebase ID in token matches route param
+// 🧠 Ensure Firebase token matches requested user
 function checkUserMatch(req, res, next) {
   if (!req.user || req.user.uid !== req.params.firebaseId) {
+    console.warn(`⚠️ Access denied for user: ${req.user?.uid} vs ${req.params.firebaseId}`);
     return res.status(403).json({ error: '❌ Access denied: user mismatch' });
   }
   next();
 }
 
-// ─────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
 // 📥 GET /:firebaseId/homeworks
-// Get all homework records for a user
+// ✅ Get all homework records for the current user
 router.get(
   '/:firebaseId/homeworks',
   verifyToken,
@@ -22,7 +24,7 @@ router.get(
 );
 
 // 📥 GET /:firebaseId/homeworks/lesson/:lessonId
-// Get homework record for a specific lesson
+// ✅ Get homework for a specific lesson
 router.get(
   '/:firebaseId/homeworks/lesson/:lessonId',
   verifyToken,
@@ -31,7 +33,7 @@ router.get(
 );
 
 // 📤 POST /:firebaseId/homeworks/save
-// Save or update a homework entry
+// ✅ Save or update homework answers (draft or final)
 router.post(
   '/:firebaseId/homeworks/save',
   verifyToken,
@@ -39,8 +41,8 @@ router.post(
   controller.saveHomework
 );
 
-// ✅ POST /:firebaseId/homeworks/lesson/:lessonId/submit
-// Submit and auto-grade a homework
+// 🧠 POST /:firebaseId/homeworks/lesson/:lessonId/submit
+// ✅ Submit and auto-grade homework
 router.post(
   '/:firebaseId/homeworks/lesson/:lessonId/submit',
   verifyToken,
