@@ -80,13 +80,19 @@ router.post('/', verifyToken, async (req, res) => {
       const topicDesc = typeof topicDescription === 'string' ? topicDescription.trim() : '';
       if (!topicName) return res.status(400).json({ message: '❌ Topic name is required' });
 
-      resolvedTopic = await Topic.findOne({ subject, level, 'name.en': topicName });
+      resolvedTopic = await Topic.findOne({ subject, level, name: topicName });
+
       if (!resolvedTopic) {
-        resolvedTopic = new Topic({ name: { en: topicName }, subject, level, description: topicDesc });
+        resolvedTopic = new Topic({
+          name: topicName,
+          subject,
+          level,
+          description: topicDesc
+        });
         await resolvedTopic.save();
-        console.log(`✅ Created topic "${resolvedTopic.name.en}"`);
+        console.log(`✅ Created topic "${resolvedTopic.name}"`);
       } else {
-        console.log(`ℹ️ Reused topic "${resolvedTopic.name.en}"`);
+        console.log(`ℹ️ Reused topic "${resolvedTopic.name}"`);
       }
     }
 
@@ -95,7 +101,7 @@ router.post('/', verifyToken, async (req, res) => {
       subject,
       level,
       type,
-      topic: resolvedTopic.name.en || resolvedTopic.name,
+      topic: resolvedTopic.name,
       topicId: resolvedTopic._id,
       description: description.trim(),
       explanations: normalizedExplanations,
