@@ -230,43 +230,62 @@ router.post('/:firebaseId/progress', validateFirebaseId, verifyToken, verifyOwne
 
 // Topic Progress
 // Get all topics progress for a user
+// Get all topics progress for a user
 router.get('/:firebaseId/topics-progress', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   try {
-    // Get all lessons to count total per topic
+    // Get all lessons
     const lessons = await Lesson.find({});
-    const topicLessons = {};
+    const topicMap = {}; // Map to store all variations of topic identification
     
+    // Build a map of all topic identifiers
     lessons.forEach(lesson => {
       if (lesson.topicId) {
-        const topicId = lesson.topicId.toString();
-        if (!topicLessons[topicId]) {
-          topicLessons[topicId] = { total: 0, completed: 0 };
+        const topicIdStr = lesson.topicId.toString();
+        
+        if (!topicMap[topicIdStr]) {
+          topicMap[topicIdStr] = {
+            topicId: topicIdStr,
+            topicName: lesson.topic,
+            total: 0,
+            completed: 0
+          };
         }
-        topicLessons[topicId].total++;
+        topicMap[topicIdStr].total++;
       }
     });
     
-    // Get user progress to count completed
+    // Get user progress
     const userProgress = await UserProgress.find({ userId: req.params.firebaseId });
     
+    // Count completed lessons
     for (const progress of userProgress) {
       if (progress.completed && progress.lessonId) {
-        // Find the lesson to get its topicId
-        const lesson = await Lesson.findById(progress.lessonId);
+        const lesson = lessons.find(l => l._id.toString() === progress.lessonId.toString());
         if (lesson && lesson.topicId) {
-          const topicId = lesson.topicId.toString();
-          if (topicLessons[topicId]) {
-            topicLessons[topicId].completed++;
+          const topicIdStr = lesson.topicId.toString();
+          if (topicMap[topicIdStr]) {
+            topicMap[topicIdStr].completed++;
           }
         }
       }
     }
     
-    // Calculate percentages
+    // Build the response with multiple keys for each topic
     const topicProgress = {};
-    Object.keys(topicLessons).forEach(topicId => {
-      const { total, completed } = topicLessons[topicId];
-      topicProgress[topicId] = total > 0 ? Math.round((completed / total) * 100) : 0;
+    
+    Object.values(topicMap).forEach(topic => {
+      const percentage = topic.total > 0 ? Math.round((topic.completed / topic.total) * 100) : 0;
+      
+      // Add progress by topicId
+      topicProgress[topic.topicId] = percentage;
+      
+      // Also add by topic name if available
+      if (topic.topicName) {
+        topicProgress[topic.topicName] = percentage;
+      }
+      
+      // Log for debugging
+      console.log(`📊 Topic: ${topic.topicName} (${topic.topicId}) - ${topic.completed}/${topic.total} = ${percentage}%`);
     });
     
     res.json(topicProgress);
