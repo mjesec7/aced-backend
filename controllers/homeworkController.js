@@ -1,112 +1,256 @@
 const HomeworkProgress = require('../models/homeworkProgress');
+const UserProgress = require('../models/userProgress');
 const Lesson = require('../models/lesson');
 
-// 🔍 Get all homeworks for a user
+// ✅ Get all homework records for a user
 exports.getAllHomeworks = async (req, res) => {
   try {
     const { firebaseId } = req.params;
-    const homeworks = await HomeworkProgress.find({ userId: firebaseId });
-    res.json({ success: true, data: homeworks });
-  } catch (err) {
-    console.error('❌ Error getting homeworks:', err);
-    res.status(500).json({ success: false, error: '❌ Server error while fetching homeworks' });
-  }
-};
-
-// 🔍 Get single homework by lessonId
-exports.getHomeworkByLesson = async (req, res) => {
-  try {
-    const { firebaseId, lessonId } = req.params;
-    const progress = await HomeworkProgress.findOne({ userId: firebaseId, lessonId });
-    res.json({ success: true, data: progress || null });
-  } catch (err) {
-    console.error('❌ Error getting homework:', err);
-    res.status(500).json({ success: false, error: '❌ Server error while fetching homework' });
-  }
-};
-
-// 💾 Save or update homework progress (draft or in-progress)
-exports.saveHomework = async (req, res) => {
-  try {
-    const { firebaseId } = req.params;
-    const { lessonId, answers, completed } = req.body;
-
-    if (!lessonId || !Array.isArray(answers)) {
-      return res.status(400).json({ success: false, error: '❌ Missing lessonId or invalid answers format' });
-    }
-
-    let progress = await HomeworkProgress.findOne({ userId: firebaseId, lessonId });
-
-    if (progress) {
-      progress.answers = answers;
-      progress.completed = !!completed;
-      progress.updatedAt = new Date();
-    } else {
-      progress = new HomeworkProgress({
-        userId: firebaseId,
-        lessonId,
-        answers,
-        completed: !!completed
+    
+    if (!firebaseId) {
+      return res.status(400).json({ 
+        error: '❌ Firebase ID is required',
+        message: '❌ Firebase ID is required' 
       });
     }
 
-    await progress.save();
-    res.json({ success: true, data: progress });
-  } catch (err) {
-    console.error('❌ Error saving homework:', err);
-    res.status(500).json({ success: false, error: '❌ Server error while saving homework' });
+    const homeworks = await HomeworkProgress.find({ userId: firebaseId })
+      .populate('lessonId', 'title description homework')
+      .sort({ updatedAt: -1 });
+
+    console.log(`📥 Found ${homeworks.length} homework records for user ${firebaseId}`);
+
+    res.status(200).json({
+      message: '✅ Homework records retrieved successfully',
+      data: homeworks
+    });
+
+  } catch (error) {
+    console.error('❌ Error getting all homeworks:', error);
+    res.status(500).json({ 
+      error: '❌ Server error',
+      message: '❌ Failed to retrieve homework records',
+      details: error.message 
+    });
   }
 };
 
-// ✅ Submit homework + auto-grade it
+// ✅ Get homework for a specific lesson
+exports.getHomeworkByLesson = async (req, res) => {
+  try {
+    const { firebaseId, lessonId } = req.params;
+    
+    if (!firebaseId || !lessonId) {
+      return res.status(400).json({ 
+        error: '❌ Firebase ID and Lesson ID are required',
+        message: '❌ Firebase ID and Lesson ID are required' 
+      });
+    }
+
+    // Find existing homework progress
+    const homework = await HomeworkProgress.findOne({ 
+      userId: firebaseId, 
+      lessonId 
+    }).populate('lessonId', 'title description homework');
+
+    // Get lesson details for homework questions
+    const lesson = await Lesson.findById(lessonId).select('homework');
+
+    if (!lesson) {
+      return res.status(404).json({ 
+        error: '❌ Lesson not found',
+        message: '❌ Lesson not found' 
+      });
+    }
+
+    console.log(`📥 Homework for user ${firebaseId}, lesson ${lessonId}:`, homework ? 'Found' : 'Not found');
+
+    res.status(200).json({
+      message: '✅ Homework data retrieved successfully',
+      data: {
+        homework: homework || null,
+        questions: lesson.homework || []
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error getting homework by lesson:', error);
+    res.status(500).json({ 
+      error: '❌ Server error',
+      message: '❌ Failed to retrieve homework',
+      details: error.message 
+    });
+  }
+};
+
+// ✅ Save or update homework answers (draft mode)
+exports.saveHomework = async (req, res) => {
+  try {
+    const { firebaseId } = req.params;
+    const { lessonId, answers } = req.body;
+    
+    if (!firebaseId || !lessonId) {
+      return res.status(400).json({ 
+        error: '❌ Firebase ID and Lesson ID are required',
+        message: '❌ Firebase ID and Lesson ID are required' 
+      });
+    }
+
+    if (!Array.isArray(answers)) {
+      return res.status(400).json({ 
+        error: '❌ Answers must be an array',
+        message: '❌ Answers must be an array' 
+      });
+    }
+
+    // Update or create homework progress
+    const homework = await HomeworkProgress.findOneAndUpdate(
+      { userId: firebaseId, lessonId },
+      { 
+        answers,
+        completed: false, // Save as draft
+        updatedAt: new Date()
+      },
+      { 
+        upsert: true, 
+        new: true,
+        runValidators: true 
+      }
+    ).populate('lessonId', 'title description');
+
+    console.log(`💾 Homework saved (draft) for user ${firebaseId}, lesson ${lessonId}`);
+
+    res.status(200).json({
+      message: '✅ Homework saved as draft',
+      data: homework
+    });
+
+  } catch (error) {
+    console.error('❌ Error saving homework:', error);
+    res.status(500).json({ 
+      error: '❌ Server error',
+      message: '❌ Failed to save homework',
+      details: error.message 
+    });
+  }
+};
+
+// ✅ Submit and auto-grade homework
 exports.submitHomework = async (req, res) => {
   try {
     const { firebaseId, lessonId } = req.params;
     const { answers } = req.body;
+    
+    if (!firebaseId || !lessonId) {
+      return res.status(400).json({ 
+        error: '❌ Firebase ID and Lesson ID are required',
+        message: '❌ Firebase ID and Lesson ID are required' 
+      });
+    }
 
     if (!Array.isArray(answers)) {
-      return res.status(400).json({ success: false, error: '❌ Answers must be an array' });
+      return res.status(400).json({ 
+        error: '❌ Answers must be an array',
+        message: '❌ Answers must be an array' 
+      });
     }
 
-    const lesson = await Lesson.findById(lessonId);
-    if (!lesson) {
-      return res.status(404).json({ success: false, error: '❌ Lesson not found' });
+    // Get lesson with homework questions
+    const lesson = await Lesson.findById(lessonId).select('homework');
+    if (!lesson || !lesson.homework) {
+      return res.status(404).json({ 
+        error: '❌ Lesson or homework not found',
+        message: '❌ Lesson or homework not found' 
+      });
     }
 
-    if (!Array.isArray(lesson.homework) || lesson.homework.length === 0) {
-      return res.status(400).json({ success: false, error: '❌ This lesson has no homework to submit' });
-    }
+    // Auto-grade the homework
+    const gradedAnswers = answers.map((answer, index) => {
+      const question = lesson.homework[index];
+      if (!question) {
+        return {
+          questionIndex: index,
+          userAnswer: answer.userAnswer || '',
+          correctAnswer: '',
+          isCorrect: false,
+          type: 'auto'
+        };
+      }
 
-    let score = 0;
-    lesson.homework.forEach((q, index) => {
-      const userAnswer = answers.find(a => a.questionIndex === index);
-      if (
-        userAnswer &&
-        typeof userAnswer.answer === 'string' &&
-        typeof q.correctAnswer === 'string' &&
-        userAnswer.answer.trim().toLowerCase() === q.correctAnswer.trim().toLowerCase()
-      ) {
-        score++;
+      const correctAnswer = question.correctAnswer || '';
+      const userAnswer = (answer.userAnswer || '').toString().trim().toLowerCase();
+      const correctAnswerNormalized = correctAnswer.toString().trim().toLowerCase();
+      
+      const isCorrect = userAnswer === correctAnswerNormalized;
+
+      return {
+        questionIndex: index,
+        userAnswer: answer.userAnswer || '',
+        correctAnswer,
+        isCorrect,
+        type: 'auto'
+      };
+    });
+
+    // Calculate score and stars
+    const totalQuestions = gradedAnswers.length;
+    const correctAnswers = gradedAnswers.filter(a => a.isCorrect).length;
+    const score = totalQuestions > 0 ? Math.round((correctAnswers / totalQuestions) * 100) : 0;
+    
+    let stars = 0;
+    if (score >= 90) stars = 3;
+    else if (score >= 70) stars = 2;
+    else if (score >= 50) stars = 1;
+
+    // Update homework progress
+    const homework = await HomeworkProgress.findOneAndUpdate(
+      { userId: firebaseId, lessonId },
+      { 
+        answers: gradedAnswers,
+        completed: true,
+        score,
+        stars,
+        submittedAt: new Date(),
+        updatedAt: new Date()
+      },
+      { 
+        upsert: true, 
+        new: true,
+        runValidators: true 
+      }
+    ).populate('lessonId', 'title description');
+
+    // Update user progress to mark homework as submitted
+    await UserProgress.findOneAndUpdate(
+      { userId: firebaseId, lessonId },
+      { 
+        submittedHomework: true,
+        homeworkScore: score,
+        updatedAt: new Date()
+      },
+      { upsert: false } // Don't create if doesn't exist
+    );
+
+    console.log(`🎯 Homework submitted and graded for user ${firebaseId}, lesson ${lessonId}. Score: ${score}%, Stars: ${stars}`);
+
+    res.status(200).json({
+      message: '✅ Homework submitted and graded successfully',
+      data: {
+        homework,
+        score,
+        stars,
+        totalQuestions,
+        correctAnswers,
+        details: `${correctAnswers}/${totalQuestions} correct (${score}%)`
       }
     });
 
-    const total = lesson.homework.length;
-    const percentage = Math.round((score / total) * 100);
-
-    const updated = await HomeworkProgress.findOneAndUpdate(
-      { userId: firebaseId, lessonId },
-      {
-        answers,
-        completed: true,
-        score: percentage,
-        updatedAt: new Date()
-      },
-      { new: true, upsert: true }
-    );
-
-    res.json({ success: true, data: updated, score: percentage });
-  } catch (err) {
-    console.error('❌ Error submitting homework:', err);
-    res.status(500).json({ success: false, error: '❌ Server error while submitting homework' });
+  } catch (error) {
+    console.error('❌ Error submitting homework:', error);
+    res.status(500).json({ 
+      error: '❌ Server error',
+      message: '❌ Failed to submit homework',
+      details: error.message 
+    });
   }
 };
