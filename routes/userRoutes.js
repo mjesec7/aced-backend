@@ -266,6 +266,21 @@ router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwne
 });
 
 // POST endpoint for analytics (since frontend is using POST)
+// Analytics - both GET and POST
+router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
+  try {
+    const progress = await UserProgress.find({ userId: req.params.firebaseId });
+    const completed = progress.filter(p => p.completed).length;
+    const totalStars = progress.reduce((sum, p) => sum + (p.stars || 0), 0);
+    const totalPoints = progress.reduce((sum, p) => sum + (p.points || 0), 0);
+    const hintsUsed = progress.reduce((sum, p) => sum + (p.hintsUsed || 0), 0);
+    res.json({ completedLessons: completed, totalStars, totalPoints, hintsUsed });
+  } catch {
+    res.status(500).json({ error: '❌ Error fetching analytics' });
+  }
+});
+
+// POST endpoint for analytics (since frontend is using POST)
 router.post('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   try {
     const progress = await UserProgress.find({ userId: req.params.firebaseId });
