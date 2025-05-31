@@ -1,3 +1,7 @@
+// ========================================
+// 🔧 COMPLETE MONGOOSE DEBUG SETUP
+// ========================================
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -9,13 +13,19 @@ const path = require('path');
 // Load environment variables first
 dotenv.config();
 
+// Enable Mongoose debugging to see all queries
+mongoose.set('debug', process.env.NODE_ENV === 'development');
+
 // Enhanced Firebase ENV debugging
-console.log("🧪 Firebase ENV DEBUG:", {
+console.log("🧪 ENVIRONMENT DEBUG:", {
+  nodeEnv: process.env.NODE_ENV || 'development',
+  port: process.env.PORT || 5000,
   projectId: process.env.FIREBASE_PROJECT_ID ? '✅ Set' : '❌ Missing',
   clientEmail: process.env.FIREBASE_CLIENT_EMAIL ? '✅ Set' : '❌ Missing',
   privateKeyLength: process.env.FIREBASE_PRIVATE_KEY?.length || 0,
   hasNewlinesEscaped: process.env.FIREBASE_PRIVATE_KEY?.includes('\\n'),
-  mongoUri: process.env.MONGO_URI ? '✅ Set' : '❌ Missing'
+  mongoUri: process.env.MONGO_URI ? '✅ Set' : '❌ Missing',
+  mongoUriStart: process.env.MONGO_URI?.substring(0, 20) + '...' || 'Not set'
 });
 
 const app = express();
@@ -27,7 +37,7 @@ const PORT = process.env.PORT || 5000;
 
 app.use(helmet({
   crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
-  contentSecurityPolicy: false, // Disable for development
+  contentSecurityPolicy: false,
 }));
 
 app.use(compression());
@@ -35,16 +45,14 @@ app.use(compression());
 // Enhanced JSON parsing with error handling
 app.use(express.json({ 
   limit: '10mb',
-  verify: (req, res, buf) => {
+  verify: (req, res, buf, encoding) => {
     try {
       JSON.parse(buf);
     } catch (e) {
       console.error('❌ Invalid JSON received:', e.message);
-      res.status(400).json({ 
-        error: 'Invalid JSON format',
-        message: 'Request body contains malformed JSON'
-      });
-      return;
+      const error = new Error('Invalid JSON format');
+      error.status = 400;
+      throw error;
     }
   }
 }));
@@ -57,9 +65,10 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 app.use((req, res, next) => {
   const timestamp = new Date().toISOString();
-  console.log(`📅 [${timestamp}] ${req.method} ${req.url}`);
+  console.log(`\n📅 [${timestamp}] ${req.method} ${req.url}`);
   console.log(`🌐 Origin: ${req.headers.origin || 'Direct access'}`);
   console.log(`🔑 Auth: ${req.headers.authorization ? 'Present' : 'None'}`);
+  console.log(`🆔 User-Agent: ${req.headers['user-agent']?.substring(0, 50)}...`);
   
   // Log POST/PUT request bodies (excluding sensitive data)
   if (['POST', 'PUT', 'PATCH'].includes(req.method) && req.body) {
@@ -70,6 +79,13 @@ app.use((req, res, next) => {
     delete logData.token;
     console.log('📦 Request body:', JSON.stringify(logData, null, 2));
   }
+  
+  // Log response time
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    console.log(`⏱️  Response: ${res.statusCode} (${duration}ms)`);
+  });
   
   next();
 });
@@ -88,14 +104,18 @@ const allowedOrigins = [
 
 // Add development origins if in dev mode
 if (process.env.NODE_ENV === 'development') {
-  allowedOrigins.push('http://localhost:5173', 'http://localhost:4173');
+  allowedOrigins.push(
+    'http://localhost:5173', 
+    'http://localhost:4173',
+    'http://localhost:8080',
+    'http://127.0.0.1:5173'
+  );
 }
 
 app.use(cors({
   origin: (origin, callback) => {
     console.log('🔍 CORS Check for:', origin);
     
-    // Allow requests with no origin (mobile apps, Postman, etc.)
     if (!origin) {
       console.log('✅ CORS: No origin (mobile/desktop app)');
       return callback(null, true);
@@ -119,11 +139,125 @@ app.use(cors({
     'Origin'
   ],
   exposedHeaders: ['X-Total-Count'],
-  maxAge: 86400, // 24 hours
+  maxAge: 86400,
 }));
 
-// Handle preflight requests globally
 app.options('*', cors());
+
+// ========================================
+// 💾 IMPROVED MONGODB CONNECTION
+// ========================================
+
+const connectDB = async () => {
+  try {
+    console.log('\n🔌 Attempting MongoDB connection...');
+    console.log(`📊 Mongoose version: ${mongoose.version}`);
+    console.log(`📊 Node.js version: ${process.version}`);
+    
+    // Check if MongoDB URI exists
+    if (!process.env.MONGO_URI) {
+      throw new Error('MONGO_URI environment variable is not set');
+    }
+    
+    // Modern connection options for Mongoose 6+
+    const connectionOptions = {
+      // Timeout settings
+      serverSelectionTimeoutMS: 5000,  // Reduced from 10000 for faster failure detection
+      socketTimeoutMS: 45000,
+      connectTimeoutMS: 10000,
+      
+      // Pool settings
+      maxPoolSize: 10,
+      minPoolSize: 2,
+      
+      // Retry settings
+      retryWrites: true,
+      retryReads: true,
+      
+      // Buffer settings - CRITICAL for fixing your error
+      bufferCommands: false,  // Disable command buffering
+      maxBufferSize: 0,       // Disable mongoose buffering completely
+      
+      // Heartbeat
+      heartbeatFrequencyMS: 10000,
+      
+      // Auto-reconnect settings
+      autoIndex: process.env.NODE_ENV !== 'production', // Only in development
+    };
+    
+    console.log('🔧 Connection options:', {
+      serverSelectionTimeoutMS: connectionOptions.serverSelectionTimeoutMS,
+      bufferCommands: connectionOptions.bufferCommands,
+      maxBufferSize: connectionOptions.maxBufferSize,
+      maxPoolSize: connectionOptions.maxPoolSize
+    });
+    
+    // Attempt connection
+    await mongoose.connect(process.env.MONGO_URI, connectionOptions);
+    
+    console.log('✅ MongoDB connected successfully!');
+    console.log(`📍 Database: ${mongoose.connection.name}`);
+    console.log(`🏠 Host: ${mongoose.connection.host}:${mongoose.connection.port}`);
+    console.log(`🔄 Ready state: ${mongoose.connection.readyState}`);
+    
+    // Connection event listeners
+    mongoose.connection.on('connected', () => {
+      console.log('🔗 Mongoose connected to MongoDB');
+    });
+    
+    mongoose.connection.on('error', (err) => {
+      console.error('❌ MongoDB connection error:', err.message);
+      if (err.stack) console.error('Stack:', err.stack);
+    });
+    
+    mongoose.connection.on('disconnected', () => {
+      console.warn('⚠️  Mongoose disconnected from MongoDB');
+    });
+    
+    mongoose.connection.on('reconnected', () => {
+      console.log('🔄 Mongoose reconnected to MongoDB');
+    });
+    
+    // Test the connection
+    await mongoose.connection.db.admin().ping();
+    console.log('✅ Database ping successful');
+    
+  } catch (error) {
+    console.error('\n❌ MongoDB connection failed:');
+    console.error('Error message:', error.message);
+    
+    // Detailed error analysis
+    const connectionDetails = {
+      hasMongoUri: !!process.env.MONGO_URI,
+      uriLength: process.env.MONGO_URI?.length || 0,
+      hasProtocol: process.env.MONGO_URI?.startsWith('mongodb'),
+      mongooseVersion: mongoose.version,
+      nodeVersion: process.version,
+      errorName: error.name,
+      errorCode: error.code
+    };
+    
+    console.error('🔍 Connection analysis:', connectionDetails);
+    
+    // Common error solutions
+    if (error.message.includes('ENOTFOUND')) {
+      console.error('💡 Solution: Check your MongoDB host/URL');
+    } else if (error.message.includes('ECONNREFUSED')) {
+      console.error('💡 Solution: Ensure MongoDB server is running');
+    } else if (error.message.includes('authentication failed')) {
+      console.error('💡 Solution: Check your MongoDB credentials');
+    } else if (error.message.includes('timeout')) {
+      console.error('💡 Solution: Check network connectivity or increase timeout');
+    }
+    
+    if (process.env.NODE_ENV === 'production') {
+      console.error('🚨 Exiting in production due to DB failure');
+      process.exit(1);
+    } else {
+      console.log('🔧 Continuing in development mode without database...');
+    }
+  }
+};
 
 // ========================================
 // 🏥 ENHANCED HEALTH CHECK
@@ -135,102 +269,112 @@ app.get('/health', async (req, res) => {
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     environment: process.env.NODE_ENV || 'development',
-    nodeVersion: process.version,
-    mongooseVersion: mongoose.version,
+    versions: {
+      node: process.version,
+      mongoose: mongoose.version
+    },
     memory: process.memoryUsage(),
-    database: 'disconnected',
-    routes: {}
+    database: {
+      status: 'disconnected',
+      readyState: mongoose.connection.readyState,
+      host: mongoose.connection.host,
+      name: mongoose.connection.name
+    }
   };
 
   // Check MongoDB connection
   try {
     if (mongoose.connection.readyState === 1) {
-      healthCheck.database = 'connected';
       await mongoose.connection.db.admin().ping();
+      healthCheck.database.status = 'connected';
+      healthCheck.database.ping = 'successful';
+    } else {
+      healthCheck.database.status = 'not_connected';
     }
   } catch (error) {
-    healthCheck.database = 'error';
-    healthCheck.dbError = error.message;
+    healthCheck.database.status = 'error';
+    healthCheck.database.error = error.message;
   }
 
-  // List all mounted routes
-  const routes = [];
-  app._router.stack.forEach((middleware) => {
-    if (middleware.route) {
-      routes.push(`${Object.keys(middleware.route.methods).join(', ').toUpperCase()} ${middleware.route.path}`);
-    } else if (middleware.name === 'router' && middleware.regexp.source) {
-      const path = middleware.regexp.source.replace(/\\\//g, '/').replace(/\$.*/, '').replace(/\^/, '');
-      routes.push(`ROUTER ${path}`);
-    }
-  });
-  healthCheck.routes = routes;
-
-  const statusCode = healthCheck.database === 'connected' ? 200 : 503;
+  const statusCode = healthCheck.database.status === 'connected' ? 200 : 503;
   res.status(statusCode).json(healthCheck);
 });
 
 // ========================================
-// 🔐 FIREBASE AUTH TEST ENDPOINT
+// 🔐 AUTH TEST ENDPOINT WITH ERROR HANDLING
 // ========================================
 
-const authenticateUser = require('./middlewares/authMiddleware');
-
-app.get('/auth-test', authenticateUser, (req, res) => {
-  console.log('🔐 Auth test successful for:', req.user.email);
-  res.json({ 
-    message: `✅ Authentication successful for ${req.user.email}`,
-    uid: req.user.uid,
-    timestamp: new Date().toISOString()
-  });
+app.get('/auth-test', async (req, res) => {
+  try {
+    const authenticateUser = require('./middlewares/authMiddleware');
+    authenticateUser(req, res, (err) => {
+      if (err) {
+        console.error('🔐 Auth test failed:', err.message);
+        return res.status(401).json({ 
+          error: 'Authentication failed',
+          message: err.message,
+          timestamp: new Date().toISOString()
+        });
+      }
+      
+      console.log('🔐 Auth test successful for:', req.user?.email);
+      res.json({ 
+        message: `✅ Authentication successful for ${req.user?.email}`,
+        uid: req.user?.uid,
+        timestamp: new Date().toISOString()
+      });
+    });
+  } catch (error) {
+    console.error('🔐 Auth middleware error:', error.message);
+    res.status(500).json({
+      error: 'Auth system error',
+      message: 'Authentication middleware not available',
+      timestamp: new Date().toISOString()
+    });
+  }
 });
 
 // ========================================
-// 📁 ROUTE MOUNTING WITH ERROR HANDLING
+// 📁 IMPROVED ROUTE MOUNTING
 // ========================================
 
 const mountRoute = (path, routeFile, description) => {
   try {
     console.log(`📦 Mounting ${description}...`);
     const route = require(routeFile);
-    app.use(path, route);
+    
+    // Add error handling middleware for each route
+    app.use(path, (req, res, next) => {
+      console.log(`🔍 Route hit: ${path} - ${req.method} ${req.originalUrl}`);
+      next();
+    }, route);
+    
     console.log(`✅ Successfully mounted ${path} - ${description}`);
     return true;
   } catch (error) {
     console.error(`❌ Failed to mount ${path}:`, error.message);
     console.error(`   Route file: ${routeFile}`);
-    console.error(`   Stack: ${error.stack}`);
     return false;
   }
 };
 
-// Mount all routes with proper error handling
+// Routes to mount
 const routesToMount = [
-  // CRITICAL: Progress routes MUST be mounted first to avoid conflicts
   ['/api/progress', './routes/progressRoutes', 'Progress tracking routes'],
-  
-  // User-related routes
   ['/api/users', './routes/userRoutes', 'User management routes'],
   ['/api/user', './routes/userLessonRoutes', 'User lesson routes (legacy)'],
-  
-  // Content routes
   ['/api/lessons', './routes/lessonRoutes', 'Lesson management routes'],
   ['/api/subjects', './routes/subjectRoutes', 'Subject management routes'],
   ['/api/topics', './routes/topicRoutes', 'Topic management routes'],
-  
-  // Feature routes
   ['/api/chat', './routes/chatRoutes', 'Chat/AI routes'],
   ['/api/homeworks', './routes/homeworkRoutes', 'Homework routes'],
   ['/api/tests', './routes/testRoutes', 'Test/quiz routes'],
-  
-  // Analytics and recommendations
   ['/api/analytics', './routes/userAnalytics', 'User analytics routes'],
   ['/api', './routes/recommendationRoutes', 'Recommendation engine routes'],
-  
-  // Payment integration
   ['/api/payments', './routes/paymeRoutes', 'Payment processing routes'],
 ];
 
-// Mount routes and track success
+// Mount routes
 const mountedRoutes = [];
 const failedRoutes = [];
 
@@ -242,73 +386,48 @@ routesToMount.forEach(([path, file, description]) => {
   }
 });
 
-// Log mounting summary
 console.log('\n📋 ROUTE MOUNTING SUMMARY:');
 console.log(`✅ Successfully mounted: ${mountedRoutes.length}`);
 console.log(`❌ Failed to mount: ${failedRoutes.length}`);
 
 if (failedRoutes.length > 0) {
-  console.warn('\n⚠️  FAILED ROUTES (Server will continue without these):');
+  console.warn('\n⚠️  FAILED ROUTES:');
   failedRoutes.forEach(({ path, description }) => {
     console.warn(`   ${path} - ${description}`);
   });
 }
 
 // ========================================
-// 🔍 API DEBUGGING MIDDLEWARE
+// 🚫 API ERROR HANDLERS
 // ========================================
 
+// API debugging middleware
 app.use('/api/*', (req, res, next) => {
   console.log(`🔍 API Request: ${req.method} ${req.originalUrl}`);
-  console.log(`📊 Route Status:`, {
-    mounted: mountedRoutes.length,
-    failed: failedRoutes.length,
-    timestamp: new Date().toISOString()
-  });
   next();
 });
 
-// ========================================
-// 🚫 API 404 HANDLER
-// ========================================
-
+// API 404 handler
 app.use('/api/*', (req, res) => {
   console.error(`❌ API Route Not Found: ${req.method} ${req.originalUrl}`);
-  console.error(`📍 Available routes: ${mountedRoutes.length} mounted`);
-  
-  const suggestions = [];
-  
-  // Provide helpful suggestions based on the requested path
-  const path = req.originalUrl.toLowerCase();
-  if (path.includes('progress')) {
-    suggestions.push('Check /api/progress endpoints');
-  }
-  if (path.includes('user')) {
-    suggestions.push('Try /api/users or /api/user');
-  }
-  if (path.includes('lesson')) {
-    suggestions.push('Check /api/lessons endpoints');
-  }
   
   res.status(404).json({ 
     error: 'API endpoint not found',
     path: req.originalUrl,
     method: req.method,
     timestamp: new Date().toISOString(),
-    suggestions: suggestions.length > 0 ? suggestions : ['Check the API documentation'],
-    availableRoutes: mountedRoutes.map(r => r.path)
+    availableRoutes: mountedRoutes.map(r => r.path),
+    suggestion: 'Check the route path and method'
   });
 });
 
 // ========================================
-// 🎨 FRONTEND STATIC FILES (SPA)
+// 🎨 FRONTEND STATIC FILES
 // ========================================
 
 const distPath = path.join(__dirname, 'dist');
-console.log(`📁 Static files path: ${distPath}`);
-
-// Check if dist directory exists
 const fs = require('fs');
+
 if (fs.existsSync(distPath)) {
   console.log('✅ Frontend dist directory found');
   app.use(express.static(distPath, {
@@ -320,7 +439,7 @@ if (fs.existsSync(distPath)) {
   console.warn('⚠️  Frontend dist directory not found - API only mode');
 }
 
-// SPA Catch-all route (MUST be last)
+// SPA Catch-all route
 app.get('*', (req, res) => {
   const indexPath = path.join(distPath, 'index.html');
   
@@ -340,151 +459,80 @@ app.get('*', (req, res) => {
       message: 'This appears to be an API-only server',
       api: {
         health: '/health',
-        documentation: 'Check mounted routes in /health endpoint'
+        documentation: 'Check /health for available routes'
       }
     });
   }
 });
 
 // ========================================
-// 🔥 GLOBAL ERROR HANDLER
+// 🔥 ENHANCED GLOBAL ERROR HANDLER
 // ========================================
 
 app.use((err, req, res, next) => {
   const errorId = Date.now().toString(36) + Math.random().toString(36).substr(2);
+  const timestamp = new Date().toISOString();
   
-  console.error(`🔥 Global Error [${errorId}]:`, {
-    message: err.message,
-    stack: process.env.NODE_ENV === 'development' ? err.stack : 'Hidden in production',
-    url: req.originalUrl,
-    method: req.method,
-    headers: req.headers,
-    body: req.body,
-    timestamp: new Date().toISOString()
-  });
+  console.error(`\n🔥 GLOBAL ERROR [${errorId}] at ${timestamp}:`);
+  console.error('📍 URL:', req.originalUrl);
+  console.error('🔧 Method:', req.method);
+  console.error('💬 Message:', err.message);
+  console.error('🏷️  Name:', err.name);
+  console.error('🔢 Code:', err.code);
+  
+  if (process.env.NODE_ENV === 'development') {
+    console.error('📚 Stack:', err.stack);
+  }
   
   // Handle specific error types
-  let statusCode = 500;
+  let statusCode = err.status || err.statusCode || 500;
   let message = 'Internal server error';
+  let details = {};
   
   if (err.name === 'ValidationError') {
     statusCode = 400;
     message = 'Validation error';
+    details.validationErrors = Object.values(err.errors).map(e => e.message);
   } else if (err.name === 'CastError') {
     statusCode = 400;
     message = 'Invalid data format';
+    details.field = err.path;
+    details.value = err.value;
   } else if (err.code === 11000) {
     statusCode = 409;
     message = 'Duplicate entry';
+    details.duplicateField = Object.keys(err.keyValue || {})[0];
   } else if (err.message.includes('CORS')) {
     statusCode = 403;
     message = 'CORS policy violation';
+  } else if (err.message.includes('buffering timed out')) {
+    statusCode = 503;
+    message = 'Database connection timeout';
+    details.solution = 'Check database connection';
   }
   
   const errorResponse = {
     error: message,
     errorId,
-    timestamp: new Date().toISOString(),
+    timestamp,
+    path: req.originalUrl,
+    method: req.method
   };
   
-  // Include details in development
+  if (Object.keys(details).length > 0) {
+    errorResponse.details = details;
+  }
+  
   if (process.env.NODE_ENV === 'development') {
-    errorResponse.details = err.message;
-    errorResponse.stack = err.stack;
+    errorResponse.debug = {
+      message: err.message,
+      name: err.name,
+      code: err.code
+    };
   }
   
   res.status(statusCode).json(errorResponse);
 });
-
-// ========================================
-// 💾 MONGODB CONNECTION (UPDATED)
-// ========================================
-
-const connectDB = async () => {
-  try {
-    console.log('🔌 Connecting to MongoDB...');
-    console.log(`📊 Mongoose version: ${mongoose.version}`);
-    
-    // Modern Mongoose connection options (Mongoose 6+)
-    const mongoOptions = {
-      // Connection timeout settings
-      serverSelectionTimeoutMS: 10000, // 10 seconds
-      socketTimeoutMS: 45000, // 45 seconds
-      connectTimeoutMS: 10000, // 10 seconds
-      
-      // Connection pool settings
-      maxPoolSize: 10, // Maximum number of connections
-      minPoolSize: 2,  // Minimum number of connections
-      
-      // Retry settings
-      retryWrites: true,
-      retryReads: true,
-      
-      // Heartbeat frequency
-      heartbeatFrequencyMS: 10000,
-      
-      // Note: These options are deprecated and removed:
-      // useNewUrlParser: true,     // ❌ Remove - default in Mongoose 6+
-      // useUnifiedTopology: true,  // ❌ Remove - default in Mongoose 6+
-      // bufferMaxEntries: 0,       // ❌ Remove - causes errors
-      // bufferCommands: false,     // ❌ Remove - deprecated
-    };
-    
-    await mongoose.connect(process.env.MONGO_URI, mongoOptions);
-    
-    console.log('✅ MongoDB connected successfully');
-    console.log(`📍 Database: ${mongoose.connection.name}`);
-    console.log(`🏠 Host: ${mongoose.connection.host}:${mongoose.connection.port}`);
-    console.log(`📊 Pool size: ${mongoOptions.maxPoolSize}`);
-    console.log(`🔄 Connection state: ${mongoose.connection.readyState}`);
-    
-    // Setup connection event listeners
-    mongoose.connection.on('error', (err) => {
-      console.error('❌ MongoDB connection error:', err);
-    });
-    
-    mongoose.connection.on('disconnected', () => {
-      console.warn('⚠️  MongoDB disconnected');
-    });
-    
-    mongoose.connection.on('reconnected', () => {
-      console.log('🔄 MongoDB reconnected');
-    });
-    
-    // Handle connection ready
-    mongoose.connection.on('connected', () => {
-      console.log('🔗 MongoDB connection established');
-    });
-    
-    // Handle connection close
-    mongoose.connection.on('close', () => {
-      console.log('🔒 MongoDB connection closed');
-    });
-    
-  } catch (error) {
-    console.error('❌ MongoDB connection failed:', error.message);
-    console.error('🔍 Connection details:', {
-      hasMongoUri: !!process.env.MONGO_URI,
-      uriLength: process.env.MONGO_URI?.length || 0,
-      hasProtocol: process.env.MONGO_URI?.startsWith('mongodb'),
-      mongooseVersion: mongoose.version,
-      nodeVersion: process.version
-    });
-    
-    // Log the full error in development
-    if (process.env.NODE_ENV === 'development') {
-      console.error('🔍 Full error details:', error);
-    }
-    
-    // In production, exit on DB failure. In development, continue for API testing
-    if (process.env.NODE_ENV === 'production') {
-      console.error('🚨 Exiting due to database connection failure in production');
-      process.exit(1);
-    } else {
-      console.log('🔧 Continuing in development mode without database...');
-    }
-  }
-};
 
 // ========================================
 // 🚀 SERVER STARTUP
@@ -503,14 +551,13 @@ const startServer = async () => {
       console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
       console.log(`📊 Node.js: ${process.version}`);
       console.log(`📊 Mongoose: ${mongoose.version}`);
-      console.log(`🔗 Health check: http://localhost:${PORT}/health`);
+      console.log(`🔗 Health: http://localhost:${PORT}/health`);
       console.log(`🧪 Auth test: http://localhost:${PORT}/auth-test`);
-      console.log(`📊 Routes mounted: ${mountedRoutes.length}`);
+      console.log(`📊 Routes: ${mountedRoutes.length} mounted`);
       console.log('================================\n');
       
-      // Log all successfully mounted routes
       if (mountedRoutes.length > 0) {
-        console.log('📋 Available API Routes:');
+        console.log('📋 Available Routes:');
         mountedRoutes.forEach(route => {
           console.log(`   ${route.path} - ${route.description}`);
         });
@@ -518,20 +565,18 @@ const startServer = async () => {
       }
     });
     
-    // Graceful shutdown handlers
+    // Graceful shutdown
     process.on('SIGTERM', () => {
-      console.log('⚠️  SIGTERM received, shutting down gracefully...');
+      console.log('⚠️  SIGTERM received, shutting down...');
       server.close(() => {
-        console.log('✅ Server closed');
         mongoose.connection.close();
         process.exit(0);
       });
     });
     
     process.on('SIGINT', () => {
-      console.log('⚠️  SIGINT received, shutting down gracefully...');
+      console.log('⚠️  SIGINT received, shutting down...');
       server.close(() => {
-        console.log('✅ Server closed');
         mongoose.connection.close();
         process.exit(0);
       });
@@ -551,7 +596,6 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('⚠️  Unhandled Rejection at:', promise);
   console.error('⚠️  Reason:', reason);
   
-  // Close server gracefully
   if (process.env.NODE_ENV === 'production') {
     process.exit(1);
   }
@@ -559,9 +603,6 @@ process.on('unhandledRejection', (reason, promise) => {
 
 process.on('uncaughtException', (error) => {
   console.error('❌ Uncaught Exception:', error);
-  console.error('❌ Stack:', error.stack);
-  
-  // Close server gracefully
   process.exit(1);
 });
 
