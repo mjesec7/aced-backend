@@ -159,7 +159,7 @@ const connectDB = async () => {
       throw new Error('MONGO_URI environment variable is not set');
     }
     
-    // Modern connection options for Mongoose 6+
+    // Fixed connection options for Mongoose 8.x
     const connectionOptions = {
       // Timeout settings
       serverSelectionTimeoutMS: 5000,  // Reduced from 10000 for faster failure detection
@@ -174,9 +174,9 @@ const connectDB = async () => {
       retryWrites: true,
       retryReads: true,
       
-      // Buffer settings - CRITICAL for fixing your error
+      // Buffer settings - FIXED for Mongoose 8.x
       bufferCommands: false,  // Disable command buffering
-      maxBufferSize: 0,       // Disable mongoose buffering completely
+      // Removed maxBufferSize as it's not supported in newer versions
       
       // Heartbeat
       heartbeatFrequencyMS: 10000,
@@ -188,8 +188,8 @@ const connectDB = async () => {
     console.log('🔧 Connection options:', {
       serverSelectionTimeoutMS: connectionOptions.serverSelectionTimeoutMS,
       bufferCommands: connectionOptions.bufferCommands,
-      maxBufferSize: connectionOptions.maxBufferSize,
-      maxPoolSize: connectionOptions.maxPoolSize
+      maxPoolSize: connectionOptions.maxPoolSize,
+      mongooseVersion: mongoose.version
     });
     
     // Attempt connection
@@ -207,7 +207,9 @@ const connectDB = async () => {
     
     mongoose.connection.on('error', (err) => {
       console.error('❌ MongoDB connection error:', err.message);
-      if (err.stack) console.error('Stack:', err.stack);
+      if (err.stack && process.env.NODE_ENV === 'development') {
+        console.error('Stack:', err.stack);
+      }
     });
     
     mongoose.connection.on('disconnected', () => {
@@ -248,6 +250,8 @@ const connectDB = async () => {
       console.error('💡 Solution: Check your MongoDB credentials');
     } else if (error.message.includes('timeout')) {
       console.error('💡 Solution: Check network connectivity or increase timeout');
+    } else if (error.message.includes('not supported')) {
+      console.error('💡 Solution: Mongoose version incompatibility - check connection options');
     }
     
     if (process.env.NODE_ENV === 'production') {
