@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const UserProgress = require('../models/userProgress');
 const Lesson = require('../models/lesson');
+const Topic = require('../models/topic');
 const verifyToken = require('../middlewares/authMiddleware');
 
 // ✅ POST /api/progress - Save or update progress
@@ -34,13 +35,50 @@ router.post('/', verifyToken, async (req, res) => {
       });
     }
 
-    // If topicId is not provided, try to get it from the lesson
-    let finalTopicId = topicId;
+    // Handle topicId - it might be a string (topic name) or ObjectId
+    let finalTopicId = null;
+    
+    if (topicId) {
+      // Check if topicId is a valid ObjectId
+      if (topicId.match(/^[0-9a-fA-F]{24}$/)) {
+        finalTopicId = topicId;
+      } else {
+        // If topicId is a string (like "Nouns"), try to find the topic by name
+        console.log(`📝 topicId is a string: "${topicId}", looking up Topic...`);
+        try {
+          // First try to get subject/level from the lesson
+          const lesson = await Lesson.findById(lessonId);
+          if (lesson) {
+            const topic = await Topic.findOne({ 
+              name: topicId,
+              subject: lesson.subject,
+              level: lesson.level
+            });
+            if (topic) {
+              finalTopicId = topic._id;
+              console.log(`✅ Found topic by name: ${topicId} -> ${finalTopicId}`);
+            } else {
+              // If exact match not found, try just by name
+              const topicByName = await Topic.findOne({ name: topicId });
+              if (topicByName) {
+                finalTopicId = topicByName._id;
+                console.log(`✅ Found topic by name only: ${topicId} -> ${finalTopicId}`);
+              }
+            }
+          }
+        } catch (error) {
+          console.warn('⚠️ Could not find topic by name:', error.message);
+        }
+      }
+    }
+    
+    // If we still don't have topicId, try to get it from the lesson
     if (!finalTopicId && lessonId) {
       try {
         const lesson = await Lesson.findById(lessonId);
         if (lesson && lesson.topicId) {
           finalTopicId = lesson.topicId;
+          console.log(`✅ Got topicId from lesson: ${finalTopicId}`);
         }
       } catch (error) {
         console.warn('⚠️ Could not fetch topicId from lesson:', error.message);
@@ -61,7 +99,7 @@ router.post('/', verifyToken, async (req, res) => {
       updatedAt: new Date()
     };
 
-    // Add topicId if available
+    // Only add topicId if we have a valid ObjectId
     if (finalTopicId) {
       updateData.topicId = finalTopicId;
     }

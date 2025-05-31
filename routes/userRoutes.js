@@ -251,6 +251,7 @@ router.post('/:firebaseId/progress-topic', validateFirebaseId, verifyToken, veri
 });
 
 // Analytics
+// Analytics - both GET and POST
 router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   try {
     const progress = await UserProgress.find({ userId: req.params.firebaseId });
@@ -261,6 +262,33 @@ router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwne
     res.json({ completedLessons: completed, totalStars, totalPoints, hintsUsed });
   } catch {
     res.status(500).json({ error: '❌ Error fetching analytics' });
+  }
+});
+
+// POST endpoint for analytics (since frontend is using POST)
+router.post('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
+  try {
+    const progress = await UserProgress.find({ userId: req.params.firebaseId });
+    const completed = progress.filter(p => p.completed).length;
+    const totalStars = progress.reduce((sum, p) => sum + (p.stars || 0), 0);
+    const totalPoints = progress.reduce((sum, p) => sum + (p.points || 0), 0);
+    const hintsUsed = progress.reduce((sum, p) => sum + (p.hintsUsed || 0), 0);
+    
+    // You can also save analytics data if needed from req.body
+    const analyticsData = req.body;
+    console.log('📊 Analytics data received:', analyticsData);
+    
+    res.json({ 
+      success: true,
+      completedLessons: completed, 
+      totalStars, 
+      totalPoints, 
+      hintsUsed,
+      message: '✅ Analytics processed'
+    });
+  } catch (error) {
+    console.error('❌ Analytics error:', error);
+    res.status(500).json({ error: '❌ Error processing analytics' });
   }
 });
 
