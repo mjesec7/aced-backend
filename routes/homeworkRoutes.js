@@ -1,8 +1,29 @@
 const express = require('express');
 const router = express.Router();
 
-const { verifyToken } = require('../middlewares/authMiddleware');
+// Fix the import - remove destructuring since it's causing undefined
+const verifyToken = require('../middlewares/authMiddleware');
 const controller = require('../controllers/homeworkController');
+
+// Add error handling for missing middleware
+if (!verifyToken) {
+  console.error('❌ verifyToken middleware is undefined');
+  module.exports = router;
+  return;
+}
+
+// Add error handling for missing controller functions
+if (!controller || !controller.getAllHomeworks || !controller.getHomeworkByLesson || !controller.saveHomework || !controller.submitHomework) {
+  console.error('❌ One or more controller functions are undefined:', {
+    controller: !!controller,
+    getAllHomeworks: !!(controller && controller.getAllHomeworks),
+    getHomeworkByLesson: !!(controller && controller.getHomeworkByLesson),
+    saveHomework: !!(controller && controller.saveHomework),
+    submitHomework: !!(controller && controller.submitHomework)
+  });
+  module.exports = router;
+  return;
+}
 
 // 🧠 Ensure Firebase token matches requested user
 function checkUserMatch(req, res, next) {
