@@ -136,6 +136,7 @@ app.get('/health', async (req, res) => {
     uptime: process.uptime(),
     environment: process.env.NODE_ENV || 'development',
     nodeVersion: process.version,
+    mongooseVersion: mongoose.version,
     memory: process.memoryUsage(),
     database: 'disconnected',
     routes: {}
@@ -396,21 +397,37 @@ app.use((err, req, res, next) => {
 });
 
 // ========================================
-// 💾 MONGODB CONNECTION
+// 💾 MONGODB CONNECTION (UPDATED)
 // ========================================
 
 const connectDB = async () => {
   try {
     console.log('🔌 Connecting to MongoDB...');
+    console.log(`📊 Mongoose version: ${mongoose.version}`);
     
+    // Modern Mongoose connection options (Mongoose 6+)
     const mongoOptions = {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
+      // Connection timeout settings
       serverSelectionTimeoutMS: 10000, // 10 seconds
       socketTimeoutMS: 45000, // 45 seconds
-      maxPoolSize: 10,
-      bufferMaxEntries: 0,
-      connectTimeoutMS: 10000,
+      connectTimeoutMS: 10000, // 10 seconds
+      
+      // Connection pool settings
+      maxPoolSize: 10, // Maximum number of connections
+      minPoolSize: 2,  // Minimum number of connections
+      
+      // Retry settings
+      retryWrites: true,
+      retryReads: true,
+      
+      // Heartbeat frequency
+      heartbeatFrequencyMS: 10000,
+      
+      // Note: These options are deprecated and removed:
+      // useNewUrlParser: true,     // ❌ Remove - default in Mongoose 6+
+      // useUnifiedTopology: true,  // ❌ Remove - default in Mongoose 6+
+      // bufferMaxEntries: 0,       // ❌ Remove - causes errors
+      // bufferCommands: false,     // ❌ Remove - deprecated
     };
     
     await mongoose.connect(process.env.MONGO_URI, mongoOptions);
@@ -418,6 +435,8 @@ const connectDB = async () => {
     console.log('✅ MongoDB connected successfully');
     console.log(`📍 Database: ${mongoose.connection.name}`);
     console.log(`🏠 Host: ${mongoose.connection.host}:${mongoose.connection.port}`);
+    console.log(`📊 Pool size: ${mongoOptions.maxPoolSize}`);
+    console.log(`🔄 Connection state: ${mongoose.connection.readyState}`);
     
     // Setup connection event listeners
     mongoose.connection.on('error', (err) => {
@@ -432,15 +451,34 @@ const connectDB = async () => {
       console.log('🔄 MongoDB reconnected');
     });
     
+    // Handle connection ready
+    mongoose.connection.on('connected', () => {
+      console.log('🔗 MongoDB connection established');
+    });
+    
+    // Handle connection close
+    mongoose.connection.on('close', () => {
+      console.log('🔒 MongoDB connection closed');
+    });
+    
   } catch (error) {
     console.error('❌ MongoDB connection failed:', error.message);
-    console.error('🔍 Connection string format check:', {
+    console.error('🔍 Connection details:', {
+      hasMongoUri: !!process.env.MONGO_URI,
+      uriLength: process.env.MONGO_URI?.length || 0,
       hasProtocol: process.env.MONGO_URI?.startsWith('mongodb'),
-      length: process.env.MONGO_URI?.length || 0
+      mongooseVersion: mongoose.version,
+      nodeVersion: process.version
     });
+    
+    // Log the full error in development
+    if (process.env.NODE_ENV === 'development') {
+      console.error('🔍 Full error details:', error);
+    }
     
     // In production, exit on DB failure. In development, continue for API testing
     if (process.env.NODE_ENV === 'production') {
+      console.error('🚨 Exiting due to database connection failure in production');
       process.exit(1);
     } else {
       console.log('🔧 Continuing in development mode without database...');
@@ -463,6 +501,8 @@ const startServer = async () => {
       console.log('================================');
       console.log(`🚀 Port: ${PORT}`);
       console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`📊 Node.js: ${process.version}`);
+      console.log(`📊 Mongoose: ${mongoose.version}`);
       console.log(`🔗 Health check: http://localhost:${PORT}/health`);
       console.log(`🧪 Auth test: http://localhost:${PORT}/auth-test`);
       console.log(`📊 Routes mounted: ${mountedRoutes.length}`);
