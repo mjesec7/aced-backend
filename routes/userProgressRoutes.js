@@ -1,8 +1,12 @@
+const express = require('express');
+const router = express.Router();
 const UserProgress = require('../models/userProgress');
+const Lesson = require('../models/lesson');
+const verifyToken = require('../middlewares/authMiddleware');
 
-// ✅ Load progress (for frontend calling /api/progress)
-exports.loadProgress = async (req, res) => {
-  // Extract userId from query params or token
+// ✅ GET /api/progress - Load progress
+router.get('/', async (req, res) => {
+  // Extract userId from query params
   const { userId, lessonId } = req.query;
   
   if (!userId) {
@@ -36,14 +40,14 @@ exports.loadProgress = async (req, res) => {
     console.error('❌ Error loading progress:', error);
     res.status(500).json({ message: '❌ Server error', error: error.message });
   }
-};
+});
 
-// ✅ Save or update user progress
-exports.saveOrUpdateProgress = async (req, res) => {
+// ✅ POST /api/progress - Save or update user progress
+router.post('/', verifyToken, async (req, res) => {
   const {
     userId,
     lessonId,
-    topicId, // Added topicId support
+    topicId,
     completedSteps = [],
     progressPercent = 0,
     completed = false,
@@ -56,7 +60,10 @@ exports.saveOrUpdateProgress = async (req, res) => {
     submittedHomework = false
   } = req.body;
 
-  if (!userId || !lessonId) {
+  // Use Firebase UID from token if userId not provided
+  const firebaseId = userId || req.user?.uid;
+
+  if (!firebaseId || !lessonId) {
     return res.status(400).json({ message: '❌ userId and lessonId are required.' });
   }
 
@@ -64,7 +71,6 @@ exports.saveOrUpdateProgress = async (req, res) => {
   let finalTopicId = topicId;
   if (!finalTopicId && lessonId) {
     try {
-      const Lesson = require('../models/lesson'); // Assuming you have a Lesson model
       const lesson = await Lesson.findById(lessonId);
       if (lesson && lesson.topicId) {
         finalTopicId = lesson.topicId;
@@ -95,7 +101,7 @@ exports.saveOrUpdateProgress = async (req, res) => {
     }
 
     const updated = await UserProgress.findOneAndUpdate(
-      { userId, lessonId },
+      { userId: firebaseId, lessonId },
       updateData,
       { upsert: true, new: true }
     );
@@ -108,14 +114,19 @@ exports.saveOrUpdateProgress = async (req, res) => {
     console.error('❌ Error saving/updating progress:', error);
     res.status(500).json({ message: '❌ Server error', error: error.message });
   }
-};
+});
 
-// ✅ Get all progress records for a specific user
-exports.getUserProgress = async (req, res) => {
+// ✅ GET /api/progress/:userId - Get all progress records for a specific user
+router.get('/:userId', verifyToken, async (req, res) => {
   const { userId } = req.params;
 
   if (!userId) {
     return res.status(400).json({ message: '❌ userId is required.' });
+  }
+
+  // Verify user can only access their own progress
+  if (req.user.uid !== userId) {
+    return res.status(403).json({ message: '❌ Access denied' });
   }
 
   try {
@@ -132,14 +143,19 @@ exports.getUserProgress = async (req, res) => {
     console.error('❌ Error retrieving user progress:', error);
     res.status(500).json({ message: '❌ Server error', error: error.message });
   }
-};
+});
 
-// ✅ Get progress for a specific lesson
-exports.getLessonProgress = async (req, res) => {
+// ✅ GET /api/progress/:userId/lesson/:lessonId - Get progress for a specific lesson
+router.get('/:userId/lesson/:lessonId', verifyToken, async (req, res) => {
   const { userId, lessonId } = req.params;
 
   if (!userId || !lessonId) {
     return res.status(400).json({ message: '❌ userId and lessonId are required.' });
+  }
+
+  // Verify user can only access their own progress
+  if (req.user.uid !== userId) {
+    return res.status(403).json({ message: '❌ Access denied' });
   }
 
   try {
@@ -159,14 +175,19 @@ exports.getLessonProgress = async (req, res) => {
     console.error('❌ Error retrieving lesson progress:', error);
     res.status(500).json({ message: '❌ Server error', error: error.message });
   }
-};
+});
 
-// ✅ Get progress for a specific topic
-exports.getTopicProgress = async (req, res) => {
+// ✅ GET /api/progress/:userId/topic/:topicId - Get progress for a specific topic
+router.get('/:userId/topic/:topicId', verifyToken, async (req, res) => {
   const { userId, topicId } = req.params;
 
   if (!userId || !topicId) {
     return res.status(400).json({ message: '❌ userId and topicId are required.' });
+  }
+
+  // Verify user can only access their own progress
+  if (req.user.uid !== userId) {
+    return res.status(403).json({ message: '❌ Access denied' });
   }
 
   try {
@@ -192,14 +213,19 @@ exports.getTopicProgress = async (req, res) => {
     console.error('❌ Error retrieving topic progress:', error);
     res.status(500).json({ message: '❌ Server error', error: error.message });
   }
-};
+});
 
-// ✅ Get all topics progress for a user
-exports.getAllTopicsProgress = async (req, res) => {
+// ✅ GET /api/progress/:userId/topics - Get all topics progress for a user
+router.get('/:userId/topics', verifyToken, async (req, res) => {
   const { userId } = req.params;
 
   if (!userId) {
     return res.status(400).json({ message: '❌ userId is required.' });
+  }
+
+  // Verify user can only access their own progress
+  if (req.user.uid !== userId) {
+    return res.status(403).json({ message: '❌ Access denied' });
   }
 
   try {
@@ -214,14 +240,19 @@ exports.getAllTopicsProgress = async (req, res) => {
     console.error('❌ Error retrieving all topics progress:', error);
     res.status(500).json({ message: '❌ Server error', error: error.message });
   }
-};
+});
 
-// ✅ Mark a lesson as completed
-exports.markLessonCompleted = async (req, res) => {
+// ✅ PUT /api/progress/:userId/lesson/:lessonId/complete - Mark a lesson as completed
+router.put('/:userId/lesson/:lessonId/complete', verifyToken, async (req, res) => {
   const { userId, lessonId } = req.params;
 
   if (!userId || !lessonId) {
     return res.status(400).json({ message: '❌ userId and lessonId are required.' });
+  }
+
+  // Verify user can only update their own progress
+  if (req.user.uid !== userId) {
+    return res.status(403).json({ message: '❌ Access denied' });
   }
 
   try {
@@ -242,14 +273,19 @@ exports.markLessonCompleted = async (req, res) => {
     console.error('❌ Error marking lesson as completed:', error);
     res.status(500).json({ message: '❌ Server error', error: error.message });
   }
-};
+});
 
-// ✅ Get summary analytics for a user
-exports.getUserAnalytics = async (req, res) => {
+// ✅ GET /api/progress/:userId/analytics - Get summary analytics for a user
+router.get('/:userId/analytics', verifyToken, async (req, res) => {
   const { userId } = req.params;
 
   if (!userId) {
     return res.status(400).json({ message: '❌ userId is required.' });
+  }
+
+  // Verify user can only access their own analytics
+  if (req.user.uid !== userId) {
+    return res.status(403).json({ message: '❌ Access denied' });
   }
 
   try {
@@ -297,4 +333,35 @@ exports.getUserAnalytics = async (req, res) => {
     console.error('❌ Analytics error:', error);
     res.status(500).json({ message: '❌ Server error', error: error.message });
   }
-};
+});
+
+// ✅ DELETE /api/progress/:userId/lesson/:lessonId - Delete progress for a lesson
+router.delete('/:userId/lesson/:lessonId', verifyToken, async (req, res) => {
+  const { userId, lessonId } = req.params;
+
+  if (!userId || !lessonId) {
+    return res.status(400).json({ message: '❌ userId and lessonId are required.' });
+  }
+
+  // Verify user can only delete their own progress
+  if (req.user.uid !== userId) {
+    return res.status(403).json({ message: '❌ Access denied' });
+  }
+
+  try {
+    const deleted = await UserProgress.findOneAndDelete({ userId, lessonId });
+
+    if (!deleted) {
+      return res.status(404).json({ message: '⚠️ No progress found to delete.' });
+    }
+
+    res.status(200).json({
+      message: '✅ Progress deleted successfully'
+    });
+  } catch (error) {
+    console.error('❌ Error deleting progress:', error);
+    res.status(500).json({ message: '❌ Server error', error: error.message });
+  }
+});
+
+module.exports = router;

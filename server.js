@@ -71,29 +71,80 @@ app.get('/auth-test', authenticateUser, (req, res) => {
 
 // ✅ Mount All Routes
 try {
-  console.log('📦 Mounting /api/users');
+  console.log('📦 Mounting all routes...');
+  
+  // User routes
   app.use('/api/users', require('./routes/userRoutes'));
   console.log('✅ Mounted /api/users');
 
+  // Lesson routes
   app.use('/api/lessons', require('./routes/lessonRoutes'));
+  console.log('✅ Mounted /api/lessons');
+
+  // Chat routes
   app.use('/api/chat', require('./routes/chatRoutes'));
+  console.log('✅ Mounted /api/chat');
+
+  // Subject routes
   app.use('/api/subjects', require('./routes/subjectRoutes'));
-  // app.use('/api/email', require('./routes/emailRoutes'));
+  console.log('✅ Mounted /api/subjects');
+
+  // Topic routes
   app.use('/api/topics', require('./routes/topicRoutes'));
+  console.log('✅ Mounted /api/topics');
+
+  // Payment routes
   app.use('/api/payments', require('./routes/paymeRoutes'));
+  console.log('✅ Mounted /api/payments');
+
+  // Homework routes
   app.use('/api/homeworks', require('./routes/homeworkRoutes'));
+  console.log('✅ Mounted /api/homeworks');
+
+  // Test routes
   app.use('/api/tests', require('./routes/testRoutes'));
-  app.use('/api/progress', require('./routes/userProgressRoutes'));
+  console.log('✅ Mounted /api/tests');
+
+  // Progress routes - FIXED: Now using proper router
+  app.use('/api/progress', require('./routes/progressRoutes'));
+  console.log('✅ Mounted /api/progress');
+
+  // User-specific routes (for legacy /api/user/:id/lesson/:id endpoint)
+  app.use('/api/user', require('./routes/userLessonRoutes'));
+  console.log('✅ Mounted /api/user');
+
+  // Analytics routes
+  app.use('/api/analytics', require('./routes/userAnalytics'));
+  console.log('✅ Mounted /api/analytics');
+
+  // Recommendation routes (mounted at /api level)
   app.use('/api', require('./routes/recommendationRoutes'));
+  console.log('✅ Mounted /api recommendations');
+
+  // Email routes (uncomment if needed)
+  // app.use('/api/email', require('./routes/emailRoutes'));
+  
 } catch (routeError) {
   console.error('❌ Failed to load route:', routeError);
+  console.error('Stack trace:', routeError.stack);
 }
+
+// ✅ 404 Handler for API routes
+app.use('/api/*', (req, res) => {
+  console.error(`❌ API route not found: ${req.originalUrl}`);
+  res.status(404).json({ 
+    error: '❌ API endpoint not found',
+    path: req.originalUrl,
+    method: req.method 
+  });
+});
 
 // ✅ Serve Static Frontend Files (SPA)
 const distPath = path.join(__dirname, 'dist');
 app.use(express.static(distPath));
 
-app.get(/^\/(?!api).*/, (req, res) => {
+// Catch-all route for SPA (must be last)
+app.get('*', (req, res) => {
   const indexPath = path.join(distPath, 'index.html');
   res.sendFile(indexPath, (err) => {
     if (err) {
@@ -120,6 +171,7 @@ mongoose.connect(process.env.MONGO_URI, {
     console.log('✅ MongoDB connected');
     app.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
+      console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
     });
   })
   .catch((error) => {

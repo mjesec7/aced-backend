@@ -86,6 +86,67 @@ router.get('/:firebaseId/status', validateFirebaseId, async (req, res) => {
   }
 });
 
+// ✅ NEW: Get user's progress for a specific lesson
+// This handles the missing /api/user/:firebaseId/lesson/:lessonId endpoint
+router.get('/:firebaseId/lesson/:lessonId', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
+  try {
+    const { firebaseId, lessonId } = req.params;
+    
+    // Find the user's progress for this specific lesson
+    const progress = await UserProgress.findOne({ 
+      userId: firebaseId, 
+      lessonId: lessonId 
+    }).populate('lessonId', 'title description').populate('topicId', 'name description');
+    
+    // If no progress found, return empty object (not 404)
+    // This matches what your frontend expects
+    if (!progress) {
+      return res.status(200).json({});
+    }
+    
+    res.json(progress);
+  } catch (error) {
+    console.error('❌ Error fetching user lesson progress:', error);
+    res.status(500).json({ error: '❌ Error fetching lesson progress' });
+  }
+});
+
+// ✅ NEW: Save user's progress for a specific lesson
+router.post('/:firebaseId/lesson/:lessonId', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
+  try {
+    const { firebaseId, lessonId } = req.params;
+    const progressData = req.body;
+    
+    // Get the lesson to find its topicId
+    let topicId = progressData.topicId;
+    if (!topicId) {
+      const lesson = await Lesson.findById(lessonId);
+      if (lesson) {
+        topicId = lesson.topicId;
+      }
+    }
+    
+    const updateData = {
+      userId: firebaseId,
+      lessonId: lessonId,
+      topicId: topicId,
+      ...progressData,
+      updatedAt: new Date()
+    };
+    
+    const updated = await UserProgress.findOneAndUpdate(
+      { userId: firebaseId, lessonId },
+      updateData,
+      { upsert: true, new: true }
+    );
+    
+    res.json(updated);
+  } catch (error) {
+    console.error('❌ Error saving user lesson progress:', error);
+    res.status(500).json({ error: '❌ Error saving lesson progress' });
+  }
+});
+
 // Study List
 router.get('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   try {
@@ -129,27 +190,23 @@ router.delete('/:firebaseId/study-list/:topicId', validateFirebaseId, verifyToke
   }
 });
 
-// ✅ NEW: User Progress Routes (using new controller)
+// User Progress Routes (using new controller)
 router.get('/:firebaseId/progress', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  // Transform firebaseId to userId for the controller
   req.params.userId = req.params.firebaseId;
   return userProgressController.getUserProgress(req, res);
 });
 
 router.get('/:firebaseId/progress/lesson/:lessonId', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  // Transform firebaseId to userId for the controller
   req.params.userId = req.params.firebaseId;
   return userProgressController.getLessonProgress(req, res);
 });
 
 router.get('/:firebaseId/progress/topic/:topicId', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  // Transform firebaseId to userId for the controller
   req.params.userId = req.params.firebaseId;
   return userProgressController.getTopicProgress(req, res);
 });
 
 router.get('/:firebaseId/progress/topics', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  // Transform firebaseId to userId for the controller
   req.params.userId = req.params.firebaseId;
   return userProgressController.getAllTopicsProgress(req, res);
 });
@@ -231,18 +288,41 @@ router.get('/:firebaseId/diary', validateFirebaseId, verifyToken, verifyOwnershi
 
 router.post('/:firebaseId/diary', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   const { date, studyMinutes, completedTopics, averageGrade } = req.body;
-  if (!date || studyMinutes == null || completedTopics == null || averageGrade == null)
-    return res.status(400).json({ error: '❌ Invalid diary data' });
+  
+  // Log the incoming data for debugging
+  console.log('📥 Diary entry data:', { date, studyMinutes, completedTopics, averageGrade });
+  
+  // Check for required fields more carefully
+  if (!date) {
+    return res.status(400).json({ error: '❌ Missing date' });
+  }
+  if (studyMinutes === undefined || studyMinutes === null) {
+    return res.status(400).json({ error: '❌ Missing studyMinutes' });
+  }
+  if (completedTopics === undefined || completedTopics === null) {
+    return res.status(400).json({ error: '❌ Missing completedTopics' });
+  }
+  if (averageGrade === undefined || averageGrade === null) {
+    return res.status(400).json({ error: '❌ Missing averageGrade' });
+  }
+  
   try {
     const user = await User.findOne({ firebaseId: req.params.firebaseId });
     if (!user) return res.status(404).json({ error: '❌ User not found' });
+    
     user.diary ||= [];
-    user.diary.push({ date, studyMinutes, completedTopics, averageGrade });
+    user.diary.push({ 
+      date: new Date(date), 
+      studyMinutes: Number(studyMinutes), 
+      completedTopics: Number(completedTopics), 
+      averageGrade: Number(averageGrade) 
+    });
+    
     await user.save();
-    res.status(201).json({ message: '✅ Saved diary entry' });
+    res.status(201).json({ message: '✅ Saved diary entry', diary: user.diary });
   } catch (error) {
     console.error('❌ Diary save error:', error);
-    res.status(500).json({ error: '❌ Error saving diary' });
+    res.status(500).json({ error: '❌ Error saving diary', details: error.message });
   }
 });
 
