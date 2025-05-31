@@ -274,6 +274,8 @@ router.get('/:firebaseId/points', validateFirebaseId, verifyToken, verifyOwnersh
   }
 });
 
+// Fixed diary route section in userRoutes.js
+
 // Diary
 router.get('/:firebaseId/diary', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   try {
@@ -292,18 +294,28 @@ router.post('/:firebaseId/diary', validateFirebaseId, verifyToken, verifyOwnersh
   // Log the incoming data for debugging
   console.log('📥 Diary entry data:', { date, studyMinutes, completedTopics, averageGrade });
   
-  // Check for required fields more carefully
+  // More flexible validation - allow 0 values
   if (!date) {
+    console.error('❌ Missing date in diary entry');
     return res.status(400).json({ error: '❌ Missing date' });
   }
-  if (studyMinutes === undefined || studyMinutes === null) {
-    return res.status(400).json({ error: '❌ Missing studyMinutes' });
+  
+  // Convert to numbers and provide defaults
+  const studyMinutesNum = Number(studyMinutes) || 0;
+  const completedTopicsNum = Number(completedTopics) || 0;
+  const averageGradeNum = Number(averageGrade) || 0;
+  
+  // Validate that the numbers are reasonable
+  if (studyMinutesNum < 0 || studyMinutesNum > 1440) { // Max 24 hours
+    return res.status(400).json({ error: '❌ Invalid study minutes (0-1440)' });
   }
-  if (completedTopics === undefined || completedTopics === null) {
-    return res.status(400).json({ error: '❌ Missing completedTopics' });
+  
+  if (completedTopicsNum < 0 || completedTopicsNum > 100) { // Reasonable limit
+    return res.status(400).json({ error: '❌ Invalid completed topics (0-100)' });
   }
-  if (averageGrade === undefined || averageGrade === null) {
-    return res.status(400).json({ error: '❌ Missing averageGrade' });
+  
+  if (averageGradeNum < 0 || averageGradeNum > 100) { // 0-100 grade scale
+    return res.status(400).json({ error: '❌ Invalid average grade (0-100)' });
   }
   
   try {
@@ -311,18 +323,43 @@ router.post('/:firebaseId/diary', validateFirebaseId, verifyToken, verifyOwnersh
     if (!user) return res.status(404).json({ error: '❌ User not found' });
     
     user.diary ||= [];
-    user.diary.push({ 
-      date: new Date(date), 
-      studyMinutes: Number(studyMinutes), 
-      completedTopics: Number(completedTopics), 
-      averageGrade: Number(averageGrade) 
+    
+    // Check if entry for this date already exists
+    const existingEntryIndex = user.diary.findIndex(entry => {
+      const entryDate = new Date(entry.date).toDateString();
+      const newDate = new Date(date).toDateString();
+      return entryDate === newDate;
     });
     
+    const diaryEntry = {
+      date: new Date(date),
+      studyMinutes: studyMinutesNum,
+      completedTopics: completedTopicsNum,
+      averageGrade: averageGradeNum
+    };
+    
+    if (existingEntryIndex >= 0) {
+      // Update existing entry
+      user.diary[existingEntryIndex] = diaryEntry;
+      console.log('📝 Updated existing diary entry for date:', date);
+    } else {
+      // Add new entry
+      user.diary.push(diaryEntry);
+      console.log('📝 Added new diary entry for date:', date);
+    }
+    
     await user.save();
-    res.status(201).json({ message: '✅ Saved diary entry', diary: user.diary });
+    res.status(201).json({ 
+      message: '✅ Saved diary entry', 
+      diary: user.diary,
+      entry: diaryEntry
+    });
   } catch (error) {
     console.error('❌ Diary save error:', error);
-    res.status(500).json({ error: '❌ Error saving diary', details: error.message });
+    res.status(500).json({ 
+      error: '❌ Error saving diary', 
+      details: error.message 
+    });
   }
 });
 

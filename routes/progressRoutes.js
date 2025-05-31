@@ -27,6 +27,7 @@ router.post('/', verifyToken, async (req, res) => {
     const firebaseId = userId || req.user?.uid;
     
     if (!firebaseId || !lessonId) {
+      console.error('❌ Missing required fields:', { firebaseId, lessonId });
       return res.status(400).json({ 
         error: '❌ userId and lessonId are required.',
         message: '❌ userId and lessonId are required.' 
@@ -94,6 +95,7 @@ router.get('/', async (req, res) => {
     const { userId, lessonId } = req.query;
     
     if (!userId) {
+      console.error('❌ Missing userId in query parameters');
       return res.status(400).json({ 
         error: '❌ userId is required as query parameter.',
         message: '❌ userId is required as query parameter.' 
@@ -141,17 +143,21 @@ router.get('/:userId/:lessonId', async (req, res) => {
   try {
     const { userId, lessonId } = req.params;
     
+    console.log(`📥 Getting progress for user ${userId}, lesson ${lessonId}`);
+    
     const progress = await UserProgress.findOne({ userId, lessonId })
       .populate('lessonId', 'title description order')
       .populate('topicId', 'title description order');
     
     if (!progress) {
-      return res.status(404).json({ 
+      console.log(`⚠️ No progress found for user ${userId}, lesson ${lessonId}`);
+      return res.status(200).json({ 
         message: '⚠️ No progress found for this lesson.',
         data: null 
       });
     }
 
+    console.log(`✅ Progress found for user ${userId}, lesson ${lessonId}`);
     res.status(200).json({ 
       message: '✅ Lesson progress found', 
       data: progress 
