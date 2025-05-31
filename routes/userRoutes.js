@@ -229,26 +229,54 @@ router.post('/:firebaseId/progress', validateFirebaseId, verifyToken, verifyOwne
 });
 
 // Topic Progress
-router.post('/:firebaseId/progress-topic', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  const { topicId } = req.body;
-  if (!topicId) return res.status(400).json({ error: '❌ Missing topicId' });
+// Get all topics progress for a user
+router.get('/:firebaseId/topics-progress', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   try {
-    const user = await User.findOne({ firebaseId: req.params.firebaseId });
-    if (!user) return res.status(404).json({ error: '❌ User not found' });
-    let progress = await TopicProgress.findOne({ userId: user._id, topicId });
-    if (!progress) {
-      const totalLessons = await Lesson.countDocuments({ topic: topicId });
-      progress = new TopicProgress({ userId: user._id, topicId, totalLessons, completedLessons: 0, percent: 0, medal: 'none' });
+    // Get all lessons to count total per topic
+    const lessons = await Lesson.find({});
+    const topicLessons = {};
+    
+    lessons.forEach(lesson => {
+      if (lesson.topicId) {
+        const topicId = lesson.topicId.toString();
+        if (!topicLessons[topicId]) {
+          topicLessons[topicId] = { total: 0, completed: 0 };
+        }
+        topicLessons[topicId].total++;
+      }
+    });
+    
+    // Get user progress to count completed
+    const userProgress = await UserProgress.find({ userId: req.params.firebaseId });
+    
+    for (const progress of userProgress) {
+      if (progress.completed && progress.lessonId) {
+        // Find the lesson to get its topicId
+        const lesson = await Lesson.findById(progress.lessonId);
+        if (lesson && lesson.topicId) {
+          const topicId = lesson.topicId.toString();
+          if (topicLessons[topicId]) {
+            topicLessons[topicId].completed++;
+          }
+        }
+      }
     }
-    progress.completedLessons++;
-    progress.percent = progress.totalLessons > 0 ? (progress.completedLessons / progress.totalLessons) * 100 : 0;
-    progress.medal = progress.percent >= 90 ? 'gold' : progress.percent >= 70 ? 'silver' : progress.percent >= 50 ? 'bronze' : 'none';
-    await progress.save();
-    res.json(progress);
-  } catch {
-    res.status(500).json({ error: '❌ Error updating topic progress' });
+    
+    // Calculate percentages
+    const topicProgress = {};
+    Object.keys(topicLessons).forEach(topicId => {
+      const { total, completed } = topicLessons[topicId];
+      topicProgress[topicId] = total > 0 ? Math.round((completed / total) * 100) : 0;
+    });
+    
+    res.json(topicProgress);
+  } catch (error) {
+    console.error('❌ Error calculating topic progress:', error);
+    res.status(500).json({ error: '❌ Error calculating topic progress' });
   }
 });
+
+// Analytics - both GET and POST
 
 // Analytics
 // Analytics - both GET and POST
