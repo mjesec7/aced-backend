@@ -230,7 +230,6 @@ router.post('/:firebaseId/progress', validateFirebaseId, verifyToken, verifyOwne
 
 // Topic Progress
 // Get all topics progress for a user
-// Get all topics progress for a user
 router.get('/:firebaseId/topics-progress', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   try {
     // Get all lessons
@@ -295,8 +294,10 @@ router.get('/:firebaseId/topics-progress', validateFirebaseId, verifyToken, veri
   }
 });
 
-// Analytics - both GET and POST
+// ✅ FIXED ANALYTICS ROUTES - Both GET and POST
 router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
+  console.log('📊 Analytics GET request received for user:', req.params.firebaseId);
+  
   try {
     const firebaseId = req.params.firebaseId;
     
@@ -305,8 +306,14 @@ router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwne
     const user = await User.findOne({ firebaseId });
     
     if (!user) {
-      return res.status(404).json({ error: '❌ User not found' });
+      console.error('❌ User not found:', firebaseId);
+      return res.status(404).json({ 
+        success: false,
+        error: '❌ User not found' 
+      });
     }
+    
+    console.log(`📊 Found user ${user.name} with ${userProgress.length} progress entries`);
     
     // Calculate basic metrics
     const completedLessons = userProgress.filter(p => p.completed).length;
@@ -507,6 +514,13 @@ router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwne
       dataQuality
     };
     
+    console.log('✅ Analytics calculated successfully:', {
+      studyDays,
+      completedLessons,
+      totalPoints,
+      subjects: subjects.length
+    });
+    
     res.json({
       success: true,
       data: analyticsData,
@@ -523,22 +537,49 @@ router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwne
   }
 });
 
-// POST endpoint for analytics (since frontend might use POST)
+// POST endpoint for analytics (keeping for compatibility)
 router.post('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
+  console.log('📊 Analytics POST request received for user:', req.params.firebaseId);
+  
   try {
-    // You can process any analytics data sent from frontend here
+    // Process any analytics data sent from frontend
     const analyticsData = req.body;
     console.log('📊 Analytics data received:', analyticsData);
     
-    // For now, just redirect to GET endpoint logic
-    req.method = 'GET';
-    return router.get('/:firebaseId/analytics')(req, res);
+    // For now, redirect to GET endpoint logic by creating a new request
+    const getReq = { ...req, method: 'GET' };
+    
+    // Call the GET handler directly
+    return await new Promise((resolve, reject) => {
+      const mockRes = {
+        json: (data) => {
+          res.json(data);
+          resolve();
+        },
+        status: (code) => ({
+          json: (data) => {
+            res.status(code).json(data);
+            resolve();
+          }
+        })
+      };
+      
+      // Execute the GET logic
+      router.stack.find(layer => 
+        layer.route && 
+        layer.route.path === '/:firebaseId/analytics' && 
+        layer.route.methods.get
+      ).route.stack[3].handle(getReq, mockRes, (err) => {
+        if (err) reject(err);
+      });
+    });
     
   } catch (error) {
     console.error('❌ Analytics POST error:', error);
     res.status(500).json({ 
       success: false,
-      error: '❌ Error processing analytics' 
+      error: '❌ Error processing analytics',
+      details: error.message 
     });
   }
 });
