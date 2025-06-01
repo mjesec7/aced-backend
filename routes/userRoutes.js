@@ -17,6 +17,7 @@ const verifyToken = require('../middlewares/authMiddleware');
 const homeworkController = require('../controllers/homeworkController');
 const testController = require('../controllers/testController');
 const userProgressController = require('../controllers/userProgressController');
+const { getRecommendations } = require('../controllers/recommendationController');
 
 console.log('✅ userRoutes.js loaded');
 
@@ -86,8 +87,52 @@ router.get('/:firebaseId/status', validateFirebaseId, async (req, res) => {
   }
 });
 
-// ✅ NEW: Get user's progress for a specific lesson
-// This handles the missing /api/user/:firebaseId/lesson/:lessonId endpoint
+// ✅ NEW: Recommendations route (was missing!)
+router.get('/:firebaseId/recommendations', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
+  console.log('📥 GET recommendations for user:', req.params.firebaseId);
+  
+  try {
+    // If you have a recommendation controller, use it:
+    if (getRecommendations) {
+      return getRecommendations(req, res);
+    }
+    
+    // Otherwise, provide a basic implementation:
+    const userId = req.params.firebaseId;
+    
+    // Get user's study list to exclude already added topics
+    const user = await User.findOne({ firebaseId: userId });
+    const studyListTopicIds = user?.studyList?.map(item => item.topicId?.toString()) || [];
+    
+    // Get all topics that aren't in the user's study list
+    const allTopics = await Topic.find({
+      _id: { $nin: studyListTopicIds }
+    }).limit(10);
+    
+    // Get lessons for each topic to ensure they have content
+    const topicsWithLessons = await Promise.all(
+      allTopics.map(async (topic) => {
+        const lessons = await Lesson.find({ topicId: topic._id });
+        return {
+          ...topic.toObject(),
+          lessons: lessons
+        };
+      })
+    );
+    
+    // Filter out topics without lessons
+    const recommendations = topicsWithLessons.filter(topic => topic.lessons.length > 0);
+    
+    console.log(`✅ Returning ${recommendations.length} recommendations`);
+    res.json(recommendations);
+    
+  } catch (error) {
+    console.error('❌ Error fetching recommendations:', error);
+    res.status(500).json({ error: '❌ Error fetching recommendations' });
+  }
+});
+
+// ✅ Get user's progress for a specific lesson
 router.get('/:firebaseId/lesson/:lessonId', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   try {
     const { firebaseId, lessonId } = req.params;
@@ -111,7 +156,7 @@ router.get('/:firebaseId/lesson/:lessonId', validateFirebaseId, verifyToken, ver
   }
 });
 
-// ✅ NEW: Save user's progress for a specific lesson
+// ✅ Save user's progress for a specific lesson
 router.post('/:firebaseId/lesson/:lessonId', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   try {
     const { firebaseId, lessonId } = req.params;
@@ -542,37 +587,12 @@ router.post('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwn
   console.log('📊 Analytics POST request received for user:', req.params.firebaseId);
   
   try {
-    // Process any analytics data sent from frontend
-    const analyticsData = req.body;
-    console.log('📊 Analytics data received:', analyticsData);
-    
-    // For now, redirect to GET endpoint logic by creating a new request
-    const getReq = { ...req, method: 'GET' };
-    
-    // Call the GET handler directly
-    return await new Promise((resolve, reject) => {
-      const mockRes = {
-        json: (data) => {
-          res.json(data);
-          resolve();
-        },
-        status: (code) => ({
-          json: (data) => {
-            res.status(code).json(data);
-            resolve();
-          }
-        })
-      };
-      
-      // Execute the GET logic
-      router.stack.find(layer => 
-        layer.route && 
-        layer.route.path === '/:firebaseId/analytics' && 
-        layer.route.methods.get
-      ).route.stack[3].handle(getReq, mockRes, (err) => {
-        if (err) reject(err);
-      });
-    });
+    // For now, just call the GET handler
+    return router.handle(
+      { ...req, method: 'GET' }, 
+      res, 
+      () => {}
+    );
     
   } catch (error) {
     console.error('❌ Analytics POST error:', error);

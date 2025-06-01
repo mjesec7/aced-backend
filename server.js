@@ -362,11 +362,11 @@ const mountRoute = (path, routeFile, description) => {
   }
 };
 
-// Routes to mount
+// ✅ FIXED: Routes to mount with proper paths
 const routesToMount = [
   ['/api/progress', './routes/progressRoutes', 'Progress tracking routes'],
-  ['/api/users', './routes/userRoutes', 'User management routes'],
-  ['/api/user', './routes/userLessonRoutes', 'User lesson routes (legacy)'],
+  ['/api/users', './routes/userRoutes', 'User management routes (MAIN)'], // This is the main one
+  ['/api/user', './routes/userRoutes', 'User management routes (LEGACY)'], // Mount same routes at /api/user for compatibility
   ['/api/lessons', './routes/lessonRoutes', 'Lesson management routes'],
   ['/api/subjects', './routes/subjectRoutes', 'Subject management routes'],
   ['/api/topics', './routes/topicRoutes', 'Topic management routes'],
@@ -374,7 +374,6 @@ const routesToMount = [
   ['/api/homeworks', './routes/homeworkRoutes', 'Homework routes'],
   ['/api/tests', './routes/testRoutes', 'Test/quiz routes'],
   ['/api/analytics', './routes/userAnalytics', 'User analytics routes'],
-  ['/api', './routes/recommendationRoutes', 'Recommendation engine routes'],
   ['/api/payments', './routes/paymeRoutes', 'Payment processing routes'],
 ];
 
