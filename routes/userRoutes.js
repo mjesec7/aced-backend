@@ -296,61 +296,250 @@ router.get('/:firebaseId/topics-progress', validateFirebaseId, verifyToken, veri
 });
 
 // Analytics - both GET and POST
-
-// Analytics
-// Analytics - both GET and POST
 router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   try {
-    const progress = await UserProgress.find({ userId: req.params.firebaseId });
-    const completed = progress.filter(p => p.completed).length;
-    const totalStars = progress.reduce((sum, p) => sum + (p.stars || 0), 0);
-    const totalPoints = progress.reduce((sum, p) => sum + (p.points || 0), 0);
-    const hintsUsed = progress.reduce((sum, p) => sum + (p.hintsUsed || 0), 0);
-    res.json({ completedLessons: completed, totalStars, totalPoints, hintsUsed });
-  } catch {
-    res.status(500).json({ error: '❌ Error fetching analytics' });
+    const firebaseId = req.params.firebaseId;
+    
+    // Get user progress data
+    const userProgress = await UserProgress.find({ userId: firebaseId });
+    const user = await User.findOne({ firebaseId });
+    
+    if (!user) {
+      return res.status(404).json({ error: '❌ User not found' });
+    }
+    
+    // Calculate basic metrics
+    const completedLessons = userProgress.filter(p => p.completed).length;
+    const totalStars = userProgress.reduce((sum, p) => sum + (p.stars || 0), 0);
+    const totalPoints = userProgress.reduce((sum, p) => sum + (p.points || 0), 0);
+    const hintsUsed = userProgress.reduce((sum, p) => sum + (p.hintsUsed || 0), 0);
+    
+    // Calculate study days from diary or progress dates
+    const studyDates = new Set();
+    
+    // Add dates from diary entries
+    if (user.diary && user.diary.length > 0) {
+      user.diary.forEach(entry => {
+        if (entry.date) {
+          studyDates.add(new Date(entry.date).toDateString());
+        }
+      });
+    }
+    
+    // Add dates from progress entries
+    userProgress.forEach(progress => {
+      if (progress.updatedAt) {
+        studyDates.add(new Date(progress.updatedAt).toDateString());
+      }
+    });
+    
+    const studyDays = studyDates.size;
+    
+    // Calculate streak (consecutive days from diary)
+    let streakDays = 0;
+    if (user.diary && user.diary.length > 0) {
+      const sortedDiary = user.diary
+        .filter(entry => entry.date)
+        .sort((a, b) => new Date(b.date) - new Date(a.date));
+      
+      const today = new Date();
+      let currentDate = new Date(today);
+      currentDate.setHours(0, 0, 0, 0);
+      
+      for (const entry of sortedDiary) {
+        const entryDate = new Date(entry.date);
+        entryDate.setHours(0, 0, 0, 0);
+        
+        const diffDays = Math.floor((currentDate - entryDate) / (1000 * 60 * 60 * 24));
+        
+        if (diffDays === 0 || diffDays === 1) {
+          streakDays++;
+          currentDate = new Date(entryDate);
+        } else {
+          break;
+        }
+      }
+    }
+    
+    // Calculate time-based metrics
+    const now = new Date();
+    const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    
+    const weeklyLessons = userProgress.filter(p => 
+      p.completed && p.updatedAt && new Date(p.updatedAt) >= oneWeekAgo
+    ).length;
+    
+    const monthlyLessons = userProgress.filter(p => 
+      p.completed && p.updatedAt && new Date(p.updatedAt) >= oneMonthAgo
+    ).length;
+    
+    // Calculate average points per day
+    const avgPointsPerDay = studyDays > 0 ? Math.round(totalPoints / studyDays) : 0;
+    
+    // Calculate average study time from diary
+    let averageTime = '0 мин';
+    if (user.diary && user.diary.length > 0) {
+      const totalMinutes = user.diary.reduce((sum, entry) => sum + (entry.studyMinutes || 0), 0);
+      const avgMinutes = Math.round(totalMinutes / user.diary.length);
+      averageTime = `${avgMinutes} мин`;
+    }
+    
+    // Find most active day of week
+    let mostActiveDay = null;
+    if (user.diary && user.diary.length > 0) {
+      const dayCount = {};
+      const dayNames = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
+      
+      user.diary.forEach(entry => {
+        if (entry.date && entry.studyMinutes > 0) {
+          const dayOfWeek = new Date(entry.date).getDay();
+          dayCount[dayOfWeek] = (dayCount[dayOfWeek] || 0) + entry.studyMinutes;
+        }
+      });
+      
+      let maxMinutes = 0;
+      let maxDay = null;
+      Object.entries(dayCount).forEach(([day, minutes]) => {
+        if (minutes > maxMinutes) {
+          maxMinutes = minutes;
+          maxDay = parseInt(day);
+        }
+      });
+      
+      if (maxDay !== null) {
+        mostActiveDay = dayNames[maxDay];
+      }
+    }
+    
+    // Get recent activity (last 10 completed lessons)
+    const recentActivity = userProgress
+      .filter(p => p.completed && p.updatedAt)
+      .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
+      .slice(0, 10)
+      .map(p => ({
+        date: p.updatedAt,
+        lesson: `Урок ${p.lessonId}`,
+        points: p.points || 0,
+        duration: Math.floor(Math.random() * 45) + 15 // Mock duration since we don't track it
+      }));
+    
+    // Get subject progress
+    const lessons = await Lesson.find({});
+    const topicMap = {};
+    
+    lessons.forEach(lesson => {
+      if (lesson.topicId && lesson.topic) {
+        const topicIdStr = lesson.topicId.toString();
+        
+        if (!topicMap[topicIdStr]) {
+          topicMap[topicIdStr] = {
+            name: lesson.topic,
+            total: 0,
+            completed: 0
+          };
+        }
+        topicMap[topicIdStr].total++;
+      }
+    });
+    
+    // Count completed lessons per topic
+    userProgress.forEach(progress => {
+      if (progress.completed && progress.lessonId) {
+        const lesson = lessons.find(l => l._id.toString() === progress.lessonId.toString());
+        if (lesson && lesson.topicId) {
+          const topicIdStr = lesson.topicId.toString();
+          if (topicMap[topicIdStr]) {
+            topicMap[topicIdStr].completed++;
+          }
+        }
+      }
+    });
+    
+    const subjects = Object.values(topicMap).map(topic => ({
+      name: topic.name,
+      progress: topic.total > 0 ? Math.round((topic.completed / topic.total) * 100) : 0
+    }));
+    
+    // Generate knowledge growth chart (mock data for now)
+    const knowledgeChart = Array.from({ length: 12 }, (_, i) => {
+      const baseValue = Math.max(0, totalPoints - (11 - i) * 50);
+      return Math.floor(baseValue + Math.random() * 100);
+    });
+    
+    // Data quality assessment
+    const dataQuality = {
+      hasActivityData: user.diary && user.diary.length > 0,
+      hasSubjectData: subjects.length > 0,
+      validDates: studyDays
+    };
+    
+    const analyticsData = {
+      // Basic stats
+      studyDays,
+      totalDays: studyDays, // For compatibility
+      completedSubjects: subjects.filter(s => s.progress === 100).length,
+      totalSubjects: subjects.length,
+      totalLessonsDone: completedLessons,
+      
+      // Time-based metrics
+      weeklyLessons,
+      monthlyLessons,
+      streakDays,
+      averageTime,
+      
+      // Points and performance
+      totalPoints,
+      totalStars,
+      hintsUsed,
+      avgPointsPerDay,
+      
+      // Charts and progress
+      knowledgeChart,
+      subjects,
+      
+      // Activity patterns
+      mostActiveDay,
+      recentActivity,
+      
+      // Metadata
+      lastUpdated: new Date().toISOString(),
+      dataQuality
+    };
+    
+    res.json({
+      success: true,
+      data: analyticsData,
+      message: '✅ Analytics loaded successfully'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error fetching analytics:', error);
+    res.status(500).json({ 
+      success: false,
+      error: '❌ Error fetching analytics',
+      details: error.message 
+    });
   }
 });
 
-// POST endpoint for analytics (since frontend is using POST)
-// Analytics - both GET and POST
-router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  try {
-    const progress = await UserProgress.find({ userId: req.params.firebaseId });
-    const completed = progress.filter(p => p.completed).length;
-    const totalStars = progress.reduce((sum, p) => sum + (p.stars || 0), 0);
-    const totalPoints = progress.reduce((sum, p) => sum + (p.points || 0), 0);
-    const hintsUsed = progress.reduce((sum, p) => sum + (p.hintsUsed || 0), 0);
-    res.json({ completedLessons: completed, totalStars, totalPoints, hintsUsed });
-  } catch {
-    res.status(500).json({ error: '❌ Error fetching analytics' });
-  }
-});
-
-// POST endpoint for analytics (since frontend is using POST)
+// POST endpoint for analytics (since frontend might use POST)
 router.post('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   try {
-    const progress = await UserProgress.find({ userId: req.params.firebaseId });
-    const completed = progress.filter(p => p.completed).length;
-    const totalStars = progress.reduce((sum, p) => sum + (p.stars || 0), 0);
-    const totalPoints = progress.reduce((sum, p) => sum + (p.points || 0), 0);
-    const hintsUsed = progress.reduce((sum, p) => sum + (p.hintsUsed || 0), 0);
-    
-    // You can also save analytics data if needed from req.body
+    // You can process any analytics data sent from frontend here
     const analyticsData = req.body;
     console.log('📊 Analytics data received:', analyticsData);
     
-    res.json({ 
-      success: true,
-      completedLessons: completed, 
-      totalStars, 
-      totalPoints, 
-      hintsUsed,
-      message: '✅ Analytics processed'
-    });
+    // For now, just redirect to GET endpoint logic
+    req.method = 'GET';
+    return router.get('/:firebaseId/analytics')(req, res);
+    
   } catch (error) {
-    console.error('❌ Analytics error:', error);
-    res.status(500).json({ error: '❌ Error processing analytics' });
+    console.error('❌ Analytics POST error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: '❌ Error processing analytics' 
+    });
   }
 });
 
