@@ -203,15 +203,18 @@ router.get('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOwn
   }
 });
 
-// Enhanced Debug Study List POST route
-// Fixed Study List POST route with ObjectId validation
+// Fixed Study List POST route - Handle Object topicId and required field
 router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   const { subject, level, topic, topicId } = req.body;
   
   // Enhanced logging for debugging
   console.log('📥 Adding to study list:', { subject, level, topic, topicId });
-  console.log('🆔 Firebase ID:', req.params.firebaseId);
-  console.log('🔍 TopicId type:', typeof topicId, 'value:', topicId);
+  console.log('🔍 TopicId details:', {
+    type: typeof topicId,
+    value: topicId,
+    isObject: typeof topicId === 'object',
+    stringified: JSON.stringify(topicId)
+  });
   
   // Validation
   if (!subject || !topic) {
@@ -242,18 +245,41 @@ router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOw
       return res.json(user.studyList);
     }
 
-    // Handle topicId validation and conversion
+    // Handle topicId - extract from object or validate string
     let validTopicId = null;
     
     if (topicId) {
-      // Check if topicId is a valid ObjectId string
-      if (mongoose.Types.ObjectId.isValid(topicId)) {
-        validTopicId = new mongoose.Types.ObjectId(topicId);
-        console.log('✅ Valid ObjectId:', validTopicId);
-      } else {
-        console.warn('⚠️ Invalid ObjectId format, setting to null:', topicId);
-        validTopicId = null;
+      if (typeof topicId === 'object') {
+        // If it's an object, try to extract _id or id field
+        const extractedId = topicId._id || topicId.id || topicId.topicId;
+        console.log('🔍 Extracted ID from object:', extractedId);
+        
+        if (extractedId && mongoose.Types.ObjectId.isValid(extractedId)) {
+          validTopicId = new mongoose.Types.ObjectId(extractedId);
+          console.log('✅ Valid ObjectId from object:', validTopicId);
+        } else if (extractedId) {
+          console.warn('⚠️ Invalid ObjectId format from object:', extractedId);
+        }
+      } else if (typeof topicId === 'string') {
+        // If it's a string, validate it
+        if (mongoose.Types.ObjectId.isValid(topicId)) {
+          validTopicId = new mongoose.Types.ObjectId(topicId);
+          console.log('✅ Valid ObjectId from string:', validTopicId);
+        } else {
+          console.warn('⚠️ Invalid ObjectId format from string:', topicId);
+        }
       }
+    }
+    
+    // If no valid topicId found, generate a new one or use a default strategy
+    if (!validTopicId) {
+      // Option 1: Generate a new ObjectId
+      validTopicId = new mongoose.Types.ObjectId();
+      console.log('🆕 Generated new ObjectId:', validTopicId);
+      
+      // Option 2: If you want to skip entries without valid topicId
+      // console.error('❌ No valid topicId provided');
+      // return res.status(400).json({ error: '❌ Valid topicId is required' });
     }
 
     // Create new entry with properly formatted topicId
@@ -261,10 +287,15 @@ router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOw
       name: topic, 
       subject, 
       level: level || null, 
-      topicId: validTopicId // Use the validated ObjectId or null
+      topicId: validTopicId // Now guaranteed to be a valid ObjectId
     };
     
-    console.log('➕ Adding new entry:', newEntry);
+    console.log('➕ Adding new entry:', {
+      name: newEntry.name,
+      subject: newEntry.subject,
+      level: newEntry.level,
+      topicId: newEntry.topicId.toString()
+    });
     
     // Add to study list
     user.studyList.push(newEntry);
@@ -304,25 +335,13 @@ router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOw
       });
     }
     
-    // Handle cast errors
-    if (error.name === 'CastError') {
-      console.error('❌ Cast error details:', {
-        path: error.path,
-        value: error.value,
-        kind: error.kind
-      });
-      return res.status(400).json({ 
-        error: '❌ Invalid data format',
-        details: [`${error.path}: Cannot cast ${error.value} to ${error.kind}`]
-      });
-    }
-    
     res.status(500).json({ 
       error: '❌ Error saving study list',
       message: error.message
     });
   }
 });
+
 
 router.delete('/:firebaseId/study-list/:topicId', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   try {
