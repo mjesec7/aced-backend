@@ -401,6 +401,88 @@ if (failedRoutes.length > 0) {
 }
 
 // ========================================
+// 🔍 ROUTE DIAGNOSTICS ENDPOINT
+// ========================================
+
+// Route diagnostic endpoint
+app.get('/api/routes', (req, res) => {
+  const routes = [];
+  
+  // Function to extract routes from a router
+  function extractRoutes(stack, basePath = '') {
+    stack.forEach(layer => {
+      if (layer.route) {
+        // This is a route
+        const methods = Object.keys(layer.route.methods).join(', ').toUpperCase();
+        routes.push({
+          path: basePath + layer.route.path,
+          methods: methods
+        });
+      } else if (layer.name === 'router' && layer.handle.stack) {
+        // This is a sub-router
+        const newBasePath = basePath + (layer.regexp.source.replace(/\\/g, '').replace(/\^/g, '').replace(/\$/g, '').replace(/\?(?=\?)/g, '') || '');
+        extractRoutes(layer.handle.stack, newBasePath);
+      }
+    });
+  }
+  
+  // Extract all routes
+  app._router.stack.forEach(layer => {
+    if (layer.route) {
+      const methods = Object.keys(layer.route.methods).join(', ').toUpperCase();
+      routes.push({
+        path: layer.route.path,
+        methods: methods
+      });
+    } else if (layer.name === 'router' && layer.handle.stack) {
+      // Extract the base path from the regex
+      let basePath = '';
+      if (layer.regexp && layer.regexp.source) {
+        const regexSource = layer.regexp.source;
+        // Try to extract the path from the regex
+        const match = regexSource.match(/\\\/([^\\]+)/);
+        if (match) {
+          basePath = '/' + match[1];
+        }
+      }
+      extractRoutes(layer.handle.stack, basePath);
+    }
+  });
+  
+  // Sort routes for easier reading
+  routes.sort((a, b) => a.path.localeCompare(b.path));
+  
+  // Group by base path
+  const groupedRoutes = {};
+  routes.forEach(route => {
+    const basePath = route.path.split('/')[1] || 'root';
+    if (!groupedRoutes[basePath]) {
+      groupedRoutes[basePath] = [];
+    }
+    groupedRoutes[basePath].push(route);
+  });
+  
+  res.json({
+    totalRoutes: routes.length,
+    routes: groupedRoutes,
+    allRoutes: routes
+  });
+});
+
+// ========================================
+// 🔍 LESSON ROUTE DEBUGGING MIDDLEWARE
+// ========================================
+
+// Add this debugging middleware specifically for lesson routes
+app.use('/api/lessons/*', (req, res, next) => {
+  console.log(`🔍 Lesson route accessed: ${req.method} ${req.originalUrl}`);
+  console.log(`   Base URL: ${req.baseUrl}`);
+  console.log(`   Path: ${req.path}`);
+  console.log(`   Params:`, req.params);
+  next();
+});
+
+// ========================================
 // 🚫 API ERROR HANDLERS
 // ========================================
 
@@ -556,6 +638,7 @@ const startServer = async () => {
       console.log(`📊 Mongoose: ${mongoose.version}`);
       console.log(`🔗 Health: http://localhost:${PORT}/health`);
       console.log(`🧪 Auth test: http://localhost:${PORT}/auth-test`);
+      console.log(`🔍 Routes debug: http://localhost:${PORT}/api/routes`);
       console.log(`📊 Routes: ${mountedRoutes.length} mounted`);
       console.log('================================\n');
       
