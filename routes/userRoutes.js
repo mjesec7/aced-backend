@@ -193,13 +193,109 @@ router.post('/:firebaseId/lesson/:lessonId', validateFirebaseId, verifyToken, ve
 });
 
 // Study List
+// ✅ ENHANCED Study List GET with cleanup
 router.get('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   try {
     const user = await User.findOne({ firebaseId: req.params.firebaseId });
     if (!user) return res.status(404).json({ error: '❌ User not found' });
-    res.json(user.studyList || []);
-  } catch {
+    
+    // Initialize study list if it doesn't exist
+    if (!user.studyList) {
+      user.studyList = [];
+      await user.save();
+      return res.json([]);
+    }
+    
+    // Validate and clean up invalid topic references
+    const validStudyList = [];
+    const invalidTopicIds = [];
+    let needsCleanup = false;
+    
+    for (const entry of user.studyList) {
+      if (!entry.topicId) {
+        // Entry without topicId - keep it but log warning
+        console.warn('⚠️ Study list entry without topicId:', entry);
+        validStudyList.push(entry);
+        continue;
+      }
+      
+      try {
+        // Check if topic exists in database
+        const topicExists = await Topic.exists({ _id: entry.topicId });
+        
+        if (topicExists) {
+          validStudyList.push(entry);
+        } else {
+          console.warn(`🗑️ Invalid topic reference found: ${entry.topicId} - "${entry.name}"`);
+          invalidTopicIds.push(entry.topicId.toString());
+          needsCleanup = true;
+        }
+      } catch (validationError) {
+        console.error(`❌ Error validating topic ${entry.topicId}:`, validationError.message);
+        // Keep entry if we can't validate (network issues, etc.)
+        validStudyList.push(entry);
+      }
+    }
+    
+    // Clean up invalid references if found
+    if (needsCleanup) {
+      console.log(`🧹 Cleaning up ${invalidTopicIds.length} invalid topic references`);
+      user.studyList = validStudyList;
+      await user.save();
+      console.log(`✅ Cleaned study list: ${user.studyList.length} valid entries remaining`);
+    }
+    
+    res.json(user.studyList);
+    
+  } catch (error) {
+    console.error('❌ Error fetching study list:', error);
     res.status(500).json({ error: '❌ Error fetching study list' });
+  }
+});
+
+// ✅ ENHANCED Study List DELETE with better error handling
+router.delete('/:firebaseId/study-list/:topicId', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
+  try {
+    const user = await User.findOne({ firebaseId: req.params.firebaseId });
+    if (!user) return res.status(404).json({ error: '❌ User not found' });
+    
+    if (!user.studyList) {
+      return res.json({ message: '✅ Study list is empty', studyList: [] });
+    }
+    
+    const initialCount = user.studyList.length;
+    
+    // Remove by topicId or by entry _id
+    user.studyList = user.studyList.filter(entry => {
+      const topicIdMatch = entry.topicId?.toString() !== req.params.topicId;
+      const entryIdMatch = entry._id?.toString() !== req.params.topicId;
+      return topicIdMatch && entryIdMatch;
+    });
+    
+    const finalCount = user.studyList.length;
+    const removedCount = initialCount - finalCount;
+    
+    await user.save();
+    
+    if (removedCount > 0) {
+      console.log(`✅ Removed ${removedCount} entry(ies) from study list`);
+      res.json({ 
+        message: `✅ Removed ${removedCount} topic(s)`, 
+        studyList: user.studyList,
+        removedCount
+      });
+    } else {
+      console.log(`⚠️ No matching entries found for removal: ${req.params.topicId}`);
+      res.json({ 
+        message: '⚠️ No matching topic found to remove', 
+        studyList: user.studyList,
+        removedCount: 0
+      });
+    }
+    
+  } catch (error) {
+    console.error('❌ Error removing from study list:', error);
+    res.status(500).json({ error: '❌ Error removing topic' });
   }
 });
 

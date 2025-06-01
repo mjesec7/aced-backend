@@ -110,25 +110,34 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
   try {
     console.log(`🔍 Searching for topic with ID: ${id}`);
     
+    // First check if the topic exists
     const topic = await Topic.findById(id);
     if (!topic) {
       console.warn(`⚠️ Topic not found in database: ${id}`);
-      console.log(`📊 Database check: Topic with ID ${id} does not exist`);
       
+      // Return a more detailed 404 response that matches what your frontend expects
       return res.status(404).json({ 
         success: false,
         message: '❌ Topic not found',
         error: 'TOPIC_NOT_FOUND',
         requestedId: id,
+        exists: false, // Add this flag for frontend
         suggestion: 'Please verify the topic ID is correct and the topic exists'
       });
     }
 
     console.log(`📘 Found topic: "${topic.name.en}"`);
     
-    // Fetch associated lessons
-    const lessons = await Lesson.find({ topicId: id }).sort({ order: 1, createdAt: 1 });
-    console.log(`📚 Found ${lessons.length} lessons for topic "${topic.name.en}"`);
+    // Fetch associated lessons - handle case where no lessons exist
+    let lessons = [];
+    try {
+      lessons = await Lesson.find({ topicId: id }).sort({ order: 1, createdAt: 1 });
+      console.log(`📚 Found ${lessons.length} lessons for topic "${topic.name.en}"`);
+    } catch (lessonError) {
+      console.error(`⚠️ Error fetching lessons for topic ${id}:`, lessonError.message);
+      // Continue without lessons rather than failing completely
+      lessons = [];
+    }
 
     // Inject topicId into each lesson for frontend use
     const lessonsWithTopicId = lessons.map(lesson => ({
@@ -138,6 +147,7 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
 
     const response = {
       success: true,
+      exists: true, // Add this flag for frontend
       data: {
         ...topic.toObject(),
         lessons: lessonsWithTopicId,
@@ -151,6 +161,17 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
   } catch (err) {
     console.error(`❌ Error fetching topic ${id}:`, err.message);
     console.error('📍 Stack trace:', err.stack);
+    
+    // Handle specific MongoDB errors
+    if (err.name === 'CastError') {
+      return res.status(400).json({ 
+        success: false,
+        message: '❌ Invalid topic ID format',
+        error: 'INVALID_OBJECT_ID',
+        requestedId: id
+      });
+    }
+    
     res.status(500).json({ 
       success: false,
       message: '❌ Server error while fetching topic data',
@@ -159,7 +180,6 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
     });
   }
 });
-
 // ─── [GET] Lessons for Topic ─────────────────────────
 router.get('/:id/lessons', logRequest, validateObjectId, async (req, res) => {
   const id = req.params.id;
