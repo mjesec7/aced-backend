@@ -203,21 +203,84 @@ router.get('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOwn
   }
 });
 
+// Fixed Study List POST route
 router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   const { subject, level, topic, topicId } = req.body;
-  if (!subject || !topic) return res.status(400).json({ error: '❌ Missing subject or topic' });
+  
+  // Enhanced logging for debugging
+  console.log('📥 Adding to study list:', { subject, level, topic, topicId });
+  console.log('🆔 Firebase ID:', req.params.firebaseId);
+  
+  // Validation
+  if (!subject || !topic) {
+    console.error('❌ Missing required fields:', { subject: !!subject, topic: !!topic });
+    return res.status(400).json({ error: '❌ Missing subject or topic' });
+  }
+  
   try {
     const user = await User.findOne({ firebaseId: req.params.firebaseId });
-    if (!user) return res.status(404).json({ error: '❌ User not found' });
-
-    const exists = user.studyList?.some(entry => entry.name === topic && entry.subject === subject);
-    if (!exists) {
-      user.studyList.push({ name: topic, subject, level, topicId: topicId || null });
-      await user.save();
+    if (!user) {
+      console.error('❌ User not found:', req.params.firebaseId);
+      return res.status(404).json({ error: '❌ User not found' });
     }
+
+    console.log('✅ User found:', user.name);
+    console.log('📚 Current study list length:', user.studyList?.length || 0);
+
+    // Initialize studyList if it doesn't exist
+    if (!user.studyList) {
+      user.studyList = [];
+      console.log('📝 Initialized empty study list');
+    }
+
+    // Check for duplicates
+    const exists = user.studyList.some(entry => entry.name === topic && entry.subject === subject);
+    
+    if (exists) {
+      console.log('⚠️ Topic already exists in study list');
+      return res.json(user.studyList);
+    }
+
+    // Add new entry
+    const newEntry = { 
+      name: topic, 
+      subject, 
+      level: level || null, 
+      topicId: topicId || null 
+    };
+    
+    console.log('➕ Adding new entry:', newEntry);
+    user.studyList.push(newEntry);
+    
+    // Save to database
+    await user.save();
+    console.log('✅ Study list saved successfully');
+    
     res.json(user.studyList);
-  } catch {
-    res.status(500).json({ error: '❌ Error saving study list' });
+    
+  } catch (error) {
+    // Enhanced error logging
+    console.error('❌ Error saving study list:', error);
+    console.error('❌ Error stack:', error.stack);
+    
+    // Check for specific error types
+    if (error.name === 'ValidationError') {
+      console.error('❌ Validation error details:', error.errors);
+      return res.status(400).json({ 
+        error: '❌ Validation error', 
+        details: Object.keys(error.errors).map(key => error.errors[key].message)
+      });
+    }
+    
+    if (error.name === 'CastError') {
+      console.error('❌ Cast error - invalid data type');
+      return res.status(400).json({ error: '❌ Invalid data format' });
+    }
+    
+    res.status(500).json({ 
+      error: '❌ Error saving study list',
+      message: error.message // Include error message for debugging
+    });
   }
 });
 
