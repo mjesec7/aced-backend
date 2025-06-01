@@ -203,17 +203,25 @@ router.get('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOwn
   }
 });
 
-// Fixed Study List POST route
+// Enhanced Debug Study List POST route
 router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   const { subject, level, topic, topicId } = req.body;
   
   // Enhanced logging for debugging
-  console.log('📥 Adding to study list:', { subject, level, topic, topicId });
+  console.log('📥 === STUDY LIST DEBUG START ===');
+  console.log('📥 Request body:', JSON.stringify(req.body, null, 2));
+  console.log('📥 Extracted data:', { subject, level, topic, topicId });
   console.log('🆔 Firebase ID:', req.params.firebaseId);
+  console.log('👤 User from token:', req.user?.uid);
   
   // Validation
   if (!subject || !topic) {
-    console.error('❌ Missing required fields:', { subject: !!subject, topic: !!topic });
+    console.error('❌ Missing required fields:', { 
+      subject: !!subject, 
+      topic: !!topic,
+      subjectValue: subject,
+      topicValue: topic
+    });
     return res.status(400).json({ error: '❌ Missing subject or topic' });
   }
   
@@ -224,8 +232,12 @@ router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOw
       return res.status(404).json({ error: '❌ User not found' });
     }
 
-    console.log('✅ User found:', user.name);
-    console.log('📚 Current study list length:', user.studyList?.length || 0);
+    console.log('✅ User found:', {
+      name: user.name,
+      email: user.email,
+      studyListExists: !!user.studyList,
+      studyListLength: user.studyList?.length || 0
+    });
 
     // Initialize studyList if it doesn't exist
     if (!user.studyList) {
@@ -238,10 +250,11 @@ router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOw
     
     if (exists) {
       console.log('⚠️ Topic already exists in study list');
+      console.log('📥 === STUDY LIST DEBUG END (DUPLICATE) ===');
       return res.json(user.studyList);
     }
 
-    // Add new entry
+    // Create new entry with explicit field validation
     const newEntry = { 
       name: topic, 
       subject, 
@@ -249,38 +262,118 @@ router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOw
       topicId: topicId || null 
     };
     
-    console.log('➕ Adding new entry:', newEntry);
+    console.log('➕ Adding new entry:', JSON.stringify(newEntry, null, 2));
+    
+    // Validate entry fields before adding
+    if (typeof newEntry.name !== 'string' || newEntry.name.length === 0) {
+      console.error('❌ Invalid topic name:', newEntry.name);
+      return res.status(400).json({ error: '❌ Invalid topic name' });
+    }
+    
+    if (typeof newEntry.subject !== 'string' || newEntry.subject.length === 0) {
+      console.error('❌ Invalid subject:', newEntry.subject);
+      return res.status(400).json({ error: '❌ Invalid subject' });
+    }
+    
+    // Add to study list
     user.studyList.push(newEntry);
+    console.log('📚 Study list after adding:', user.studyList.length, 'items');
     
-    // Save to database
-    await user.save();
-    console.log('✅ Study list saved successfully');
+    // Save to database with validation
+    const savedUser = await user.save();
+    console.log('✅ Study list saved successfully, new length:', savedUser.studyList.length);
+    console.log('📥 === STUDY LIST DEBUG END (SUCCESS) ===');
     
-    res.json(user.studyList);
+    res.json(savedUser.studyList);
     
   } catch (error) {
-    // Enhanced error logging
-    console.error('❌ Error saving study list:', error);
+    console.log('📥 === STUDY LIST DEBUG END (ERROR) ===');
+    console.error('❌ Error saving study list:', error.message);
+    console.error('❌ Error name:', error.name);
     console.error('❌ Error stack:', error.stack);
     
-    // Check for specific error types
+    // Handle Mongoose validation errors
     if (error.name === 'ValidationError') {
-      console.error('❌ Validation error details:', error.errors);
+      console.error('❌ Validation error details:');
+      const validationDetails = [];
+      
+      for (const field in error.errors) {
+        const fieldError = error.errors[field];
+        console.error(`  - Field: ${field}`);
+        console.error(`  - Message: ${fieldError.message}`);
+        console.error(`  - Value: ${fieldError.value}`);
+        console.error(`  - Kind: ${fieldError.kind}`);
+        
+        validationDetails.push({
+          field,
+          message: fieldError.message,
+          value: fieldError.value,
+          kind: fieldError.kind
+        });
+      }
+      
       return res.status(400).json({ 
         error: '❌ Validation error', 
-        details: Object.keys(error.errors).map(key => error.errors[key].message)
+        details: validationDetails.map(d => `${d.field}: ${d.message}`),
+        fullDetails: validationDetails
       });
     }
     
+    // Handle cast errors
     if (error.name === 'CastError') {
-      console.error('❌ Cast error - invalid data type');
-      return res.status(400).json({ error: '❌ Invalid data format' });
+      console.error('❌ Cast error details:', {
+        path: error.path,
+        value: error.value,
+        kind: error.kind
+      });
+      return res.status(400).json({ 
+        error: '❌ Invalid data format',
+        details: [`${error.path}: Cannot cast ${error.value} to ${error.kind}`]
+      });
     }
     
+    // Handle other MongoDB errors
+    if (error.code === 11000) {
+      console.error('❌ Duplicate key error:', error.keyValue);
+      return res.status(400).json({ 
+        error: '❌ Duplicate entry',
+        details: ['This entry already exists']
+      });
+    }
+    
+    // Generic error
     res.status(500).json({ 
       error: '❌ Error saving study list',
-      message: error.message // Include error message for debugging
+      message: error.message,
+      details: [error.message]
     });
+  }
+});
+
+// Also add a debug route to check user schema
+router.get('/:firebaseId/debug-user', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
+  try {
+    const user = await User.findOne({ firebaseId: req.params.firebaseId });
+    if (!user) return res.status(404).json({ error: '❌ User not found' });
+    
+    // Return user structure for debugging
+    res.json({
+      user: {
+        _id: user._id,
+        firebaseId: user.firebaseId,
+        name: user.name,
+        email: user.email,
+        subscriptionPlan: user.subscriptionPlan,
+        studyList: user.studyList || [],
+        studyListType: typeof user.studyList,
+        studyListLength: user.studyList?.length || 0
+      },
+      schema: {
+        // Add schema validation info if needed
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
