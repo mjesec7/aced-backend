@@ -5,6 +5,10 @@ const router = express.Router();
 const verifyToken = require('../middlewares/authMiddleware');
 const controller = require('../controllers/homeworkController');
 
+// Import models for cleanup route
+const HomeworkProgress = require('../models/HomeworkProgress');
+const Lesson = require('../models/Lesson');
+
 // Add error handling for missing middleware
 if (!verifyToken) {
   console.error('❌ verifyToken middleware is undefined');
@@ -40,6 +44,82 @@ router.use((req, res, next) => {
   console.log('🔍 Params:', req.params);
   next();
 });
+
+// 🧹 POST /cleanup - Clean up homework records with invalid lesson references
+// ✅ Remove homework records that reference non-existent lessons
+router.post(
+  '/cleanup',
+  verifyToken,
+  async (req, res) => {
+    try {
+      console.log('🧹 Starting homework cleanup...');
+      
+      // Get all homework records
+      const allHomework = await HomeworkProgress.find({});
+      console.log(`📊 Found ${allHomework.length} total homework records`);
+      
+      const invalidHomework = [];
+      const validHomework = [];
+      
+      // Check each homework record
+      for (const hw of allHomework) {
+        try {
+          // Check if the lesson exists
+          const lessonExists = await Lesson.exists({ _id: hw.lessonId });
+          
+          if (lessonExists) {
+            validHomework.push(hw._id);
+          } else {
+            invalidHomework.push({
+              id: hw._id,
+              lessonId: hw.lessonId,
+              userId: hw.userId
+            });
+          }
+        } catch (error) {
+          // If there's an error checking (e.g., invalid ObjectId), mark as invalid
+          invalidHomework.push({
+            id: hw._id,
+            lessonId: hw.lessonId,
+            userId: hw.userId,
+            error: error.message
+          });
+        }
+      }
+      
+      console.log(`✅ Valid homework records: ${validHomework.length}`);
+      console.log(`❌ Invalid homework records: ${invalidHomework.length}`);
+      
+      // Delete invalid homework records
+      if (invalidHomework.length > 0) {
+        const idsToDelete = invalidHomework.map(hw => hw.id);
+        const deleteResult = await HomeworkProgress.deleteMany({
+          _id: { $in: idsToDelete }
+        });
+        
+        console.log(`🗑️ Deleted ${deleteResult.deletedCount} invalid homework records`);
+      }
+      
+      res.status(200).json({
+        message: '✅ Homework cleanup completed',
+        data: {
+          totalRecords: allHomework.length,
+          validRecords: validHomework.length,
+          invalidRecords: invalidHomework.length,
+          deletedRecords: invalidHomework.length,
+          invalidDetails: invalidHomework
+        }
+      });
+      
+    } catch (error) {
+      console.error('❌ Error during homework cleanup:', error);
+      res.status(500).json({ 
+        error: '❌ Server error during cleanup',
+        message: error.message 
+      });
+    }
+  }
+);
 
 // ─────────────────────────────────────────────────────────────
 // 📥 GET /user/:firebaseId - FIXED ROUTE PATH
