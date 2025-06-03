@@ -34,38 +34,45 @@ function checkUserMatch(req, res, next) {
   next();
 }
 
+// Add debugging middleware
+router.use((req, res, next) => {
+  console.log('🔍 Homework route hit:', req.method, req.originalUrl);
+  console.log('🔍 Params:', req.params);
+  next();
+});
+
 // ─────────────────────────────────────────────────────────────
-// 📥 GET /:firebaseId/homeworks
+// 📥 GET /user/:firebaseId - FIXED ROUTE PATH
 // ✅ Get all homework records for the current user
 router.get(
-  '/:firebaseId/homeworks',
+  '/user/:firebaseId',
   verifyToken,
   checkUserMatch,
   controller.getAllHomeworks
 );
 
-// 📥 GET /:firebaseId/homeworks/lesson/:lessonId
+// 📥 GET /user/:firebaseId/lesson/:lessonId - FIXED ROUTE PATH
 // ✅ Get homework for a specific lesson
 router.get(
-  '/:firebaseId/homeworks/lesson/:lessonId',
+  '/user/:firebaseId/lesson/:lessonId',
   verifyToken,
   checkUserMatch,
   controller.getHomeworkByLesson
 );
 
-// 📤 POST /:firebaseId/homeworks/save
+// 📤 POST /user/:firebaseId/save - FIXED ROUTE PATH
 // ✅ Save or update homework answers (draft or final)
 router.post(
-  '/:firebaseId/homeworks/save',
+  '/user/:firebaseId/save',
   verifyToken,
   checkUserMatch,
   controller.saveHomework
 );
 
-// 🧠 POST /:firebaseId/homeworks/lesson/:lessonId/submit
+// 🧠 POST /user/:firebaseId/lesson/:lessonId/submit - FIXED ROUTE PATH
 // ✅ Submit and auto-grade homework
 router.post(
-  '/:firebaseId/homeworks/lesson/:lessonId/submit',
+  '/user/:firebaseId/lesson/:lessonId/submit',
   verifyToken,
   checkUserMatch,
   controller.submitHomework
