@@ -299,7 +299,7 @@ router.delete('/:firebaseId/study-list/:topicId', validateFirebaseId, verifyToke
   }
 });
 
-// Fixed Study List POST route - Handle Object topicId and required field
+// ✅ FIXED Study List POST route - Validate topic exists before adding
 router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   const { subject, level, topic, topicId } = req.body;
   
@@ -351,39 +351,61 @@ router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOw
         console.log('🔍 Extracted ID from object:', extractedId);
         
         if (extractedId && mongoose.Types.ObjectId.isValid(extractedId)) {
-          validTopicId = new mongoose.Types.ObjectId(extractedId);
-          console.log('✅ Valid ObjectId from object:', validTopicId);
+          validTopicId = extractedId; // Keep as string for now, convert after validation
+          console.log('✅ Valid ObjectId format from object:', validTopicId);
         } else if (extractedId) {
           console.warn('⚠️ Invalid ObjectId format from object:', extractedId);
         }
       } else if (typeof topicId === 'string') {
         // If it's a string, validate it
         if (mongoose.Types.ObjectId.isValid(topicId)) {
-          validTopicId = new mongoose.Types.ObjectId(topicId);
-          console.log('✅ Valid ObjectId from string:', validTopicId);
+          validTopicId = topicId; // Keep as string for now, convert after validation
+          console.log('✅ Valid ObjectId format from string:', validTopicId);
         } else {
           console.warn('⚠️ Invalid ObjectId format from string:', topicId);
         }
       }
     }
     
-    // If no valid topicId found, generate a new one or use a default strategy
-    if (!validTopicId) {
-      // Option 1: Generate a new ObjectId
-      validTopicId = new mongoose.Types.ObjectId();
-      console.log('🆕 Generated new ObjectId:', validTopicId);
-      
-      // Option 2: If you want to skip entries without valid topicId
-      // console.error('❌ No valid topicId provided');
-      // return res.status(400).json({ error: '❌ Valid topicId is required' });
+    // CRITICAL FIX: Validate that the topic actually exists in the database
+    if (validTopicId) {
+      try {
+        const topicExists = await Topic.findById(validTopicId);
+        if (!topicExists) {
+          console.error('❌ Topic not found in database:', validTopicId);
+          return res.status(400).json({ 
+            error: '❌ Topic not found in database',
+            topicId: validTopicId
+          });
+        }
+        console.log('✅ Topic verified in database:', topicExists.name || topicExists.title);
+        
+        // Now convert to ObjectId since we know it exists
+        validTopicId = new mongoose.Types.ObjectId(validTopicId);
+        
+      } catch (dbError) {
+        console.error('❌ Database error while validating topic:', dbError.message);
+        return res.status(500).json({ 
+          error: '❌ Error validating topic in database',
+          details: dbError.message
+        });
+      }
+    } else {
+      // If no valid topicId provided, return error instead of generating new one
+      console.error('❌ No valid topicId provided');
+      return res.status(400).json({ 
+        error: '❌ Valid topicId is required',
+        provided: topicId,
+        message: 'Topic must exist in the database before adding to study list'
+      });
     }
 
-    // Create new entry with properly formatted topicId
+    // Create new entry with properly validated topicId
     const newEntry = { 
       name: topic, 
       subject, 
       level: level || null, 
-      topicId: validTopicId // Now guaranteed to be a valid ObjectId
+      topicId: validTopicId // Now guaranteed to be a valid ObjectId that exists in DB
     };
     
     console.log('➕ Adding new entry:', {
@@ -434,6 +456,93 @@ router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOw
     res.status(500).json({ 
       error: '❌ Error saving study list',
       message: error.message
+    });
+  }
+});
+
+// Add this route to clean up existing invalid study list entries
+router.post('/:firebaseId/study-list/cleanup', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
+  console.log('🧹 Starting study list cleanup for user:', req.params.firebaseId);
+  
+  try {
+    const user = await User.findOne({ firebaseId: req.params.firebaseId });
+    if (!user) {
+      return res.status(404).json({ error: '❌ User not found' });
+    }
+    
+    if (!user.studyList || user.studyList.length === 0) {
+      return res.json({ 
+        message: '✅ Study list is empty, no cleanup needed',
+        removedCount: 0,
+        studyList: []
+      });
+    }
+    
+    console.log(`🔍 Checking ${user.studyList.length} study list entries`);
+    
+    const validEntries = [];
+    const invalidEntries = [];
+    
+    // Check each entry
+    for (const entry of user.studyList) {
+      if (!entry.topicId) {
+        console.warn('⚠️ Entry without topicId:', entry.name);
+        invalidEntries.push({
+          reason: 'No topicId',
+          entry: entry.name || 'Unknown'
+        });
+        continue;
+      }
+      
+      try {
+        // Check if topic exists in database
+        const topicExists = await Topic.findById(entry.topicId);
+        
+        if (topicExists) {
+          validEntries.push(entry);
+          console.log('✅ Valid entry:', entry.name);
+        } else {
+          console.warn('🗑️ Invalid topic reference:', entry.topicId, '-', entry.name);
+          invalidEntries.push({
+            reason: 'Topic not found in database',
+            entry: entry.name || 'Unknown',
+            topicId: entry.topicId.toString()
+          });
+        }
+      } catch (validationError) {
+        console.error('❌ Error validating entry:', entry.name, validationError.message);
+        invalidEntries.push({
+          reason: 'Validation error: ' + validationError.message,
+          entry: entry.name || 'Unknown',
+          topicId: entry.topicId?.toString() || 'Invalid'
+        });
+      }
+    }
+    
+    // Update user's study list with only valid entries
+    const originalCount = user.studyList.length;
+    user.studyList = validEntries;
+    
+    await user.save();
+    
+    const removedCount = originalCount - validEntries.length;
+    
+    console.log(`🧹 Cleanup complete: ${removedCount} invalid entries removed, ${validEntries.length} valid entries kept`);
+    
+    res.json({
+      message: `✅ Cleanup complete: ${removedCount} invalid entries removed`,
+      originalCount,
+      validCount: validEntries.length,
+      removedCount,
+      invalidEntries,
+      studyList: user.studyList
+    });
+    
+  } catch (error) {
+    console.error('❌ Error during cleanup:', error);
+    res.status(500).json({ 
+      error: '❌ Error during cleanup',
+      details: error.message 
     });
   }
 });
