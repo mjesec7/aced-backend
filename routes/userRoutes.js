@@ -486,10 +486,15 @@ router.get('/:firebaseId/homework/:homeworkId', validateFirebaseId, verifyToken,
       return res.status(403).json({ error: '❌ Homework is not active' });
     }
     
-    // Get user's progress on this homework
+    // Get user's progress on this homework - use a unique identifier
+    // Since HomeworkProgress might not have homeworkId field, we'll check for it
     let userProgress = await HomeworkProgress.findOne({
       userId: firebaseId,
-      homeworkId: homeworkId
+      $or: [
+        { homeworkId: homeworkId },  // Try homeworkId if it exists
+        { lessonId: homeworkId },    // Fallback to lessonId
+        { 'metadata.standaloneHomeworkId': homeworkId }  // Use metadata field
+      ]
     });
     
     res.json({
@@ -526,20 +531,40 @@ router.post('/:firebaseId/homework/:homeworkId/save', validateFirebaseId, verify
       return res.status(404).json({ error: '❌ Homework not found' });
     }
 
-    // Update or create progress
+    // Update or create progress - use metadata to store standalone homework ID
     const progressData = {
       userId: firebaseId,
-      homeworkId: homeworkId,
+      // Use lessonId field to store homework reference or create a metadata field
+      lessonId: null, // No actual lesson for standalone homework
       answers: answers,
       completed: false,
+      metadata: {
+        type: 'standalone',
+        standaloneHomeworkId: homeworkId,
+        homeworkTitle: homework.title
+      },
       updatedAt: new Date()
     };
 
-    const progress = await HomeworkProgress.findOneAndUpdate(
-      { userId: firebaseId, homeworkId: homeworkId },
-      progressData,
-      { upsert: true, new: true }
-    );
+    // Try to find existing progress using metadata
+    let existingProgress = await HomeworkProgress.findOne({
+      userId: firebaseId,
+      'metadata.standaloneHomeworkId': homeworkId
+    });
+
+    let progress;
+    if (existingProgress) {
+      // Update existing progress
+      progress = await HomeworkProgress.findByIdAndUpdate(
+        existingProgress._id,
+        progressData,
+        { new: true }
+      );
+    } else {
+      // Create new progress
+      progress = new HomeworkProgress(progressData);
+      await progress.save();
+    }
 
     console.log(`💾 Standalone homework progress saved for user ${firebaseId}`);
     res.json({
@@ -608,24 +633,43 @@ router.post('/:firebaseId/homework/:homeworkId/submit', validateFirebaseId, veri
     const maxPoints = homework.exercises.reduce((sum, ex) => sum + (ex.points || 1), 0);
     const score = totalQuestions > 0 ? Math.round((correctAnswers / totalQuestions) * 100) : 0;
 
-    // Update progress
+    // Update progress using metadata approach
     const progressData = {
       userId: firebaseId,
-      homeworkId: homeworkId,
+      lessonId: null, // No actual lesson for standalone homework
       answers: gradedAnswers,
       completed: true,
       score: score,
       totalPoints: totalPoints,
       maxPoints: maxPoints,
+      metadata: {
+        type: 'standalone',
+        standaloneHomeworkId: homeworkId,
+        homeworkTitle: homework.title
+      },
       submittedAt: new Date(),
       updatedAt: new Date()
     };
 
-    const progress = await HomeworkProgress.findOneAndUpdate(
-      { userId: firebaseId, homeworkId: homeworkId },
-      progressData,
-      { upsert: true, new: true }
-    );
+    // Try to find and update existing progress
+    let existingProgress = await HomeworkProgress.findOne({
+      userId: firebaseId,
+      'metadata.standaloneHomeworkId': homeworkId
+    });
+
+    let progress;
+    if (existingProgress) {
+      // Update existing progress
+      progress = await HomeworkProgress.findByIdAndUpdate(
+        existingProgress._id,
+        progressData,
+        { new: true }
+      );
+    } else {
+      // Create new progress
+      progress = new HomeworkProgress(progressData);
+      await progress.save();
+    }
 
     console.log(`📤 Standalone homework submitted by user ${firebaseId}. Score: ${score}%`);
 
