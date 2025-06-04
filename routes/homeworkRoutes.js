@@ -49,6 +49,8 @@ router.get('/:id', async (req, res) => {
     }
     
     console.log('📥 Admin: Retrieved homework:', homework.title);
+    console.log('📝 Homework exercises count:', homework.exercises?.length || 0);
+    
     res.json({
       success: true,
       data: homework,
@@ -64,37 +66,119 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// POST new homework assignment (from admin panel)
+// ✅ FIXED: POST new homework assignment (from admin panel)
 router.post('/', verifyToken, async (req, res) => {
   try {
+    console.log('📝 Creating new homework with data:', JSON.stringify(req.body, null, 2));
+    
     const homeworkData = {
       ...req.body,
       createdAt: new Date(),
       updatedAt: new Date()
     };
 
-    // Ensure exercises have proper IDs and structure
-    if (homeworkData.exercises) {
-      homeworkData.exercises = homeworkData.exercises.map(exercise => ({
-        ...exercise,
-        _id: exercise._id || `ex_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        type: exercise.type || 'multiple-choice',
-        points: exercise.points || 1,
-        instruction: exercise.instruction || exercise.instructions || ''
-      }));
+    // ✅ FIXED: Properly handle exercises array from different possible field names
+    let exercises = [];
+    
+    // Check various possible field names for exercises
+    if (req.body.exercises && Array.isArray(req.body.exercises)) {
+      exercises = req.body.exercises;
+    } else if (req.body.questions && Array.isArray(req.body.questions)) {
+      exercises = req.body.questions;
+    } else if (req.body.exerciseGroups && Array.isArray(req.body.exerciseGroups)) {
+      exercises = req.body.exerciseGroups;
+    } else if (req.body.quiz && Array.isArray(req.body.quiz)) {
+      exercises = req.body.quiz;
     }
+    
+    console.log('🔍 Processing exercises:', exercises.length, 'exercises found');
+    
+    // ✅ ENHANCED: Process exercises with proper structure and validation
+    if (exercises && exercises.length > 0) {
+      homeworkData.exercises = exercises.map((exercise, index) => {
+        // Generate unique ID for each exercise
+        const exerciseId = exercise._id || exercise.id || `ex_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 9)}`;
+        
+        // ✅ FIXED: Handle different exercise data structures
+        const processedExercise = {
+          _id: exerciseId,
+          type: exercise.type || exercise.questionType || 'multiple-choice',
+          question: exercise.question || exercise.text || exercise.title || '',
+          instruction: exercise.instruction || exercise.instructions || exercise.description || '',
+          points: parseInt(exercise.points) || 1,
+          
+          // ✅ FIXED: Handle different answer formats
+          correctAnswer: exercise.correctAnswer || exercise.answer || exercise.solution || '',
+          
+          // ✅ FIXED: Handle options for multiple choice questions
+          options: [],
+          
+          // Additional fields
+          difficulty: exercise.difficulty || 1,
+          category: exercise.category || '',
+          tags: exercise.tags || []
+        };
+        
+        // Process options for multiple choice questions
+        if (exercise.options && Array.isArray(exercise.options)) {
+          processedExercise.options = exercise.options.map((option, optIndex) => {
+            if (typeof option === 'string') {
+              return { text: option, value: option };
+            } else if (typeof option === 'object') {
+              return {
+                text: option.text || option.label || option.value || `Option ${optIndex + 1}`,
+                value: option.value || option.text || option.label || `option_${optIndex}`
+              };
+            }
+            return { text: `Option ${optIndex + 1}`, value: `option_${optIndex}` };
+          });
+        } else if (exercise.choices && Array.isArray(exercise.choices)) {
+          processedExercise.options = exercise.choices.map((choice, optIndex) => ({
+            text: choice.text || choice || `Choice ${optIndex + 1}`,
+            value: choice.value || choice || `choice_${optIndex}`
+          }));
+        }
+        
+        console.log(`✅ Processed exercise ${index + 1}:`, {
+          id: processedExercise._id,
+          type: processedExercise.type,
+          question: processedExercise.question.substring(0, 50) + '...',
+          optionsCount: processedExercise.options.length,
+          hasCorrectAnswer: !!processedExercise.correctAnswer
+        });
+        
+        return processedExercise;
+      });
+    } else {
+      console.warn('⚠️ No exercises provided or exercises array is empty');
+      homeworkData.exercises = [];
+    }
+    
+    console.log(`📊 Final homework data summary:`, {
+      title: homeworkData.title,
+      subject: homeworkData.subject,
+      level: homeworkData.level,
+      exerciseCount: homeworkData.exercises.length,
+      isActive: homeworkData.isActive
+    });
 
     const homework = new Homework(homeworkData);
-    await homework.save();
+    const savedHomework = await homework.save();
     
-    console.log('✅ Admin: Created homework:', homework.title);
+    console.log('✅ Admin: Created homework successfully:', {
+      id: savedHomework._id,
+      title: savedHomework.title,
+      exerciseCount: savedHomework.exercises.length
+    });
+    
     res.status(201).json({
       success: true,
-      data: homework,
+      data: savedHomework,
       message: '✅ Homework created successfully'
     });
   } catch (error) {
     console.error('❌ Error creating homework:', error);
+    console.error('❌ Request body:', JSON.stringify(req.body, null, 2));
     
     if (error.name === 'ValidationError') {
       const validationErrors = Object.values(error.errors).map(err => err.message);
@@ -113,24 +197,65 @@ router.post('/', verifyToken, async (req, res) => {
   }
 });
 
-// PUT update homework assignment (from admin panel)
+// ✅ FIXED: PUT update homework assignment (from admin panel)
 router.put('/:id', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
+    console.log('📝 Updating homework:', id, 'with data:', JSON.stringify(req.body, null, 2));
+    
     const updateData = {
       ...req.body,
       updatedAt: new Date()
     };
 
-    // Ensure exercises have proper structure
-    if (updateData.exercises) {
-      updateData.exercises = updateData.exercises.map(exercise => ({
-        ...exercise,
-        _id: exercise._id || `ex_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        type: exercise.type || 'multiple-choice',
-        points: exercise.points || 1,
-        instruction: exercise.instruction || exercise.instructions || ''
-      }));
+    // ✅ FIXED: Handle exercises update with same logic as create
+    if (req.body.exercises || req.body.questions || req.body.exerciseGroups || req.body.quiz) {
+      let exercises = req.body.exercises || req.body.questions || req.body.exerciseGroups || req.body.quiz || [];
+      
+      console.log('🔍 Updating exercises:', exercises.length, 'exercises found');
+      
+      if (Array.isArray(exercises) && exercises.length > 0) {
+        updateData.exercises = exercises.map((exercise, index) => {
+          const exerciseId = exercise._id || exercise.id || `ex_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 9)}`;
+          
+          const processedExercise = {
+            _id: exerciseId,
+            type: exercise.type || exercise.questionType || 'multiple-choice',
+            question: exercise.question || exercise.text || exercise.title || '',
+            instruction: exercise.instruction || exercise.instructions || exercise.description || '',
+            points: parseInt(exercise.points) || 1,
+            correctAnswer: exercise.correctAnswer || exercise.answer || exercise.solution || '',
+            options: [],
+            difficulty: exercise.difficulty || 1,
+            category: exercise.category || '',
+            tags: exercise.tags || []
+          };
+          
+          // Process options
+          if (exercise.options && Array.isArray(exercise.options)) {
+            processedExercise.options = exercise.options.map((option, optIndex) => {
+              if (typeof option === 'string') {
+                return { text: option, value: option };
+              } else if (typeof option === 'object') {
+                return {
+                  text: option.text || option.label || option.value || `Option ${optIndex + 1}`,
+                  value: option.value || option.text || option.label || `option_${optIndex}`
+                };
+              }
+              return { text: `Option ${optIndex + 1}`, value: `option_${optIndex}` };
+            });
+          } else if (exercise.choices && Array.isArray(exercise.choices)) {
+            processedExercise.options = exercise.choices.map((choice, optIndex) => ({
+              text: choice.text || choice || `Choice ${optIndex + 1}`,
+              value: choice.value || choice || `choice_${optIndex}`
+            }));
+          }
+          
+          return processedExercise;
+        });
+      } else {
+        updateData.exercises = [];
+      }
     }
 
     const homework = await Homework.findByIdAndUpdate(id, updateData, { 
@@ -145,7 +270,12 @@ router.put('/:id', verifyToken, async (req, res) => {
       });
     }
     
-    console.log('✅ Admin: Updated homework:', homework.title);
+    console.log('✅ Admin: Updated homework successfully:', {
+      id: homework._id,
+      title: homework.title,
+      exerciseCount: homework.exercises.length
+    });
+    
     res.json({
       success: true,
       data: homework,
@@ -153,6 +283,7 @@ router.put('/:id', verifyToken, async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Error updating homework:', error);
+    console.error('❌ Request body:', JSON.stringify(req.body, null, 2));
     
     if (error.name === 'ValidationError') {
       const validationErrors = Object.values(error.errors).map(err => err.message);
@@ -257,9 +388,9 @@ router.post('/:id/duplicate', verifyToken, async (req, res) => {
       createdAt: new Date(),
       updatedAt: new Date(),
       // Generate new IDs for exercises
-      exercises: originalHomework.exercises.map(exercise => ({
+      exercises: originalHomework.exercises.map((exercise, index) => ({
         ...exercise,
-        _id: `ex_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+        _id: `ex_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 9)}`
       }))
     });
     
