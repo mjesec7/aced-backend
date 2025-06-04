@@ -1,13 +1,11 @@
+// models/Test.js - FIXED Test Model
+
 const mongoose = require('mongoose');
 
 const questionSchema = new mongoose.Schema({
-  _id: {
-    type: String,
-    default: () => `q_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-  },
   text: {
     type: String,
-    required: true,
+    required: [true, 'Question text is required'],
     trim: true
   },
   type: {
@@ -18,56 +16,69 @@ const questionSchema = new mongoose.Schema({
   options: [{
     text: {
       type: String,
-      required: true
+      trim: true
     }
   }],
   correctAnswer: {
     type: mongoose.Schema.Types.Mixed, // Can be string, number, or boolean
-    required: true
+    required: [true, 'Correct answer is required']
   },
   points: {
     type: Number,
     default: 1,
-    min: 1
+    min: [1, 'Points must be at least 1']
   },
   explanation: {
     type: String,
+    trim: true,
     default: ''
   }
-}, { _id: false });
+});
 
 const testSchema = new mongoose.Schema({
   title: {
     type: String,
-    required: true,
-    trim: true
+    required: [true, 'Test title is required'],
+    trim: true,
+    maxlength: [200, 'Title cannot exceed 200 characters']
   },
   description: {
     type: String,
+    trim: true,
     default: '',
-    trim: true
+    maxlength: [1000, 'Description cannot exceed 1000 characters']
   },
   subject: {
     type: String,
-    required: true,
+    required: [true, 'Subject is required'],
     trim: true
   },
   level: {
     type: Number,
-    required: true,
-    min: 1,
-    max: 12
+    required: [true, 'Level is required'],
+    min: [1, 'Level must be at least 1'],
+    max: [12, 'Level cannot exceed 12']
   },
   topic: {
     type: String,
-    default: '',
-    trim: true
+    trim: true,
+    default: ''
   },
   duration: {
     type: Number, // in minutes
+    min: [1, 'Duration must be at least 1 minute'],
+    max: [300, 'Duration cannot exceed 300 minutes'],
     default: null // null means no time limit
   },
-  questions: [questionSchema],
+  questions: {
+    type: [questionSchema],
+    validate: {
+      validator: function(questions) {
+        return questions && questions.length > 0;
+      },
+      message: 'At least one question is required'
+    }
+  },
   isActive: {
     type: Boolean,
     default: true
@@ -75,8 +86,8 @@ const testSchema = new mongoose.Schema({
   passingScore: {
     type: Number,
     default: 70,
-    min: 0,
-    max: 100
+    min: [0, 'Passing score cannot be negative'],
+    max: [100, 'Passing score cannot exceed 100']
   },
   allowRetakes: {
     type: Boolean,
@@ -112,52 +123,65 @@ const testSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
+// Indexes for better performance
+testSchema.index({ subject: 1, level: 1 });
+testSchema.index({ isActive: 1 });
+testSchema.index({ createdAt: -1 });
+testSchema.index({ title: 'text', description: 'text' }); // Text search
+
 // Virtual for total points
 testSchema.virtual('totalPoints').get(function() {
-  return this.questions.reduce((total, question) => total + (question.points || 1), 0);
+  return this.questions ? this.questions.reduce((total, question) => total + (question.points || 1), 0) : 0;
 });
 
 // Virtual for question count
 testSchema.virtual('questionCount').get(function() {
-  return this.questions.length;
+  return this.questions ? this.questions.length : 0;
 });
 
 // Virtual for estimated duration based on question count if no duration set
 testSchema.virtual('estimatedDuration').get(function() {
   if (this.duration) return this.duration;
   // Estimate 2 minutes per question
-  return this.questions.length * 2;
+  return this.questions ? this.questions.length * 2 : 0;
 });
 
-// Index for efficient queries
-testSchema.index({ subject: 1, level: 1 });
-testSchema.index({ isActive: 1 });
-testSchema.index({ createdAt: -1 });
-testSchema.index({ topic: 1 });
-
-// Update the updatedAt field before saving
+// Pre-save middleware to update the updatedAt field
 testSchema.pre('save', function(next) {
-  this.updatedAt = new Date();
+  if (this.isModified() && !this.isNew) {
+    this.updatedAt = new Date();
+  }
   next();
 });
 
-// Update the updatedAt field before updating
+// Pre-update middleware
 testSchema.pre(['findOneAndUpdate', 'updateOne', 'updateMany'], function(next) {
   this.set({ updatedAt: new Date() });
   next();
 });
 
-// Method to get public version (without correct answers)
+// Method to get public version (without correct answers for students)
 testSchema.methods.getPublicVersion = function() {
   const testObj = this.toObject();
   
-  // Remove correct answers from questions
+  // Remove correct answers and explanations from questions
   testObj.questions = testObj.questions.map(question => {
     const { correctAnswer, explanation, ...publicQuestion } = question;
     return publicQuestion;
   });
   
   return testObj;
+};
+
+// Static method to find tests by filters
+testSchema.statics.findByFilters = function(filters = {}) {
+  const query = {};
+  
+  if (filters.subject) query.subject = filters.subject;
+  if (filters.level) query.level = filters.level;
+  if (filters.isActive !== undefined) query.isActive = filters.isActive;
+  
+  return this.find(query).sort({ createdAt: -1 });
 };
 
 const Test = mongoose.model('Test', testSchema);
