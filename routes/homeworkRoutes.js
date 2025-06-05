@@ -1,16 +1,58 @@
 const express = require('express');
 const router = express.Router();
+const mongoose = require('mongoose');
 
 // Import models
 const Homework = require('../models/homework');
 const HomeworkProgress = require('../models/homeworkProgress');
 const Lesson = require('../models/lesson');
 const User = require('../models/user');
+const UserProgress = require('../models/userProgress');
 
 // Import middleware
 const verifyToken = require('../middlewares/authMiddleware');
 
-// ✅ ADMIN ROUTES - Homework Management from Admin Panel
+// ========================================
+// 🔧 MIDDLEWARE FUNCTIONS
+// ========================================
+
+function validateFirebaseId(req, res, next) {
+  if (!req.params.firebaseId) {
+    return res.status(400).json({ 
+      success: false,
+      error: '❌ Missing firebaseId' 
+    });
+  }
+  next();
+}
+
+function verifyOwnership(req, res, next) {
+  if (!req.user || req.user.uid !== req.params.firebaseId) {
+    console.warn(`⚠️ Access denied for user: ${req.user?.uid} vs ${req.params.firebaseId}`);
+    return res.status(403).json({ 
+      success: false,
+      error: '❌ Access denied: user mismatch' 
+    });
+  }
+  next();
+}
+
+function validateObjectId(req, res, next) {
+  const { id, homeworkId, lessonId } = req.params;
+  const idToCheck = id || homeworkId || lessonId;
+  
+  if (idToCheck && !mongoose.Types.ObjectId.isValid(idToCheck)) {
+    return res.status(400).json({ 
+      success: false,
+      error: '❌ Invalid ObjectId format' 
+    });
+  }
+  next();
+}
+
+// ========================================
+// 🔧 ADMIN ROUTES - Homework Management
+// ========================================
 
 // GET all homework assignments (for admin panel)
 router.get('/', async (req, res) => {
@@ -36,7 +78,7 @@ router.get('/', async (req, res) => {
 });
 
 // GET specific homework by ID (for admin panel)
-router.get('/:id', async (req, res) => {
+router.get('/:id', validateObjectId, async (req, res) => {
   try {
     const homework = await Homework.findById(req.params.id)
       .populate('linkedLessonIds', 'title lessonName subject');
@@ -66,7 +108,7 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// ✅ FIXED: POST new homework assignment (from admin panel)
+// POST new homework assignment (from admin panel)
 router.post('/', verifyToken, async (req, res) => {
   try {
     console.log('📝 Creating new homework with data:', JSON.stringify(req.body, null, 2));
@@ -77,10 +119,9 @@ router.post('/', verifyToken, async (req, res) => {
       updatedAt: new Date()
     };
 
-    // ✅ FIXED: Properly handle exercises array from different possible field names
+    // Handle exercises array from different possible field names
     let exercises = [];
     
-    // Check various possible field names for exercises
     if (req.body.exercises && Array.isArray(req.body.exercises)) {
       exercises = req.body.exercises;
     } else if (req.body.questions && Array.isArray(req.body.questions)) {
@@ -93,27 +134,20 @@ router.post('/', verifyToken, async (req, res) => {
     
     console.log('🔍 Processing exercises:', exercises.length, 'exercises found');
     
-    // ✅ ENHANCED: Process exercises with proper structure and validation
+    // Process exercises with proper structure and validation
     if (exercises && exercises.length > 0) {
       homeworkData.exercises = exercises.map((exercise, index) => {
         // Generate unique ID for each exercise
         const exerciseId = exercise._id || exercise.id || `ex_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 9)}`;
         
-        // ✅ FIXED: Handle different exercise data structures
         const processedExercise = {
           _id: exerciseId,
           type: exercise.type || exercise.questionType || 'multiple-choice',
           question: exercise.question || exercise.text || exercise.title || '',
           instruction: exercise.instruction || exercise.instructions || exercise.description || '',
           points: parseInt(exercise.points) || 1,
-          
-          // ✅ FIXED: Handle different answer formats
           correctAnswer: exercise.correctAnswer || exercise.answer || exercise.solution || '',
-          
-          // ✅ FIXED: Handle options for multiple choice questions
           options: [],
-          
-          // Additional fields
           difficulty: exercise.difficulty || 1,
           category: exercise.category || '',
           tags: exercise.tags || []
@@ -197,8 +231,8 @@ router.post('/', verifyToken, async (req, res) => {
   }
 });
 
-// ✅ FIXED: PUT update homework assignment (from admin panel)
-router.put('/:id', verifyToken, async (req, res) => {
+// PUT update homework assignment (from admin panel)
+router.put('/:id', verifyToken, validateObjectId, async (req, res) => {
   try {
     const { id } = req.params;
     console.log('📝 Updating homework:', id, 'with data:', JSON.stringify(req.body, null, 2));
@@ -208,7 +242,7 @@ router.put('/:id', verifyToken, async (req, res) => {
       updatedAt: new Date()
     };
 
-    // ✅ FIXED: Handle exercises update with same logic as create
+    // Handle exercises update with same logic as create
     if (req.body.exercises || req.body.questions || req.body.exerciseGroups || req.body.quiz) {
       let exercises = req.body.exercises || req.body.questions || req.body.exerciseGroups || req.body.quiz || [];
       
@@ -303,7 +337,7 @@ router.put('/:id', verifyToken, async (req, res) => {
 });
 
 // DELETE homework assignment (from admin panel)
-router.delete('/:id', verifyToken, async (req, res) => {
+router.delete('/:id', verifyToken, validateObjectId, async (req, res) => {
   try {
     const { id } = req.params;
     const homework = await Homework.findByIdAndDelete(id);
@@ -334,7 +368,7 @@ router.delete('/:id', verifyToken, async (req, res) => {
 });
 
 // PATCH toggle homework status (from admin panel)
-router.patch('/:id/status', verifyToken, async (req, res) => {
+router.patch('/:id/status', verifyToken, validateObjectId, async (req, res) => {
   try {
     const { id } = req.params;
     const { isActive } = req.body;
@@ -369,7 +403,7 @@ router.patch('/:id/status', verifyToken, async (req, res) => {
 });
 
 // POST duplicate homework (from admin panel)
-router.post('/:id/duplicate', verifyToken, async (req, res) => {
+router.post('/:id/duplicate', verifyToken, validateObjectId, async (req, res) => {
   try {
     const { id } = req.params;
     const originalHomework = await Homework.findById(id);
@@ -434,7 +468,6 @@ router.get('/stats/overview', async (req, res) => {
     // Get recent activity
     const recentSubmissions = await HomeworkProgress.find({ completed: true })
       .populate('homeworkId', 'title')
-      .populate('userId', 'name')
       .sort({ submittedAt: -1 })
       .limit(10);
     
@@ -465,22 +498,12 @@ router.get('/stats/overview', async (req, res) => {
   }
 });
 
-// ✅ USER ROUTES - For student homework interaction
-
-// Middleware to check user ownership
-function checkUserMatch(req, res, next) {
-  if (!req.user || req.user.uid !== req.params.firebaseId) {
-    console.warn(`⚠️ Access denied for user: ${req.user?.uid} vs ${req.params.firebaseId}`);
-    return res.status(403).json({ 
-      success: false,
-      error: '❌ Access denied: user mismatch' 
-    });
-  }
-  next();
-}
+// ========================================
+// 👥 USER ROUTES - Student Homework Interaction
+// ========================================
 
 // GET all homework for a specific user (both standalone and lesson-based)
-router.get('/user/:firebaseId', verifyToken, checkUserMatch, async (req, res) => {
+router.get('/user/:firebaseId', verifyToken, validateFirebaseId, verifyOwnership, async (req, res) => {
   try {
     const { firebaseId } = req.params;
     
@@ -593,18 +616,59 @@ router.get('/user/:firebaseId', verifyToken, checkUserMatch, async (req, res) =>
   }
 });
 
-// GET homework for a specific lesson
-router.get('/user/:firebaseId/lesson/:lessonId', verifyToken, checkUserMatch, async (req, res) => {
+// GET standalone homework for user
+router.get('/user/:firebaseId/homework/:homeworkId', verifyToken, validateFirebaseId, validateObjectId, verifyOwnership, async (req, res) => {
+  console.log('📥 GET standalone homework for user:', req.params.firebaseId, 'homeworkId:', req.params.homeworkId);
+  
   try {
-    const { firebaseId, lessonId } = req.params;
+    const { firebaseId, homeworkId } = req.params;
     
-    if (!firebaseId || !lessonId) {
-      return res.status(400).json({ 
+    // Get the standalone homework
+    const homework = await Homework.findById(homeworkId);
+    if (!homework) {
+      return res.status(404).json({ 
         success: false,
-        error: '❌ Firebase ID and Lesson ID are required',
-        message: '❌ Firebase ID and Lesson ID are required' 
+        error: '❌ Homework not found' 
       });
     }
+    
+    if (!homework.isActive) {
+      return res.status(403).json({ 
+        success: false,
+        error: '❌ Homework is not active' 
+      });
+    }
+    
+    // Get user's progress on this homework
+    let userProgress = await HomeworkProgress.findOne({
+      userId: firebaseId,
+      homeworkId: homeworkId
+    });
+    
+    res.json({
+      success: true,
+      data: {
+        homework: homework,
+        userProgress: userProgress,
+        questions: homework.exercises || []
+      },
+      message: '✅ Homework retrieved successfully'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error fetching standalone homework:', error);
+    res.status(500).json({ 
+      success: false,
+      error: '❌ Error fetching homework',
+      details: error.message 
+    });
+  }
+});
+
+// GET homework for a specific lesson
+router.get('/user/:firebaseId/lesson/:lessonId', verifyToken, validateFirebaseId, validateObjectId, verifyOwnership, async (req, res) => {
+  try {
+    const { firebaseId, lessonId } = req.params;
 
     // Find existing homework progress
     const homework = await HomeworkProgress.findOne({ 
@@ -648,8 +712,237 @@ router.get('/user/:firebaseId/lesson/:lessonId', verifyToken, checkUserMatch, as
   }
 });
 
-// POST save homework answers (draft mode)
-router.post('/user/:firebaseId/save', verifyToken, checkUserMatch, async (req, res) => {
+// POST save standalone homework progress
+router.post('/user/:firebaseId/homework/:homeworkId/save', verifyToken, validateFirebaseId, validateObjectId, verifyOwnership, async (req, res) => {
+  console.log('💾 POST save standalone homework for user:', req.params.firebaseId, 'homeworkId:', req.params.homeworkId);
+  
+  try {
+    const { firebaseId, homeworkId } = req.params;
+    const { answers } = req.body;
+    
+    if (!Array.isArray(answers)) {
+      return res.status(400).json({ 
+        success: false,
+        error: '❌ Answers must be an array' 
+      });
+    }
+
+    // Verify homework exists
+    const homework = await Homework.findById(homeworkId);
+    if (!homework) {
+      return res.status(404).json({ 
+        success: false,
+        error: '❌ Homework not found' 
+      });
+    }
+
+    const progressData = {
+      userId: firebaseId,
+      homeworkId: homeworkId,
+      lessonId: null,
+      answers: answers.map((answer, index) => ({
+        questionIndex: index,
+        userAnswer: answer.userAnswer || answer.answer || answer,
+        correctAnswer: '',
+        isCorrect: false,
+        points: 0,
+        type: 'auto'
+      })),
+      completed: false,
+      metadata: {
+        type: 'standalone',
+        homeworkTitle: homework.title
+      },
+      updatedAt: new Date()
+    };
+
+    // Update or create progress
+    const progress = await HomeworkProgress.findOneAndUpdate(
+      { userId: firebaseId, homeworkId: homeworkId },
+      progressData,
+      { upsert: true, new: true, runValidators: true }
+    );
+
+    console.log(`💾 Standalone homework progress saved for user ${firebaseId}`);
+    res.json({
+      success: true,
+      data: progress,
+      message: '✅ Homework progress saved'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error saving standalone homework:', error);
+    res.status(500).json({ 
+      success: false,
+      error: '❌ Error saving homework progress',
+      details: error.message 
+    });
+  }
+});
+
+// POST submit standalone homework with grading
+router.post('/user/:firebaseId/homework/:homeworkId/submit', verifyToken, validateFirebaseId, validateObjectId, verifyOwnership, async (req, res) => {
+  console.log('📤 POST submit standalone homework for user:', req.params.firebaseId, 'homeworkId:', req.params.homeworkId);
+  
+  try {
+    const { firebaseId, homeworkId } = req.params;
+    const { answers } = req.body;
+    
+    if (!Array.isArray(answers)) {
+      return res.status(400).json({ 
+        success: false,
+        error: '❌ Answers must be an array' 
+      });
+    }
+
+    // Get homework with exercises
+    const homework = await Homework.findById(homeworkId);
+    if (!homework) {
+      return res.status(404).json({ 
+        success: false,
+        error: '❌ Homework not found' 
+      });
+    }
+
+    console.log('📝 Grading homework with', homework.exercises.length, 'exercises');
+
+    // Auto-grade the homework
+    const gradedAnswers = answers.map((answer, index) => {
+      const exercise = homework.exercises[index];
+      
+      if (!exercise) {
+        console.warn(`⚠️ No exercise found for answer index ${index}`);
+        return {
+          questionIndex: index,
+          userAnswer: answer.userAnswer || answer.answer || answer || '',
+          correctAnswer: '',
+          isCorrect: false,
+          points: 0,
+          type: 'auto'
+        };
+      }
+
+      const correctAnswer = exercise.correctAnswer || '';
+      const userAnswer = (answer.userAnswer || answer.answer || answer || '').toString().trim();
+      const correctAnswerNormalized = correctAnswer.toString().trim();
+      
+      // Better answer comparison for different question types
+      let isCorrect = false;
+      
+      if (exercise.type === 'multiple-choice') {
+        // For multiple choice, check both exact match and option text match
+        isCorrect = userAnswer.toLowerCase() === correctAnswerNormalized.toLowerCase();
+        
+        // Also check if user answer matches any option that equals correct answer
+        if (!isCorrect && exercise.options) {
+          const matchingOption = exercise.options.find(opt => 
+            (opt.text || opt).toLowerCase() === userAnswer.toLowerCase()
+          );
+          if (matchingOption) {
+            isCorrect = (matchingOption.text || matchingOption).toLowerCase() === correctAnswerNormalized.toLowerCase();
+          }
+        }
+      } else {
+        // For text-based questions, case-insensitive comparison
+        isCorrect = userAnswer.toLowerCase() === correctAnswerNormalized.toLowerCase();
+      }
+      
+      const points = isCorrect ? (exercise.points || 1) : 0;
+
+      console.log(`🔍 Question ${index + 1}:`, {
+        type: exercise.type,
+        userAnswer: userAnswer.substring(0, 50),
+        correctAnswer: correctAnswerNormalized.substring(0, 50),
+        isCorrect,
+        points
+      });
+
+      return {
+        questionIndex: index,
+        userAnswer: userAnswer,
+        correctAnswer: correctAnswerNormalized,
+        isCorrect,
+        points,
+        type: 'auto'
+      };
+    });
+
+    // Calculate score
+    const totalQuestions = gradedAnswers.length;
+    const correctAnswers = gradedAnswers.filter(a => a.isCorrect).length;
+    const totalPoints = gradedAnswers.reduce((sum, a) => sum + a.points, 0);
+    const maxPoints = homework.exercises.reduce((sum, ex) => sum + (ex.points || 1), 0);
+    const score = totalQuestions > 0 ? Math.round((correctAnswers / totalQuestions) * 100) : 0;
+    
+    // Calculate stars
+    let stars = 0;
+    if (score >= 90) stars = 3;
+    else if (score >= 70) stars = 2;
+    else if (score >= 50) stars = 1;
+
+    console.log('📊 Grading results:', {
+      totalQuestions,
+      correctAnswers,
+      totalPoints,
+      maxPoints,
+      score,
+      stars
+    });
+
+    // Update progress
+    const progressData = {
+      userId: firebaseId,
+      homeworkId: homeworkId,
+      lessonId: null,
+      answers: gradedAnswers,
+      completed: true,
+      score: score,
+      totalPoints: totalPoints,
+      maxPoints: maxPoints,
+      stars: stars,
+      metadata: {
+        type: 'standalone',
+        homeworkTitle: homework.title
+      },
+      submittedAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    const progress = await HomeworkProgress.findOneAndUpdate(
+      { userId: firebaseId, homeworkId: homeworkId },
+      progressData,
+      { upsert: true, new: true, runValidators: true }
+    );
+
+    console.log(`📤 Standalone homework submitted by user ${firebaseId}. Score: ${score}%`);
+
+    res.json({
+      success: true,
+      data: {
+        progress,
+        score,
+        totalPoints,
+        maxPoints,
+        correctAnswers,
+        totalQuestions,
+        stars,
+        details: `${correctAnswers}/${totalQuestions} correct (${score}%)`
+      },
+      message: '✅ Homework submitted successfully'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error submitting standalone homework:', error);
+    res.status(500).json({ 
+      success: false,
+      error: '❌ Error submitting homework',
+      details: error.message 
+    });
+  }
+});
+
+// POST save homework answers (draft mode) - Generic for both lesson and standalone
+router.post('/user/:firebaseId/save', verifyToken, validateFirebaseId, verifyOwnership, async (req, res) => {
   try {
     const { firebaseId } = req.params;
     const { lessonId, homeworkId, answers } = req.body;
@@ -717,8 +1010,8 @@ router.post('/user/:firebaseId/save', verifyToken, checkUserMatch, async (req, r
   }
 });
 
-// POST submit and auto-grade homework
-router.post('/user/:firebaseId/lesson/:lessonId/submit', verifyToken, checkUserMatch, async (req, res) => {
+// POST submit and auto-grade lesson homework
+router.post('/user/:firebaseId/lesson/:lessonId/submit', verifyToken, validateFirebaseId, validateObjectId, verifyOwnership, async (req, res) => {
   try {
     const { firebaseId, lessonId } = req.params;
     const { answers } = req.body;
@@ -805,6 +1098,17 @@ router.post('/user/:firebaseId/lesson/:lessonId/submit', verifyToken, checkUserM
       }
     ).populate('lessonId', 'title description');
 
+    // Update user progress to mark homework as submitted
+    await UserProgress.findOneAndUpdate(
+      { userId: firebaseId, lessonId },
+      { 
+        submittedHomework: true,
+        homeworkScore: score,
+        updatedAt: new Date()
+      },
+      { upsert: false } // Don't create if doesn't exist
+    );
+
     console.log(`🎯 Homework submitted and graded for user ${firebaseId}, lesson ${lessonId}. Score: ${score}%, Stars: ${stars}`);
 
     res.json({
@@ -831,7 +1135,9 @@ router.post('/user/:firebaseId/lesson/:lessonId/submit', verifyToken, checkUserM
   }
 });
 
-// ✅ CLEANUP ROUTES
+// ========================================
+// 🧹 CLEANUP & UTILITY ROUTES
+// ========================================
 
 // POST cleanup invalid homework references
 router.post('/cleanup', verifyToken, async (req, res) => {
@@ -916,6 +1222,213 @@ router.post('/cleanup', verifyToken, async (req, res) => {
       success: false,
       error: '❌ Server error during cleanup',
       message: error.message 
+    });
+  }
+});
+
+// ========================================
+// 🔄 LEGACY ROUTES FOR BACKWARD COMPATIBILITY
+// ========================================
+
+// Legacy routes that might be used by existing frontend code
+router.get('/:firebaseId/homeworks', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
+  // Redirect to the new user route
+  req.url = `/user/${req.params.firebaseId}`;
+  return router.handle(req, res);
+});
+
+router.get('/:firebaseId/homeworks/lesson/:lessonId', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
+  // Redirect to the new user lesson route
+  req.url = `/user/${req.params.firebaseId}/lesson/${req.params.lessonId}`;
+  return router.handle(req, res);
+});
+
+router.post('/:firebaseId/homeworks/save', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
+  // Redirect to the new user save route
+  req.url = `/user/${req.params.firebaseId}/save`;
+  req.method = 'POST';
+  return router.handle(req, res);
+});
+
+router.post('/:firebaseId/homeworks/lesson/:lessonId/submit', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
+  // Redirect to the new user lesson submit route
+  req.url = `/user/${req.params.firebaseId}/lesson/${req.params.lessonId}/submit`;
+  req.method = 'POST';
+  return router.handle(req, res);
+});
+
+// ========================================
+// 📊 HOMEWORK ANALYTICS ROUTES
+// ========================================
+
+// GET homework analytics for admin
+router.get('/analytics/overview', verifyToken, async (req, res) => {
+  try {
+    // Get homework completion stats
+    const totalHomeworkAssigned = await Homework.countDocuments({ isActive: true });
+    const totalSubmissions = await HomeworkProgress.countDocuments({ completed: true });
+    const uniqueUsers = await HomeworkProgress.distinct('userId').length;
+    
+    // Get average scores
+    const avgScoreResult = await HomeworkProgress.aggregate([
+      { $match: { completed: true, score: { $gt: 0 } } },
+      { $group: { _id: null, avgScore: { $avg: '$score' } } }
+    ]);
+    const avgScore = avgScoreResult.length > 0 ? Math.round(avgScoreResult[0].avgScore) : 0;
+    
+    // Get completion rate by subject
+    const subjectStats = await Homework.aggregate([
+      { $match: { isActive: true } },
+      {
+        $lookup: {
+          from: 'homeworkprogresses',
+          localField: '_id',
+          foreignField: 'homeworkId',
+          as: 'submissions'
+        }
+      },
+      {
+        $project: {
+          subject: 1,
+          title: 1,
+          totalSubmissions: { $size: '$submissions' },
+          completedSubmissions: {
+            $size: {
+              $filter: {
+                input: '$submissions',
+                cond: { $eq: ['$this.completed', true] }
+              }
+            }
+          }
+        }
+      },
+      {
+        $group: {
+          _id: '$subject',
+          totalHomework: { $sum: 1 },
+          totalSubmissions: { $sum: '$totalSubmissions' },
+          completedSubmissions: { $sum: '$completedSubmissions' }
+        }
+      }
+    ]);
+    
+    // Get recent activity
+    const recentActivity = await HomeworkProgress.find({ completed: true })
+      .populate('homeworkId', 'title subject')
+      .populate('lessonId', 'lessonName title')
+      .sort({ submittedAt: -1 })
+      .limit(20)
+      .select('userId score submittedAt homeworkId lessonId');
+    
+    res.json({
+      success: true,
+      data: {
+        overview: {
+          totalHomeworkAssigned,
+          totalSubmissions,
+          uniqueUsers,
+          avgScore,
+          completionRate: totalHomeworkAssigned > 0 ? Math.round((totalSubmissions / totalHomeworkAssigned) * 100) : 0
+        },
+        subjectStats,
+        recentActivity
+      },
+      message: '✅ Homework analytics retrieved successfully'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error fetching homework analytics:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to fetch homework analytics',
+      details: error.message 
+    });
+  }
+});
+
+// GET user-specific homework analytics
+router.get('/analytics/user/:firebaseId', verifyToken, validateFirebaseId, verifyOwnership, async (req, res) => {
+  try {
+    const { firebaseId } = req.params;
+    
+    // Get user's homework progress
+    const userProgress = await HomeworkProgress.find({ userId: firebaseId })
+      .populate('homeworkId', 'title subject difficulty')
+      .populate('lessonId', 'lessonName title topic')
+      .sort({ updatedAt: -1 });
+    
+    const completed = userProgress.filter(p => p.completed);
+    const inProgress = userProgress.filter(p => !p.completed);
+    
+    // Calculate stats
+    const totalHomework = userProgress.length;
+    const completedHomework = completed.length;
+    const avgScore = completed.length > 0 ? 
+      Math.round(completed.reduce((sum, p) => sum + (p.score || 0), 0) / completed.length) : 0;
+    const totalStars = completed.reduce((sum, p) => sum + (p.stars || 0), 0);
+    
+    // Subject breakdown
+    const subjectBreakdown = {};
+    completed.forEach(p => {
+      const subject = p.homeworkId?.subject || p.lessonId?.topic || 'Unknown';
+      if (!subjectBreakdown[subject]) {
+        subjectBreakdown[subject] = { completed: 0, totalScore: 0, count: 0 };
+      }
+      subjectBreakdown[subject].completed++;
+      subjectBreakdown[subject].totalScore += (p.score || 0);
+      subjectBreakdown[subject].count++;
+    });
+    
+    // Calculate average scores per subject
+    Object.keys(subjectBreakdown).forEach(subject => {
+      const stats = subjectBreakdown[subject];
+      stats.avgScore = stats.count > 0 ? Math.round(stats.totalScore / stats.count) : 0;
+    });
+    
+    // Recent performance trend (last 10 submissions)
+    const recentSubmissions = completed
+      .sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt))
+      .slice(0, 10)
+      .map(p => ({
+        date: p.submittedAt,
+        score: p.score,
+        title: p.homeworkId?.title || `${p.lessonId?.lessonName} Homework`,
+        subject: p.homeworkId?.subject || p.lessonId?.topic
+      }));
+    
+    res.json({
+      success: true,
+      data: {
+        overview: {
+          totalHomework,
+          completedHomework,
+          inProgressHomework: inProgress.length,
+          completionRate: totalHomework > 0 ? Math.round((completedHomework / totalHomework) * 100) : 0,
+          avgScore,
+          totalStars
+        },
+        subjectBreakdown,
+        recentSubmissions,
+        progressList: userProgress.map(p => ({
+          _id: p._id,
+          title: p.homeworkId?.title || `${p.lessonId?.lessonName} Homework`,
+          subject: p.homeworkId?.subject || p.lessonId?.topic,
+          completed: p.completed,
+          score: p.score,
+          stars: p.stars,
+          submittedAt: p.submittedAt,
+          updatedAt: p.updatedAt
+        }))
+      },
+      message: '✅ User homework analytics retrieved successfully'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error fetching user homework analytics:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to fetch user homework analytics',
+      details: error.message 
     });
   }
 });
