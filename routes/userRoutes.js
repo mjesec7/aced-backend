@@ -579,7 +579,7 @@ router.post('/:firebaseId/homework/:homeworkId/save', validateFirebaseId, verify
   }
 });
 
-// ✅ Submit standalone homework
+// ✅ Submit standalone homework - FIXED VERSION
 router.post('/:firebaseId/homework/:homeworkId/submit', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   console.log('📤 POST submit standalone homework for user:', req.params.firebaseId, 'homeworkId:', req.params.homeworkId);
   
@@ -587,42 +587,108 @@ router.post('/:firebaseId/homework/:homeworkId/submit', validateFirebaseId, veri
     const { firebaseId, homeworkId } = req.params;
     const { answers } = req.body;
     
+    console.log('📝 Received submission data:', {
+      firebaseId,
+      homeworkId,
+      answersCount: answers?.length || 0,
+      answersType: Array.isArray(answers) ? 'array' : typeof answers
+    });
+    
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(homeworkId)) {
+      console.error('❌ Invalid homework ID format:', homeworkId);
+      return res.status(400).json({ 
+        success: false,
+        error: '❌ Invalid homework ID format' 
+      });
+    }
+    
     if (!Array.isArray(answers)) {
-      return res.status(400).json({ error: '❌ Answers must be an array' });
+      console.error('❌ Answers not array:', typeof answers);
+      return res.status(400).json({ 
+        success: false,
+        error: '❌ Answers must be an array' 
+      });
     }
 
     // Get homework with exercises
     const homework = await Homework.findById(homeworkId);
     if (!homework) {
-      return res.status(404).json({ error: '❌ Homework not found' });
+      console.error('❌ Homework not found:', homeworkId);
+      return res.status(404).json({ 
+        success: false,
+        error: '❌ Homework not found' 
+      });
     }
+
+    if (!homework.exercises || homework.exercises.length === 0) {
+      console.error('❌ Homework has no exercises:', homeworkId);
+      return res.status(400).json({ 
+        success: false,
+        error: '❌ Homework has no exercises to grade' 
+      });
+    }
+
+    console.log('📝 Grading homework with', homework.exercises.length, 'exercises');
 
     // Auto-grade the homework
     const gradedAnswers = answers.map((answer, index) => {
       const exercise = homework.exercises[index];
+      
       if (!exercise) {
+        console.warn(`⚠️ No exercise found for answer index ${index}`);
         return {
           questionIndex: index,
-          userAnswer: answer.userAnswer || answer.answer || '',
+          userAnswer: answer.userAnswer || answer.answer || answer || '',
           correctAnswer: '',
           isCorrect: false,
-          points: 0
+          points: 0,
+          type: 'auto'
         };
       }
 
       const correctAnswer = exercise.correctAnswer || '';
-      const userAnswer = (answer.userAnswer || answer.answer || '').toString().trim().toLowerCase();
-      const correctAnswerNormalized = correctAnswer.toString().trim().toLowerCase();
+      const userAnswer = (answer.userAnswer || answer.answer || answer || '').toString().trim();
+      const correctAnswerNormalized = correctAnswer.toString().trim();
       
-      const isCorrect = userAnswer === correctAnswerNormalized;
+      // Better answer comparison for different question types
+      let isCorrect = false;
+      
+      if (exercise.type === 'multiple-choice') {
+        // For multiple choice, check both exact match and option text match
+        isCorrect = userAnswer.toLowerCase() === correctAnswerNormalized.toLowerCase();
+        
+        // Also check if user answer matches any option that equals correct answer
+        if (!isCorrect && exercise.options && exercise.options.length > 0) {
+          const matchingOption = exercise.options.find(opt => 
+            (opt.text || opt).toLowerCase() === userAnswer.toLowerCase()
+          );
+          if (matchingOption) {
+            isCorrect = (matchingOption.text || matchingOption).toLowerCase() === correctAnswerNormalized.toLowerCase();
+          }
+        }
+      } else {
+        // For text-based questions, case-insensitive comparison
+        isCorrect = userAnswer.toLowerCase() === correctAnswerNormalized.toLowerCase();
+      }
+      
       const points = isCorrect ? (exercise.points || 1) : 0;
+
+      console.log(`🔍 Question ${index + 1}:`, {
+        type: exercise.type,
+        userAnswer: userAnswer.substring(0, 30) + '...',
+        correctAnswer: correctAnswerNormalized.substring(0, 30) + '...',
+        isCorrect,
+        points
+      });
 
       return {
         questionIndex: index,
-        userAnswer: answer.userAnswer || answer.answer || '',
-        correctAnswer,
+        userAnswer: userAnswer,
+        correctAnswer: correctAnswerNormalized,
         isCorrect,
-        points
+        points,
+        type: 'auto'
       };
     });
 
@@ -632,44 +698,50 @@ router.post('/:firebaseId/homework/:homeworkId/submit', validateFirebaseId, veri
     const totalPoints = gradedAnswers.reduce((sum, a) => sum + a.points, 0);
     const maxPoints = homework.exercises.reduce((sum, ex) => sum + (ex.points || 1), 0);
     const score = totalQuestions > 0 ? Math.round((correctAnswers / totalQuestions) * 100) : 0;
+    
+    // Calculate stars
+    let stars = 0;
+    if (score >= 90) stars = 3;
+    else if (score >= 70) stars = 2;
+    else if (score >= 50) stars = 1;
 
-    // Update progress using metadata approach
+    console.log('📊 Grading results:', {
+      totalQuestions,
+      correctAnswers,
+      totalPoints,
+      maxPoints,
+      score,
+      stars
+    });
+
+    // ✅ FIXED: Use proper homeworkId field instead of metadata
     const progressData = {
       userId: firebaseId,
-      lessonId: null, // No actual lesson for standalone homework
+      homeworkId: homeworkId, // Use the actual homeworkId field
+      lessonId: null,
       answers: gradedAnswers,
       completed: true,
       score: score,
       totalPoints: totalPoints,
       maxPoints: maxPoints,
+      stars: stars,
       metadata: {
         type: 'standalone',
-        standaloneHomeworkId: homeworkId,
         homeworkTitle: homework.title
       },
       submittedAt: new Date(),
       updatedAt: new Date()
     };
 
-    // Try to find and update existing progress
-    let existingProgress = await HomeworkProgress.findOne({
-      userId: firebaseId,
-      'metadata.standaloneHomeworkId': homeworkId
-    });
-
-    let progress;
-    if (existingProgress) {
-      // Update existing progress
-      progress = await HomeworkProgress.findByIdAndUpdate(
-        existingProgress._id,
-        progressData,
-        { new: true }
-      );
-    } else {
-      // Create new progress
-      progress = new HomeworkProgress(progressData);
-      await progress.save();
-    }
+    // ✅ FIXED: Use proper query with homeworkId field
+    const progress = await HomeworkProgress.findOneAndUpdate(
+      { 
+        userId: firebaseId, 
+        homeworkId: homeworkId  // Use the actual homeworkId field
+      },
+      progressData,
+      { upsert: true, new: true, runValidators: true }
+    );
 
     console.log(`📤 Standalone homework submitted by user ${firebaseId}. Score: ${score}%`);
 
@@ -682,6 +754,7 @@ router.post('/:firebaseId/homework/:homeworkId/submit', validateFirebaseId, veri
         maxPoints,
         correctAnswers,
         totalQuestions,
+        stars,
         details: `${correctAnswers}/${totalQuestions} correct (${score}%)`
       },
       message: '✅ Homework submitted successfully'
@@ -689,7 +762,13 @@ router.post('/:firebaseId/homework/:homeworkId/submit', validateFirebaseId, veri
     
   } catch (error) {
     console.error('❌ Error submitting standalone homework:', error);
-    res.status(500).json({ error: '❌ Error submitting homework' });
+    console.error('❌ Full error stack:', error.stack);
+    res.status(500).json({ 
+      success: false,
+      error: '❌ Error submitting homework',
+      details: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 });
 
