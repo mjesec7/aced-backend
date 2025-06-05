@@ -1,5 +1,6 @@
+// server.js
 // ========================================
-// 🔧 COMPLETE MONGOOSE DEBUG SETUP
+// 🔧 COMPLETE MONGOOSE DEBUG SETUP WITH PAYME INTEGRATION
 // ========================================
 
 const express = require('express');
@@ -9,6 +10,8 @@ const compression = require('compression');
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
 const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
 
 // Load environment variables first
 dotenv.config();
@@ -16,7 +19,7 @@ dotenv.config();
 // Enable Mongoose debugging to see all queries
 mongoose.set('debug', process.env.NODE_ENV === 'development');
 
-// Enhanced Firebase ENV debugging
+// Enhanced Environment debugging including PayMe
 console.log("🧪 ENVIRONMENT DEBUG:", {
   nodeEnv: process.env.NODE_ENV || 'development',
   port: process.env.PORT || 5000,
@@ -25,7 +28,12 @@ console.log("🧪 ENVIRONMENT DEBUG:", {
   privateKeyLength: process.env.FIREBASE_PRIVATE_KEY?.length || 0,
   hasNewlinesEscaped: process.env.FIREBASE_PRIVATE_KEY?.includes('\\n'),
   mongoUri: process.env.MONGO_URI ? '✅ Set' : '❌ Missing',
-  mongoUriStart: process.env.MONGO_URI?.substring(0, 20) + '...' || 'Not set'
+  mongoUriStart: process.env.MONGO_URI?.substring(0, 20) + '...' || 'Not set',
+  // PayMe Configuration
+  paymeMerchantId: process.env.PAYME_MERCHANT_ID ? '✅ Set' : '❌ Missing',
+  paymeMerchantKey: process.env.PAYME_MERCHANT_KEY ? '✅ Set' : '❌ Missing',
+  paymeTestMode: process.env.PAYME_TEST_MODE || 'true',
+  paymeEndpoint: process.env.PAYME_ENDPOINT || 'https://checkout.test.paycom.uz/api',
 });
 
 const app = express();
@@ -46,6 +54,8 @@ app.use(compression());
 app.use(express.json({ 
   limit: '10mb',
   verify: (req, res, buf, encoding) => {
+    // Store raw body for PayMe webhook verification
+    req.rawBody = buf;
     try {
       JSON.parse(buf);
     } catch (e) {
@@ -70,6 +80,16 @@ app.use((req, res, next) => {
   console.log(`🔑 Auth: ${req.headers.authorization ? 'Present' : 'None'}`);
   console.log(`🆔 User-Agent: ${req.headers['user-agent']?.substring(0, 50)}...`);
   
+  // Special logging for PayMe webhooks
+  if (req.url.includes('/payme') || req.url.includes('/payment')) {
+    console.log('💳 PayMe/Payment Request Detected');
+    console.log(`📋 Headers:`, {
+      'content-type': req.headers['content-type'],
+      'authorization': req.headers.authorization ? 'Present' : 'None',
+      'x-forwarded-for': req.headers['x-forwarded-for']
+    });
+  }
+  
   // Log POST/PUT request bodies (excluding sensitive data)
   if (['POST', 'PUT', 'PATCH'].includes(req.method) && req.body) {
     const logData = { ...req.body };
@@ -77,6 +97,7 @@ app.use((req, res, next) => {
     delete logData.password;
     delete logData.privateKey;
     delete logData.token;
+    delete logData.card;
     console.log('📦 Request body:', JSON.stringify(logData, null, 2));
   }
   
@@ -100,6 +121,9 @@ const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:3001',
   'http://127.0.0.1:3000',
+  // PayMe allowed origins
+  'https://checkout.paycom.uz',
+  'https://checkout.test.paycom.uz',
 ];
 
 // Add development origins if in dev mode
@@ -117,7 +141,7 @@ app.use(cors({
     console.log('🔍 CORS Check for:', origin);
     
     if (!origin) {
-      console.log('✅ CORS: No origin (mobile/desktop app)');
+      console.log('✅ CORS: No origin (mobile/desktop app or webhook)');
       return callback(null, true);
     }
     
@@ -136,7 +160,8 @@ app.use(cors({
     'Authorization', 
     'X-Requested-With',
     'Accept',
-    'Origin'
+    'Origin',
+    'X-Auth'
   ],
   exposedHeaders: ['X-Total-Count'],
   maxAge: 86400,
@@ -162,7 +187,7 @@ const connectDB = async () => {
     // Fixed connection options for Mongoose 8.x
     const connectionOptions = {
       // Timeout settings
-      serverSelectionTimeoutMS: 5000,  // Reduced from 10000 for faster failure detection
+      serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000,
       connectTimeoutMS: 10000,
       
@@ -175,14 +200,13 @@ const connectDB = async () => {
       retryReads: true,
       
       // Buffer settings - FIXED for Mongoose 8.x
-      bufferCommands: false,  // Disable command buffering
-      // Removed maxBufferSize as it's not supported in newer versions
+      bufferCommands: false,
       
       // Heartbeat
       heartbeatFrequencyMS: 10000,
       
       // Auto-reconnect settings
-      autoIndex: process.env.NODE_ENV !== 'production', // Only in development
+      autoIndex: process.env.NODE_ENV !== 'production',
     };
     
     console.log('🔧 Connection options:', {
@@ -264,6 +288,61 @@ const connectDB = async () => {
 };
 
 // ========================================
+// 💳 PAYME UTILITY FUNCTIONS
+// ========================================
+
+class PayMeError extends Error {
+  constructor(code, message, data = null) {
+    super(message);
+    this.code = code;
+    this.data = data;
+  }
+}
+
+const PayMeErrorCodes = {
+  INVALID_AMOUNT: -31001,
+  TRANSACTION_NOT_FOUND: -31003,
+  INVALID_ACCOUNT: -31050,
+  UNABLE_TO_PERFORM: -31008,
+  TRANSACTION_CANCELLED: -31007,
+  ALREADY_DONE: -31060,
+  PENDING_PAYMENT: -31061,
+  INVALID_AUTHORIZATION: -32504,
+  ACCESS_DENIED: -32401,
+  METHOD_NOT_FOUND: -32601,
+  INVALID_JSON_RPC: -32700
+};
+
+// PayMe authorization check
+const checkPayMeAuth = (req) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Basic ')) {
+    throw new PayMeError(PayMeErrorCodes.INVALID_AUTHORIZATION, 'Invalid authorization header');
+  }
+  
+  const credentials = Buffer.from(authHeader.slice(6), 'base64').toString();
+  const [username, password] = credentials.split(':');
+  
+  if (username !== 'Paycom' || password !== process.env.PAYME_MERCHANT_KEY) {
+    throw new PayMeError(PayMeErrorCodes.ACCESS_DENIED, 'Access denied');
+  }
+};
+
+// Generate PayMe authorization string
+const generatePayMeAuth = () => {
+  const credentials = `Paycom:${process.env.PAYME_MERCHANT_KEY}`;
+  return `Basic ${Buffer.from(credentials).toString('base64')}`;
+};
+
+// Validate transaction amount (in tiyin - 1 sum = 100 tiyin)
+const validateAmount = (amount) => {
+  if (!amount || amount < 100) { // Minimum 1 sum
+    throw new PayMeError(PayMeErrorCodes.INVALID_AMOUNT, 'Invalid amount');
+  }
+  return true;
+};
+
+// ========================================
 // 🏥 ENHANCED HEALTH CHECK
 // ========================================
 
@@ -283,6 +362,13 @@ app.get('/health', async (req, res) => {
       readyState: mongoose.connection.readyState,
       host: mongoose.connection.host,
       name: mongoose.connection.name
+    },
+    // PayMe configuration status
+    payme: {
+      configured: !!(process.env.PAYME_MERCHANT_ID && process.env.PAYME_MERCHANT_KEY),
+      testMode: process.env.PAYME_TEST_MODE === 'true',
+      merchantId: process.env.PAYME_MERCHANT_ID ? 'Set' : 'Missing',
+      merchantKey: process.env.PAYME_MERCHANT_KEY ? 'Set' : 'Missing'
     }
   };
 
@@ -339,6 +425,306 @@ app.get('/auth-test', async (req, res) => {
 });
 
 // ========================================
+// 💳 PAYME RPC ENDPOINT
+// ========================================
+
+app.post('/api/payments/payme', async (req, res) => {
+  console.log('\n💳 PayMe RPC Request received');
+  
+  try {
+    // Check PayMe authorization
+    checkPayMeAuth(req);
+    
+    const { method, params } = req.body;
+    
+    if (!method) {
+      throw new PayMeError(PayMeErrorCodes.METHOD_NOT_FOUND, 'Method not found');
+    }
+    
+    console.log(`🔧 PayMe Method: ${method}`);
+    console.log(`📋 PayMe Params:`, params);
+    
+    let result;
+    
+    switch (method) {
+      case 'CheckPerformTransaction':
+        result = await handleCheckPerformTransaction(params);
+        break;
+        
+      case 'CreateTransaction':
+        result = await handleCreateTransaction(params);
+        break;
+        
+      case 'PerformTransaction':
+        result = await handlePerformTransaction(params);
+        break;
+        
+      case 'CancelTransaction':
+        result = await handleCancelTransaction(params);
+        break;
+        
+      case 'CheckTransaction':
+        result = await handleCheckTransaction(params);
+        break;
+        
+      case 'GetStatement':
+        result = await handleGetStatement(params);
+        break;
+        
+      default:
+        throw new PayMeError(PayMeErrorCodes.METHOD_NOT_FOUND, `Method ${method} not found`);
+    }
+    
+    const response = {
+      jsonrpc: '2.0',
+      id: req.body.id || null,
+      result
+    };
+    
+    console.log('✅ PayMe Response:', JSON.stringify(response, null, 2));
+    res.json(response);
+    
+  } catch (error) {
+    console.error('❌ PayMe Error:', error.message);
+    
+    const errorResponse = {
+      jsonrpc: '2.0',
+      id: req.body.id || null,
+      error: {
+        code: error.code || PayMeErrorCodes.INVALID_JSON_RPC,
+        message: error.message,
+        data: error.data || null
+      }
+    };
+    
+    res.json(errorResponse);
+  }
+});
+
+// ========================================
+// 💳 PAYME RPC HANDLERS
+// ========================================
+
+const handleCheckPerformTransaction = async (params) => {
+  console.log('🔍 CheckPerformTransaction');
+  
+  const { amount, account } = params;
+  
+  // Validate amount
+  validateAmount(amount);
+  
+  // Check if account exists (you'll need to implement this based on your user model)
+  if (!account || !account.user_id) {
+    throw new PayMeError(PayMeErrorCodes.INVALID_ACCOUNT, 'Invalid account');
+  }
+  
+  // Here you would typically check if the user exists and can make the payment
+  // For now, we'll just validate the basic structure
+  
+  return {
+    allow: true
+  };
+};
+
+const handleCreateTransaction = async (params) => {
+  console.log('🆕 CreateTransaction');
+  
+  const { id, time, amount, account } = params;
+  
+  // Validate parameters
+  validateAmount(amount);
+  
+  if (!account || !account.user_id) {
+    throw new PayMeError(PayMeErrorCodes.INVALID_ACCOUNT, 'Invalid account');
+  }
+  
+  // Here you would create a transaction in your database
+  // This is a simplified example - you'll need to implement proper transaction management
+  
+  const transaction = {
+    id: id,
+    time: time,
+    amount: amount,
+    account: account,
+    state: 1, // Created state
+    create_time: Date.now(),
+    perform_time: 0,
+    cancel_time: 0,
+    reason: null
+  };
+  
+  console.log('📝 Transaction created:', transaction);
+  
+  return {
+    create_time: transaction.create_time,
+    transaction: transaction.id.toString(),
+    state: transaction.state
+  };
+};
+
+const handlePerformTransaction = async (params) => {
+  console.log('✅ PerformTransaction');
+  
+  const { id } = params;
+  
+  if (!id) {
+    throw new PayMeError(PayMeErrorCodes.TRANSACTION_NOT_FOUND, 'Transaction not found');
+  }
+  
+  // Here you would find the transaction and perform it
+  // This is a simplified example
+  
+  const transaction = {
+    id: id,
+    state: 2, // Performed state
+    perform_time: Date.now()
+  };
+  
+  console.log('✅ Transaction performed:', transaction);
+  
+  return {
+    perform_time: transaction.perform_time,
+    transaction: transaction.id.toString(),
+    state: transaction.state
+  };
+};
+
+const handleCancelTransaction = async (params) => {
+  console.log('❌ CancelTransaction');
+  
+  const { id, reason } = params;
+  
+  if (!id) {
+    throw new PayMeError(PayMeErrorCodes.TRANSACTION_NOT_FOUND, 'Transaction not found');
+  }
+  
+  // Here you would find and cancel the transaction
+  const transaction = {
+    id: id,
+    state: -1, // Cancelled state
+    cancel_time: Date.now(),
+    reason: reason
+  };
+  
+  console.log('❌ Transaction cancelled:', transaction);
+  
+  return {
+    cancel_time: transaction.cancel_time,
+    transaction: transaction.id.toString(),
+    state: transaction.state
+  };
+};
+
+const handleCheckTransaction = async (params) => {
+  console.log('🔍 CheckTransaction');
+  
+  const { id } = params;
+  
+  if (!id) {
+    throw new PayMeError(PayMeErrorCodes.TRANSACTION_NOT_FOUND, 'Transaction not found');
+  }
+  
+  // Here you would find the transaction status
+  const transaction = {
+    id: id,
+    state: 2, // This would come from your database
+    create_time: Date.now() - 3600000, // 1 hour ago
+    perform_time: Date.now(),
+    cancel_time: 0,
+    reason: null
+  };
+  
+  console.log('🔍 Transaction status:', transaction);
+  
+  return {
+    create_time: transaction.create_time,
+    perform_time: transaction.perform_time,
+    cancel_time: transaction.cancel_time,
+    transaction: transaction.id.toString(),
+    state: transaction.state,
+    reason: transaction.reason
+  };
+};
+
+const handleGetStatement = async (params) => {
+  console.log('📊 GetStatement');
+  
+  const { from, to } = params;
+  
+  // Here you would return transactions within the date range
+  // This is a simplified example
+  
+  const transactions = [
+    {
+      id: 'example_transaction_id',
+      time: Date.now(),
+      amount: 10000, // 100.00 UZS in tiyin
+      account: { user_id: 'example_user' },
+      create_time: Date.now() - 7200000,
+      perform_time: Date.now() - 3600000,
+      cancel_time: 0,
+      transaction: 'example_transaction_id',
+      state: 2,
+      reason: null
+    }
+  ];
+  
+  console.log('📊 Statement returned:', transactions.length, 'transactions');
+  
+  return {
+    transactions: transactions
+  };
+};
+
+// ========================================
+// 💳 PAYME PAYMENT INITIATION ENDPOINT
+// ========================================
+
+app.post('/api/payments/initiate', async (req, res) => {
+  try {
+    console.log('🚀 Payment initiation request');
+    
+    const { amount, userId, description } = req.body;
+    
+    if (!amount || !userId) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        required: ['amount', 'userId']
+      });
+    }
+    
+    // Convert amount to tiyin (1 UZS = 100 tiyin)
+    const amountInTiyin = Math.round(amount * 100);
+    
+    // Generate payment URL for PayMe
+    const merchantId = process.env.PAYME_MERCHANT_ID;
+    const account = encodeURIComponent(JSON.stringify({ user_id: userId }));
+    const amountParam = amountInTiyin;
+    
+    const paymentUrl = `https://checkout.${process.env.PAYME_TEST_MODE === 'true' ? 'test.' : ''}paycom.uz/${merchantId}?amount=${amountParam}&account=${account}`;
+    
+    console.log('💳 Payment URL generated:', paymentUrl);
+    
+    res.json({
+      success: true,
+      paymentUrl,
+      amount: amount,
+      amountInTiyin,
+      userId,
+      description,
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('❌ Payment initiation error:', error);
+    res.status(500).json({
+      error: 'Payment initiation failed',
+      message: error.message
+    });
+  }
+});
+
+// ========================================
 // 📁 IMPROVED ROUTE MOUNTING
 // ========================================
 
@@ -362,11 +748,11 @@ const mountRoute = (path, routeFile, description) => {
   }
 };
 
-// ✅ FIXED: Routes to mount with proper paths
+// Routes to mount with proper paths
 const routesToMount = [
   ['/api/progress', './routes/progressRoutes', 'Progress tracking routes'],
-  ['/api/users', './routes/userRoutes', 'User management routes (MAIN)'], // This is the main one
-  ['/api/user', './routes/userRoutes', 'User management routes (LEGACY)'], // Mount same routes at /api/user for compatibility
+  ['/api/users', './routes/userRoutes', 'User management routes (MAIN)'],
+  ['/api/user', './routes/userRoutes', 'User management routes (LEGACY)'],
   ['/api/lessons', './routes/lessonRoutes', 'Lesson management routes'],
   ['/api/subjects', './routes/subjectRoutes', 'Subject management routes'],
   ['/api/topics', './routes/topicRoutes', 'Topic management routes'],
@@ -374,7 +760,7 @@ const routesToMount = [
   ['/api/homeworks', './routes/homeworkRoutes', 'Homework routes'],
   ['/api/tests', './routes/testRoutes', 'Test/quiz routes'],
   ['/api/analytics', './routes/userAnalytics', 'User analytics routes'],
-  ['/api/payments', './routes/paymeRoutes', 'Payment processing routes'],
+  // Note: PayMe routes are handled above, but you can still mount additional payment routes
 ];
 
 // Mount routes
@@ -404,29 +790,24 @@ if (failedRoutes.length > 0) {
 // 🔍 ROUTE DIAGNOSTICS ENDPOINT
 // ========================================
 
-// Route diagnostic endpoint
 app.get('/api/routes', (req, res) => {
   const routes = [];
   
-  // Function to extract routes from a router
   function extractRoutes(stack, basePath = '') {
     stack.forEach(layer => {
       if (layer.route) {
-        // This is a route
         const methods = Object.keys(layer.route.methods).join(', ').toUpperCase();
         routes.push({
           path: basePath + layer.route.path,
           methods: methods
         });
       } else if (layer.name === 'router' && layer.handle.stack) {
-        // This is a sub-router
         const newBasePath = basePath + (layer.regexp.source.replace(/\\/g, '').replace(/\^/g, '').replace(/\$/g, '').replace(/\?(?=\?)/g, '') || '');
         extractRoutes(layer.handle.stack, newBasePath);
       }
     });
   }
   
-  // Extract all routes
   app._router.stack.forEach(layer => {
     if (layer.route) {
       const methods = Object.keys(layer.route.methods).join(', ').toUpperCase();
@@ -435,11 +816,9 @@ app.get('/api/routes', (req, res) => {
         methods: methods
       });
     } else if (layer.name === 'router' && layer.handle.stack) {
-      // Extract the base path from the regex
       let basePath = '';
       if (layer.regexp && layer.regexp.source) {
         const regexSource = layer.regexp.source;
-        // Try to extract the path from the regex
         const match = regexSource.match(/\\\/([^\\]+)/);
         if (match) {
           basePath = '/' + match[1];
@@ -449,10 +828,8 @@ app.get('/api/routes', (req, res) => {
     }
   });
   
-  // Sort routes for easier reading
   routes.sort((a, b) => a.path.localeCompare(b.path));
   
-  // Group by base path
   const groupedRoutes = {};
   routes.forEach(route => {
     const basePath = route.path.split('/')[1] || 'root';
@@ -465,21 +842,12 @@ app.get('/api/routes', (req, res) => {
   res.json({
     totalRoutes: routes.length,
     routes: groupedRoutes,
-    allRoutes: routes
+    allRoutes: routes,
+    paymeRoutes: [
+      { path: '/api/payments/payme', methods: 'POST', description: 'PayMe RPC endpoint' },
+      { path: '/api/payments/initiate', methods: 'POST', description: 'Payment initiation' }
+    ]
   });
-});
-
-// ========================================
-// 🔍 LESSON ROUTE DEBUGGING MIDDLEWARE
-// ========================================
-
-// Add this debugging middleware specifically for lesson routes
-app.use('/api/lessons/*', (req, res, next) => {
-  console.log(`🔍 Lesson route accessed: ${req.method} ${req.originalUrl}`);
-  console.log(`   Base URL: ${req.baseUrl}`);
-  console.log(`   Path: ${req.path}`);
-  console.log(`   Params:`, req.params);
-  next();
 });
 
 // ========================================

@@ -66,6 +66,7 @@ const testResultSchema = new mongoose.Schema({
 const userSchema = new mongoose.Schema({
   // 🔐 Firebase Credentials
   firebaseId: { type: String, required: true, unique: true },
+  login: { type: String, required: true, unique: true },
   name: String,
   email: { type: String, required: true, unique: true },
   photoURL: String,
@@ -81,9 +82,10 @@ const userSchema = new mongoose.Schema({
   },
   paymentStatus: {
     type: String,
-    enum: ['pending', 'paid', 'failed'],
-    default: 'pending'
+    enum: ['pending', 'paid', 'failed', 'unpaid'],
+    default: 'unpaid'
   },
+  isBlocked: { type: Boolean, default: false },
 
   // 📚 Learning
   studyList: [studyTopicSchema],
