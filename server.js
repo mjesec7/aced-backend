@@ -879,7 +879,6 @@ app.use('/api/*', (req, res) => {
 // ========================================
 
 const distPath = path.join(__dirname, 'dist');
-const fs = require('fs');
 
 if (fs.existsSync(distPath)) {
   console.log('✅ Frontend dist directory found');
