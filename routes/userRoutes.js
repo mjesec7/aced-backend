@@ -1669,6 +1669,147 @@ router.post('/:firebaseId/diary', validateFirebaseId, verifyToken, verifyOwnersh
     });
   }
 });
+// ✅ ADD these endpoints to userRoutes.js (before module.exports)
+
+// ✅ Analytics endpoint
+router.post('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
+  console.log('📊 POST analytics for user:', req.params.firebaseId);
+  
+  try {
+    const { firebaseId } = req.params;
+    const analyticsData = req.body;
+    
+    // You can save to a separate Analytics model or just log it for now
+    console.log('📊 Analytics data received:', analyticsData);
+    
+    // For now, just return success (you can implement actual storage later)
+    res.json({
+      success: true,
+      message: '✅ Analytics received',
+      data: analyticsData
+    });
+    
+  } catch (error) {
+    console.error('❌ Error saving analytics:', error);
+    res.status(500).json({ error: '❌ Error saving analytics' });
+  }
+});
+
+// ✅ Enhanced diary endpoint (already exists but might need fixing)
+router.post('/:firebaseId/diary', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
+  const { firebaseId } = req.params;
+  const { date, studyMinutes, completedTopics, averageGrade, lessonName, duration, mistakes, stars } = req.body;
+  
+  console.log('📔 POST diary entry for user:', firebaseId, req.body);
+  
+  if (!date) {
+    return res.status(400).json({ error: '❌ Missing date' });
+  }
+  
+  // Convert duration to minutes if provided
+  const finalStudyMinutes = studyMinutes || Math.ceil((duration || 0) / 60) || 0;
+  const finalCompletedTopics = completedTopics || (lessonName ? 1 : 0);
+  const finalAverageGrade = averageGrade || (stars ? stars * 20 : 0);
+  
+  if (finalStudyMinutes < 0 || finalStudyMinutes > 1440) {
+    return res.status(400).json({ error: '❌ Invalid study minutes (0-1440)' });
+  }
+  
+  try {
+    const user = await User.findOne({ firebaseId });
+    if (!user) return res.status(404).json({ error: '❌ User not found' });
+    
+    user.diary ||= [];
+    
+    const existingEntryIndex = user.diary.findIndex(entry => {
+      const entryDate = new Date(entry.date).toDateString();
+      const newDate = new Date(date).toDateString();
+      return entryDate === newDate;
+    });
+    
+    const diaryEntry = {
+      date: new Date(date),
+      studyMinutes: finalStudyMinutes,
+      completedTopics: finalCompletedTopics,
+      averageGrade: finalAverageGrade,
+      lessonName: lessonName || '',
+      mistakes: mistakes || 0,
+      stars: stars || 0
+    };
+    
+    if (existingEntryIndex >= 0) {
+      // Update existing entry - add to existing values
+      const existing = user.diary[existingEntryIndex];
+      user.diary[existingEntryIndex] = {
+        ...existing,
+        studyMinutes: existing.studyMinutes + finalStudyMinutes,
+        completedTopics: existing.completedTopics + finalCompletedTopics,
+        averageGrade: Math.round((existing.averageGrade + finalAverageGrade) / 2),
+        mistakes: existing.mistakes + (mistakes || 0),
+        stars: existing.stars + (stars || 0)
+      };
+      console.log('📝 Updated existing diary entry for date:', date);
+    } else {
+      user.diary.push(diaryEntry);
+      console.log('📝 Added new diary entry for date:', date);
+    }
+    
+    await user.save();
+    res.status(201).json({ 
+      message: '✅ Diary entry saved', 
+      diary: user.diary,
+      entry: diaryEntry
+    });
+  } catch (error) {
+    console.error('❌ Diary save error:', error);
+    res.status(500).json({ 
+      error: '❌ Error saving diary', 
+      details: error.message 
+    });
+  }
+});
+
+// ✅ User lesson progress endpoint (POST)
+router.post('/:firebaseId/lesson/:lessonId', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
+  console.log('📚 POST lesson progress for user:', req.params.firebaseId, 'lesson:', req.params.lessonId);
+  
+  try {
+    const { firebaseId, lessonId } = req.params;
+    const progressData = req.body;
+    
+    let topicId = progressData.topicId;
+    if (!topicId) {
+      const lesson = await Lesson.findById(lessonId);
+      if (lesson) {
+        topicId = lesson.topicId;
+      }
+    }
+    
+    const updateData = {
+      userId: firebaseId,
+      lessonId: lessonId,
+      topicId: topicId,
+      ...progressData,
+      updatedAt: new Date()
+    };
+    
+    const updated = await UserProgress.findOneAndUpdate(
+      { userId: firebaseId, lessonId },
+      updateData,
+      { upsert: true, new: true }
+    );
+    
+    console.log('✅ Lesson progress saved successfully');
+    res.json({
+      success: true,
+      data: updated,
+      message: '✅ Progress saved'
+    });
+  } catch (error) {
+    console.error('❌ Error saving lesson progress:', error);
+    res.status(500).json({ error: '❌ Error saving lesson progress' });
+  }
+});
 
 // ✅ LEGACY: Keep existing homework routes for backward compatibility
 router.get('/:firebaseId/homeworks/lesson/:lessonId', validateFirebaseId, verifyToken, verifyOwnership, homeworkController.getHomeworkByLesson);
