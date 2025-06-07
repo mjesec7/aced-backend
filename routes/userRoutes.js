@@ -47,26 +47,102 @@ function validateObjectId(req, res, next) {
 // Auth Save
 router.post('/save', async (req, res) => {
   const { token, name, subscriptionPlan } = req.body;
-  if (!token || !name) return res.status(400).json({ error: '❌ Missing token or name' });
+  
+  console.log('💾 User save request on api.aced.live:', {
+    hasToken: !!token,
+    tokenLength: token?.length || 0,
+    tokenPreview: token?.slice(0, 30) + '...',
+    name,
+    subscriptionPlan,
+    timestamp: new Date().toISOString()
+  });
+  
+  if (!token || !name) {
+    return res.status(400).json({ 
+      error: '❌ Missing token or name',
+      required: ['token', 'name'],
+      server: 'api.aced.live'
+    });
+  }
+  
   try {
+    console.log('🔍 Verifying token directly in save route...');
+    
+    // ✅ Use the admin instance directly
+    const admin = require('../config/firebase');
     const decoded = await admin.auth().verifyIdToken(token);
+    
+    console.log('✅ Token verified in save route:', {
+      uid: decoded.uid,
+      email: decoded.email,
+      projectId: decoded.aud,
+      expectedProjectId: 'aced-9cf72',
+      match: decoded.aud === 'aced-9cf72'
+    });
+    
+    // ✅ Critical project ID check
+    if (decoded.aud !== 'aced-9cf72') {
+      console.error('❌ Project ID mismatch in save route:', {
+        expected: 'aced-9cf72',
+        received: decoded.aud
+      });
+      return res.status(403).json({ 
+        error: '❌ Token from wrong Firebase project',
+        expected: 'aced-9cf72',
+        received: decoded.aud
+      });
+    }
+    
     const firebaseId = decoded.uid;
     const email = decoded.email;
 
     let user = await User.findOne({ firebaseId });
     if (!user) {
-      user = new User({ firebaseId, email, name, subscriptionPlan: subscriptionPlan || 'free' });
+      console.log('👤 Creating new user:', firebaseId);
+      user = new User({ 
+        firebaseId, 
+        email, 
+        name, 
+        login: email,
+        subscriptionPlan: subscriptionPlan || 'free' 
+      });
     } else {
+      console.log('📝 Updating existing user:', firebaseId);
       user.email = email;
       user.name = name;
+      user.login = email;
       if (subscriptionPlan) user.subscriptionPlan = subscriptionPlan;
     }
 
     await user.save();
-    res.json(user);
+    console.log('✅ User saved successfully on api.aced.live');
+    
+    res.json({
+      ...user.toObject(),
+      message: '✅ User saved successfully',
+      server: 'api.aced.live'
+    });
+    
   } catch (err) {
-    console.error('❌ Firebase token invalid:', err.message);
-    res.status(401).json({ error: '❌ Invalid Firebase token' });
+    console.error('❌ Token verification failed in save route:', {
+      error: err.message,
+      code: err.code,
+      name: err.name,
+      server: 'api.aced.live'
+    });
+    
+    if (err.code && err.code.startsWith('auth/')) {
+      res.status(401).json({ 
+        error: '❌ Invalid Firebase token',
+        details: err.message,
+        code: err.code
+      });
+    } else {
+      res.status(500).json({ 
+        error: '❌ Server error during user save',
+        details: err.message
+      });
+    }
   }
 });
 

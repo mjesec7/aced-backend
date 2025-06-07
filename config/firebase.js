@@ -9,42 +9,118 @@ const {
   FIREBASE_PRIVATE_KEY,
 } = process.env;
 
-// 🔍 Debug Firebase ENV (safe preview)
-console.log("🧪 Firebase Admin ENV:", {
+// 🔍 CRITICAL DEBUG - Enhanced Firebase ENV checking
+console.log("🧪 ENHANCED Firebase Admin ENV Debug:", {
   projectId: FIREBASE_PROJECT_ID,
   clientEmail: FIREBASE_CLIENT_EMAIL,
   keyExists: !!FIREBASE_PRIVATE_KEY,
   keyLength: FIREBASE_PRIVATE_KEY?.length,
-  keyPreview: FIREBASE_PRIVATE_KEY?.slice(0, 40),
-  endsWith: FIREBASE_PRIVATE_KEY?.slice(-20),
+  keyPreview: FIREBASE_PRIVATE_KEY?.slice(0, 50),
+  keyEndsWith: FIREBASE_PRIVATE_KEY?.slice(-30),
   hasEscapedNewlines: FIREBASE_PRIVATE_KEY?.includes('\\n'),
-  charCodes: FIREBASE_PROJECT_ID?.split('').map(c => c.charCodeAt(0))
+  hasRealNewlines: FIREBASE_PRIVATE_KEY?.includes('\n'),
+  // CRITICAL: Check if this matches frontend
+  expectedProjectId: 'aced-9cf72',
+  projectIdMatch: FIREBASE_PROJECT_ID === 'aced-9cf72',
+  // Environment info
+  nodeEnv: process.env.NODE_ENV,
+  server: 'api.aced.live'
 });
 
-// ❗ Exit if any required env vars are missing
+// ❗ CRITICAL: Exit if any required env vars are missing
 if (!FIREBASE_PROJECT_ID || !FIREBASE_CLIENT_EMAIL || !FIREBASE_PRIVATE_KEY) {
-  console.error('❌ Missing one or more required Firebase environment variables');
+  console.error('❌ Missing Firebase environment variables:', {
+    projectId: !!FIREBASE_PROJECT_ID,
+    clientEmail: !!FIREBASE_CLIENT_EMAIL,
+    privateKey: !!FIREBASE_PRIVATE_KEY
+  });
+  console.error('🚨 SERVER CANNOT START WITHOUT FIREBASE CONFIG');
+  process.exit(1);
+}
+
+// ❗ CRITICAL: Check project ID match
+if (FIREBASE_PROJECT_ID !== 'aced-9cf72') {
+  console.error('❌ CRITICAL: Firebase project ID mismatch!');
+  console.error(`Expected: aced-9cf72`);
+  console.error(`Got: ${FIREBASE_PROJECT_ID}`);
+  console.error('🚨 This will cause token validation failures!');
   process.exit(1);
 }
 
 try {
   if (!admin.apps.length) {
-    admin.initializeApp({
-      credential: admin.credential.cert({
-        projectId: FIREBASE_PROJECT_ID.trim(),
-        clientEmail: FIREBASE_CLIENT_EMAIL.trim(),
-        privateKey: FIREBASE_PRIVATE_KEY.replace(/\\\\n/g, '\n'),
-      }),
+    console.log('🔄 Initializing Firebase Admin SDK...');
+    
+    // ✅ Enhanced private key processing
+    let processedPrivateKey = FIREBASE_PRIVATE_KEY;
+    
+    // Handle escaped newlines
+    if (processedPrivateKey.includes('\\n')) {
+      console.log('🔧 Converting escaped newlines to real newlines');
+      processedPrivateKey = processedPrivateKey.replace(/\\n/g, '\n');
+    }
+    
+    // Validate private key format
+    if (!processedPrivateKey.includes('-----BEGIN PRIVATE KEY-----')) {
+      console.error('❌ Invalid private key format - missing header');
+      throw new Error('Invalid private key format');
+    }
+    
+    if (!processedPrivateKey.includes('-----END PRIVATE KEY-----')) {
+      console.error('❌ Invalid private key format - missing footer');
+      throw new Error('Invalid private key format');
+    }
+    
+    const credential = admin.credential.cert({
+      projectId: FIREBASE_PROJECT_ID.trim(),
+      clientEmail: FIREBASE_CLIENT_EMAIL.trim(),
+      privateKey: processedPrivateKey,
     });
+    
+    admin.initializeApp({
+      credential: credential,
+      projectId: FIREBASE_PROJECT_ID.trim()
+    });
+    
     console.log('✅ Firebase Admin SDK successfully initialized');
+    console.log(`🔥 Project: ${FIREBASE_PROJECT_ID}`);
+    console.log(`📧 Client: ${FIREBASE_CLIENT_EMAIL}`);
+    
+    // ✅ Test the initialization
+    try {
+      await admin.auth().listUsers(1);
+      console.log('✅ Firebase Admin SDK connection test successful');
+    } catch (testError) {
+      console.error('❌ Firebase Admin SDK test failed:', testError.message);
+      throw testError;
+    }
+    
   }
 } catch (error) {
   console.error('❌ Firebase Admin SDK initialization failed:', error.message);
-  if (error.stack) console.error(error.stack);
+  console.error('🔍 Error details:', {
+    name: error.name,
+    code: error.code,
+    message: error.message
+  });
+  
+  if (error.stack) console.error('Stack:', error.stack);
+  
+  // Enhanced error analysis
+  if (error.message.includes('private key')) {
+    console.error('💡 Solution: Check your FIREBASE_PRIVATE_KEY format');
+    console.error('💡 Make sure it includes -----BEGIN PRIVATE KEY----- and -----END PRIVATE KEY-----');
+  } else if (error.message.includes('project')) {
+    console.error('💡 Solution: Check your FIREBASE_PROJECT_ID');
+  } else if (error.message.includes('email')) {
+    console.error('💡 Solution: Check your FIREBASE_CLIENT_EMAIL');
+  }
+  
+  console.error('🚨 SERVER CANNOT START WITHOUT FIREBASE');
   process.exit(1);
 }
 
-// ✅ Optional Debug Route to Inspect Token
+// ✅ Enhanced Debug Route to Inspect Token
 router.get('/debug-token', async (req, res) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -53,21 +129,34 @@ router.get('/debug-token', async (req, res) => {
 
   const token = authHeader.split(' ')[1];
   try {
+    console.log('🔍 Debug: Verifying token...');
     const decoded = await admin.auth().verifyIdToken(token);
+    
+    console.log('✅ Debug: Token verification successful');
+    
     res.json({
       message: '✅ Token is valid',
       uid: decoded.uid,
       email: decoded.email,
       aud: decoded.aud,
+      iss: decoded.iss,
       projectId: FIREBASE_PROJECT_ID,
+      backendProjectId: FIREBASE_PROJECT_ID,
+      tokenProjectId: decoded.aud,
+      projectMatch: decoded.aud === FIREBASE_PROJECT_ID,
       issuedAt: decoded.iat,
       expiresAt: decoded.exp,
-      now: Math.floor(Date.now() / 1000)
+      now: Math.floor(Date.now() / 1000),
+      server: 'api.aced.live'
     });
   } catch (err) {
+    console.error('❌ Debug: Token verification failed:', err.message);
     res.status(403).json({
       error: '❌ Token verification failed',
-      message: err.message
+      message: err.message,
+      code: err.code,
+      backendProjectId: FIREBASE_PROJECT_ID,
+      server: 'api.aced.live'
     });
   }
 });
