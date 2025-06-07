@@ -1091,7 +1091,7 @@ app.use((err, req, res, next) => {
   // Handle specific error types
   let statusCode = err.status || err.statusCode || 500;
   let message = 'Internal server error';
-  let details = {};
+  
   
   if (err.name === 'ValidationError') {
     statusCode = 400;
