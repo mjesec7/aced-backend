@@ -16,6 +16,7 @@ console.log("🧪 FIXED Firebase Admin ENV Debug:", {
   keyPreview: FIREBASE_PRIVATE_KEY?.slice(0, 50),
   keyEndsWith: FIREBASE_PRIVATE_KEY?.slice(-30),
   hasEscapedNewlines: FIREBASE_PRIVATE_KEY?.includes('\\n'),
+  hasDoubleEscapedNewlines: FIREBASE_PRIVATE_KEY?.includes('\\\\n'),
   hasRealNewlines: FIREBASE_PRIVATE_KEY?.includes('\n'),
   // CRITICAL: Check if this matches frontend
   expectedProjectId: 'aced-9cf72',
@@ -60,20 +61,43 @@ function initializeFirebase() {
     // ✅ Enhanced private key processing
     let processedPrivateKey = FIREBASE_PRIVATE_KEY;
     
-    // Handle escaped newlines
+    // Remove surrounding quotes if present
+    if (processedPrivateKey.startsWith('"') && processedPrivateKey.endsWith('"')) {
+      processedPrivateKey = processedPrivateKey.slice(1, -1);
+      console.log('🔧 Removed surrounding quotes from private key');
+    }
+    
+    // Handle double-escaped newlines first (\\n -> \n)
+    if (processedPrivateKey.includes('\\\\n')) {
+      console.log('🔧 Converting double-escaped newlines to single-escaped');
+      processedPrivateKey = processedPrivateKey.replace(/\\\\n/g, '\\n');
+    }
+    
+    // Then handle single-escaped newlines (\n -> actual newline)
     if (processedPrivateKey.includes('\\n')) {
       console.log('🔧 Converting escaped newlines to real newlines');
       processedPrivateKey = processedPrivateKey.replace(/\\n/g, '\n');
     }
     
+    // Debug the processed key
+    console.log('🔍 Processed key preview:', {
+      starts: processedPrivateKey.slice(0, 50),
+      ends: processedPrivateKey.slice(-50),
+      hasHeader: processedPrivateKey.includes('-----BEGIN PRIVATE KEY-----'),
+      hasFooter: processedPrivateKey.includes('-----END PRIVATE KEY-----'),
+      lineCount: processedPrivateKey.split('\n').length
+    });
+    
     // Validate private key format
     if (!processedPrivateKey.includes('-----BEGIN PRIVATE KEY-----')) {
       console.error('❌ Invalid private key format - missing header');
+      console.error('Key start:', processedPrivateKey.slice(0, 100));
       throw new Error('Invalid private key format - missing header');
     }
     
     if (!processedPrivateKey.includes('-----END PRIVATE KEY-----')) {
       console.error('❌ Invalid private key format - missing footer');
+      console.error('Key end:', processedPrivateKey.slice(-100));
       throw new Error('Invalid private key format - missing footer');
     }
     
@@ -110,6 +134,7 @@ function initializeFirebase() {
     if (error.message.includes('private key')) {
       console.error('💡 Solution: Check your FIREBASE_PRIVATE_KEY format');
       console.error('💡 Make sure it includes -----BEGIN PRIVATE KEY----- and -----END PRIVATE KEY-----');
+      console.error('💡 Try using single backslashes (\\n) instead of double (\\\\n) in your .env file');
     } else if (error.message.includes('project')) {
       console.error('💡 Solution: Check your FIREBASE_PROJECT_ID');
     } else if (error.message.includes('email')) {
