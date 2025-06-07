@@ -1168,20 +1168,70 @@ router.get('/:firebaseId/topics-progress', validateFirebaseId, verifyToken, veri
 });
 
 // Analytics
+// ✅ FIXED: Analytics endpoint with proper authentication handling
 router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   console.log('📊 Analytics GET request received for user:', req.params.firebaseId);
+  console.log('🔐 Auth user:', req.user?.uid);
+  console.log('🔐 Token user email:', req.user?.email);
   
   try {
     const firebaseId = req.params.firebaseId;
+    
+    // Double-check authentication
+    if (!req.user || req.user.uid !== firebaseId) {
+      console.error('❌ User mismatch - token uid:', req.user?.uid, 'requested uid:', firebaseId);
+      return res.status(403).json({ 
+        success: false,
+        error: '❌ Access denied: User mismatch' 
+      });
+    }
     
     const userProgress = await UserProgress.find({ userId: firebaseId });
     const user = await User.findOne({ firebaseId });
     
     if (!user) {
       console.error('❌ User not found:', firebaseId);
-      return res.status(404).json({ 
-        success: false,
-        error: '❌ User not found' 
+      // Create a minimal user record if it doesn't exist
+      const newUser = new User({
+        firebaseId: firebaseId,
+        email: req.user.email,
+        name: req.user.name || req.user.email || 'User',
+        subscriptionPlan: 'free',
+        diary: [],
+        studyList: []
+      });
+      await newUser.save();
+      console.log('✅ Created new user record for analytics');
+      
+      // Return empty analytics for new user
+      return res.json({
+        success: true,
+        data: {
+          studyDays: 0,
+          totalDays: 0,
+          completedSubjects: 0,
+          totalSubjects: 0,
+          totalLessonsDone: 0,
+          weeklyLessons: 0,
+          monthlyLessons: 0,
+          streakDays: 0,
+          averageTime: '0 мин',
+          totalPoints: 0,
+          totalStars: 0,
+          hintsUsed: 0,
+          avgPointsPerDay: 0,
+          knowledgeChart: new Array(12).fill(0),
+          subjects: [],
+          mostActiveDay: null,
+          recentActivity: [],
+          lastUpdated: new Date().toISOString(),
+          dataQuality: {
+            hasActivityData: false,
+            hasSubjectData: false,
+            validDates: 0
+          }
+        },
+        message: '✅ Empty analytics for new user'
       });
     }
     
@@ -1424,6 +1474,7 @@ router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwne
     
   } catch (error) {
     console.error('❌ Error fetching analytics:', error);
+    console.error('Stack trace:', error.stack);
     res.status(500).json({ 
       success: false,
       error: '❌ Error fetching analytics',
