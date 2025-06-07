@@ -8,7 +8,7 @@ const TopicProgress = require('../models/topicProgress');
 const Lesson = require('../models/lesson');
 const Topic = require('../models/topic');
 const UserProgress = require('../models/userProgress');
-const Homework = require('../models/homework'); // Add standalone homework model
+const Homework = require('../models/homework');
 const Test = require('../models/Test');
 const TestResult = require('../models/TestResult');
 const HomeworkProgress = require('../models/homeworkProgress');
@@ -24,6 +24,101 @@ const userProgressController = require('../controllers/userProgressController');
 const { getRecommendations } = require('../controllers/recommendationController');
 
 console.log('✅ userRoutes.js loaded');
+
+// ========================================
+// 🛠️ UTILITY FUNCTIONS
+// ========================================
+
+// Helper function to extract valid ObjectId from various input formats
+const extractValidObjectId = (input, fieldName = 'ObjectId') => {
+  if (!input) return null;
+  
+  try {
+    // If it's already a valid ObjectId, return it
+    if (mongoose.Types.ObjectId.isValid(input) && typeof input === 'string') {
+      return new mongoose.Types.ObjectId(input);
+    }
+    
+    // If it's already an ObjectId instance
+    if (input instanceof mongoose.Types.ObjectId) {
+      return input;
+    }
+    
+    // If it's an object, try to extract the ID
+    if (typeof input === 'object') {
+      const possibleIds = [
+        input._id,
+        input.id,
+        input.topicId,
+        input.lessonId,
+        input.toString?.()
+      ];
+      
+      for (const possibleId of possibleIds) {
+        if (possibleId && mongoose.Types.ObjectId.isValid(possibleId)) {
+          return new mongoose.Types.ObjectId(possibleId);
+        }
+      }
+    }
+    
+    // Try converting to string and checking if valid
+    const stringValue = String(input);
+    if (stringValue !== '[object Object]' && mongoose.Types.ObjectId.isValid(stringValue)) {
+      return new mongoose.Types.ObjectId(stringValue);
+    }
+    
+    console.warn(`⚠️ Could not extract valid ObjectId from ${fieldName}:`, {
+      input,
+      type: typeof input,
+      stringified: String(input)
+    });
+    
+    return null;
+  } catch (error) {
+    console.error(`❌ Error extracting ObjectId from ${fieldName}:`, error.message);
+    return null;
+  }
+};
+
+// Enhanced data sanitization function
+const sanitizeProgressData = (data) => {
+  const sanitized = { ...data };
+  
+  // Handle topicId
+  if (sanitized.topicId) {
+    const validTopicId = extractValidObjectId(sanitized.topicId, 'topicId');
+    sanitized.topicId = validTopicId;
+  }
+  
+  // Handle lessonId
+  if (sanitized.lessonId) {
+    const validLessonId = extractValidObjectId(sanitized.lessonId, 'lessonId');
+    sanitized.lessonId = validLessonId;
+  }
+  
+  // Ensure numeric fields are properly converted
+  const numericFields = ['progressPercent', 'mistakes', 'duration', 'stars', 'points', 'hintsUsed'];
+  numericFields.forEach(field => {
+    if (sanitized[field] !== undefined) {
+      sanitized[field] = Number(sanitized[field]) || 0;
+    }
+  });
+  
+  // Ensure boolean fields are properly converted
+  const booleanFields = ['completed', 'submittedHomework'];
+  booleanFields.forEach(field => {
+    if (sanitized[field] !== undefined) {
+      sanitized[field] = Boolean(sanitized[field]);
+    }
+  });
+  
+  // Ensure arrays are properly handled
+  if (sanitized.completedSteps && !Array.isArray(sanitized.completedSteps)) {
+    sanitized.completedSteps = [];
+  }
+  
+  return sanitized;
+};
 
 // Middleware
 function validateFirebaseId(req, res, next) {
@@ -44,7 +139,10 @@ function validateObjectId(req, res, next) {
   next();
 }
 
-// Auth Save
+// ========================================
+// 🔐 AUTH SAVE ROUTE
+// ========================================
+
 router.post('/save', async (req, res) => {
   const { token, name, subscriptionPlan } = req.body;
   
@@ -68,8 +166,6 @@ router.post('/save', async (req, res) => {
   try {
     console.log('🔍 Verifying token directly in save route...');
     
-    // ✅ Use the admin instance directly
-    const admin = require('../config/firebase');
     const decoded = await admin.auth().verifyIdToken(token);
     
     console.log('✅ Token verified in save route:', {
@@ -80,7 +176,6 @@ router.post('/save', async (req, res) => {
       match: decoded.aud === 'aced-9cf72'
     });
     
-    // ✅ Critical project ID check
     if (decoded.aud !== 'aced-9cf72') {
       console.error('❌ Project ID mismatch in save route:', {
         expected: 'aced-9cf72',
@@ -104,7 +199,9 @@ router.post('/save', async (req, res) => {
         email, 
         name, 
         login: email,
-        subscriptionPlan: subscriptionPlan || 'free' 
+        subscriptionPlan: subscriptionPlan || 'free',
+        diary: [],
+        studyList: []
       });
     } else {
       console.log('📝 Updating existing user:', firebaseId);
@@ -146,13 +243,17 @@ router.post('/save', async (req, res) => {
   }
 });
 
-// Info
+// ========================================
+// 📄 USER INFO ROUTES
+// ========================================
+
 router.get('/:firebaseId', validateFirebaseId, async (req, res) => {
   try {
     const user = await User.findOne({ firebaseId: req.params.firebaseId });
     if (!user) return res.status(404).json({ error: '❌ User not found' });
     res.json(user);
-  } catch {
+  } catch (error) {
+    console.error('❌ Error fetching user:', error);
     res.status(500).json({ error: '❌ Server error' });
   }
 });
@@ -162,12 +263,16 @@ router.get('/:firebaseId/status', validateFirebaseId, async (req, res) => {
     const user = await User.findOne({ firebaseId: req.params.firebaseId });
     if (!user) return res.status(404).json({ error: '❌ User not found' });
     res.json({ status: user.subscriptionPlan || 'free' });
-  } catch {
+  } catch (error) {
+    console.error('❌ Error fetching user status:', error);
     res.status(500).json({ error: '❌ Server error' });
   }
 });
 
-// ✅ FIXED: Recommendations route
+// ========================================
+// 🎯 RECOMMENDATIONS ROUTE
+// ========================================
+
 router.get('/:firebaseId/recommendations', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   console.log('📥 GET recommendations for user:', req.params.firebaseId);
   
@@ -178,7 +283,7 @@ router.get('/:firebaseId/recommendations', validateFirebaseId, verifyToken, veri
     
     const userId = req.params.firebaseId;
     const user = await User.findOne({ firebaseId: userId });
-    const studyListTopicIds = user?.studyList?.map(item => item.topicId?.toString()) || [];
+    const studyListTopicIds = user?.studyList?.map(item => item.topicId?.toString()).filter(Boolean) || [];
     
     const allTopics = await Topic.find({
       _id: { $nin: studyListTopicIds }
@@ -205,31 +310,33 @@ router.get('/:firebaseId/recommendations', validateFirebaseId, verifyToken, veri
   }
 });
 
-// ✅ ENHANCED: User's homework endpoints
+// ========================================
+// 📚 HOMEWORK ROUTES (ENHANCED)
+// ========================================
+
 router.get('/:firebaseId/homeworks', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   console.log('📥 GET all homeworks for user:', req.params.firebaseId);
   
   try {
     const userId = req.params.firebaseId;
     
-    // Get user's homework progress
     const userProgress = await HomeworkProgress.find({ userId })
       .populate('lessonId', 'title lessonName subject homework')
       .sort({ updatedAt: -1 });
     
-    // Get all standalone homework assignments
     const standaloneHomework = await Homework.find({ isActive: true });
-    
-    // Get lessons with homework
     const lessonsWithHomework = await Lesson.find({ 
       homework: { $exists: true, $ne: [], $not: { $size: 0 } } 
     });
     
     const allHomeworks = [];
     
-    // Add standalone homework from admin panel
+    // Add standalone homework
     for (const hw of standaloneHomework) {
-      const userHwProgress = userProgress.find(up => up.homeworkId?.toString() === hw._id.toString());
+      const userHwProgress = userProgress.find(up => 
+        up.homeworkId?.toString() === hw._id.toString() ||
+        up.metadata?.standaloneHomeworkId === hw._id.toString()
+      );
       
       allHomeworks.push({
         _id: hw._id,
@@ -268,7 +375,7 @@ router.get('/:firebaseId/homeworks', validateFirebaseId, verifyToken, verifyOwne
       });
     }
     
-    // Sort by priority (in-progress first, then pending, then completed)
+    // Sort by priority
     allHomeworks.sort((a, b) => {
       const getStatus = (hw) => {
         if (!hw.hasProgress) return 'pending';
@@ -300,20 +407,19 @@ router.get('/:firebaseId/homeworks', validateFirebaseId, verifyToken, verifyOwne
   }
 });
 
-// ✅ ENHANCED: User's tests endpoints  
+// ========================================
+// 🧪 TEST ROUTES (ENHANCED)
+// ========================================
+
 router.get('/:firebaseId/tests', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   console.log('📥 GET all tests for user:', req.params.firebaseId);
   
   try {
     const userId = req.params.firebaseId;
     
-    // Get all active tests (hide correct answers for users)
     const tests = await Test.find({ isActive: true }).select('-questions.correctAnswer -questions.explanation');
-    
-    // Get user's test results
     const userResults = await TestResult.find({ userId });
     
-    // Add user progress info to each test
     const testsWithProgress = tests.map(test => {
       const userResult = userResults.find(result => result.testId.toString() === test._id.toString());
       
@@ -344,7 +450,6 @@ router.get('/:firebaseId/tests', validateFirebaseId, verifyToken, verifyOwnershi
   }
 });
 
-// ✅ Get specific test for user (without correct answers)
 router.get('/:firebaseId/tests/:testId', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   console.log('📥 GET test for user:', req.params.firebaseId, 'testId:', req.params.testId);
   
@@ -388,7 +493,6 @@ router.get('/:firebaseId/tests/:testId', validateFirebaseId, verifyToken, verify
   }
 });
 
-// ✅ Submit test result
 router.post('/:firebaseId/tests/:testId/submit', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   console.log('📤 POST test submission for user:', req.params.firebaseId, 'testId:', req.params.testId);
   
@@ -426,7 +530,6 @@ router.post('/:firebaseId/tests/:testId/submit', validateFirebaseId, verifyToken
       
       let isCorrect = false;
       if (q.type === 'multiple-choice' && Array.isArray(q.options)) {
-        // Handle multiple choice answers
         if (typeof correctAnswer === 'number') {
           const correctOptionText = q.options[correctAnswer]?.text || q.options[correctAnswer];
           isCorrect = userAnswer === correctOptionText;
@@ -434,7 +537,6 @@ router.post('/:firebaseId/tests/:testId/submit', validateFirebaseId, verifyToken
           isCorrect = userAnswer === correctAnswer;
         }
       } else {
-        // Handle other answer types
         isCorrect = userAnswer?.toLowerCase() === correctAnswer?.toString().toLowerCase();
       }
 
@@ -444,7 +546,7 @@ router.post('/:firebaseId/tests/:testId/submit', validateFirebaseId, verifyToken
         questionIndex: index,
         question: q.text || q.question,
         userAnswer,
-        correctAnswer: test.showResults ? correctAnswer : null, // Hide correct answers if not allowed
+        correctAnswer: test.showResults ? correctAnswer : null,
         isCorrect: test.showResults ? isCorrect : null,
         points: isCorrect ? (q.points || 1) : 0
       });
@@ -467,10 +569,8 @@ router.post('/:firebaseId/tests/:testId/submit', validateFirebaseId, verifyToken
 
     let result;
     if (existingResult && test.allowRetakes) {
-      // Update existing result
       result = await TestResult.findByIdAndUpdate(existingResult._id, resultData, { new: true });
     } else {
-      // Create new result
       result = new TestResult(resultData);
       await result.save();
     }
@@ -497,7 +597,6 @@ router.post('/:firebaseId/tests/:testId/submit', validateFirebaseId, verifyToken
   }
 });
 
-// ✅ Get test result
 router.get('/:firebaseId/tests/:testId/result', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   console.log('📥 GET test result for user:', req.params.firebaseId, 'testId:', req.params.testId);
   
@@ -522,7 +621,6 @@ router.get('/:firebaseId/tests/:testId/result', validateFirebaseId, verifyToken,
   }
 });
 
-// ✅ Get all test results for user
 router.get('/:firebaseId/tests/results', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   console.log('📥 GET all test results for user:', req.params.firebaseId);
   
@@ -545,14 +643,16 @@ router.get('/:firebaseId/tests/results', validateFirebaseId, verifyToken, verify
   }
 });
 
-// ✅ ENHANCED: Standalone homework endpoints
+// ========================================
+// 📚 STANDALONE HOMEWORK ROUTES (FIXED)
+// ========================================
+
 router.get('/:firebaseId/homework/:homeworkId', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   console.log('📥 GET standalone homework for user:', req.params.firebaseId, 'homeworkId:', req.params.homeworkId);
   
   try {
     const { firebaseId, homeworkId } = req.params;
     
-    // Get the standalone homework
     const homework = await Homework.findById(homeworkId);
     if (!homework) {
       return res.status(404).json({ error: '❌ Homework not found' });
@@ -562,14 +662,13 @@ router.get('/:firebaseId/homework/:homeworkId', validateFirebaseId, verifyToken,
       return res.status(403).json({ error: '❌ Homework is not active' });
     }
     
-    // Get user's progress on this homework - use a unique identifier
-    // Since HomeworkProgress might not have homeworkId field, we'll check for it
+    // Get user's progress - try multiple strategies
     let userProgress = await HomeworkProgress.findOne({
       userId: firebaseId,
       $or: [
-        { homeworkId: homeworkId },  // Try homeworkId if it exists
-        { lessonId: homeworkId },    // Fallback to lessonId
-        { 'metadata.standaloneHomeworkId': homeworkId }  // Use metadata field
+        { homeworkId: homeworkId },
+        { lessonId: homeworkId },
+        { 'metadata.standaloneHomeworkId': homeworkId }
       ]
     });
     
@@ -596,7 +695,6 @@ router.post('/:firebaseId/homework/:homeworkId/save', validateFirebaseId, verify
     const { firebaseId, homeworkId } = req.params;
     const { answers } = req.body;
     
-    // Validate inputs
     if (!firebaseId || !homeworkId) {
       return res.status(400).json({ error: '❌ Missing required parameters' });
     }
@@ -605,9 +703,6 @@ router.post('/:firebaseId/homework/:homeworkId/save', validateFirebaseId, verify
       return res.status(400).json({ error: '❌ Answers must be an array' });
     }
 
-    console.log('🔍 Looking for homework with ID:', homeworkId);
-    
-    // Verify homework exists with better error handling
     const homework = await Homework.findById(homeworkId);
     if (!homework) {
       console.log('❌ Homework not found for ID:', homeworkId);
@@ -616,23 +711,22 @@ router.post('/:firebaseId/homework/:homeworkId/save', validateFirebaseId, verify
 
     console.log('✅ Homework found:', homework.title);
 
-    // Check for existing progress
-    console.log('🔍 Looking for existing progress...');
+    // Check for existing progress using homeworkId field
     let existingProgress = await HomeworkProgress.findOne({
       userId: firebaseId,
-      'metadata.standaloneHomeworkId': homeworkId
+      homeworkId: homeworkId
     });
 
     console.log('Existing progress:', existingProgress ? 'Found' : 'Not found');
 
     const progressData = {
       userId: firebaseId,
+      homeworkId: homeworkId,  // Use the actual homeworkId field
       lessonId: null,
       answers: answers,
       completed: false,
       metadata: {
         type: 'standalone',
-        standaloneHomeworkId: homeworkId,
         homeworkTitle: homework.title
       },
       updatedAt: new Date()
@@ -663,9 +757,7 @@ router.post('/:firebaseId/homework/:homeworkId/save', validateFirebaseId, verify
     console.error('❌ Error saving standalone homework:', error);
     console.error('Error name:', error.name);
     console.error('Error message:', error.message);
-    console.error('Stack trace:', error.stack);
     
-    // Send more specific error based on error type
     if (error.name === 'ValidationError') {
       res.status(400).json({ error: '❌ Validation error: ' + error.message });
     } else if (error.name === 'CastError') {
@@ -676,7 +768,6 @@ router.post('/:firebaseId/homework/:homeworkId/save', validateFirebaseId, verify
   }
 });
 
-// ✅ Submit standalone homework - FIXED VERSION
 router.post('/:firebaseId/homework/:homeworkId/submit', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   console.log('📤 POST submit standalone homework for user:', req.params.firebaseId, 'homeworkId:', req.params.homeworkId);
   
@@ -691,7 +782,6 @@ router.post('/:firebaseId/homework/:homeworkId/submit', validateFirebaseId, veri
       answersType: Array.isArray(answers) ? 'array' : typeof answers
     });
     
-    // Validate ObjectId format
     if (!mongoose.Types.ObjectId.isValid(homeworkId)) {
       console.error('❌ Invalid homework ID format:', homeworkId);
       return res.status(400).json({ 
@@ -708,7 +798,6 @@ router.post('/:firebaseId/homework/:homeworkId/submit', validateFirebaseId, veri
       });
     }
 
-    // Get homework with exercises
     const homework = await Homework.findById(homeworkId);
     if (!homework) {
       console.error('❌ Homework not found:', homeworkId);
@@ -811,10 +900,10 @@ router.post('/:firebaseId/homework/:homeworkId/submit', validateFirebaseId, veri
       stars
     });
 
-    // ✅ FIXED: Use proper homeworkId field instead of metadata
+    // Save progress with homeworkId field
     const progressData = {
       userId: firebaseId,
-      homeworkId: homeworkId, // Use the actual homeworkId field
+      homeworkId: homeworkId,
       lessonId: null,
       answers: gradedAnswers,
       completed: true,
@@ -830,11 +919,10 @@ router.post('/:firebaseId/homework/:homeworkId/submit', validateFirebaseId, veri
       updatedAt: new Date()
     };
 
-    // ✅ FIXED: Use proper query with homeworkId field
     const progress = await HomeworkProgress.findOneAndUpdate(
       { 
         userId: firebaseId, 
-        homeworkId: homeworkId  // Use the actual homeworkId field
+        homeworkId: homeworkId
       },
       progressData,
       { upsert: true, new: true, runValidators: true }
@@ -869,7 +957,10 @@ router.post('/:firebaseId/homework/:homeworkId/submit', validateFirebaseId, veri
   }
 });
 
-// ✅ Get user's progress for a specific lesson
+// ========================================
+// 📖 LESSON PROGRESS ROUTES (FIXED)
+// ========================================
+
 router.get('/:firebaseId/lesson/:lessonId', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   try {
     const { firebaseId, lessonId } = req.params;
@@ -890,42 +981,120 @@ router.get('/:firebaseId/lesson/:lessonId', validateFirebaseId, verifyToken, ver
   }
 });
 
-// ✅ Save user's progress for a specific lesson
+// ✅ FIXED: Enhanced lesson progress save with proper ObjectId handling
 router.post('/:firebaseId/lesson/:lessonId', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
+  console.log('📚 POST lesson progress for user:', req.params.firebaseId, 'lesson:', req.params.lessonId);
+  
   try {
     const { firebaseId, lessonId } = req.params;
     const progressData = req.body;
     
-    let topicId = progressData.topicId;
-    if (!topicId) {
-      const lesson = await Lesson.findById(lessonId);
-      if (lesson) {
-        topicId = lesson.topicId;
+    console.log('📝 Raw progress data received:', {
+      ...progressData,
+      topicIdType: typeof progressData.topicId,
+      topicIdValue: progressData.topicId
+    });
+    
+    // ✅ FIXED: Sanitize the progress data to handle ObjectId issues
+    const sanitizedData = sanitizeProgressData(progressData);
+    
+    console.log('📝 Sanitized progress data:', {
+      ...sanitizedData,
+      topicIdType: typeof sanitizedData.topicId,
+      topicIdValue: sanitizedData.topicId
+    });
+    
+    // If no topicId provided or extraction failed, try to get it from lesson
+    let finalTopicId = sanitizedData.topicId;
+    if (!finalTopicId) {
+      try {
+        const lesson = await Lesson.findById(lessonId);
+        if (lesson && lesson.topicId) {
+          finalTopicId = extractValidObjectId(lesson.topicId, 'lesson.topicId');
+          console.log('📖 Got topicId from lesson:', finalTopicId);
+        }
+      } catch (lessonError) {
+        console.warn('⚠️ Could not fetch lesson for topicId:', lessonError.message);
       }
     }
     
     const updateData = {
       userId: firebaseId,
       lessonId: lessonId,
-      topicId: topicId,
-      ...progressData,
+      topicId: finalTopicId,
+      completedSteps: sanitizedData.completedSteps || [],
+      progressPercent: sanitizedData.progressPercent || 0,
+      completed: sanitizedData.completed || false,
+      mistakes: sanitizedData.mistakes || 0,
+      medal: sanitizedData.medal || 'none',
+      duration: sanitizedData.duration || 0,
+      stars: sanitizedData.stars || 0,
+      points: sanitizedData.points || 0,
+      hintsUsed: sanitizedData.hintsUsed || 0,
+      submittedHomework: sanitizedData.submittedHomework || false,
       updatedAt: new Date()
     };
+    
+    // Remove undefined/null fields to avoid casting issues
+    Object.keys(updateData).forEach(key => {
+      if (updateData[key] === null || updateData[key] === undefined) {
+        delete updateData[key];
+      }
+    });
+    
+    console.log('📝 Final update data:', {
+      ...updateData,
+      topicIdType: typeof updateData.topicId
+    });
     
     const updated = await UserProgress.findOneAndUpdate(
       { userId: firebaseId, lessonId },
       updateData,
-      { upsert: true, new: true }
+      { upsert: true, new: true, runValidators: true }
     );
     
-    res.json(updated);
+    console.log('✅ Lesson progress saved successfully');
+    res.json({
+      success: true,
+      data: updated,
+      message: '✅ Progress saved'
+    });
   } catch (error) {
     console.error('❌ Error saving user lesson progress:', error);
-    res.status(500).json({ error: '❌ Error saving lesson progress' });
+    console.error('❌ Error details:', {
+      name: error.name,
+      message: error.message,
+      path: error.path,
+      value: error.value,
+      kind: error.kind
+    });
+    
+    // Handle specific error types
+    if (error.name === 'CastError') {
+      res.status(400).json({ 
+        error: '❌ Invalid data format',
+        field: error.path,
+        value: error.value,
+        message: 'Please check the data format and try again'
+      });
+    } else if (error.name === 'ValidationError') {
+      res.status(400).json({ 
+        error: '❌ Validation error',
+        details: Object.values(error.errors).map(e => e.message)
+      });
+    } else {
+      res.status(500).json({ 
+        error: '❌ Error saving lesson progress',
+        message: error.message
+      });
+    }
   }
 });
 
-// Study List Management
+// ========================================
+// 📚 STUDY LIST MANAGEMENT (ENHANCED)
+// ========================================
+
 router.get('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   try {
     const user = await User.findOne({ firebaseId: req.params.firebaseId });
@@ -1016,28 +1185,8 @@ router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOw
       return res.json(user.studyList);
     }
 
-    let validTopicId = null;
-    
-    if (topicId) {
-      if (typeof topicId === 'object') {
-        const extractedId = topicId._id || topicId.id || topicId.topicId;
-        console.log('🔍 Extracted ID from object:', extractedId);
-        
-        if (extractedId && mongoose.Types.ObjectId.isValid(extractedId)) {
-          validTopicId = extractedId;
-          console.log('✅ Valid ObjectId format from object:', validTopicId);
-        } else if (extractedId) {
-          console.warn('⚠️ Invalid ObjectId format from object:', extractedId);
-        }
-      } else if (typeof topicId === 'string') {
-        if (mongoose.Types.ObjectId.isValid(topicId)) {
-          validTopicId = topicId;
-          console.log('✅ Valid ObjectId format from string:', validTopicId);
-        } else {
-          console.warn('⚠️ Invalid ObjectId format from string:', topicId);
-        }
-      }
-    }
+    // ✅ FIXED: Use enhanced ObjectId extraction
+    const validTopicId = extractValidObjectId(topicId, 'study-list topicId');
     
     if (validTopicId) {
       try {
@@ -1046,12 +1195,10 @@ router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOw
           console.error('❌ Topic not found in database:', validTopicId);
           return res.status(400).json({ 
             error: '❌ Topic not found in database',
-            topicId: validTopicId
+            topicId: validTopicId.toString()
           });
         }
         console.log('✅ Topic verified in database:', topicExists.name || topicExists.title);
-        
-        validTopicId = new mongoose.Types.ObjectId(validTopicId);
         
       } catch (dbError) {
         console.error('❌ Database error while validating topic:', dbError.message);
@@ -1169,7 +1316,10 @@ router.delete('/:firebaseId/study-list/:topicId', validateFirebaseId, verifyToke
   }
 });
 
-// User Progress Routes
+// ========================================
+// 📊 USER PROGRESS ROUTES
+// ========================================
+
 router.get('/:firebaseId/progress', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   req.params.userId = req.params.firebaseId;
   return userProgressController.getUserProgress(req, res);
@@ -1202,7 +1352,8 @@ router.post('/:firebaseId/progress', validateFirebaseId, verifyToken, verifyOwne
     user.progress[lessonId][section] = true;
     await user.save();
     res.json(user.progress[lessonId]);
-  } catch {
+  } catch (error) {
+    console.error('❌ Error saving legacy progress:', error);
     res.status(500).json({ error: '❌ Error saving progress' });
   }
 });
@@ -1264,8 +1415,10 @@ router.get('/:firebaseId/topics-progress', validateFirebaseId, verifyToken, veri
   }
 });
 
-// Analytics
-// ✅ FIXED: Analytics endpoint with proper authentication handling
+// ========================================
+// 📊 ANALYTICS ENDPOINT (ENHANCED)
+// ========================================
+
 router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   console.log('📊 Analytics GET request received for user:', req.params.firebaseId);
   console.log('🔐 Auth user:', req.user?.uid);
@@ -1585,12 +1738,16 @@ router.get('/:firebaseId/points', validateFirebaseId, verifyToken, verifyOwnersh
     const progress = await UserProgress.find({ userId: req.params.firebaseId });
     const totalPoints = progress.reduce((sum, p) => sum + (p.points || 0), 0);
     res.json({ totalPoints });
-  } catch {
+  } catch (error) {
+    console.error('❌ Error fetching points:', error);
     res.status(500).json({ error: '❌ Error fetching points' });
   }
 });
 
-// Diary
+// ========================================
+// 📔 DIARY ROUTES (ENHANCED)
+// ========================================
+
 router.get('/:firebaseId/diary', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   try {
     const user = await User.findOne({ firebaseId: req.params.firebaseId });
@@ -1602,100 +1759,6 @@ router.get('/:firebaseId/diary', validateFirebaseId, verifyToken, verifyOwnershi
   }
 });
 
-router.post('/:firebaseId/diary', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  const { date, studyMinutes, completedTopics, averageGrade } = req.body;
-  
-  console.log('📥 Diary entry data:', { date, studyMinutes, completedTopics, averageGrade });
-  
-  if (!date) {
-    console.error('❌ Missing date in diary entry');
-    return res.status(400).json({ error: '❌ Missing date' });
-  }
-  
-  const studyMinutesNum = Number(studyMinutes) || 0;
-  const completedTopicsNum = Number(completedTopics) || 0;
-  const averageGradeNum = Number(averageGrade) || 0;
-  
-  if (studyMinutesNum < 0 || studyMinutesNum > 1440) {
-    return res.status(400).json({ error: '❌ Invalid study minutes (0-1440)' });
-  }
-  
-  if (completedTopicsNum < 0 || completedTopicsNum > 100) {
-    return res.status(400).json({ error: '❌ Invalid completed topics (0-100)' });
-  }
-  
-  if (averageGradeNum < 0 || averageGradeNum > 100) {
-    return res.status(400).json({ error: '❌ Invalid average grade (0-100)' });
-  }
-  
-  try {
-    const user = await User.findOne({ firebaseId: req.params.firebaseId });
-    if (!user) return res.status(404).json({ error: '❌ User not found' });
-    
-    user.diary ||= [];
-    
-    const existingEntryIndex = user.diary.findIndex(entry => {
-      const entryDate = new Date(entry.date).toDateString();
-      const newDate = new Date(date).toDateString();
-      return entryDate === newDate;
-    });
-    
-    const diaryEntry = {
-      date: new Date(date),
-      studyMinutes: studyMinutesNum,
-      completedTopics: completedTopicsNum,
-      averageGrade: averageGradeNum
-    };
-    
-    if (existingEntryIndex >= 0) {
-      user.diary[existingEntryIndex] = diaryEntry;
-      console.log('📝 Updated existing diary entry for date:', date);
-    } else {
-      user.diary.push(diaryEntry);
-      console.log('📝 Added new diary entry for date:', date);
-    }
-    
-    await user.save();
-    res.status(201).json({ 
-      message: '✅ Saved diary entry', 
-      diary: user.diary,
-      entry: diaryEntry
-    });
-  } catch (error) {
-    console.error('❌ Diary save error:', error);
-    res.status(500).json({ 
-      error: '❌ Error saving diary', 
-      details: error.message 
-    });
-  }
-});
-// ✅ ADD these endpoints to userRoutes.js (before module.exports)
-
-// ✅ Analytics endpoint
-router.post('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  console.log('📊 POST analytics for user:', req.params.firebaseId);
-  
-  try {
-    const { firebaseId } = req.params;
-    const analyticsData = req.body;
-    
-    // You can save to a separate Analytics model or just log it for now
-    console.log('📊 Analytics data received:', analyticsData);
-    
-    // For now, just return success (you can implement actual storage later)
-    res.json({
-      success: true,
-      message: '✅ Analytics received',
-      data: analyticsData
-    });
-    
-  } catch (error) {
-    console.error('❌ Error saving analytics:', error);
-    res.status(500).json({ error: '❌ Error saving analytics' });
-  }
-});
-
-// ✅ Enhanced diary endpoint (already exists but might need fixing)
 router.post('/:firebaseId/diary', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   const { firebaseId } = req.params;
   const { date, studyMinutes, completedTopics, averageGrade, lessonName, duration, mistakes, stars } = req.body;
@@ -1769,57 +1832,106 @@ router.post('/:firebaseId/diary', validateFirebaseId, verifyToken, verifyOwnersh
   }
 });
 
-// ✅ User lesson progress endpoint (POST)
-router.post('/:firebaseId/lesson/:lessonId', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  console.log('📚 POST lesson progress for user:', req.params.firebaseId, 'lesson:', req.params.lessonId);
+// ========================================
+// 📊 ANALYTICS POST ENDPOINT
+// ========================================
+
+router.post('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
+  console.log('📊 POST analytics for user:', req.params.firebaseId);
   
   try {
-    const { firebaseId, lessonId } = req.params;
-    const progressData = req.body;
+    const { firebaseId } = req.params;
+    const analyticsData = req.body;
     
-    let topicId = progressData.topicId;
-    if (!topicId) {
-      const lesson = await Lesson.findById(lessonId);
-      if (lesson) {
-        topicId = lesson.topicId;
-      }
-    }
+    // You can save to a separate Analytics model or just log it for now
+    console.log('📊 Analytics data received:', analyticsData);
     
-    const updateData = {
-      userId: firebaseId,
-      lessonId: lessonId,
-      topicId: topicId,
-      ...progressData,
-      updatedAt: new Date()
-    };
-    
-    const updated = await UserProgress.findOneAndUpdate(
-      { userId: firebaseId, lessonId },
-      updateData,
-      { upsert: true, new: true }
-    );
-    
-    console.log('✅ Lesson progress saved successfully');
+    // For now, just return success (you can implement actual storage later)
     res.json({
       success: true,
-      data: updated,
-      message: '✅ Progress saved'
+      message: '✅ Analytics received',
+      data: analyticsData
     });
+    
   } catch (error) {
-    console.error('❌ Error saving lesson progress:', error);
-    res.status(500).json({ error: '❌ Error saving lesson progress' });
+    console.error('❌ Error saving analytics:', error);
+    res.status(500).json({ error: '❌ Error saving analytics' });
   }
 });
 
-// ✅ LEGACY: Keep existing homework routes for backward compatibility
+// ========================================
+// 🔄 LEGACY HOMEWORK ROUTES (BACKWARD COMPATIBILITY)
+// ========================================
+
 router.get('/:firebaseId/homeworks/lesson/:lessonId', validateFirebaseId, verifyToken, verifyOwnership, homeworkController.getHomeworkByLesson);
 router.post('/:firebaseId/homeworks/save', validateFirebaseId, verifyToken, verifyOwnership, homeworkController.saveHomework);
 router.post('/:firebaseId/homeworks/lesson/:lessonId/submit', validateFirebaseId, verifyToken, verifyOwnership, homeworkController.submitHomework);
 
-// ✅ LEGACY: Keep existing test controller routes for backward compatibility
+// ========================================
+// 🔄 LEGACY TEST CONTROLLER ROUTES (BACKWARD COMPATIBILITY)
+// ========================================
+
 router.get('/:firebaseId/tests/legacy', validateFirebaseId, verifyToken, verifyOwnership, testController.getAvailableTests);
 router.get('/:firebaseId/tests/legacy/:testId', validateFirebaseId, verifyToken, verifyOwnership, testController.getTestById);
 router.post('/:firebaseId/tests/legacy/:testId/submit', validateFirebaseId, verifyToken, verifyOwnership, testController.submitTestResult);
 router.get('/:firebaseId/tests/legacy/:testId/result', validateFirebaseId, verifyToken, verifyOwnership, testController.getTestResult);
+
+// ========================================
+// 🚨 ERROR HANDLING MIDDLEWARE
+// ========================================
+
+router.use((error, req, res, next) => {
+  console.error('❌ UserRoutes Error:', {
+    message: error.message,
+    name: error.name,
+    path: error.path,
+    value: error.value,
+    kind: error.kind,
+    url: req.originalUrl,
+    method: req.method
+  });
+
+  // Handle MongoDB casting errors specifically
+  if (error.name === 'CastError') {
+    return res.status(400).json({
+      error: '❌ Invalid data format',
+      field: error.path,
+      value: error.value,
+      message: `Invalid ${error.kind} format for field '${error.path}'`,
+      suggestion: error.path === 'topicId' ? 'Please provide a valid topic ID' : 'Please check the data format'
+    });
+  }
+
+  // Handle validation errors
+  if (error.name === 'ValidationError') {
+    const validationErrors = Object.values(error.errors).map(e => ({
+      field: e.path,
+      message: e.message,
+      value: e.value
+    }));
+
+    return res.status(400).json({
+      error: '❌ Validation error',
+      details: validationErrors,
+      message: 'Please check the required fields and data formats'
+    });
+  }
+
+  // Handle duplicate key errors
+  if (error.code === 11000) {
+    return res.status(409).json({
+      error: '❌ Duplicate entry',
+      field: Object.keys(error.keyValue || {})[0],
+      message: 'This record already exists'
+    });
+  }
+
+  // Generic error response
+  res.status(500).json({
+    error: '❌ Internal server error',
+    message: process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong',
+    timestamp: new Date().toISOString()
+  });
+});
 
 module.exports = router;
