@@ -3,10 +3,10 @@ const admin = require('../config/firebase');
 
 const authenticateUser = async (req, res, next) => {
   try {
-    console.log('🔐 Verifying Firebase token...');
+    console.log('🔐 Verifying Firebase token on api.aced.live...');
     
     const authHeader = req.headers.authorization;
-    console.log('📥 [authMiddleware] Incoming token header:', authHeader);
+    console.log('📥 [authMiddleware] Incoming token header:', authHeader ? 'Present' : 'Missing');
 
     // 🔒 Validate Authorization header presence and format
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -32,12 +32,39 @@ const authenticateUser = async (req, res, next) => {
     console.log('🔍 [authMiddleware] Extracted token (preview):', token.slice(0, 40), '...');
     console.log('⏳ [authMiddleware] Verifying token with Firebase Admin SDK...');
 
-    const nowInSeconds = Math.floor(Date.now() / 1000);
+    // 🔐 Verify token via Firebase Admin with enhanced error handling
+    let decodedToken;
+    try {
+      decodedToken = await admin.auth().verifyIdToken(token);
+      console.log('✅ Token verified for user:', decodedToken.uid);
+    } catch (verificationError) {
+      console.error('❌ Token verification failed:', {
+        error: verificationError.message,
+        code: verificationError.code,
+        backendProjectId: process.env.FIREBASE_PROJECT_ID,
+        expectedProjectId: 'aced-9cf72'
+      });
+      
+      // Specific error handling
+      if (verificationError.code === 'auth/project-not-found') {
+        return res.status(401).json({ 
+          success: false, 
+          error: 'Firebase project configuration mismatch',
+          details: 'Backend project ID does not match frontend'
+        });
+      }
+      
+      if (verificationError.code === 'auth/argument-error') {
+        return res.status(401).json({ 
+          success: false, 
+          error: 'Invalid Firebase configuration',
+          details: 'Check Firebase private key and project settings'
+        });
+      }
+      
+      throw verificationError;
+    }
 
-    // 🔐 Verify token via Firebase Admin
-    const decodedToken = await admin.auth().verifyIdToken(token);
-
-    console.log('✅ Token verified for user:', decodedToken.uid);
     console.log('✅ [authMiddleware] Token details:', {
       uid: decodedToken.uid,
       email: decodedToken.email,
@@ -48,22 +75,42 @@ const authenticateUser = async (req, res, next) => {
       iss: decodedToken.iss,
     });
 
-    // Validate project ID if set
-    const expectedProjectId = (process.env.FIREBASE_PROJECT_ID || '').trim();
+    // ✅ CRITICAL: Force validate project ID match
+    const REQUIRED_PROJECT_ID = 'aced-9cf72'; // Your frontend project ID
     const tokenAud = (decodedToken.aud || '').trim();
+    const envProjectId = (process.env.FIREBASE_PROJECT_ID || '').trim();
 
-    console.log('[DEBUG] Comparing expected projectId:', expectedProjectId);
-    console.log('[DEBUG] Token aud claim:', tokenAud);
+    console.log('[CRITICAL] Project ID validation:', {
+      requiredProjectId: REQUIRED_PROJECT_ID,
+      tokenAud: tokenAud,
+      envProjectId: envProjectId,
+      tokenMatches: tokenAud === REQUIRED_PROJECT_ID,
+      envMatches: envProjectId === REQUIRED_PROJECT_ID
+    });
 
-    if (expectedProjectId && tokenAud !== expectedProjectId) {
-      console.warn(`❌ [authMiddleware] Token aud mismatch. Expected "${expectedProjectId}", got "${tokenAud}"`);
+    // Check if token is from correct project
+    if (tokenAud !== REQUIRED_PROJECT_ID) {
+      console.error(`❌ [CRITICAL] Token from wrong project. Expected "${REQUIRED_PROJECT_ID}", got "${tokenAud}"`);
       return res.status(403).json({ 
         success: false, 
-        error: 'Token audience mismatch' 
+        error: 'Token from incorrect Firebase project',
+        expected: REQUIRED_PROJECT_ID,
+        received: tokenAud
       });
     }
 
-    // Additional expiration check (Firebase SDK usually handles this, but keeping for extra safety)
+    // Check if backend is configured for correct project
+    if (envProjectId !== REQUIRED_PROJECT_ID) {
+      console.error(`❌ [CRITICAL] Backend misconfigured. FIREBASE_PROJECT_ID should be "${REQUIRED_PROJECT_ID}", got "${envProjectId}"`);
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Backend Firebase project misconfiguration',
+        details: `Backend should be configured for project: ${REQUIRED_PROJECT_ID}`
+      });
+    }
+
+    // Additional expiration check
+    const nowInSeconds = Math.floor(Date.now() / 1000);
     if (decodedToken.exp && decodedToken.exp < nowInSeconds) {
       console.warn(`❌ [authMiddleware] Token expired at ${decodedToken.exp}, now is ${nowInSeconds}`);
       return res.status(401).json({ 
@@ -72,49 +119,47 @@ const authenticateUser = async (req, res, next) => {
       });
     }
 
-    // ✅ Attach user info for downstream use (enhanced structure)
+    // ✅ Attach user info for downstream use
     req.user = {
       uid: decodedToken.uid,
       email: decodedToken.email,
       email_verified: decodedToken.email_verified,
+      projectId: decodedToken.aud,
       // Include all decoded token data for advanced use cases
       ...decodedToken
     };
     req.firebaseId = decodedToken.uid; // Keep for backward compatibility
 
+    console.log('✅ Authentication successful for:', decodedToken.email);
     next();
 
   } catch (error) {
-    console.error('❌ Token verification failed:', error.message);
-    if (error.stack) console.error(error.stack);
+    console.error('❌ Token verification failed:', {
+      message: error.message,
+      code: error.code,
+      name: error.name
+    });
 
     // Enhanced error handling with specific Firebase error codes
+    let errorResponse = { success: false, error: 'Authentication failed' };
+    
     if (error.code === 'auth/id-token-expired') {
-      return res.status(401).json({ 
-        success: false, 
-        error: 'Token expired' 
-      });
+      errorResponse.error = 'Token expired';
     } else if (error.code === 'auth/id-token-revoked') {
-      return res.status(401).json({ 
-        success: false, 
-        error: 'Token revoked' 
-      });
+      errorResponse.error = 'Token revoked';
     } else if (error.code === 'auth/invalid-id-token') {
-      return res.status(401).json({ 
-        success: false, 
-        error: 'Invalid token format' 
-      });
+      errorResponse.error = 'Invalid token format';
     } else if (error.code === 'auth/project-not-found') {
-      return res.status(401).json({ 
-        success: false, 
-        error: 'Firebase project configuration error' 
-      });
+      errorResponse.error = 'Firebase project configuration error';
+      errorResponse.details = 'Check FIREBASE_PROJECT_ID environment variable';
+    } else if (error.code === 'auth/argument-error') {
+      errorResponse.error = 'Firebase configuration error';
+      errorResponse.details = 'Invalid Firebase credentials or private key';
     } else {
-      return res.status(401).json({ 
-        success: false, 
-        error: 'Invalid token' 
-      });
+      errorResponse.error = 'Invalid Firebase token';
     }
+
+    return res.status(401).json(errorResponse);
   }
 };
 

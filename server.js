@@ -30,10 +30,13 @@ console.log("🧪 ENVIRONMENT DEBUG:", {
   mongoUri: process.env.MONGO_URI ? '✅ Set' : '❌ Missing',
   mongoUriStart: process.env.MONGO_URI?.substring(0, 20) + '...' || 'Not set',
   // PayMe Configuration
-  paymeMerchantId: process.env.PAYME_MERCHANT_ID ? '✅ Set' : '❌ Missing',
   paymeMerchantKey: process.env.PAYME_MERCHANT_KEY ? '✅ Set' : '❌ Missing',
   paymeTestMode: process.env.PAYME_TEST_MODE || 'true',
   paymeEndpoint: process.env.PAYME_ENDPOINT || 'https://checkout.test.paycom.uz/api',
+  // Production Environment Check
+  isProduction: process.env.NODE_ENV === 'production',
+  serverDomain: 'api.aced.live',
+  frontendDomain: 'aced.live'
 });
 
 const app = express();
@@ -117,6 +120,7 @@ app.use((req, res, next) => {
 
 const allowedOrigins = [
   'https://aced.live',
+  'https://www.aced.live',
   'https://admin.aced.live',
   'http://localhost:3000',
   'http://localhost:3001',
@@ -328,12 +332,6 @@ const checkPayMeAuth = (req) => {
   }
 };
 
-// Generate PayMe authorization string
-const generatePayMeAuth = () => {
-  const credentials = `Paycom:${process.env.PAYME_MERCHANT_KEY}`;
-  return `Basic ${Buffer.from(credentials).toString('base64')}`;
-};
-
 // Validate transaction amount (in tiyin - 1 sum = 100 tiyin)
 const validateAmount = (amount) => {
   if (!amount || amount < 100) { // Minimum 1 sum
@@ -352,6 +350,8 @@ app.get('/health', async (req, res) => {
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     environment: process.env.NODE_ENV || 'development',
+    server: 'api.aced.live',
+    frontend: 'aced.live',
     versions: {
       node: process.version,
       mongoose: mongoose.version
@@ -365,10 +365,14 @@ app.get('/health', async (req, res) => {
     },
     // PayMe configuration status
     payme: {
-      configured: !!(process.env.PAYME_MERCHANT_ID && process.env.PAYME_MERCHANT_KEY),
-      testMode: process.env.PAYME_TEST_MODE === 'true',
-      merchantId: process.env.PAYME_MERCHANT_ID ? 'Set' : 'Missing',
-      merchantKey: process.env.PAYME_MERCHANT_KEY ? 'Set' : 'Missing'
+      configured: !!process.env.PAYME_MERCHANT_KEY,
+      testMode: process.env.NODE_ENV !== 'production',
+      merchantKey: process.env.PAYME_MERCHANT_KEY ? 'Set' : 'Missing',
+      sandboxEndpoint: 'https://api.aced.live/api/payments/sandbox'
+    },
+    firebase: {
+      projectId: process.env.FIREBASE_PROJECT_ID || 'Not set',
+      configured: !!(process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY)
     }
   };
 
@@ -403,6 +407,7 @@ app.get('/auth-test', async (req, res) => {
         return res.status(401).json({ 
           error: 'Authentication failed',
           message: err.message,
+          server: 'api.aced.live',
           timestamp: new Date().toISOString()
         });
       }
@@ -411,6 +416,7 @@ app.get('/auth-test', async (req, res) => {
       res.json({ 
         message: `✅ Authentication successful for ${req.user?.email}`,
         uid: req.user?.uid,
+        server: 'api.aced.live',
         timestamp: new Date().toISOString()
       });
     });
@@ -419,21 +425,24 @@ app.get('/auth-test', async (req, res) => {
     res.status(500).json({
       error: 'Auth system error',
       message: 'Authentication middleware not available',
+      server: 'api.aced.live',
       timestamp: new Date().toISOString()
     });
   }
 });
 
 // ========================================
-// 💳 PAYME RPC ENDPOINT
+// 💳 PAYME RPC ENDPOINT (PRODUCTION)
 // ========================================
 
 app.post('/api/payments/payme', async (req, res) => {
   console.log('\n💳 PayMe RPC Request received');
   
   try {
-    // Check PayMe authorization
-    checkPayMeAuth(req);
+    // Check PayMe authorization for production
+    if (process.env.NODE_ENV === 'production') {
+      checkPayMeAuth(req);
+    }
     
     const { method, params } = req.body;
     
@@ -502,7 +511,31 @@ app.post('/api/payments/payme', async (req, res) => {
 });
 
 // ========================================
-// 💳 PAYME RPC HANDLERS
+// 💳 PAYME SANDBOX ENDPOINT (DEVELOPMENT/TESTING)
+// ========================================
+
+app.post('/api/payments/sandbox', async (req, res) => {
+  console.log('\n🧪 PayMe Sandbox Request received on api.aced.live');
+  
+  try {
+    const { handleSandboxPayment } = require('./controllers/paymentController');
+    return handleSandboxPayment(req, res);
+  } catch (error) {
+    console.error('❌ Sandbox route error:', error);
+    res.status(500).json({
+      jsonrpc: '2.0',
+      id: req.body?.id || null,
+      error: {
+        code: -32000,
+        message: { ru: 'Ошибка сервера', en: 'Server error' },
+        data: error.message
+      }
+    });
+  }
+});
+
+// ========================================
+// 💳 PAYME RPC HANDLERS (PLACEHOLDER IMPLEMENTATIONS)
 // ========================================
 
 const handleCheckPerformTransaction = async (params) => {
@@ -513,13 +546,10 @@ const handleCheckPerformTransaction = async (params) => {
   // Validate amount
   validateAmount(amount);
   
-  // Check if account exists (you'll need to implement this based on your user model)
+  // Check if account exists
   if (!account || !account.user_id) {
     throw new PayMeError(PayMeErrorCodes.INVALID_ACCOUNT, 'Invalid account');
   }
-  
-  // Here you would typically check if the user exists and can make the payment
-  // For now, we'll just validate the basic structure
   
   return {
     allow: true
@@ -531,15 +561,11 @@ const handleCreateTransaction = async (params) => {
   
   const { id, time, amount, account } = params;
   
-  // Validate parameters
   validateAmount(amount);
   
   if (!account || !account.user_id) {
     throw new PayMeError(PayMeErrorCodes.INVALID_ACCOUNT, 'Invalid account');
   }
-  
-  // Here you would create a transaction in your database
-  // This is a simplified example - you'll need to implement proper transaction management
   
   const transaction = {
     id: id,
@@ -571,9 +597,6 @@ const handlePerformTransaction = async (params) => {
     throw new PayMeError(PayMeErrorCodes.TRANSACTION_NOT_FOUND, 'Transaction not found');
   }
   
-  // Here you would find the transaction and perform it
-  // This is a simplified example
-  
   const transaction = {
     id: id,
     state: 2, // Performed state
@@ -598,7 +621,6 @@ const handleCancelTransaction = async (params) => {
     throw new PayMeError(PayMeErrorCodes.TRANSACTION_NOT_FOUND, 'Transaction not found');
   }
   
-  // Here you would find and cancel the transaction
   const transaction = {
     id: id,
     state: -1, // Cancelled state
@@ -624,11 +646,10 @@ const handleCheckTransaction = async (params) => {
     throw new PayMeError(PayMeErrorCodes.TRANSACTION_NOT_FOUND, 'Transaction not found');
   }
   
-  // Here you would find the transaction status
   const transaction = {
     id: id,
-    state: 2, // This would come from your database
-    create_time: Date.now() - 3600000, // 1 hour ago
+    state: 2,
+    create_time: Date.now() - 3600000,
     perform_time: Date.now(),
     cancel_time: 0,
     reason: null
@@ -651,14 +672,11 @@ const handleGetStatement = async (params) => {
   
   const { from, to } = params;
   
-  // Here you would return transactions within the date range
-  // This is a simplified example
-  
   const transactions = [
     {
       id: 'example_transaction_id',
       time: Date.now(),
-      amount: 10000, // 100.00 UZS in tiyin
+      amount: 10000,
       account: { user_id: 'example_user' },
       create_time: Date.now() - 7200000,
       perform_time: Date.now() - 3600000,
@@ -689,7 +707,8 @@ app.post('/api/payments/initiate', async (req, res) => {
     if (!amount || !userId) {
       return res.status(400).json({
         error: 'Missing required fields',
-        required: ['amount', 'userId']
+        required: ['amount', 'userId'],
+        server: 'api.aced.live'
       });
     }
     
@@ -701,7 +720,10 @@ app.post('/api/payments/initiate', async (req, res) => {
     const account = encodeURIComponent(JSON.stringify({ user_id: userId }));
     const amountParam = amountInTiyin;
     
-    const paymentUrl = `https://checkout.${process.env.PAYME_TEST_MODE === 'true' ? 'test.' : ''}paycom.uz/${merchantId}?amount=${amountParam}&account=${account}`;
+    const isProduction = process.env.NODE_ENV === 'production';
+    const paymentUrl = isProduction 
+      ? `https://checkout.paycom.uz/${merchantId}?amount=${amountParam}&account=${account}`
+      : `https://aced.live/payment/checkout/${userId}?amount=${amount}`;
     
     console.log('💳 Payment URL generated:', paymentUrl);
     
@@ -712,6 +734,8 @@ app.post('/api/payments/initiate', async (req, res) => {
       amountInTiyin,
       userId,
       description,
+      server: 'api.aced.live',
+      environment: isProduction ? 'production' : 'sandbox',
       timestamp: new Date().toISOString()
     });
     
@@ -719,7 +743,8 @@ app.post('/api/payments/initiate', async (req, res) => {
     console.error('❌ Payment initiation error:', error);
     res.status(500).json({
       error: 'Payment initiation failed',
-      message: error.message
+      message: error.message,
+      server: 'api.aced.live'
     });
   }
 });
@@ -748,8 +773,12 @@ const mountRoute = (path, routeFile, description) => {
   }
 };
 
-// Routes to mount with proper paths
+// ✅ Routes to mount in correct order (PayMe first!)
 const routesToMount = [
+  // PayMe routes FIRST (most specific)
+  ['/api/payments', './routes/paymeRoutes', 'PayMe payment routes'],
+  
+  // Then other routes
   ['/api/progress', './routes/progressRoutes', 'Progress tracking routes'],
   ['/api/users', './routes/userRoutes', 'User management routes (MAIN)'],
   ['/api/user', './routes/userRoutes', 'User management routes (LEGACY)'],
@@ -760,7 +789,6 @@ const routesToMount = [
   ['/api/homeworks', './routes/homeworkRoutes', 'Homework routes'],
   ['/api/tests', './routes/testRoutes', 'Test/quiz routes'],
   ['/api/analytics', './routes/userAnalytics', 'User analytics routes'],
-  // Note: PayMe routes are handled above, but you can still mount additional payment routes
 ];
 
 // Mount routes
@@ -840,13 +868,17 @@ app.get('/api/routes', (req, res) => {
   });
   
   res.json({
+    server: 'api.aced.live',
     totalRoutes: routes.length,
     routes: groupedRoutes,
     allRoutes: routes,
     paymeRoutes: [
       { path: '/api/payments/payme', methods: 'POST', description: 'PayMe RPC endpoint' },
+      { path: '/api/payments/sandbox', methods: 'POST', description: 'PayMe sandbox endpoint' },
       { path: '/api/payments/initiate', methods: 'POST', description: 'Payment initiation' }
-    ]
+    ],
+    mountedRoutes: mountedRoutes.map(r => r.path),
+    timestamp: new Date().toISOString()
   });
 });
 
@@ -868,30 +900,38 @@ app.use('/api/*', (req, res) => {
     error: 'API endpoint not found',
     path: req.originalUrl,
     method: req.method,
+    server: 'api.aced.live',
     timestamp: new Date().toISOString(),
     availableRoutes: mountedRoutes.map(r => r.path),
-    suggestion: 'Check the route path and method'
+    suggestion: 'Check the route path and method',
+    paymeEndpoints: [
+      'POST /api/payments/sandbox',
+      'POST /api/payments/payme',
+      'POST /api/payments/initiate',
+      'POST /api/payments/promo-code',
+      'POST /api/payments/initiate-payme'
+    ]
   });
 });
 
 // ========================================
-// 🎨 FRONTEND STATIC FILES
+// 🎨 FRONTEND STATIC FILES (Optional for API server)
 // ========================================
 
 const distPath = path.join(__dirname, 'dist');
 
 if (fs.existsSync(distPath)) {
-  console.log('✅ Frontend dist directory found');
+  console.log('✅ Frontend dist directory found on API server');
   app.use(express.static(distPath, {
     maxAge: process.env.NODE_ENV === 'production' ? '1y' : 0,
     etag: true,
     lastModified: true
   }));
 } else {
-  console.warn('⚠️  Frontend dist directory not found - API only mode');
+  console.log('ℹ️  No frontend dist directory - API only mode (normal for api.aced.live)');
 }
 
-// SPA Catch-all route
+// SPA Catch-all route (only if frontend exists)
 app.get('*', (req, res) => {
   const indexPath = path.join(distPath, 'index.html');
   
@@ -901,18 +941,23 @@ app.get('*', (req, res) => {
         console.error('❌ Failed to serve index.html:', err.message);
         res.status(500).json({ 
           error: 'Frontend loading error',
-          message: 'Unable to serve the application'
+          message: 'Unable to serve the application',
+          server: 'api.aced.live'
         });
       }
     });
   } else {
     res.status(404).json({
-      error: 'Frontend not found',
-      message: 'This appears to be an API-only server',
+      error: 'API endpoint not found',
+      message: 'This is the API server (api.aced.live)',
+      server: 'api.aced.live',
+      frontend: 'aced.live',
       api: {
-        health: '/health',
-        documentation: 'Check /health for available routes'
-      }
+        health: 'https://api.aced.live/health',
+        routes: 'https://api.aced.live/api/routes',
+        authTest: 'https://api.aced.live/auth-test'
+      },
+      timestamp: new Date().toISOString()
     });
   }
 });
@@ -931,6 +976,7 @@ app.use((err, req, res, next) => {
   console.error('💬 Message:', err.message);
   console.error('🏷️  Name:', err.name);
   console.error('🔢 Code:', err.code);
+  console.error('🌐 Server: api.aced.live');
   
   if (process.env.NODE_ENV === 'development') {
     console.error('📚 Stack:', err.stack);
@@ -961,12 +1007,17 @@ app.use((err, req, res, next) => {
     statusCode = 503;
     message = 'Database connection timeout';
     details.solution = 'Check database connection';
+  } else if (err.message.includes('Firebase') || err.code?.startsWith('auth/')) {
+    statusCode = 401;
+    message = 'Authentication error';
+    details.firebaseError = err.code || err.message;
   }
   
   const errorResponse = {
     error: message,
     errorId,
     timestamp,
+    server: 'api.aced.live',
     path: req.originalUrl,
     method: req.method
   };
@@ -979,7 +1030,8 @@ app.use((err, req, res, next) => {
     errorResponse.debug = {
       message: err.message,
       name: err.name,
-      code: err.code
+      code: err.code,
+      stack: err.stack?.split('\n').slice(0, 5)
     };
   }
   
@@ -997,41 +1049,64 @@ const startServer = async () => {
     
     // Start the server
     const server = app.listen(PORT, () => {
-      console.log('\n🎉 SERVER STARTED SUCCESSFULLY!');
-      console.log('================================');
+      console.log('\n🎉 API SERVER STARTED SUCCESSFULLY!');
+      console.log('=====================================');
       console.log(`🚀 Port: ${PORT}`);
       console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`🌐 Server: api.aced.live`);
+      console.log(`🖥️  Frontend: aced.live`);
       console.log(`📊 Node.js: ${process.version}`);
       console.log(`📊 Mongoose: ${mongoose.version}`);
-      console.log(`🔗 Health: http://localhost:${PORT}/health`);
-      console.log(`🧪 Auth test: http://localhost:${PORT}/auth-test`);
-      console.log(`🔍 Routes debug: http://localhost:${PORT}/api/routes`);
+      console.log(`🔗 Health: https://api.aced.live/health`);
+      console.log(`🧪 Auth test: https://api.aced.live/auth-test`);
+      console.log(`🔍 Routes debug: https://api.aced.live/api/routes`);
+      console.log(`💳 PayMe sandbox: https://api.aced.live/api/payments/sandbox`);
       console.log(`📊 Routes: ${mountedRoutes.length} mounted`);
-      console.log('================================\n');
+      console.log('=====================================\n');
       
       if (mountedRoutes.length > 0) {
-        console.log('📋 Available Routes:');
+        console.log('📋 Available Route Groups:');
         mountedRoutes.forEach(route => {
           console.log(`   ${route.path} - ${route.description}`);
         });
         console.log('');
       }
+
+      // Show PayMe configuration
+      console.log('💳 PayMe Configuration:');
+      console.log(`   Merchant Key: ${process.env.PAYME_MERCHANT_KEY ? '✅ Set' : '❌ Missing'}`);
+      console.log(`   Environment: ${process.env.NODE_ENV === 'production' ? 'Production' : 'Sandbox/Development'}`);
+      console.log(`   Sandbox URL: https://api.aced.live/api/payments/sandbox`);
+      console.log('');
+
+      // Show Firebase configuration
+      console.log('🔥 Firebase Configuration:');
+      console.log(`   Project ID: ${process.env.FIREBASE_PROJECT_ID || 'Not set'}`);
+      console.log(`   Client Email: ${process.env.FIREBASE_CLIENT_EMAIL ? '✅ Set' : '❌ Missing'}`);
+      console.log(`   Private Key: ${process.env.FIREBASE_PRIVATE_KEY ? '✅ Set' : '❌ Missing'}`);
+      console.log('');
     });
     
     // Graceful shutdown
     process.on('SIGTERM', () => {
-      console.log('⚠️  SIGTERM received, shutting down...');
+      console.log('⚠️  SIGTERM received, shutting down gracefully...');
       server.close(() => {
-        mongoose.connection.close();
-        process.exit(0);
+        console.log('🔌 HTTP server closed');
+        mongoose.connection.close(() => {
+          console.log('💾 MongoDB connection closed');
+          process.exit(0);
+        });
       });
     });
     
     process.on('SIGINT', () => {
-      console.log('⚠️  SIGINT received, shutting down...');
+      console.log('⚠️  SIGINT received, shutting down gracefully...');
       server.close(() => {
-        mongoose.connection.close();
-        process.exit(0);
+        console.log('🔌 HTTP server closed');
+        mongoose.connection.close(() => {
+          console.log('💾 MongoDB connection closed');
+          process.exit(0);
+        });
       });
     });
     
@@ -1048,14 +1123,18 @@ const startServer = async () => {
 process.on('unhandledRejection', (reason, promise) => {
   console.error('⚠️  Unhandled Rejection at:', promise);
   console.error('⚠️  Reason:', reason);
+  console.error('🌐 Server: api.aced.live');
   
   if (process.env.NODE_ENV === 'production') {
+    console.error('🚨 Exiting due to unhandled rejection in production');
     process.exit(1);
   }
 });
 
 process.on('uncaughtException', (error) => {
   console.error('❌ Uncaught Exception:', error);
+  console.error('🌐 Server: api.aced.live');
+  console.error('🚨 Exiting due to uncaught exception');
   process.exit(1);
 });
 
