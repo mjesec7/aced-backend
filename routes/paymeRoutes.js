@@ -31,10 +31,12 @@ router.post('/initiate-payme', initiatePaymePayment);
 router.post('/sandbox', handleSandboxPayment);
 router.get('/sandbox/status', (req, res) => {
   res.json({
-    message: '✅ Sandbox is running',
+    message: '✅ Sandbox is running on live server',
     environment: process.env.NODE_ENV || 'development',
     timestamp: new Date().toISOString(),
-    endpoint: 'https://api.aced.live/api/payments/sandbox'
+    endpoint: 'https://api.aced.live/api/payments/sandbox',
+    server: 'api.aced.live',
+    frontend: 'aced.live'
   });
 });
 
@@ -99,19 +101,22 @@ if (process.env.NODE_ENV !== 'production') {
   });
 
   // Debug endpoint to check configuration
-  router.get('/debug/config', (req, res) => {
-    res.json({
-      environment: process.env.NODE_ENV || 'development',
-      hasPaymeMerchantId: !!process.env.PAYME_MERCHANT_ID,
-      hasPaymeMerchantKey: !!process.env.PAYME_MERCHANT_KEY,
-      sandboxUrl: 'https://api.aced.live/api/payments/sandbox',
-      liveUrl: process.env.PAYME_API_URL_LIVE || 'https://checkout.paycom.uz/api',
-      paymentAmounts: {
-        start: '2600 UZS (260000 tiyin)',
-        pro: '4550 UZS (455000 tiyin)'
-      }
-    });
+  // ✅ Add production awareness
+router.get('/debug/config', (req, res) => {
+  res.json({
+    environment: process.env.NODE_ENV || 'development',
+    server: 'api.aced.live',
+    frontend: 'aced.live',
+    hasPaymeMerchantId: !!process.env.PAYME_MERCHANT_ID,
+    hasPaymeMerchantKey: !!process.env.PAYME_MERCHANT_KEY,
+    sandboxUrl: 'https://api.aced.live/api/payments/sandbox',
+    liveUrl: process.env.PAYME_API_URL_LIVE || 'https://checkout.paycom.uz/api',
+    paymentAmounts: {
+      start: '2600 UZS (260000 tiyin)',
+      pro: '4550 UZS (455000 tiyin)'
+    }
   });
+});
 }
 
 // Error handling middleware for payment routes
