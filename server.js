@@ -773,22 +773,34 @@ const mountRoute = (path, routeFile, description) => {
   }
 };
 
-// ✅ Routes to mount in correct order (PayMe first!)
+// ✅ TEST: Check if userRoutes can be loaded
+console.log('🔍 Testing userRoutes loading...');
+try {
+  const testUserRoutes = require('./routes/userRoutes');
+  console.log('✅ userRoutes loaded successfully');
+} catch (error) {
+  console.error('❌ CRITICAL: userRoutes failed to load:', error.message);
+  console.error('❌ Stack:', error.stack);
+}
+
+// ✅ Routes to mount in correct order (only mount existing files)
 const routesToMount = [
   // PayMe routes FIRST (most specific)
   ['/api/payments', './routes/paymeRoutes', 'PayMe payment routes'],
   
-  // Then other routes
-  ['/api/progress', './routes/progressRoutes', 'Progress tracking routes'],
+  // User routes - CRITICAL
   ['/api/users', './routes/userRoutes', 'User management routes (MAIN)'],
   ['/api/user', './routes/userRoutes', 'User management routes (LEGACY)'],
-  ['/api/lessons', './routes/lessonRoutes', 'Lesson management routes'],
-  ['/api/subjects', './routes/subjectRoutes', 'Subject management routes'],
+  
+  // Only mount routes that exist - comment out missing ones
+  // ['/api/progress', './routes/progressRoutes', 'Progress tracking routes'],
+  // ['/api/lessons', './routes/lessonRoutes', 'Lesson management routes'],
+  // ['/api/subjects', './routes/subjectRoutes', 'Subject management routes'],
   ['/api/topics', './routes/topicRoutes', 'Topic management routes'],
-  ['/api/chat', './routes/chatRoutes', 'Chat/AI routes'],
-  ['/api/homeworks', './routes/homeworkRoutes', 'Homework routes'],
-  ['/api/tests', './routes/testRoutes', 'Test/quiz routes'],
-  ['/api/analytics', './routes/userAnalytics', 'User analytics routes'],
+  // ['/api/chat', './routes/chatRoutes', 'Chat/AI routes'],
+  // ['/api/homeworks', './routes/homeworkRoutes', 'Homework routes'],
+  // ['/api/tests', './routes/testRoutes', 'Test/quiz routes'],
+  // ['/api/analytics', './routes/userAnalytics', 'User analytics routes'],
 ];
 
 // Mount routes
@@ -809,10 +821,98 @@ console.log(`❌ Failed to mount: ${failedRoutes.length}`);
 
 if (failedRoutes.length > 0) {
   console.warn('\n⚠️  FAILED ROUTES:');
-  failedRoutes.forEach(({ path, description }) => {
-    console.warn(`   ${path} - ${description}`);
+  failedRoutes.forEach(({ path, file, description }) => {
+    console.warn(`   ${path} - ${description} (${file})`);
   });
+  console.warn('\n💡 To fix: Check if these route files exist and have no syntax errors');
 }
+
+// ✅ EMERGENCY FIX: Add user save route directly since userRoutes might be failing
+console.log('🚨 Adding emergency user save route...');
+
+app.post('/api/users/save', async (req, res) => {
+  console.log('💾 Emergency save route hit on api.aced.live');
+  
+  const { token, name, subscriptionPlan } = req.body;
+  
+  if (!token || !name) {
+    return res.status(400).json({ 
+      error: '❌ Missing token or name',
+      server: 'api.aced.live'
+    });
+  }
+  
+  try {
+    const admin = require('./config/firebase');
+    const User = require('./models/user');
+    
+    console.log('🔍 Verifying token in emergency route...');
+    const decoded = await admin.auth().verifyIdToken(token);
+    
+    console.log('✅ Token verified:', decoded.uid);
+    
+    if (decoded.aud !== 'aced-9cf72') {
+      return res.status(403).json({ 
+        error: '❌ Token from wrong Firebase project',
+        expected: 'aced-9cf72',
+        received: decoded.aud
+      });
+    }
+    
+    const firebaseId = decoded.uid;
+    const email = decoded.email;
+
+    let user = await User.findOne({ firebaseId });
+    if (!user) {
+      console.log('👤 Creating new user via emergency route');
+      user = new User({ 
+        firebaseId, 
+        email, 
+        name, 
+        login: email,
+        subscriptionPlan: subscriptionPlan || 'free' 
+      });
+    } else {
+      console.log('📝 Updating existing user via emergency route');
+      user.email = email;
+      user.name = name;
+      user.login = email;
+      if (subscriptionPlan) user.subscriptionPlan = subscriptionPlan;
+    }
+
+    await user.save();
+    console.log('✅ User saved via emergency route');
+    
+    res.json({
+      ...user.toObject(),
+      message: '✅ User saved via emergency route',
+      server: 'api.aced.live'
+    });
+    
+  } catch (err) {
+    console.error('❌ Emergency save error:', err.message);
+    res.status(401).json({ 
+      error: '❌ Invalid Firebase token',
+      details: err.message,
+      server: 'api.aced.live'
+    });
+  }
+});
+
+// ✅ Add test route to verify system is working
+app.get('/api/users/test', (req, res) => {
+  res.json({
+    message: '✅ Emergency user routes are working',
+    server: 'api.aced.live',
+    timestamp: new Date().toISOString(),
+    routes: [
+      'GET /api/users/test',
+      'POST /api/users/save (emergency)',
+    ]
+  });
+});
+
+console.log('✅ Emergency user routes added');
 
 // ========================================
 // 🔍 ROUTE DIAGNOSTICS ENDPOINT
