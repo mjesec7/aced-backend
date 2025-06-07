@@ -144,7 +144,7 @@ router.post('/save', async (req, res) => {
       });
     }
   }
-});
+})
 
 // Info
 router.get('/:firebaseId', validateFirebaseId, async (req, res) => {
