@@ -117,7 +117,7 @@ function initializeFirebase() {
     }
     
     console.error('🚨 SERVER CANNOT START WITHOUT FIREBASE');
-    process.exit(1);
+    process.exit(1)
   }
 }
 
