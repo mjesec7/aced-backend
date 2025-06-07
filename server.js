@@ -830,6 +830,7 @@ if (failedRoutes.length > 0) {
 // ✅ EMERGENCY FIX: Add user save route directly since userRoutes might be failing
 console.log('🚨 Adding emergency user save route...');
 
+// ✅ EMERGENCY FIX: Add user save route directly (FIXED VERSION)
 app.post('/api/users/save', async (req, res) => {
   console.log('💾 Emergency save route hit on api.aced.live');
   
@@ -843,13 +844,18 @@ app.post('/api/users/save', async (req, res) => {
   }
   
   try {
-    const admin = require('./config/firebase');
+    // ✅ Import Firebase Admin directly, not through config
+    const admin = require('firebase-admin');
     const User = require('./models/user');
     
     console.log('🔍 Verifying token in emergency route...');
     const decoded = await admin.auth().verifyIdToken(token);
     
-    console.log('✅ Token verified:', decoded.uid);
+    console.log('✅ Token verified:', {
+      uid: decoded.uid,
+      email: decoded.email,
+      aud: decoded.aud
+    });
     
     if (decoded.aud !== 'aced-9cf72') {
       return res.status(403).json({ 
