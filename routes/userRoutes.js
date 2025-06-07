@@ -513,7 +513,6 @@ router.get('/:firebaseId/homework/:homeworkId', validateFirebaseId, verifyToken,
   }
 });
 
-// ✅ Save standalone homework progress
 router.post('/:firebaseId/homework/:homeworkId/save', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   console.log('💾 POST save standalone homework for user:', req.params.firebaseId, 'homeworkId:', req.params.homeworkId);
   
@@ -521,21 +520,38 @@ router.post('/:firebaseId/homework/:homeworkId/save', validateFirebaseId, verify
     const { firebaseId, homeworkId } = req.params;
     const { answers } = req.body;
     
+    // Validate inputs
+    if (!firebaseId || !homeworkId) {
+      return res.status(400).json({ error: '❌ Missing required parameters' });
+    }
+    
     if (!Array.isArray(answers)) {
       return res.status(400).json({ error: '❌ Answers must be an array' });
     }
 
-    // Verify homework exists
+    console.log('🔍 Looking for homework with ID:', homeworkId);
+    
+    // Verify homework exists with better error handling
     const homework = await Homework.findById(homeworkId);
     if (!homework) {
+      console.log('❌ Homework not found for ID:', homeworkId);
       return res.status(404).json({ error: '❌ Homework not found' });
     }
 
-    // Update or create progress - use metadata to store standalone homework ID
+    console.log('✅ Homework found:', homework.title);
+
+    // Check for existing progress
+    console.log('🔍 Looking for existing progress...');
+    let existingProgress = await HomeworkProgress.findOne({
+      userId: firebaseId,
+      'metadata.standaloneHomeworkId': homeworkId
+    });
+
+    console.log('Existing progress:', existingProgress ? 'Found' : 'Not found');
+
     const progressData = {
       userId: firebaseId,
-      // Use lessonId field to store homework reference or create a metadata field
-      lessonId: null, // No actual lesson for standalone homework
+      lessonId: null,
       answers: answers,
       completed: false,
       metadata: {
@@ -546,27 +562,21 @@ router.post('/:firebaseId/homework/:homeworkId/save', validateFirebaseId, verify
       updatedAt: new Date()
     };
 
-    // Try to find existing progress using metadata
-    let existingProgress = await HomeworkProgress.findOne({
-      userId: firebaseId,
-      'metadata.standaloneHomeworkId': homeworkId
-    });
-
     let progress;
     if (existingProgress) {
-      // Update existing progress
+      console.log('📝 Updating existing progress...');
       progress = await HomeworkProgress.findByIdAndUpdate(
         existingProgress._id,
         progressData,
-        { new: true }
+        { new: true, runValidators: true }
       );
     } else {
-      // Create new progress
+      console.log('📝 Creating new progress...');
       progress = new HomeworkProgress(progressData);
       await progress.save();
     }
 
-    console.log(`💾 Standalone homework progress saved for user ${firebaseId}`);
+    console.log(`✅ Standalone homework progress saved for user ${firebaseId}`);
     res.json({
       success: true,
       data: progress,
@@ -575,7 +585,18 @@ router.post('/:firebaseId/homework/:homeworkId/save', validateFirebaseId, verify
     
   } catch (error) {
     console.error('❌ Error saving standalone homework:', error);
-    res.status(500).json({ error: '❌ Error saving homework progress' });
+    console.error('Error name:', error.name);
+    console.error('Error message:', error.message);
+    console.error('Stack trace:', error.stack);
+    
+    // Send more specific error based on error type
+    if (error.name === 'ValidationError') {
+      res.status(400).json({ error: '❌ Validation error: ' + error.message });
+    } else if (error.name === 'CastError') {
+      res.status(400).json({ error: '❌ Invalid ID format' });
+    } else {
+      res.status(500).json({ error: '❌ Error saving homework progress' });
+    }
   }
 });
 
