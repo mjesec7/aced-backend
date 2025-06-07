@@ -783,7 +783,7 @@ try {
   console.error('❌ Stack:', error.stack);
 }
 
-// ✅ Routes to mount in correct order (only mount existing files)
+// ✅ FIXED: All routes uncommented - they all exist!
 const routesToMount = [
   // PayMe routes FIRST (most specific)
   ['/api/payments', './routes/paymeRoutes', 'PayMe payment routes'],
@@ -792,15 +792,15 @@ const routesToMount = [
   ['/api/users', './routes/userRoutes', 'User management routes (MAIN)'],
   ['/api/user', './routes/userRoutes', 'User management routes (LEGACY)'],
   
-  // Only mount routes that exist - comment out missing ones
-  // ['/api/progress', './routes/progressRoutes', 'Progress tracking routes'],
-  // ['/api/lessons', './routes/lessonRoutes', 'Lesson management routes'],
-  // ['/api/subjects', './routes/subjectRoutes', 'Subject management routes'],
+  // ✅ ALL ROUTES UNCOMMENTED - THEY ALL EXIST!
+  ['/api/progress', './routes/userProgressRoutes', 'Progress tracking routes'],
+  ['/api/lessons', './routes/lessonRoutes', 'Lesson management routes'],
+  ['/api/subjects', './routes/subjectRoutes', 'Subject management routes'],
   ['/api/topics', './routes/topicRoutes', 'Topic management routes'],
-  // ['/api/chat', './routes/chatRoutes', 'Chat/AI routes'],
-  // ['/api/homeworks', './routes/homeworkRoutes', 'Homework routes'],
-  // ['/api/tests', './routes/testRoutes', 'Test/quiz routes'],
-  // ['/api/analytics', './routes/userAnalytics', 'User analytics routes'],
+  ['/api/chat', './routes/chatRoutes', 'Chat/AI routes'],
+  ['/api/homeworks', './routes/homeworkRoutes', 'Homework routes'],
+  ['/api/tests', './routes/testRoutes', 'Test/quiz routes'],
+  ['/api/analytics', './routes/userAnalytics', 'User analytics routes'],
 ];
 
 // Mount routes
@@ -1010,12 +1010,11 @@ app.use('/api/*', (req, res) => {
     timestamp: new Date().toISOString(),
     availableRoutes: mountedRoutes.map(r => r.path),
     suggestion: 'Check the route path and method',
-    paymeEndpoints: [
+    allMountedRoutes: [
       'POST /api/payments/sandbox',
       'POST /api/payments/payme',
       'POST /api/payments/initiate',
-      'POST /api/payments/promo-code',
-      'POST /api/payments/initiate-payme'
+      ...mountedRoutes.map(r => `${r.path}/*`)
     ]
   });
 });
