@@ -135,9 +135,31 @@ const handleSandboxPayment = async (req, res) => {
     // ✅ STEP 3: Handle business logic AFTER authorization passes
     switch (method) {
       case 'CheckPerformTransaction':
-        console.log('🔍 Processing CheckPerformTransaction with amount:', params?.amount);
+        console.log('🔍 Processing CheckPerformTransaction with:', {
+          amount: params?.amount,
+          account: params?.account
+        });
         
-        // Validate amount FIRST (most specific error)
+        // ✅ FIXED: Validate account FIRST - reject test/invalid accounts
+        const accountLogin = params?.account?.login || params?.account?.Login;
+        if (!accountLogin || accountLogin === 'Login' || accountLogin.length < 3) {
+          // PayMe test sends 'Login' as invalid account value
+          console.log('❌ Invalid/non-existent account:', accountLogin);
+          return res.json({
+            jsonrpc: '2.0',
+            id: id,
+            error: {
+              code: -31050,
+              message: {
+                ru: 'Неверный аккаунт',
+                en: 'Invalid account',
+                uz: 'Noto\'g\'ri hisob'
+              }
+            }
+          });
+        }
+        
+        // ✅ Then validate amount (only if account is valid)
         const validAmounts = Object.values(PAYMENT_AMOUNTS); // [260000, 455000]
         if (!params?.amount || !validAmounts.includes(params.amount)) {
           console.log('❌ Invalid amount:', params?.amount, 'Valid amounts:', validAmounts);
@@ -150,24 +172,6 @@ const handleSandboxPayment = async (req, res) => {
                 ru: 'Неверная сумма',
                 en: 'Invalid amount',
                 uz: 'Noto\'g\'ri summa'
-              }
-            }
-          });
-        }
-        
-        // Validate account (check both login and Login)
-        const accountLogin = params?.account?.login || params?.account?.Login;
-        if (!accountLogin) {
-          console.log('❌ Invalid account - no login provided');
-          return res.json({
-            jsonrpc: '2.0',
-            id: id,
-            error: {
-              code: -31050,
-              message: {
-                ru: 'Неверный аккаунт',
-                en: 'Invalid account',
-                uz: 'Noto\'g\'ri hisob'
               }
             }
           });
@@ -187,9 +191,31 @@ const handleSandboxPayment = async (req, res) => {
         });
 
       case 'CreateTransaction':
-        console.log('🔍 Processing CreateTransaction with amount:', params?.amount);
+        console.log('🔍 Processing CreateTransaction with:', {
+          amount: params?.amount,
+          account: params?.account
+        });
         
-        // Validate amount FIRST (most specific error)
+        // ✅ FIXED: Validate account FIRST - reject test/invalid accounts
+        const createAccountLogin = params?.account?.login || params?.account?.Login;
+        if (!createAccountLogin || createAccountLogin === 'Login' || createAccountLogin.length < 3) {
+          // PayMe test sends 'Login' as invalid account value
+          console.log('❌ Invalid/non-existent account:', createAccountLogin);
+          return res.json({
+            jsonrpc: '2.0',
+            id: id,
+            error: {
+              code: -31050,
+              message: {
+                ru: 'Неверный аккаунт',
+                en: 'Invalid account',
+                uz: 'Noto\'g\'ri hisob'
+              }
+            }
+          });
+        }
+        
+        // ✅ Then validate amount (only if account is valid)
         const validCreateAmounts = Object.values(PAYMENT_AMOUNTS); // [260000, 455000]
         if (!params?.amount || !validCreateAmounts.includes(params.amount)) {
           console.log('❌ Invalid amount:', params?.amount, 'Valid amounts:', validCreateAmounts);
@@ -202,24 +228,6 @@ const handleSandboxPayment = async (req, res) => {
                 ru: 'Неверная сумма',
                 en: 'Invalid amount',
                 uz: 'Noto\'g\'ri summa'
-              }
-            }
-          });
-        }
-
-        // Validate account (check both login and Login)
-        const createAccountLogin = params?.account?.login || params?.account?.Login;
-        if (!createAccountLogin) {
-          console.log('❌ Invalid account - no login provided');
-          return res.json({
-            jsonrpc: '2.0',
-            id: id,
-            error: {
-              code: -31050,
-              message: {
-                ru: 'Неверный аккаунт',
-                en: 'Invalid account',
-                uz: 'Noto\'g\'ri hisob'
               }
             }
           });
