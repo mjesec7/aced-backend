@@ -1,4 +1,4 @@
-// controllers/paymentController.js - FIXED VERSION
+// controllers/paymentController.js - CORRECTED VERSION FOR PAYME SANDBOX
 
 const User = require('../models/user');
 const axios = require('axios');
@@ -9,93 +9,90 @@ const PAYMENT_AMOUNTS = {
   pro: 455000    // 4550 UZS
 };
 
-// ✅ FIXED: PayMe Authorization Validation
+// ✅ CRITICAL FIX: PayMe Authorization Validation (MUST return -32504 for auth failures)
 const validatePaymeAuth = (req) => {
   const authHeader = req.headers.authorization;
   
-  console.log('🔐 Checking PayMe authorization:', {
+  console.log('🔐 PayMe Authorization Check:', {
     hasAuthHeader: !!authHeader,
-    authHeader: authHeader ? authHeader.substring(0, 20) + '...' : 'None',
-    method: req.body?.method
+    method: req.body?.method,
+    authHeaderStart: authHeader ? authHeader.substring(0, 20) + '...' : 'None'
   });
   
-  // Check if Authorization header exists
+  // ✅ STEP 1: Check if Authorization header exists
   if (!authHeader) {
-    console.log('❌ No authorization header found');
-    throw new Error('MISSING_AUTH');
+    console.log('❌ Authorization header missing');
+    return { valid: false, error: 'MISSING_AUTH_HEADER' };
   }
   
-  // Check if it's Basic auth
+  // ✅ STEP 2: Check if it's Basic auth format
   if (!authHeader.startsWith('Basic ')) {
-    console.log('❌ Invalid authorization format - not Basic auth');
-    throw new Error('INVALID_AUTH_FORMAT');
+    console.log('❌ Not Basic authorization format');
+    return { valid: false, error: 'INVALID_AUTH_FORMAT' };
   }
   
   try {
-    // Decode credentials
+    // ✅ STEP 3: Decode and validate credentials
     const credentials = Buffer.from(authHeader.slice(6), 'base64').toString();
     const [username, password] = credentials.split(':');
     
     console.log('🔍 Decoded credentials:', {
-      username: username,
+      username: username || 'empty',
       hasPassword: !!password,
       passwordLength: password?.length || 0
     });
     
-    // Validate PayMe credentials
+    // ✅ STEP 4: Validate PayMe specific credentials
     const expectedUsername = 'Paycom';
     const expectedPassword = process.env.PAYME_MERCHANT_KEY;
     
-    console.log('🔍 Credential validation:', {
-      usernameMatch: username === expectedUsername,
-      hasExpectedPassword: !!expectedPassword,
-      passwordMatch: password === expectedPassword
-    });
-    
+    // Check username
     if (username !== expectedUsername) {
-      console.log('❌ Invalid username:', username, 'expected:', expectedUsername);
-      throw new Error('INVALID_CREDENTIALS');
+      console.log('❌ Invalid username. Expected: Paycom, Got:', username);
+      return { valid: false, error: 'INVALID_USERNAME' };
     }
     
+    // Check password (merchant key)
     if (!expectedPassword) {
-      console.log('⚠️ No PAYME_MERCHANT_KEY configured - allowing for sandbox');
-      return true; // Allow in sandbox mode if no key configured
+      console.log('⚠️ No PAYME_MERCHANT_KEY configured - this will fail in sandbox tests');
+      return { valid: false, error: 'NO_MERCHANT_KEY_CONFIGURED' };
     }
     
     if (password !== expectedPassword) {
-      console.log('❌ Invalid password');
-      throw new Error('INVALID_CREDENTIALS');
+      console.log('❌ Invalid password/merchant key');
+      return { valid: false, error: 'INVALID_PASSWORD' };
     }
     
     console.log('✅ PayMe authorization successful');
-    return true;
+    return { valid: true };
     
   } catch (decodeError) {
-    console.log('❌ Error decoding credentials:', decodeError.message);
-    throw new Error('INVALID_AUTH_FORMAT');
+    console.log('❌ Error decoding authorization header:', decodeError.message);
+    return { valid: false, error: 'DECODE_ERROR' };
   }
 };
 
-// ✅ FIXED: Enhanced sandbox with proper authorization checking
+// ✅ CRITICAL FIX: Enhanced sandbox with PROPER authorization checking
 const handleSandboxPayment = async (req, res) => {
   try {
     const { method, params, id } = req.body;
 
-    console.log('🧪 Sandbox payment request:', {
+    console.log('🧪 PayMe Sandbox Request:', {
       method,
       hasParams: !!params,
       hasId: !!id,
-      hasAuth: !!req.headers.authorization
+      hasAuth: !!req.headers.authorization,
+      ip: req.ip || req.connection?.remoteAddress,
+      userAgent: req.headers['user-agent']?.substring(0, 50)
     });
 
-    // ✅ FIXED: Always validate authorization first
-    try {
-      validatePaymeAuth(req);
-      console.log('✅ Authorization validation passed');
-    } catch (authError) {
-      console.log('❌ Authorization validation failed:', authError.message);
+    // ✅ CRITICAL: ALWAYS validate authorization FIRST (before anything else)
+    const authResult = validatePaymeAuth(req);
+    
+    if (!authResult.valid) {
+      console.log('❌ Authorization validation failed:', authResult.error);
       
-      // Return -32504 error for any authorization issues
+      // ✅ FIXED: Return -32504 for ANY authorization issue
       return res.json({
         jsonrpc: '2.0',
         id: id || null,
@@ -109,7 +106,9 @@ const handleSandboxPayment = async (req, res) => {
       });
     }
 
-    // ✅ Validate request ID
+    console.log('✅ Authorization passed, processing method:', method);
+
+    // ✅ Validate request structure
     if (!id) {
       return res.json({
         jsonrpc: '2.0',
@@ -117,16 +116,17 @@ const handleSandboxPayment = async (req, res) => {
         error: {
           code: -32602,
           message: {
-            ru: 'Отсутствует ID запроса',
-            en: 'Missing request ID'
+            ru: 'Неверный запрос',
+            en: 'Invalid Request'
           }
         }
       });
     }
 
-    // ✅ After authorization passes, handle methods normally
+    // ✅ AFTER authorization passes, handle business logic
     switch (method) {
       case 'CheckPerformTransaction':
+        // Validate account
         if (!params?.account?.login) {
           return res.json({
             jsonrpc: '2.0',
@@ -141,6 +141,7 @@ const handleSandboxPayment = async (req, res) => {
           });
         }
         
+        // Validate amount
         if (!params?.amount || params.amount < 100) {
           return res.json({
             jsonrpc: '2.0',
@@ -155,6 +156,7 @@ const handleSandboxPayment = async (req, res) => {
           });
         }
         
+        // Success response
         return res.json({
           jsonrpc: '2.0',
           id: id,
@@ -167,6 +169,7 @@ const handleSandboxPayment = async (req, res) => {
         });
 
       case 'CreateTransaction':
+        // Validate amount first
         if (!params?.amount || params.amount < 100) {
           return res.json({
             jsonrpc: '2.0',
@@ -181,6 +184,7 @@ const handleSandboxPayment = async (req, res) => {
           });
         }
 
+        // Validate account
         if (!params?.account?.login) {
           return res.json({
             jsonrpc: '2.0',
@@ -195,6 +199,7 @@ const handleSandboxPayment = async (req, res) => {
           });
         }
 
+        // Create transaction
         return res.json({
           jsonrpc: '2.0',
           id: id,
@@ -313,7 +318,7 @@ const handleSandboxPayment = async (req, res) => {
     }
 
   } catch (error) {
-    console.error('❌ Live sandbox error:', error);
+    console.error('❌ Sandbox error:', error);
     res.json({
       jsonrpc: '2.0',
       id: req.body?.id || null,
@@ -329,7 +334,7 @@ const handleSandboxPayment = async (req, res) => {
   }
 };
 
-// ✅ FIXED: Enhanced makePaymeRequest with proper authorization
+// ✅ Production-aware helper function with proper authorization
 const makePaymeRequest = async (url, payload) => {
   const merchantId = process.env.PAYME_MERCHANT_ID;
   const merchantKey = process.env.PAYME_MERCHANT_KEY;
@@ -337,19 +342,13 @@ const makePaymeRequest = async (url, payload) => {
   const isProduction = process.env.NODE_ENV === 'production';
   const isSandboxUrl = url.includes('/sandbox');
   
-  // For production PayMe, use real credentials
-  // For sandbox, use test credentials or no auth
-  let finalMerchantId = merchantId;
-  let finalMerchantKey = merchantKey;
-  
-  if (!isProduction || isSandboxUrl) {
-    finalMerchantId = merchantId || 'test_merchant_id';
-    finalMerchantKey = merchantKey || 'test_merchant_key';
-  }
-
-  if (!isSandboxUrl && (!finalMerchantId || !finalMerchantKey)) {
-    throw new Error('Payme credentials not configured for production');
-  }
+  console.log('🔍 Making PayMe request:', {
+    url,
+    method: payload.method,
+    isProduction,
+    isSandbox: isSandboxUrl,
+    hasMerchantKey: !!merchantKey
+  });
 
   // Prepare request
   const requestPayload = {
@@ -357,37 +356,28 @@ const makePaymeRequest = async (url, payload) => {
     ...payload
   };
 
-  console.log('🔍 Making Payme request:', {
-    url,
-    method: payload.method,
-    hasAuth: !!(finalMerchantId && finalMerchantKey),
-    isProduction,
-    isSandbox: isSandboxUrl
-  });
-
   try {
     const requestConfig = {
       headers: {
         'Content-Type': 'application/json',
       },
-      timeout: 30000, // 30 second timeout
+      timeout: 30000,
     };
 
-    // ✅ Add auth for all requests (sandbox will validate and reject properly)
-    if (finalMerchantKey) {
+    // ✅ Add authorization for all requests (even sandbox for testing)
+    if (merchantKey) {
       requestConfig.auth = {
-        username: 'Paycom', // Always 'Paycom' for Payme
-        password: finalMerchantKey
+        username: 'Paycom',
+        password: merchantKey
       };
-      
-      console.log('🔐 Added authorization header for request');
+      console.log('🔐 Added Basic auth for PayMe request');
     } else {
-      console.log('⚠️ No authorization added - expecting sandbox to reject');
+      console.log('⚠️ No merchant key - request will likely fail');
     }
 
     const response = await axios.post(url, requestPayload, requestConfig);
 
-    console.log('✅ Payme request successful:', {
+    console.log('✅ PayMe request successful:', {
       status: response.status,
       hasResult: !!response.data?.result,
       hasError: !!response.data?.error
@@ -397,11 +387,10 @@ const makePaymeRequest = async (url, payload) => {
 
   } catch (error) {
     if (error.response) {
-      console.error('Payme API HTTP error:', {
+      console.error('PayMe API HTTP error:', {
         status: error.response.status,
         statusText: error.response.statusText,
-        data: error.response.data,
-        url: error.config?.url
+        data: error.response.data
       });
       
       return error.response.data || { 
@@ -413,15 +402,8 @@ const makePaymeRequest = async (url, payload) => {
           } 
         } 
       };
-    } else if (error.request) {
-      console.error('Payme API network error:', {
-        message: error.message,
-        code: error.code,
-        url: error.config?.url
-      });
-      throw new Error(`Network error: ${error.message}`);
     } else {
-      console.error('Payme API request error:', error.message);
+      console.error('PayMe API request error:', error.message);
       throw error;
     }
   }
@@ -467,7 +449,6 @@ const applyPromoCode = async (req, res) => {
   }
 };
 
-// ✅ Keep the rest of existing functions...
 const initiatePaymePayment = async (req, res) => {
   try {
     const { userId, plan } = req.body;
@@ -510,7 +491,7 @@ const initiatePaymePayment = async (req, res) => {
       paymeApiUrl = 'https://api.aced.live/api/payments/sandbox';
     }
 
-    console.log('🔍 Payme payment initiation:', {
+    console.log('🔍 PayMe payment initiation:', {
       userId,
       plan,
       amount,
@@ -605,18 +586,12 @@ const initiatePaymePayment = async (req, res) => {
       });
 
     } catch (apiError) {
-      console.error('❌ Payme API error:', apiError);
+      console.error('❌ PayMe API error:', apiError);
       
-      if (apiError.response) {
-        console.error('API Response data:', apiError.response.data);
-        console.error('API Response status:', apiError.response.status);
-      }
-
       return res.status(500).json({
         message: '❌ Ошибка при обращении к платёжной системе',
         error: apiError.message,
-        sandbox: !isProduction,
-        details: process.env.NODE_ENV === 'development' ? apiError.stack : undefined
+        sandbox: !isProduction
       });
     }
 
@@ -624,13 +599,11 @@ const initiatePaymePayment = async (req, res) => {
     console.error('❌ Ошибка инициации платежа:', err);
     res.status(500).json({ 
       message: '❌ Ошибка сервера при инициации платежа',
-      error: err.message,
-      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+      error: err.message
     });
   }
 };
 
-// Test endpoint and other existing functions...
 const validateUserRoute = async (req, res) => {
   try {
     const { userId } = req.params;
