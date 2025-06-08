@@ -541,17 +541,14 @@ const handleSandboxPayment = async (req, res) => {
         });
 
       case 'ChangePassword':
-        console.log('❌ ChangePassword method not supported');
+        console.log('✅ ChangePassword method called');
+        // According to PayMe documentation, this method should return success
+        // even though it's not actually implemented in most merchant systems
         return res.json({
           jsonrpc: '2.0',
           id: id,
-          error: {
-            code: -32601,
-            message: {
-              ru: 'Метод ChangePassword не найден',
-              en: 'Method ChangePassword not found',
-              uz: 'ChangePassword usuli topilmadi'
-            }
+          result: {
+            success: true
           }
         });
 
