@@ -54,8 +54,8 @@ const validatePaymeAuth = (req) => {
     
     // Check password (merchant key)
     if (!expectedPassword) {
-      console.log('⚠️ No PAYME_MERCHANT_KEY configured - allowing for sandbox testing');
-      return { valid: true }; // ✅ Allow sandbox testing without merchant key
+      console.log('⚠️ No PAYME_MERCHANT_KEY configured - this will fail auth tests');
+      return { valid: false, error: 'NO_MERCHANT_KEY_CONFIGURED' };
     }
     
     if (password !== expectedPassword) {
@@ -82,28 +82,47 @@ const handleSandboxPayment = async (req, res) => {
   try {
     const { method, params, id } = req.body;
 
+    // ✅ CRITICAL: Check if we have merchant key configured for proper auth testing
+    if (!process.env.PAYME_MERCHANT_KEY) {
+      console.error('❌ PAYME_MERCHANT_KEY not configured - cannot perform proper authorization testing');
+      return res.json({
+        jsonrpc: '2.0',
+        id: id || null,
+        error: {
+          code: -32504,
+          message: {
+            ru: 'Недостаточно привилегий для выполнения метода',
+            en: 'Insufficient privileges to perform this method',
+            uz: 'Ushbu amalni bajarish uchun yetarli huquq yo\'q'
+          }
+        }
+      });
+    }
+
     console.log('🧪 PayMe Sandbox Request:', {
       method,
       hasParams: !!params,
       hasId: !!id,
       hasAuth: !!req.headers.authorization,
+      authHeader: req.headers.authorization ? 'Present' : 'Missing',
       ip: req.ip || req.connection?.remoteAddress,
       userAgent: req.headers['user-agent']?.substring(0, 50)
     });
 
-    // ✅ ALWAYS validate authorization FIRST
+    // ✅ CRITICAL: ALWAYS validate authorization FIRST (before any business logic)
     const authResult = validatePaymeAuth(req);
     
     if (!authResult.valid) {
       console.log('❌ Authorization validation failed:', authResult.error);
-      console.log('🔍 Debug info:', {
+      console.log('🔍 Auth debug info:', {
         hasAuthHeader: !!req.headers.authorization,
         authHeaderStart: req.headers.authorization ? req.headers.authorization.substring(0, 30) + '...' : 'None',
         merchantKeyConfigured: !!process.env.PAYME_MERCHANT_KEY,
-        merchantKeyLength: process.env.PAYME_MERCHANT_KEY?.length || 0
+        merchantKeyLength: process.env.PAYME_MERCHANT_KEY?.length || 0,
+        errorType: authResult.error
       });
       
-      // Return -32504 for ANY authorization issue
+      // ✅ ALWAYS return -32504 for authorization failures
       return res.json({
         jsonrpc: '2.0',
         id: id || null,
