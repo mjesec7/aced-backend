@@ -1,3 +1,5 @@
+// controllers/paymentController.js - FIXED VERSION
+
 const User = require('../models/user');
 const axios = require('axios');
 
@@ -7,34 +9,448 @@ const PAYMENT_AMOUNTS = {
   pro: 455000    // 4550 UZS
 };
 
+// ✅ FIXED: PayMe Authorization Validation
+const validatePaymeAuth = (req) => {
+  const authHeader = req.headers.authorization;
+  
+  console.log('🔐 Checking PayMe authorization:', {
+    hasAuthHeader: !!authHeader,
+    authHeader: authHeader ? authHeader.substring(0, 20) + '...' : 'None',
+    method: req.body?.method
+  });
+  
+  // Check if Authorization header exists
+  if (!authHeader) {
+    console.log('❌ No authorization header found');
+    throw new Error('MISSING_AUTH');
+  }
+  
+  // Check if it's Basic auth
+  if (!authHeader.startsWith('Basic ')) {
+    console.log('❌ Invalid authorization format - not Basic auth');
+    throw new Error('INVALID_AUTH_FORMAT');
+  }
+  
+  try {
+    // Decode credentials
+    const credentials = Buffer.from(authHeader.slice(6), 'base64').toString();
+    const [username, password] = credentials.split(':');
+    
+    console.log('🔍 Decoded credentials:', {
+      username: username,
+      hasPassword: !!password,
+      passwordLength: password?.length || 0
+    });
+    
+    // Validate PayMe credentials
+    const expectedUsername = 'Paycom';
+    const expectedPassword = process.env.PAYME_MERCHANT_KEY;
+    
+    console.log('🔍 Credential validation:', {
+      usernameMatch: username === expectedUsername,
+      hasExpectedPassword: !!expectedPassword,
+      passwordMatch: password === expectedPassword
+    });
+    
+    if (username !== expectedUsername) {
+      console.log('❌ Invalid username:', username, 'expected:', expectedUsername);
+      throw new Error('INVALID_CREDENTIALS');
+    }
+    
+    if (!expectedPassword) {
+      console.log('⚠️ No PAYME_MERCHANT_KEY configured - allowing for sandbox');
+      return true; // Allow in sandbox mode if no key configured
+    }
+    
+    if (password !== expectedPassword) {
+      console.log('❌ Invalid password');
+      throw new Error('INVALID_CREDENTIALS');
+    }
+    
+    console.log('✅ PayMe authorization successful');
+    return true;
+    
+  } catch (decodeError) {
+    console.log('❌ Error decoding credentials:', decodeError.message);
+    throw new Error('INVALID_AUTH_FORMAT');
+  }
+};
+
+// ✅ FIXED: Enhanced sandbox with proper authorization checking
+const handleSandboxPayment = async (req, res) => {
+  try {
+    const { method, params, id } = req.body;
+
+    console.log('🧪 Sandbox payment request:', {
+      method,
+      hasParams: !!params,
+      hasId: !!id,
+      hasAuth: !!req.headers.authorization
+    });
+
+    // ✅ FIXED: Always validate authorization first
+    try {
+      validatePaymeAuth(req);
+      console.log('✅ Authorization validation passed');
+    } catch (authError) {
+      console.log('❌ Authorization validation failed:', authError.message);
+      
+      // Return -32504 error for any authorization issues
+      return res.json({
+        jsonrpc: '2.0',
+        id: id || null,
+        error: {
+          code: -32504,
+          message: {
+            ru: 'Недостаточно привилегий для выполнения метода',
+            en: 'Insufficient privileges to perform this method'
+          }
+        }
+      });
+    }
+
+    // ✅ Validate request ID
+    if (!id) {
+      return res.json({
+        jsonrpc: '2.0',
+        id: null,
+        error: {
+          code: -32602,
+          message: {
+            ru: 'Отсутствует ID запроса',
+            en: 'Missing request ID'
+          }
+        }
+      });
+    }
+
+    // ✅ After authorization passes, handle methods normally
+    switch (method) {
+      case 'CheckPerformTransaction':
+        if (!params?.account?.login) {
+          return res.json({
+            jsonrpc: '2.0',
+            id: id,
+            error: {
+              code: -31050,
+              message: {
+                ru: 'Неверный аккаунт',
+                en: 'Invalid account'
+              }
+            }
+          });
+        }
+        
+        if (!params?.amount || params.amount < 100) {
+          return res.json({
+            jsonrpc: '2.0',
+            id: id,
+            error: {
+              code: -31001,
+              message: {
+                ru: 'Неверная сумма',
+                en: 'Invalid amount'
+              }
+            }
+          });
+        }
+        
+        return res.json({
+          jsonrpc: '2.0',
+          id: id,
+          result: {
+            allow: true,
+            detail: {
+              receipt_type: 0
+            }
+          }
+        });
+
+      case 'CreateTransaction':
+        if (!params?.amount || params.amount < 100) {
+          return res.json({
+            jsonrpc: '2.0',
+            id: id,
+            error: {
+              code: -31001,
+              message: {
+                ru: 'Неверная сумма',
+                en: 'Invalid amount'
+              }
+            }
+          });
+        }
+
+        if (!params?.account?.login) {
+          return res.json({
+            jsonrpc: '2.0',
+            id: id,
+            error: {
+              code: -31050,
+              message: {
+                ru: 'Неверный аккаунт',
+                en: 'Invalid account'
+              }
+            }
+          });
+        }
+
+        return res.json({
+          jsonrpc: '2.0',
+          id: id,
+          result: {
+            transaction: `live_sandbox_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+            state: 1,
+            create_time: Date.now(),
+            receivers: null
+          }
+        });
+
+      case 'CheckTransaction':
+        const transactionId = params?.id || `live_sandbox_${Date.now()}`;
+        return res.json({
+          jsonrpc: '2.0',
+          id: id,
+          result: {
+            transaction: transactionId,
+            state: 2, // completed
+            create_time: Date.now() - 120000, // 2 minutes ago
+            perform_time: Date.now() - 60000,  // 1 minute ago
+            cancel_time: 0,
+            reason: null,
+            receivers: null
+          }
+        });
+
+      case 'PerformTransaction':
+        if (!params?.id) {
+          return res.json({
+            jsonrpc: '2.0',
+            id: id,
+            error: {
+              code: -31003,
+              message: {
+                ru: 'Транзакция не найдена',
+                en: 'Transaction not found'
+              }
+            }
+          });
+        }
+        
+        return res.json({
+          jsonrpc: '2.0',
+          id: id,
+          result: {
+            transaction: params.id,
+            state: 2,
+            perform_time: Date.now()
+          }
+        });
+
+      case 'CancelTransaction':
+        if (!params?.id) {
+          return res.json({
+            jsonrpc: '2.0',
+            id: id,
+            error: {
+              code: -31003,
+              message: {
+                ru: 'Транзакция не найдена',
+                en: 'Transaction not found'
+              }
+            }
+          });
+        }
+        
+        return res.json({
+          jsonrpc: '2.0',
+          id: id,
+          result: {
+            transaction: params.id,
+            state: -1,
+            cancel_time: Date.now()
+          }
+        });
+
+      case 'GetStatement':
+        return res.json({
+          jsonrpc: '2.0',
+          id: id,
+          error: {
+            code: -32601,
+            message: {
+              ru: 'Метод GetStatement не найден',
+              en: 'Method GetStatement not found'
+            }
+          }
+        });
+
+      case 'ChangePassword':
+        return res.json({
+          jsonrpc: '2.0',
+          id: id,
+          error: {
+            code: -32601,
+            message: {
+              ru: 'Метод ChangePassword не найден',
+              en: 'Method ChangePassword not found'
+            }
+          }
+        });
+
+      default:
+        return res.json({
+          jsonrpc: '2.0',
+          id: id,
+          error: {
+            code: -32601,
+            message: {
+              ru: `Метод ${method} не найден`,
+              en: `Method ${method} not found`
+            }
+          }
+        });
+    }
+
+  } catch (error) {
+    console.error('❌ Live sandbox error:', error);
+    res.json({
+      jsonrpc: '2.0',
+      id: req.body?.id || null,
+      error: {
+        code: -32000,
+        message: {
+          ru: 'Внутренняя ошибка сервера',
+          en: 'Internal server error'
+        },
+        data: process.env.NODE_ENV === 'development' ? error.message : null
+      }
+    });
+  }
+};
+
+// ✅ FIXED: Enhanced makePaymeRequest with proper authorization
+const makePaymeRequest = async (url, payload) => {
+  const merchantId = process.env.PAYME_MERCHANT_ID;
+  const merchantKey = process.env.PAYME_MERCHANT_KEY;
+
+  const isProduction = process.env.NODE_ENV === 'production';
+  const isSandboxUrl = url.includes('/sandbox');
+  
+  // For production PayMe, use real credentials
+  // For sandbox, use test credentials or no auth
+  let finalMerchantId = merchantId;
+  let finalMerchantKey = merchantKey;
+  
+  if (!isProduction || isSandboxUrl) {
+    finalMerchantId = merchantId || 'test_merchant_id';
+    finalMerchantKey = merchantKey || 'test_merchant_key';
+  }
+
+  if (!isSandboxUrl && (!finalMerchantId || !finalMerchantKey)) {
+    throw new Error('Payme credentials not configured for production');
+  }
+
+  // Prepare request
+  const requestPayload = {
+    jsonrpc: '2.0',
+    ...payload
+  };
+
+  console.log('🔍 Making Payme request:', {
+    url,
+    method: payload.method,
+    hasAuth: !!(finalMerchantId && finalMerchantKey),
+    isProduction,
+    isSandbox: isSandboxUrl
+  });
+
+  try {
+    const requestConfig = {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      timeout: 30000, // 30 second timeout
+    };
+
+    // ✅ Add auth for all requests (sandbox will validate and reject properly)
+    if (finalMerchantKey) {
+      requestConfig.auth = {
+        username: 'Paycom', // Always 'Paycom' for Payme
+        password: finalMerchantKey
+      };
+      
+      console.log('🔐 Added authorization header for request');
+    } else {
+      console.log('⚠️ No authorization added - expecting sandbox to reject');
+    }
+
+    const response = await axios.post(url, requestPayload, requestConfig);
+
+    console.log('✅ Payme request successful:', {
+      status: response.status,
+      hasResult: !!response.data?.result,
+      hasError: !!response.data?.error
+    });
+
+    return response.data;
+
+  } catch (error) {
+    if (error.response) {
+      console.error('Payme API HTTP error:', {
+        status: error.response.status,
+        statusText: error.response.statusText,
+        data: error.response.data,
+        url: error.config?.url
+      });
+      
+      return error.response.data || { 
+        error: { 
+          code: -32000, 
+          message: { 
+            en: `HTTP ${error.response.status}: ${error.response.statusText}`,
+            ru: `Ошибка HTTP ${error.response.status}`
+          } 
+        } 
+      };
+    } else if (error.request) {
+      console.error('Payme API network error:', {
+        message: error.message,
+        code: error.code,
+        url: error.config?.url
+      });
+      throw new Error(`Network error: ${error.message}`);
+    } else {
+      console.error('Payme API request error:', error.message);
+      throw error;
+    }
+  }
+};
+
+// ✅ Keep existing functions unchanged
 const applyPromoCode = async (req, res) => {
   try {
     const { userId, plan, promoCode } = req.body;
 
-    // 🔍 Validate input presence
     if (!userId || !plan || !promoCode) {
       return res.status(400).json({ message: '❌ Все поля обязательны: userId, plan, promoCode' });
     }
 
-    // 🔐 Validate promo code
     const validPromoCode = 'acedpromocode2406';
     if (promoCode.trim() !== validPromoCode) {
       return res.status(400).json({ message: '❌ Неверный промокод' });
     }
 
-    // 🔍 Validate plan type
     const allowedPlans = ['start', 'pro'];
     if (!allowedPlans.includes(plan)) {
       return res.status(400).json({ message: '❌ Неверный тариф. Возможные значения: start, pro' });
     }
 
-    // 🧑 Find user by ID
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ message: '❌ Пользователь не найден по ID' });
     }
 
-    // 💾 Update plan and status
     user.subscriptionPlan = plan;
     user.paymentStatus = 'paid';
     await user.save();
@@ -51,18 +467,17 @@ const applyPromoCode = async (req, res) => {
   }
 };
 
+// ✅ Keep the rest of existing functions...
 const initiatePaymePayment = async (req, res) => {
   try {
     const { userId, plan } = req.body;
 
-    // 🔍 Validate input
     if (!userId || !plan) {
       return res.status(400).json({ 
         message: '❌ Все поля обязательны: userId, plan' 
       });
     }
 
-    // 🔍 Validate plan type
     const allowedPlans = ['start', 'pro'];
     if (!allowedPlans.includes(plan)) {
       return res.status(400).json({ 
@@ -70,7 +485,6 @@ const initiatePaymePayment = async (req, res) => {
       });
     }
 
-    // 🧑 Find user by ID
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ 
@@ -78,7 +492,6 @@ const initiatePaymePayment = async (req, res) => {
       });
     }
 
-    // Get payment amount for the plan
     const amount = PAYMENT_AMOUNTS[plan];
     if (!amount) {
       return res.status(400).json({ 
@@ -86,21 +499,14 @@ const initiatePaymePayment = async (req, res) => {
       });
     }
 
-    // Use user ID as login for Payme
     const accountLogin = userId;
-    
-    // Generate unique request ID
     const requestId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
-    
-    // 🌐 Production environment detection
     const isProduction = process.env.NODE_ENV === 'production';
     
-    // ✅ Fixed API endpoint for production environment
     let paymeApiUrl;
     if (isProduction) {
       paymeApiUrl = process.env.PAYME_API_URL_LIVE || 'https://checkout.paycom.uz/api';
     } else {
-      // For development/sandbox - use your live server's sandbox endpoint
       paymeApiUrl = 'https://api.aced.live/api/payments/sandbox';
     }
 
@@ -111,8 +517,7 @@ const initiatePaymePayment = async (req, res) => {
       accountLogin,
       requestId,
       apiUrl: paymeApiUrl,
-      isProduction,
-      environment: process.env.NODE_ENV || 'development'
+      isProduction
     });
 
     try {
@@ -169,17 +574,13 @@ const initiatePaymePayment = async (req, res) => {
         });
       }
 
-      // ✅ Production-aware payment URL generation
       let paymentUrl;
       if (isProduction) {
-        // Real PayMe checkout URL
         paymentUrl = `https://checkout.paycom.uz/${process.env.PAYME_MERCHANT_ID}`;
       } else {
-        // Development/testing - redirect to your sandbox checkout page
         paymentUrl = `https://aced.live/payment/checkout/${requestId}`;
       }
 
-      // Return success response with transaction details
       return res.status(200).json({
         message: '✅ Транзакция успешно создана',
         success: true,
@@ -193,7 +594,6 @@ const initiatePaymePayment = async (req, res) => {
           create_time: createResponse.result.create_time
         },
         paymentUrl: paymentUrl,
-        // Additional info for frontend
         metadata: {
           userId: userId,
           plan: plan,
@@ -230,251 +630,7 @@ const initiatePaymePayment = async (req, res) => {
   }
 };
 
-// ✅ Enhanced sandbox mock endpoint for testing on live server
-const handleSandboxPayment = async (req, res) => {
-  try {
-    const { method, params, id } = req.body;
-
-    console.log('🧪 Sandbox payment request on live server:', { method, params, id });
-
-    // ✅ Validate request ID
-    if (!id) {
-      return res.json({
-        jsonrpc: '2.0',
-        id: null,
-        error: {
-          code: -32602,
-          message: {
-            ru: 'Отсутствует ID запроса',
-            en: 'Missing request ID'
-          }
-        }
-      });
-    }
-
-    // Mock responses for different methods
-    switch (method) {
-      case 'CheckPerformTransaction':
-        // ✅ Enhanced check with account validation
-        if (!params?.account?.login) {
-          return res.json({
-            jsonrpc: '2.0',
-            id: id,
-            error: {
-              code: -31050,
-              message: {
-                ru: 'Неверный аккаунт',
-                en: 'Invalid account'
-              }
-            }
-          });
-        }
-        
-        return res.json({
-          jsonrpc: '2.0',
-          id: id,
-          result: {
-            allow: true,
-            detail: {
-              receipt_type: 0
-            }
-          }
-        });
-
-      case 'CreateTransaction':
-        // ✅ Enhanced transaction creation
-        if (!params?.amount || params.amount < 100) {
-          return res.json({
-            jsonrpc: '2.0',
-            id: id,
-            error: {
-              code: -31001,
-              message: {
-                ru: 'Неверная сумма',
-                en: 'Invalid amount'
-              }
-            }
-          });
-        }
-
-        return res.json({
-          jsonrpc: '2.0',
-          id: id,
-          result: {
-            transaction: `live_sandbox_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
-            state: 1,
-            create_time: Date.now(),
-            receivers: null
-          }
-        });
-
-      case 'CheckTransaction':
-        // ✅ Enhanced transaction check
-        const transactionId = params?.id || `live_sandbox_${Date.now()}`;
-        return res.json({
-          jsonrpc: '2.0',
-          id: id,
-          result: {
-            transaction: transactionId,
-            state: 2, // completed
-            create_time: Date.now() - 120000, // 2 minutes ago
-            perform_time: Date.now() - 60000,  // 1 minute ago
-            cancel_time: 0,
-            reason: null,
-            receivers: null
-          }
-        });
-
-      case 'PerformTransaction':
-        // ✅ Enhanced transaction performance
-        return res.json({
-          jsonrpc: '2.0',
-          id: id,
-          result: {
-            transaction: params?.id || `live_sandbox_${Date.now()}`,
-            state: 2,
-            perform_time: Date.now()
-          }
-        });
-
-      case 'CancelTransaction':
-        // ✅ Transaction cancellation
-        return res.json({
-          jsonrpc: '2.0',
-          id: id,
-          result: {
-            transaction: params?.id || `live_sandbox_${Date.now()}`,
-            state: -1,
-            cancel_time: Date.now()
-          }
-        });
-
-      default:
-        return res.json({
-          jsonrpc: '2.0',
-          id: id,
-          error: {
-            code: -32601,
-            message: {
-              ru: `Метод ${method} не найден`,
-              en: `Method ${method} not found`
-            }
-          }
-        });
-    }
-
-  } catch (error) {
-    console.error('❌ Live sandbox error:', error);
-    res.json({
-      jsonrpc: '2.0',
-      id: req.body?.id || null,
-      error: {
-        code: -32000,
-        message: {
-          ru: 'Внутренняя ошибка сервера',
-          en: 'Internal server error'
-        },
-        data: process.env.NODE_ENV === 'development' ? error.message : null
-      }
-    });
-  }
-};
-
-// ✅ Production-aware helper function to make Payme API requests
-const makePaymeRequest = async (url, payload) => {
-  const merchantId = process.env.PAYME_MERCHANT_ID;
-  const merchantKey = process.env.PAYME_MERCHANT_KEY;
-
-  const isProduction = process.env.NODE_ENV === 'production';
-  const isSandboxUrl = url.includes('/sandbox');
-  
-  // For production PayMe, use real credentials
-  // For sandbox, use test credentials or no auth
-  let finalMerchantId = merchantId;
-  let finalMerchantKey = merchantKey;
-  
-  if (!isProduction || isSandboxUrl) {
-    finalMerchantId = merchantId || 'test_merchant_id';
-    finalMerchantKey = merchantKey || 'test_merchant_key';
-  }
-
-  if (!isSandboxUrl && (!finalMerchantId || !finalMerchantKey)) {
-    throw new Error('Payme credentials not configured for production');
-  }
-
-  // Prepare request
-  const requestPayload = {
-    jsonrpc: '2.0',
-    ...payload
-  };
-
-  console.log('🔍 Making Payme request to live server:', {
-    url,
-    method: payload.method,
-    hasAuth: !!(finalMerchantId && finalMerchantKey),
-    isProduction,
-    isSandbox: isSandboxUrl
-  });
-
-  try {
-    const requestConfig = {
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      timeout: 30000, // 30 second timeout
-    };
-
-    // ✅ Only add auth for non-sandbox requests
-    if (!isSandboxUrl) {
-      requestConfig.auth = {
-        username: 'Paycom', // Always 'Paycom' for Payme
-        password: finalMerchantKey
-      };
-    }
-
-    const response = await axios.post(url, requestPayload, requestConfig);
-
-    console.log('✅ Payme request successful:', {
-      status: response.status,
-      hasResult: !!response.data?.result,
-      hasError: !!response.data?.error
-    });
-
-    return response.data;
-
-  } catch (error) {
-    if (error.response) {
-      console.error('Payme API HTTP error:', {
-        status: error.response.status,
-        statusText: error.response.statusText,
-        data: error.response.data,
-        url: error.config?.url
-      });
-      
-      return error.response.data || { 
-        error: { 
-          code: -32000, 
-          message: { 
-            en: `HTTP ${error.response.status}: ${error.response.statusText}`,
-            ru: `Ошибка HTTP ${error.response.status}`
-          } 
-        } 
-      };
-    } else if (error.request) {
-      console.error('Payme API network error:', {
-        message: error.message,
-        code: error.code,
-        url: error.config?.url
-      });
-      throw new Error(`Network error: ${error.message}`);
-    } else {
-      console.error('Payme API request error:', error.message);
-      throw error;
-    }
-  }
-};
-
-// Test endpoint to validate user routes
+// Test endpoint and other existing functions...
 const validateUserRoute = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -519,7 +675,6 @@ const validateUserRoute = async (req, res) => {
   }
 };
 
-// Payment status check endpoint
 const checkPaymentStatus = async (req, res) => {
   try {
     const { transactionId, userId } = req.params;
@@ -534,14 +689,13 @@ const checkPaymentStatus = async (req, res) => {
     const isProduction = process.env.NODE_ENV === 'production';
     
     if (!isProduction) {
-      // For sandbox/testing, always return success
       return res.json({
         message: '✅ Sandbox payment status check',
         success: true,
         server: 'api.aced.live',
         transaction: {
           id: transactionId,
-          state: 2, // completed
+          state: 2,
           amount: 260000,
           create_time: Date.now() - 120000,
           perform_time: Date.now() - 60000
@@ -550,7 +704,6 @@ const checkPaymentStatus = async (req, res) => {
       });
     }
 
-    // For production, implement actual transaction status check
     res.json({
       message: '⚠️ Production payment status check not implemented',
       success: false,
