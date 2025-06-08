@@ -411,13 +411,12 @@ const handleSandboxPayment = async (req, res) => {
           jsonrpc: '2.0',
           id: id,
           result: {
-            transaction: checkTransaction.transaction,
-            state: checkTransaction.state,
             create_time: checkTransaction.create_time,
             perform_time: checkTransaction.perform_time || 0,
             cancel_time: checkTransaction.cancel_time || 0,
-            reason: checkTransaction.reason || null,
-            receivers: null
+            transaction: checkTransaction.transaction,
+            state: checkTransaction.state,
+            reason: checkTransaction.reason || null
           }
         });
 
