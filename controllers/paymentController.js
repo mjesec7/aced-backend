@@ -9,6 +9,47 @@ const PAYMENT_AMOUNTS = {
   pro: 455000    // 4550 UZS
 };
 
+// ✅ Account validation function - checks if account exists in your system
+const validateAccountExists = async (accountLogin) => {
+  try {
+    console.log('🔍 Validating account exists:', accountLogin);
+    
+    // ✅ For PayMe sandbox testing, reject common test values
+    const testValues = ['Login', 'jjk', 'test', 'demo', 'admin', 'user'];
+    if (testValues.includes(accountLogin.toLowerCase())) {
+      console.log('❌ Account is a test value, treating as non-existent');
+      return false;
+    }
+    
+    // ✅ Check if it looks like a real user ID (MongoDB ObjectId pattern)
+    if (accountLogin.match(/^[a-f\d]{24}$/i)) {
+      // Check if user actually exists in database
+      const user = await User.findById(accountLogin);
+      if (user) {
+        console.log('✅ Valid MongoDB user ID found');
+        return true;
+      }
+    }
+    
+    // ✅ Check if it looks like an email
+    if (accountLogin.includes('@') && accountLogin.includes('.')) {
+      const user = await User.findOne({ email: accountLogin });
+      if (user) {
+        console.log('✅ Valid email account found');
+        return true;
+      }
+    }
+    
+    // ✅ For any other case, treat as non-existent for PayMe testing
+    console.log('❌ Account not found in system');
+    return false;
+    
+  } catch (error) {
+    console.error('❌ Error validating account:', error.message);
+    return false;
+  }
+};
+
 // ✅ ROBUST PayMe Authorization Validation
 const validatePaymeAuth = (req) => {
   const authHeader = req.headers.authorization;
@@ -140,11 +181,10 @@ const handleSandboxPayment = async (req, res) => {
           account: params?.account
         });
         
-        // ✅ FIXED: Validate account FIRST - reject test/invalid accounts
+        // ✅ FIXED: Validate account exists in your system
         const accountLogin = params?.account?.login || params?.account?.Login;
-        if (!accountLogin || accountLogin === 'Login' || accountLogin.length < 3) {
-          // PayMe test sends 'Login' as invalid account value
-          console.log('❌ Invalid/non-existent account:', accountLogin);
+        if (!accountLogin) {
+          console.log('❌ No account login provided');
           return res.json({
             jsonrpc: '2.0',
             id: id,
@@ -153,6 +193,25 @@ const handleSandboxPayment = async (req, res) => {
               message: {
                 ru: 'Неверный аккаунт',
                 en: 'Invalid account',
+                uz: 'Noto\'g\'ri hisob'
+              }
+            }
+          });
+        }
+        
+        // ✅ Check if account exists in your system (business logic validation)
+        // For PayMe testing, any account that doesn't look like a real user ID should fail
+        const isValidAccount = await validateAccountExists(accountLogin);
+        if (!isValidAccount) {
+          console.log('❌ Account does not exist in system:', accountLogin);
+          return res.json({
+            jsonrpc: '2.0',
+            id: id,
+            error: {
+              code: -31050,
+              message: {
+                ru: 'Неверный аккаунт',
+                en: 'Invalid account', 
                 uz: 'Noto\'g\'ri hisob'
               }
             }
@@ -196,11 +255,28 @@ const handleSandboxPayment = async (req, res) => {
           account: params?.account
         });
         
-        // ✅ FIXED: Validate account FIRST - reject test/invalid accounts
+        // ✅ FIXED: Validate account exists in your system
         const createAccountLogin = params?.account?.login || params?.account?.Login;
-        if (!createAccountLogin || createAccountLogin === 'Login' || createAccountLogin.length < 3) {
-          // PayMe test sends 'Login' as invalid account value
-          console.log('❌ Invalid/non-existent account:', createAccountLogin);
+        if (!createAccountLogin) {
+          console.log('❌ No account login provided');
+          return res.json({
+            jsonrpc: '2.0',
+            id: id,
+            error: {
+              code: -31050,
+              message: {
+                ru: 'Неверный аккаунт',
+                en: 'Invalid account',
+                uz: 'Noto\'g\'ri hisob'
+              }
+            }
+          });
+        }
+        
+        // ✅ Check if account exists in your system (business logic validation)
+        const isValidCreateAccount = await validateAccountExists(createAccountLogin);
+        if (!isValidCreateAccount) {
+          console.log('❌ Account does not exist in system:', createAccountLogin);
           return res.json({
             jsonrpc: '2.0',
             id: id,
