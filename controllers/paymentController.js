@@ -139,8 +139,9 @@ const handleSandboxPayment = async (req, res) => {
     // Handle methods AFTER authorization passes
     switch (method) {
       case 'CheckPerformTransaction':
-        // ✅ FIXED: Validate amount FIRST (as per PayMe specs)
-        if (!params?.amount || params.amount < 100) {
+        // ✅ FIXED: Validate amount against your business rules
+        const validAmounts = Object.values(PAYMENT_AMOUNTS); // [260000, 455000]
+        if (!params?.amount || !validAmounts.includes(params.amount)) {
           return res.json({
             jsonrpc: '2.0',
             id: id,
@@ -185,8 +186,9 @@ const handleSandboxPayment = async (req, res) => {
         });
 
       case 'CreateTransaction':
-        // ✅ FIXED: Validate amount FIRST (as per PayMe specs)
-        if (!params?.amount || params.amount < 100) {
+        // ✅ FIXED: Validate amount against your business rules
+        const validCreateAmounts = Object.values(PAYMENT_AMOUNTS); // [260000, 455000]
+        if (!params?.amount || !validCreateAmounts.includes(params.amount)) {
           return res.json({
             jsonrpc: '2.0',
             id: id,
