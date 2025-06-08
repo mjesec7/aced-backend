@@ -1,4 +1,4 @@
-// controllers/paymentController.js - CORRECTED VERSION FOR PAYME SANDBOX
+// controllers/paymentController.js - FINAL VERSION WITH ALL UZ TRANSLATIONS
 
 const User = require('../models/user');
 const axios = require('axios');
@@ -9,7 +9,7 @@ const PAYMENT_AMOUNTS = {
   pro: 455000    // 4550 UZS
 };
 
-// ✅ CRITICAL FIX: PayMe Authorization Validation (MUST return -32504 for auth failures)
+// ✅ PayMe Authorization Validation
 const validatePaymeAuth = (req) => {
   const authHeader = req.headers.authorization;
   
@@ -19,20 +19,20 @@ const validatePaymeAuth = (req) => {
     authHeaderStart: authHeader ? authHeader.substring(0, 20) + '...' : 'None'
   });
   
-  // ✅ STEP 1: Check if Authorization header exists
+  // Check if Authorization header exists
   if (!authHeader) {
     console.log('❌ Authorization header missing');
     return { valid: false, error: 'MISSING_AUTH_HEADER' };
   }
   
-  // ✅ STEP 2: Check if it's Basic auth format
+  // Check if it's Basic auth format
   if (!authHeader.startsWith('Basic ')) {
     console.log('❌ Not Basic authorization format');
     return { valid: false, error: 'INVALID_AUTH_FORMAT' };
   }
   
   try {
-    // ✅ STEP 3: Decode and validate credentials
+    // Decode and validate credentials
     const credentials = Buffer.from(authHeader.slice(6), 'base64').toString();
     const [username, password] = credentials.split(':');
     
@@ -42,7 +42,7 @@ const validatePaymeAuth = (req) => {
       passwordLength: password?.length || 0
     });
     
-    // ✅ STEP 4: Validate PayMe specific credentials
+    // Validate PayMe specific credentials
     const expectedUsername = 'Paycom';
     const expectedPassword = process.env.PAYME_MERCHANT_KEY;
     
@@ -72,7 +72,7 @@ const validatePaymeAuth = (req) => {
   }
 };
 
-// ✅ CRITICAL FIX: Enhanced sandbox with PROPER authorization checking
+// ✅ COMPLETE PayMe Sandbox Handler with ALL UZ translations
 const handleSandboxPayment = async (req, res) => {
   try {
     const { method, params, id } = req.body;
@@ -86,13 +86,13 @@ const handleSandboxPayment = async (req, res) => {
       userAgent: req.headers['user-agent']?.substring(0, 50)
     });
 
-    // ✅ CRITICAL: ALWAYS validate authorization FIRST (before anything else)
+    // ✅ ALWAYS validate authorization FIRST
     const authResult = validatePaymeAuth(req);
     
     if (!authResult.valid) {
       console.log('❌ Authorization validation failed:', authResult.error);
       
-      // ✅ FIXED: Return -32504 for ANY authorization issue
+      // Return -32504 for ANY authorization issue
       return res.json({
         jsonrpc: '2.0',
         id: id || null,
@@ -100,7 +100,8 @@ const handleSandboxPayment = async (req, res) => {
           code: -32504,
           message: {
             ru: 'Недостаточно привилегий для выполнения метода',
-            en: 'Insufficient privileges to perform this method'
+            en: 'Insufficient privileges to perform this method',
+            uz: 'Ushbu amalni bajarish uchun yetarli huquq yo\'q'
           }
         }
       });
@@ -108,7 +109,7 @@ const handleSandboxPayment = async (req, res) => {
 
     console.log('✅ Authorization passed, processing method:', method);
 
-    // ✅ Validate request structure
+    // Validate request structure
     if (!id) {
       return res.json({
         jsonrpc: '2.0',
@@ -117,13 +118,14 @@ const handleSandboxPayment = async (req, res) => {
           code: -32602,
           message: {
             ru: 'Неверный запрос',
-            en: 'Invalid Request'
+            en: 'Invalid Request',
+            uz: 'Noto\'g\'ri so\'rov'
           }
         }
       });
     }
 
-    // ✅ AFTER authorization passes, handle business logic
+    // Handle methods AFTER authorization passes
     switch (method) {
       case 'CheckPerformTransaction':
         // Validate account
@@ -135,7 +137,8 @@ const handleSandboxPayment = async (req, res) => {
               code: -31050,
               message: {
                 ru: 'Неверный аккаунт',
-                en: 'Invalid account'
+                en: 'Invalid account',
+                uz: 'Noto\'g\'ri hisob'
               }
             }
           });
@@ -150,7 +153,8 @@ const handleSandboxPayment = async (req, res) => {
               code: -31001,
               message: {
                 ru: 'Неверная сумма',
-                en: 'Invalid amount'
+                en: 'Invalid amount',
+                uz: 'Noto\'g\'ri summa'
               }
             }
           });
@@ -178,7 +182,8 @@ const handleSandboxPayment = async (req, res) => {
               code: -31001,
               message: {
                 ru: 'Неверная сумма',
-                en: 'Invalid amount'
+                en: 'Invalid amount',
+                uz: 'Noto\'g\'ri summa'
               }
             }
           });
@@ -193,7 +198,8 @@ const handleSandboxPayment = async (req, res) => {
               code: -31050,
               message: {
                 ru: 'Неверный аккаунт',
-                en: 'Invalid account'
+                en: 'Invalid account',
+                uz: 'Noto\'g\'ri hisob'
               }
             }
           });
@@ -236,7 +242,8 @@ const handleSandboxPayment = async (req, res) => {
               code: -31003,
               message: {
                 ru: 'Транзакция не найдена',
-                en: 'Transaction not found'
+                en: 'Transaction not found',
+                uz: 'Tranzaksiya topilmadi'
               }
             }
           });
@@ -261,7 +268,8 @@ const handleSandboxPayment = async (req, res) => {
               code: -31003,
               message: {
                 ru: 'Транзакция не найдена',
-                en: 'Transaction not found'
+                en: 'Transaction not found',
+                uz: 'Tranzaksiya topilmadi'
               }
             }
           });
@@ -285,7 +293,8 @@ const handleSandboxPayment = async (req, res) => {
             code: -32601,
             message: {
               ru: 'Метод GetStatement не найден',
-              en: 'Method GetStatement not found'
+              en: 'Method GetStatement not found',
+              uz: 'GetStatement usuli topilmadi'
             }
           }
         });
@@ -298,7 +307,8 @@ const handleSandboxPayment = async (req, res) => {
             code: -32601,
             message: {
               ru: 'Метод ChangePassword не найден',
-              en: 'Method ChangePassword not found'
+              en: 'Method ChangePassword not found',
+              uz: 'ChangePassword usuli topilmadi'
             }
           }
         });
@@ -311,7 +321,8 @@ const handleSandboxPayment = async (req, res) => {
             code: -32601,
             message: {
               ru: `Метод ${method} не найден`,
-              en: `Method ${method} not found`
+              en: `Method ${method} not found`,
+              uz: `${method} usuli topilmadi`
             }
           }
         });
@@ -326,7 +337,8 @@ const handleSandboxPayment = async (req, res) => {
         code: -32000,
         message: {
           ru: 'Внутренняя ошибка сервера',
-          en: 'Internal server error'
+          en: 'Internal server error',
+          uz: 'Server ichki xatosi'
         },
         data: process.env.NODE_ENV === 'development' ? error.message : null
       }
@@ -364,7 +376,7 @@ const makePaymeRequest = async (url, payload) => {
       timeout: 30000,
     };
 
-    // ✅ Add authorization for all requests (even sandbox for testing)
+    // Add authorization for all requests (even sandbox for testing)
     if (merchantKey) {
       requestConfig.auth = {
         username: 'Paycom',
@@ -397,8 +409,9 @@ const makePaymeRequest = async (url, payload) => {
         error: { 
           code: -32000, 
           message: { 
+            ru: `Ошибка HTTP ${error.response.status}`,
             en: `HTTP ${error.response.status}: ${error.response.statusText}`,
-            ru: `Ошибка HTTP ${error.response.status}`
+            uz: `HTTP ${error.response.status} xatosi`
           } 
         } 
       };
@@ -409,7 +422,7 @@ const makePaymeRequest = async (url, payload) => {
   }
 };
 
-// ✅ Keep existing functions unchanged
+// ✅ Existing functions unchanged
 const applyPromoCode = async (req, res) => {
   try {
     const { userId, plan, promoCode } = req.body;
