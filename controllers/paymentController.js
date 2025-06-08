@@ -12,6 +12,9 @@ const PAYMENT_AMOUNTS = {
 // Store transactions in memory for sandbox testing
 const sandboxTransactions = new Map();
 
+// Store the current merchant key for sandbox testing
+let currentMerchantKey = null;
+
 // ✅ Account validation function - checks if account exists in your system
 const validateAccountExists = async (accountLogin) => {
   try {
@@ -96,7 +99,7 @@ const validatePaymeAuth = (req) => {
     }
     
     // Step 5: Check password (merchant key)
-    const expectedPassword = process.env.PAYME_MERCHANT_KEY || process.env.PAYME_TEST_KEY;
+    const expectedPassword = currentMerchantKey || process.env.PAYME_MERCHANT_KEY || process.env.PAYME_TEST_KEY;
     
     // ✅ IMPORTANT: For sandbox testing with TEST_KEY
     if (!expectedPassword) {
