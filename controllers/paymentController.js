@@ -12,6 +12,9 @@ const PAYMENT_AMOUNTS = {
 // Store transactions in memory for sandbox testing
 const sandboxTransactions = new Map();
 
+// Store account states for testing different scenarios
+const accountStates = new Map();
+
 // Store the current merchant key for sandbox testing
 let currentMerchantKey = null;
 
@@ -21,6 +24,14 @@ const TransactionState = {
   COMPLETED: 2,    // Transaction completed (money transferred)
   CANCELLED_AFTER_CREATE: -1,  // Cancelled before completion
   CANCELLED_AFTER_COMPLETE: -2 // Cancelled after completion (refund)
+};
+
+// Account states for testing
+const AccountState = {
+  WAITING_PAYMENT: 'waiting_payment',
+  PROCESSING: 'processing',
+  BLOCKED: 'blocked',
+  NOT_EXISTS: 'not_exists'
 };
 
 // Error codes according to Payme specification
@@ -38,25 +49,52 @@ const PaymeErrorCode = {
   INVALID_AUTHORIZATION: -32504
 };
 
-// ✅ Account validation function - checks if account exists in your system
-const validateAccountExists = async (accountLogin) => {
+// ✅ Account validation function - checks if account exists and its state
+const validateAccountAndState = async (accountLogin) => {
   try {
-    console.log('🔍 Validating account exists:', accountLogin);
+    console.log('🔍 Validating account and state:', accountLogin);
     
-    // ✅ For PayMe sandbox testing, reject common test values
+    // Get the current state set by sandbox UI
+    const currentState = accountStates.get(accountLogin);
+    
+    // ✅ For PayMe sandbox testing, check account state first
+    if (currentState) {
+      console.log('📊 Account state from UI:', currentState);
+      return {
+        exists: currentState !== AccountState.NOT_EXISTS,
+        state: currentState
+      };
+    }
+    
+    // ✅ For test values, treat as non-existent
     const testValues = ['login', 'jjk', 'test', 'demo', 'admin', 'user', ''];
     if (!accountLogin || testValues.includes(accountLogin.toLowerCase())) {
       console.log('❌ Account is a test value or empty, treating as non-existent');
-      return false;
+      return {
+        exists: false,
+        state: AccountState.NOT_EXISTS
+      };
     }
     
     // ✅ Check if it looks like a real user ID (MongoDB ObjectId pattern)
     if (accountLogin.match(/^[a-f\d]{24}$/i)) {
-      // Check if user actually exists in database
       const user = await User.findById(accountLogin);
       if (user) {
         console.log('✅ Valid MongoDB user ID found');
-        return true;
+        // Check if user has active transactions
+        for (const [transactionId, transaction] of sandboxTransactions.entries()) {
+          const txAccountLogin = transaction.account?.login || transaction.account?.Login;
+          if (txAccountLogin === accountLogin && transaction.state === TransactionState.CREATED) {
+            return {
+              exists: true,
+              state: AccountState.PROCESSING
+            };
+          }
+        }
+        return {
+          exists: true,
+          state: AccountState.WAITING_PAYMENT
+        };
       }
     }
     
@@ -65,17 +103,26 @@ const validateAccountExists = async (accountLogin) => {
       const user = await User.findOne({ email: accountLogin });
       if (user) {
         console.log('✅ Valid email account found');
-        return true;
+        return {
+          exists: true,
+          state: AccountState.WAITING_PAYMENT
+        };
       }
     }
     
-    // ✅ For any other case, treat as non-existent for PayMe testing
+    // ✅ For any other case, treat as non-existent
     console.log('❌ Account not found in system');
-    return false;
+    return {
+      exists: false,
+      state: AccountState.NOT_EXISTS
+    };
     
   } catch (error) {
     console.error('❌ Error validating account:', error.message);
-    return false;
+    return {
+      exists: false,
+      state: AccountState.NOT_EXISTS
+    };
   }
 };
 
@@ -322,28 +369,51 @@ const handleCheckPerformTransaction = async (req, res, id, params) => {
     account: params?.account
   });
   
-  // ✅ FIXED: Validate account exists in your system
+  // Get account login
   const accountLogin = params?.account?.login || params?.account?.Login;
   if (!accountLogin) {
     console.log('❌ No account login provided');
     return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_ACCOUNT));
   }
   
-  // ✅ Check if account exists in your system (business logic validation)
-  const isValidAccount = await validateAccountExists(accountLogin);
-  if (!isValidAccount) {
-    console.log('❌ Account does not exist in system:', accountLogin);
-    return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_ACCOUNT));
+  // ✅ Check account state
+  const accountInfo = await validateAccountAndState(accountLogin);
+  console.log('📊 Account validation result:', accountInfo);
+  
+  // Handle different account states according to Paycom specs
+  switch (accountInfo.state) {
+    case AccountState.NOT_EXISTS:
+      console.log('❌ Account does not exist');
+      return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_ACCOUNT));
+      
+    case AccountState.PROCESSING:
+      console.log('❌ Account is being processed by another transaction');
+      return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
+      
+    case AccountState.BLOCKED:
+      console.log('❌ Account is blocked (already paid/cancelled)');
+      return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
+      
+    case AccountState.WAITING_PAYMENT:
+      // Continue with amount validation
+      break;
+      
+    default:
+      // If no specific state, check if account exists
+      if (!accountInfo.exists) {
+        console.log('❌ Account does not exist in system');
+        return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_ACCOUNT));
+      }
   }
   
-  // ✅ Then validate amount (only if account is valid)
-  const validAmounts = Object.values(PAYMENT_AMOUNTS); // [260000, 455000]
+  // ✅ Validate amount (only if account is valid)
+  const validAmounts = Object.values(PAYMENT_AMOUNTS);
   if (!params?.amount || !validAmounts.includes(params.amount)) {
     console.log('❌ Invalid amount:', params?.amount, 'Valid amounts:', validAmounts);
     return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_AMOUNT));
   }
   
-  // Success response
+  // Success response - only for waiting_payment state
   console.log('✅ CheckPerformTransaction successful');
   return res.json({
     jsonrpc: '2.0',
@@ -382,29 +452,51 @@ const handleCreateTransaction = async (req, res, id, params) => {
     });
   }
   
-  // ✅ FIXED: Validate account exists in your system
+  // Get account login
   const createAccountLogin = params?.account?.login || params?.account?.Login;
   if (!createAccountLogin) {
     console.log('❌ No account login provided');
     return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_ACCOUNT));
   }
   
-  // ✅ Check if account exists in your system
-  const isValidCreateAccount = await validateAccountExists(createAccountLogin);
-  if (!isValidCreateAccount) {
-    console.log('❌ Account does not exist in system:', createAccountLogin);
-    return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_ACCOUNT));
+  // ✅ Check account state
+  const createAccountInfo = await validateAccountAndState(createAccountLogin);
+  console.log('📊 Create transaction account validation:', createAccountInfo);
+  
+  // Handle different account states
+  switch (createAccountInfo.state) {
+    case AccountState.NOT_EXISTS:
+      console.log('❌ Account does not exist');
+      return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_ACCOUNT));
+      
+    case AccountState.PROCESSING:
+      console.log('❌ Account is being processed by another transaction');
+      return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
+      
+    case AccountState.BLOCKED:
+      console.log('❌ Account is blocked (already paid/cancelled)');
+      return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
+      
+    case AccountState.WAITING_PAYMENT:
+      // Continue with transaction creation
+      break;
+      
+    default:
+      if (!createAccountInfo.exists) {
+        console.log('❌ Account does not exist in system');
+        return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_ACCOUNT));
+      }
   }
   
-  // ✅ Then validate amount
+  // ✅ Validate amount
   const validCreateAmounts = Object.values(PAYMENT_AMOUNTS);
   if (!params?.amount || !validCreateAmounts.includes(params.amount)) {
     console.log('❌ Invalid amount:', params?.amount, 'Valid amounts:', validCreateAmounts);
     return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_AMOUNT));
   }
 
-  // ✅ Check if account already has an unpaid transaction
-  if (hasExistingUnpaidTransaction(createAccountLogin)) {
+  // ✅ Check if account already has an unpaid transaction (for real accounts)
+  if (createAccountInfo.exists && hasExistingUnpaidTransaction(createAccountLogin)) {
     console.log('❌ Account already has an unpaid transaction');
     return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
   }
@@ -622,6 +714,44 @@ const handleChangePassword = async (req, res, id, params) => {
   });
 };
 
+// ✅ New endpoint to set account state for testing
+const setAccountState = async (req, res) => {
+  try {
+    const { accountLogin, state } = req.body;
+    
+    if (!accountLogin || !state) {
+      return res.status(400).json({
+        message: '❌ Account login and state are required'
+      });
+    }
+    
+    const validStates = Object.values(AccountState);
+    if (!validStates.includes(state)) {
+      return res.status(400).json({
+        message: '❌ Invalid state. Valid states: ' + validStates.join(', ')
+      });
+    }
+    
+    accountStates.set(accountLogin, state);
+    
+    console.log('✅ Account state set:', { accountLogin, state });
+    
+    res.json({
+      message: '✅ Account state updated',
+      accountLogin,
+      state,
+      validStates
+    });
+    
+  } catch (error) {
+    console.error('❌ Error setting account state:', error);
+    res.status(500).json({
+      message: '❌ Error setting account state',
+      error: error.message
+    });
+  }
+};
+
 // ✅ Production-aware helper function
 const makePaymeRequest = async (url, payload) => {
   const merchantKey = process.env.PAYME_MERCHANT_KEY;
@@ -752,6 +882,9 @@ const initiatePaymePayment = async (req, res) => {
     const accountLogin = userId;
     const requestId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
     const isProduction = process.env.NODE_ENV === 'production';
+    
+    // Set account state to waiting_payment for new payment
+    accountStates.set(accountLogin, AccountState.WAITING_PAYMENT);
     
     let paymeApiUrl;
     if (isProduction) {
@@ -1100,9 +1233,10 @@ const clearSandboxTransactions = async (req, res) => {
   try {
     const count = sandboxTransactions.size;
     sandboxTransactions.clear();
+    accountStates.clear();
     
     res.json({
-      message: '✅ Sandbox transactions cleared',
+      message: '✅ Sandbox transactions and account states cleared',
       clearedCount: count,
       server: 'api.aced.live'
     });
@@ -1124,5 +1258,6 @@ module.exports = {
   checkPaymentStatus,
   handlePaymeWebhook,
   listTransactions,
-  clearSandboxTransactions
+  clearSandboxTransactions,
+  setAccountState
 };

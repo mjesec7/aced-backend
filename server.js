@@ -783,7 +783,6 @@ try {
   console.error('❌ Stack:', error.stack);
 }
 
-// ✅ FIXED: All routes uncommented - they all exist!
 const routesToMount = [
   // PayMe routes FIRST (most specific)
   ['/api/payments', './routes/paymeRoutes', 'PayMe payment routes'],
@@ -801,6 +800,7 @@ const routesToMount = [
   ['/api/homeworks', './routes/homeworkRoutes', 'Homework routes'],
   ['/api/tests', './routes/testRoutes', 'Test/quiz routes'],
   ['/api/analytics', './routes/userAnalytics', 'User analytics routes'],
+  ['/api/vocabulary', './routes/vocabularyRoutes', 'Vocabulary management routes'], // ← ADD THIS LINE
 ];
 
 // Mount routes
