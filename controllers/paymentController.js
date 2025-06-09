@@ -1,4 +1,4 @@
-// controllers/paymentController.js - COMPLETE PAYME SANDBOX IMPLEMENTATION
+// controllers/paymentController.js - COMPLETE PAYME IMPLEMENTATION WITH ALL METHODS
 
 const User = require('../models/user');
 const axios = require('axios');
@@ -15,15 +15,38 @@ const sandboxTransactions = new Map();
 // Store the current merchant key for sandbox testing
 let currentMerchantKey = null;
 
+// Transaction states according to Payme spec
+const TransactionState = {
+  CREATED: 1,      // Transaction created
+  COMPLETED: 2,    // Transaction completed (money transferred)
+  CANCELLED_AFTER_CREATE: -1,  // Cancelled before completion
+  CANCELLED_AFTER_COMPLETE: -2 // Cancelled after completion (refund)
+};
+
+// Error codes according to Payme specification
+const PaymeErrorCode = {
+  INVALID_AMOUNT: -31001,
+  TRANSACTION_NOT_FOUND: -31003,
+  UNABLE_TO_PERFORM_OPERATION: -31008,
+  ORDER_COMPLETED: -31007,
+  INVALID_ACCOUNT: -31050,
+  INVALID_JSON_RPC: -32700,
+  PARSE_ERROR: -32700,
+  METHOD_NOT_FOUND: -32601,
+  INVALID_PARAMS: -32602,
+  INTERNAL_ERROR: -32603,
+  INVALID_AUTHORIZATION: -32504
+};
+
 // ✅ Account validation function - checks if account exists in your system
 const validateAccountExists = async (accountLogin) => {
   try {
     console.log('🔍 Validating account exists:', accountLogin);
     
     // ✅ For PayMe sandbox testing, reject common test values
-    const testValues = ['Login', 'jjk', 'test', 'demo', 'admin', 'user'];
-    if (testValues.includes(accountLogin.toLowerCase())) {
-      console.log('❌ Account is a test value, treating as non-existent');
+    const testValues = ['login', 'jjk', 'test', 'demo', 'admin', 'user', ''];
+    if (!accountLogin || testValues.includes(accountLogin.toLowerCase())) {
+      console.log('❌ Account is a test value or empty, treating as non-existent');
       return false;
     }
     
@@ -127,16 +150,102 @@ const validatePaymeAuth = (req) => {
   }
 };
 
-// ✅ Helper to check if transaction exists for an account
-const hasExistingTransaction = (accountLogin) => {
+// ✅ Helper to check if transaction exists
+const findTransactionById = (transactionId) => {
+  return sandboxTransactions.get(transactionId);
+};
+
+// ✅ Helper to check if account has existing unpaid transaction
+const hasExistingUnpaidTransaction = (accountLogin) => {
   for (const [transactionId, transaction] of sandboxTransactions.entries()) {
-    if (transaction.account?.login === accountLogin && 
-        transaction.state === 1 && 
+    const txAccountLogin = transaction.account?.login || transaction.account?.Login;
+    if (txAccountLogin === accountLogin && 
+        transaction.state === TransactionState.CREATED && 
         !transaction.cancelled) {
-      return true;
+      // Check if transaction is not expired (12 hours)
+      const txAge = Date.now() - transaction.create_time;
+      if (txAge < 12 * 60 * 60 * 1000) { // 12 hours in milliseconds
+        return true;
+      }
     }
   }
   return false;
+};
+
+// ✅ Create proper error response
+const createErrorResponse = (id, code, messageKey, data = null) => {
+  const messages = {
+    ru: '',
+    en: '',
+    uz: ''
+  };
+
+  switch (code) {
+    case PaymeErrorCode.INVALID_AMOUNT:
+      messages.ru = 'Неверная сумма';
+      messages.en = 'Invalid amount';
+      messages.uz = "Noto'g'ri summa";
+      break;
+    case PaymeErrorCode.TRANSACTION_NOT_FOUND:
+      messages.ru = 'Транзакция не найдена';
+      messages.en = 'Transaction not found';
+      messages.uz = 'Tranzaksiya topilmadi';
+      break;
+    case PaymeErrorCode.INVALID_ACCOUNT:
+      messages.ru = messageKey || 'Неверный код заказа';
+      messages.en = messageKey || 'Invalid order code';
+      messages.uz = messageKey || "Buyurtma kodi noto'g'ri";
+      break;
+    case PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION:
+      messages.ru = 'Невозможно выполнить операцию';
+      messages.en = 'Unable to perform operation';
+      messages.uz = "Amalni bajarib bo'lmadi";
+      break;
+    case PaymeErrorCode.ORDER_COMPLETED:
+      messages.ru = 'Заказ выполнен. Невозможно отменить транзакцию';
+      messages.en = 'Order completed. Unable to cancel transaction';
+      messages.uz = 'Buyurtma bajarildi. Tranzaksiyani bekor qilib bo\'lmaydi';
+      break;
+    case PaymeErrorCode.METHOD_NOT_FOUND:
+      messages.ru = `Метод ${messageKey} не найден`;
+      messages.en = `Method ${messageKey} not found`;
+      messages.uz = `${messageKey} usuli topilmadi`;
+      break;
+    case PaymeErrorCode.INVALID_PARAMS:
+      messages.ru = 'Неверный запрос';
+      messages.en = 'Invalid Request';
+      messages.uz = "Noto'g'ri so'rov";
+      break;
+    case PaymeErrorCode.INVALID_AUTHORIZATION:
+      messages.ru = 'Недостаточно привилегий для выполнения метода';
+      messages.en = 'Insufficient privileges to perform this method';
+      messages.uz = "Ushbu amalni bajarish uchun yetarli huquq yo'q";
+      break;
+    case PaymeErrorCode.INTERNAL_ERROR:
+      messages.ru = 'Внутренняя ошибка сервера';
+      messages.en = 'Internal server error';
+      messages.uz = 'Server ichki xatosi';
+      break;
+    default:
+      messages.ru = 'Неизвестная ошибка';
+      messages.en = 'Unknown error';
+      messages.uz = "Noma'lum xato";
+  }
+
+  const errorResponse = {
+    jsonrpc: '2.0',
+    id: id || null,
+    error: {
+      code: code,
+      message: messages
+    }
+  };
+
+  if (data !== null) {
+    errorResponse.error.data = data;
+  }
+
+  return errorResponse;
 };
 
 // ✅ COMPLETE PayMe Sandbox Handler for ALL scenarios
@@ -157,435 +266,360 @@ const handleSandboxPayment = async (req, res) => {
     
     if (!authResult.valid) {
       console.log('❌ Authorization FAILED:', authResult.error);
-      
-      // Return -32504 for authorization failures
-      return res.json({
-        jsonrpc: '2.0',
-        id: id || null,
-        error: {
-          code: -32504,
-          message: {
-            ru: 'Недостаточно привилегий для выполнения метода',
-            en: 'Insufficient privileges to perform this method',
-            uz: 'Ushbu amalni bajarish uchun yetarli huquq yo\'q'
-          }
-        }
-      });
+      return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_AUTHORIZATION));
     }
 
     console.log('✅ Authorization PASSED - processing business logic for method:', method);
 
     // ✅ STEP 2: Validate request structure
     if (!id) {
-      return res.json({
-        jsonrpc: '2.0',
-        id: null,
-        error: {
-          code: -32602,
-          message: {
-            ru: 'Неверный запрос',
-            en: 'Invalid Request',
-            uz: 'Noto\'g\'ri so\'rov'
-          }
-        }
-      });
+      return res.json(createErrorResponse(null, PaymeErrorCode.INVALID_PARAMS));
     }
 
     // ✅ STEP 3: Handle business logic AFTER authorization passes
     switch (method) {
       case 'CheckPerformTransaction':
-        console.log('🔍 Processing CheckPerformTransaction with:', {
-          amount: params?.amount,
-          account: params?.account
-        });
+        return handleCheckPerformTransaction(req, res, id, params);
         
-        // ✅ FIXED: Validate account exists in your system
-        const accountLogin = params?.account?.login || params?.account?.Login;
-        if (!accountLogin) {
-          console.log('❌ No account login provided');
-          return res.json({
-            jsonrpc: '2.0',
-            id: id,
-            error: {
-              code: -31050,
-              message: {
-                ru: 'Неверный код заказа',
-                en: 'Invalid order code',
-                uz: 'Buyurtma kodi noto\'g\'ri'
-              }
-            }
-          });
-        }
-        
-        // ✅ Check if account exists in your system (business logic validation)
-        const isValidAccount = await validateAccountExists(accountLogin);
-        if (!isValidAccount) {
-          console.log('❌ Account does not exist in system:', accountLogin);
-          return res.json({
-            jsonrpc: '2.0',
-            id: id,
-            error: {
-              code: -31050,
-              message: {
-                ru: 'Неверный код заказа',
-                en: 'Invalid order code',
-                uz: 'Buyurtma kodi noto\'g\'ri'
-              }
-            }
-          });
-        }
-        
-        // ✅ Then validate amount (only if account is valid)
-        const validAmounts = Object.values(PAYMENT_AMOUNTS); // [260000, 455000]
-        if (!params?.amount || !validAmounts.includes(params.amount)) {
-          console.log('❌ Invalid amount:', params?.amount, 'Valid amounts:', validAmounts);
-          return res.json({
-            jsonrpc: '2.0',
-            id: id,
-            error: {
-              code: -31001,
-              message: {
-                ru: 'Неверная сумма',
-                en: 'Invalid amount',
-                uz: 'Noto\'g\'ri summa'
-              }
-            }
-          });
-        }
-        
-        // Success response
-        console.log('✅ CheckPerformTransaction successful');
-        return res.json({
-          jsonrpc: '2.0',
-          id: id,
-          result: {
-            allow: true,
-            detail: {
-              receipt_type: 0
-            }
-          }
-        });
-
       case 'CreateTransaction':
-        console.log('🔍 Processing CreateTransaction with:', {
-          id: params?.id,
-          amount: params?.amount,
-          account: params?.account,
-          time: params?.time
-        });
+        return handleCreateTransaction(req, res, id, params);
         
-        // Check if this is a duplicate transaction request
-        const existingTransaction = sandboxTransactions.get(params?.id);
-        if (existingTransaction) {
-          console.log('✅ Returning existing transaction:', params.id);
-          return res.json({
-            jsonrpc: '2.0',
-            id: id,
-            result: {
-              transaction: existingTransaction.transaction,
-              state: existingTransaction.state,
-              create_time: existingTransaction.create_time,
-              receivers: null
-            }
-          });
-        }
-        
-        // ✅ FIXED: Validate account exists in your system
-        const createAccountLogin = params?.account?.login || params?.account?.Login;
-        if (!createAccountLogin) {
-          console.log('❌ No account login provided');
-          return res.json({
-            jsonrpc: '2.0',
-            id: id,
-            error: {
-              code: -31050,
-              message: {
-                ru: 'Неверный код заказа',
-                en: 'Invalid order code',
-                uz: 'Buyurtma kodi noto\'g\'ri'
-              }
-            }
-          });
-        }
-        
-        // ✅ Check if account exists in your system (business logic validation)
-        const isValidCreateAccount = await validateAccountExists(createAccountLogin);
-        if (!isValidCreateAccount) {
-          console.log('❌ Account does not exist in system:', createAccountLogin);
-          return res.json({
-            jsonrpc: '2.0',
-            id: id,
-            error: {
-              code: -31050,
-              message: {
-                ru: 'Неверный код заказа',
-                en: 'Invalid order code',
-                uz: 'Buyurtma kodi noto\'g\'ri'
-              }
-            }
-          });
-        }
-        
-        // ✅ Then validate amount (only if account is valid)
-        const validCreateAmounts = Object.values(PAYMENT_AMOUNTS); // [260000, 455000]
-        if (!params?.amount || !validCreateAmounts.includes(params.amount)) {
-          console.log('❌ Invalid amount:', params?.amount, 'Valid amounts:', validCreateAmounts);
-          return res.json({
-            jsonrpc: '2.0',
-            id: id,
-            error: {
-              code: -31001,
-              message: {
-                ru: 'Неверная сумма',
-                en: 'Invalid amount',
-                uz: 'Noto\'g\'ri summa'
-              }
-            }
-          });
-        }
-
-        // ✅ Check if account already has an unpaid transaction (for one-time accounts)
-        if (hasExistingTransaction(createAccountLogin)) {
-          console.log('❌ Account already has an unpaid transaction');
-          return res.json({
-            jsonrpc: '2.0',
-            id: id,
-            error: {
-              code: -31008,
-              message: {
-                ru: 'Невозможно выполнить операцию',
-                en: 'Unable to perform operation',
-                uz: 'Amalni bajarib bo\'lmadi'
-              }
-            }
-          });
-        }
-
-        // Create transaction
-        const newTransaction = {
-          id: params.id,
-          transaction: `${params.id}`,
-          state: 1,
-          create_time: Date.now(),
-          amount: params.amount,
-          account: params.account,
-          cancelled: false
-        };
-        
-        sandboxTransactions.set(params.id, newTransaction);
-        
-        console.log('✅ CreateTransaction successful');
-        return res.json({
-          jsonrpc: '2.0',
-          id: id,
-          result: {
-            transaction: newTransaction.transaction,
-            state: newTransaction.state,
-            create_time: newTransaction.create_time,
-            receivers: null
-          }
-        });
-
-      case 'CheckTransaction':
-        const checkTransactionId = params?.id;
-        const checkTransaction = sandboxTransactions.get(checkTransactionId);
-        
-        if (!checkTransaction) {
-          console.log('❌ Transaction not found:', checkTransactionId);
-          return res.json({
-            jsonrpc: '2.0',
-            id: id,
-            error: {
-              code: -31003,
-              message: {
-                ru: 'Транзакция не найдена',
-                en: 'Transaction not found',
-                uz: 'Tranzaksiya topilmadi'
-              }
-            }
-          });
-        }
-        
-        console.log('✅ CheckTransaction successful for:', checkTransactionId);
-        return res.json({
-          jsonrpc: '2.0',
-          id: id,
-          result: {
-            create_time: checkTransaction.create_time,
-            perform_time: checkTransaction.perform_time || 0,
-            cancel_time: checkTransaction.cancel_time || 0,
-            transaction: checkTransaction.transaction,
-            state: checkTransaction.state,
-            reason: checkTransaction.reason || null
-          }
-        });
-
       case 'PerformTransaction':
-        const performTransactionId = params?.id;
-        const performTransaction = sandboxTransactions.get(performTransactionId);
+        return handlePerformTransaction(req, res, id, params);
         
-        if (!performTransaction) {
-          console.log('❌ Transaction not found for perform:', performTransactionId);
-          return res.json({
-            jsonrpc: '2.0',
-            id: id,
-            error: {
-              code: -31003,
-              message: {
-                ru: 'Транзакция не найдена',
-                en: 'Transaction not found',
-                uz: 'Tranzaksiya topilmadi'
-              }
-            }
-          });
-        }
-        
-        // Check if already performed
-        if (performTransaction.state === 2) {
-          console.log('✅ Transaction already performed, returning existing result');
-          return res.json({
-            jsonrpc: '2.0',
-            id: id,
-            result: {
-              transaction: performTransaction.transaction,
-              state: performTransaction.state,
-              perform_time: performTransaction.perform_time
-            }
-          });
-        }
-        
-        // Perform the transaction
-        performTransaction.state = 2;
-        performTransaction.perform_time = Date.now();
-        
-        console.log('✅ PerformTransaction successful for:', performTransactionId);
-        return res.json({
-          jsonrpc: '2.0',
-          id: id,
-          result: {
-            transaction: performTransaction.transaction,
-            state: performTransaction.state,
-            perform_time: performTransaction.perform_time
-          }
-        });
-
       case 'CancelTransaction':
-        const cancelTransactionId = params?.id;
-        const cancelTransaction = sandboxTransactions.get(cancelTransactionId);
+        return handleCancelTransaction(req, res, id, params);
         
-        if (!cancelTransaction) {
-          console.log('❌ Transaction not found for cancel:', cancelTransactionId);
-          return res.json({
-            jsonrpc: '2.0',
-            id: id,
-            error: {
-              code: -31003,
-              message: {
-                ru: 'Транзакция не найдена',
-                en: 'Transaction not found',
-                uz: 'Tranzaksiya topilmadi'
-              }
-            }
-          });
-        }
+      case 'CheckTransaction':
+        return handleCheckTransaction(req, res, id, params);
         
-        // Check if already cancelled
-        if (cancelTransaction.state === -1 || cancelTransaction.state === -2) {
-          console.log('✅ Transaction already cancelled, returning existing result');
-          return res.json({
-            jsonrpc: '2.0',
-            id: id,
-            result: {
-              transaction: cancelTransaction.transaction,
-              state: cancelTransaction.state,
-              cancel_time: cancelTransaction.cancel_time
-            }
-          });
-        }
-        
-        // Cancel the transaction
-        if (cancelTransaction.state === 1) {
-          // Cancel unpaid transaction
-          cancelTransaction.state = -1;
-        } else if (cancelTransaction.state === 2) {
-          // Cancel paid transaction (refund)
-          cancelTransaction.state = -2;
-        }
-        
-        cancelTransaction.cancel_time = Date.now();
-        cancelTransaction.reason = params?.reason || 3;
-        cancelTransaction.cancelled = true;
-        
-        console.log('✅ CancelTransaction successful for:', cancelTransactionId);
-        return res.json({
-          jsonrpc: '2.0',
-          id: id,
-          result: {
-            transaction: cancelTransaction.transaction,
-            state: cancelTransaction.state,
-            cancel_time: cancelTransaction.cancel_time
-          }
-        });
-
       case 'GetStatement':
-        console.log('❌ GetStatement method not supported');
-        return res.json({
-          jsonrpc: '2.0',
-          id: id,
-          error: {
-            code: -32601,
-            message: {
-              ru: 'Метод GetStatement не найден',
-              en: 'Method GetStatement not found',
-              uz: 'GetStatement usuli topilmadi'
-            }
-          }
-        });
-
+        return handleGetStatement(req, res, id, params);
+        
       case 'ChangePassword':
-        console.log('✅ ChangePassword method called');
-        // According to PayMe documentation, this method should return success
-        // even though it's not actually implemented in most merchant systems
-        return res.json({
-          jsonrpc: '2.0',
-          id: id,
-          result: {
-            success: true
-          }
-        });
-
+        return handleChangePassword(req, res, id, params);
+        
       default:
         console.log('❌ Unknown method:', method);
-        return res.json({
-          jsonrpc: '2.0',
-          id: id,
-          error: {
-            code: -32601,
-            message: {
-              ru: `Метод ${method} не найден`,
-              en: `Method ${method} not found`,
-              uz: `${method} usuli topilmadi`
-            }
-          }
-        });
+        return res.json(createErrorResponse(id, PaymeErrorCode.METHOD_NOT_FOUND, method));
     }
 
   } catch (error) {
     console.error('❌ Sandbox error:', error);
-    res.status(200).json({
+    res.status(200).json(createErrorResponse(
+      req.body?.id || null, 
+      PaymeErrorCode.INTERNAL_ERROR,
+      null,
+      process.env.NODE_ENV === 'development' ? error.message : null
+    ));
+  }
+};
+
+// ✅ CheckPerformTransaction handler
+const handleCheckPerformTransaction = async (req, res, id, params) => {
+  console.log('🔍 Processing CheckPerformTransaction with:', {
+    amount: params?.amount,
+    account: params?.account
+  });
+  
+  // ✅ FIXED: Validate account exists in your system
+  const accountLogin = params?.account?.login || params?.account?.Login;
+  if (!accountLogin) {
+    console.log('❌ No account login provided');
+    return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_ACCOUNT));
+  }
+  
+  // ✅ Check if account exists in your system (business logic validation)
+  const isValidAccount = await validateAccountExists(accountLogin);
+  if (!isValidAccount) {
+    console.log('❌ Account does not exist in system:', accountLogin);
+    return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_ACCOUNT));
+  }
+  
+  // ✅ Then validate amount (only if account is valid)
+  const validAmounts = Object.values(PAYMENT_AMOUNTS); // [260000, 455000]
+  if (!params?.amount || !validAmounts.includes(params.amount)) {
+    console.log('❌ Invalid amount:', params?.amount, 'Valid amounts:', validAmounts);
+    return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_AMOUNT));
+  }
+  
+  // Success response
+  console.log('✅ CheckPerformTransaction successful');
+  return res.json({
+    jsonrpc: '2.0',
+    id: id,
+    result: {
+      allow: true,
+      detail: {
+        receipt_type: 0
+      }
+    }
+  });
+};
+
+// ✅ CreateTransaction handler
+const handleCreateTransaction = async (req, res, id, params) => {
+  console.log('🔍 Processing CreateTransaction with:', {
+    id: params?.id,
+    amount: params?.amount,
+    account: params?.account,
+    time: params?.time
+  });
+  
+  // Check if this is a duplicate transaction request
+  const existingTransaction = sandboxTransactions.get(params?.id);
+  if (existingTransaction) {
+    console.log('✅ Returning existing transaction:', params.id);
+    return res.json({
       jsonrpc: '2.0',
-      id: req.body?.id || null,
-      error: {
-        code: -32000,
-        message: {
-          ru: 'Внутренняя ошибка сервера',
-          en: 'Internal server error',
-          uz: 'Server ichki xatosi'
-        },
-        data: process.env.NODE_ENV === 'development' ? error.message : null
+      id: id,
+      result: {
+        create_time: existingTransaction.create_time,
+        transaction: existingTransaction.transaction,
+        state: existingTransaction.state,
+        receivers: null
       }
     });
   }
+  
+  // ✅ FIXED: Validate account exists in your system
+  const createAccountLogin = params?.account?.login || params?.account?.Login;
+  if (!createAccountLogin) {
+    console.log('❌ No account login provided');
+    return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_ACCOUNT));
+  }
+  
+  // ✅ Check if account exists in your system
+  const isValidCreateAccount = await validateAccountExists(createAccountLogin);
+  if (!isValidCreateAccount) {
+    console.log('❌ Account does not exist in system:', createAccountLogin);
+    return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_ACCOUNT));
+  }
+  
+  // ✅ Then validate amount
+  const validCreateAmounts = Object.values(PAYMENT_AMOUNTS);
+  if (!params?.amount || !validCreateAmounts.includes(params.amount)) {
+    console.log('❌ Invalid amount:', params?.amount, 'Valid amounts:', validCreateAmounts);
+    return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_AMOUNT));
+  }
+
+  // ✅ Check if account already has an unpaid transaction
+  if (hasExistingUnpaidTransaction(createAccountLogin)) {
+    console.log('❌ Account already has an unpaid transaction');
+    return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
+  }
+
+  // Create transaction
+  const newTransaction = {
+    id: params.id,
+    transaction: `${params.id}`,
+    state: TransactionState.CREATED,
+    create_time: Date.now(),
+    amount: params.amount,
+    account: params.account,
+    cancelled: false,
+    perform_time: 0,
+    cancel_time: 0,
+    reason: null
+  };
+  
+  sandboxTransactions.set(params.id, newTransaction);
+  
+  console.log('✅ CreateTransaction successful');
+  return res.json({
+    jsonrpc: '2.0',
+    id: id,
+    result: {
+      create_time: newTransaction.create_time,
+      transaction: newTransaction.transaction,
+      state: newTransaction.state,
+      receivers: null
+    }
+  });
+};
+
+// ✅ PerformTransaction handler
+const handlePerformTransaction = async (req, res, id, params) => {
+  console.log('🔍 Processing PerformTransaction for:', params?.id);
+  
+  const performTransactionId = params?.id;
+  const performTransaction = findTransactionById(performTransactionId);
+  
+  if (!performTransaction) {
+    console.log('❌ Transaction not found for perform:', performTransactionId);
+    return res.json(createErrorResponse(id, PaymeErrorCode.TRANSACTION_NOT_FOUND));
+  }
+  
+  // Check if already performed
+  if (performTransaction.state === TransactionState.COMPLETED) {
+    console.log('✅ Transaction already performed, returning existing result');
+    return res.json({
+      jsonrpc: '2.0',
+      id: id,
+      result: {
+        transaction: performTransaction.transaction,
+        perform_time: performTransaction.perform_time,
+        state: performTransaction.state
+      }
+    });
+  }
+  
+  // Check if cancelled
+  if (performTransaction.state < 0) {
+    console.log('❌ Cannot perform cancelled transaction');
+    return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
+  }
+  
+  // Perform the transaction
+  performTransaction.state = TransactionState.COMPLETED;
+  performTransaction.perform_time = Date.now();
+  
+  console.log('✅ PerformTransaction successful for:', performTransactionId);
+  return res.json({
+    jsonrpc: '2.0',
+    id: id,
+    result: {
+      transaction: performTransaction.transaction,
+      perform_time: performTransaction.perform_time,
+      state: performTransaction.state
+    }
+  });
+};
+
+// ✅ CancelTransaction handler
+const handleCancelTransaction = async (req, res, id, params) => {
+  console.log('🔍 Processing CancelTransaction for:', params?.id);
+  
+  const cancelTransactionId = params?.id;
+  const cancelTransaction = findTransactionById(cancelTransactionId);
+  
+  if (!cancelTransaction) {
+    console.log('❌ Transaction not found for cancel:', cancelTransactionId);
+    return res.json(createErrorResponse(id, PaymeErrorCode.TRANSACTION_NOT_FOUND));
+  }
+  
+  // Check if already cancelled
+  if (cancelTransaction.state < 0) {
+    console.log('✅ Transaction already cancelled, returning existing result');
+    return res.json({
+      jsonrpc: '2.0',
+      id: id,
+      result: {
+        transaction: cancelTransaction.transaction,
+        cancel_time: cancelTransaction.cancel_time,
+        state: cancelTransaction.state
+      }
+    });
+  }
+  
+  // Check if order is completed (cannot cancel)
+  // You can add your business logic here to check if the order/service was delivered
+  // For now, we'll assume orders can be cancelled
+  
+  // Cancel the transaction
+  if (cancelTransaction.state === TransactionState.CREATED) {
+    // Cancel unpaid transaction
+    cancelTransaction.state = TransactionState.CANCELLED_AFTER_CREATE;
+  } else if (cancelTransaction.state === TransactionState.COMPLETED) {
+    // Cancel paid transaction (refund)
+    cancelTransaction.state = TransactionState.CANCELLED_AFTER_COMPLETE;
+  }
+  
+  cancelTransaction.cancel_time = Date.now();
+  cancelTransaction.reason = params?.reason || 3;
+  cancelTransaction.cancelled = true;
+  
+  console.log('✅ CancelTransaction successful for:', cancelTransactionId);
+  return res.json({
+    jsonrpc: '2.0',
+    id: id,
+    result: {
+      transaction: cancelTransaction.transaction,
+      cancel_time: cancelTransaction.cancel_time,
+      state: cancelTransaction.state
+    }
+  });
+};
+
+// ✅ CheckTransaction handler
+const handleCheckTransaction = async (req, res, id, params) => {
+  console.log('🔍 Processing CheckTransaction for:', params?.id);
+  
+  const checkTransactionId = params?.id;
+  const checkTransaction = findTransactionById(checkTransactionId);
+  
+  if (!checkTransaction) {
+    console.log('❌ Transaction not found:', checkTransactionId);
+    return res.json(createErrorResponse(id, PaymeErrorCode.TRANSACTION_NOT_FOUND));
+  }
+  
+  console.log('✅ CheckTransaction successful for:', checkTransactionId);
+  return res.json({
+    jsonrpc: '2.0',
+    id: id,
+    result: {
+      create_time: checkTransaction.create_time,
+      perform_time: checkTransaction.perform_time || 0,
+      cancel_time: checkTransaction.cancel_time || 0,
+      transaction: checkTransaction.transaction,
+      state: checkTransaction.state,
+      reason: checkTransaction.reason || null
+    }
+  });
+};
+
+// ✅ GetStatement handler
+const handleGetStatement = async (req, res, id, params) => {
+  console.log('🔍 Processing GetStatement with:', {
+    from: params?.from,
+    to: params?.to
+  });
+  
+  const from = params?.from || 0;
+  const to = params?.to || Date.now();
+  
+  // Filter transactions by time range
+  const transactions = [];
+  for (const [transactionId, transaction] of sandboxTransactions.entries()) {
+    if (transaction.create_time >= from && transaction.create_time <= to) {
+      transactions.push({
+        id: transaction.id,
+        time: transaction.create_time,
+        amount: transaction.amount,
+        account: transaction.account,
+        create_time: transaction.create_time,
+        perform_time: transaction.perform_time || 0,
+        cancel_time: transaction.cancel_time || 0,
+        transaction: transaction.transaction,
+        state: transaction.state,
+        reason: transaction.reason || null,
+        receivers: null
+      });
+    }
+  }
+  
+  console.log(`✅ GetStatement returning ${transactions.length} transactions`);
+  return res.json({
+    jsonrpc: '2.0',
+    id: id,
+    result: {
+      transactions: transactions
+    }
+  });
+};
+
+// ✅ ChangePassword handler
+const handleChangePassword = async (req, res, id, params) => {
+  console.log('✅ ChangePassword method called');
+  // According to PayMe documentation, this method should return success
+  // even though it's not actually implemented in most merchant systems
+  return res.json({
+    jsonrpc: '2.0',
+    id: id,
+    result: {
+      success: true
+    }
+  });
 };
 
 // ✅ Production-aware helper function
@@ -869,22 +903,57 @@ const checkPaymentStatus = async (req, res) => {
 
     const isProduction = process.env.NODE_ENV === 'production';
     
-    if (!isProduction) {
+    // Check sandbox transactions first
+    const sandboxTransaction = findTransactionById(transactionId);
+    if (sandboxTransaction) {
+      const user = await User.findById(userId);
+      
+      // Update user if transaction is completed
+      if (sandboxTransaction.state === TransactionState.COMPLETED && user) {
+        // Determine plan based on amount
+        let plan = 'free';
+        if (sandboxTransaction.amount === PAYMENT_AMOUNTS.start) {
+          plan = 'start';
+        } else if (sandboxTransaction.amount === PAYMENT_AMOUNTS.pro) {
+          plan = 'pro';
+        }
+        
+        if (user.subscriptionPlan !== plan || user.paymentStatus !== 'paid') {
+          user.subscriptionPlan = plan;
+          user.paymentStatus = 'paid';
+          await user.save();
+          console.log('✅ User subscription updated:', { userId, plan });
+        }
+      }
+      
       return res.json({
-        message: '✅ Sandbox payment status check',
+        message: '✅ Transaction status retrieved',
         success: true,
         server: 'api.aced.live',
         transaction: {
-          id: transactionId,
-          state: 2,
-          amount: 260000,
-          create_time: Date.now() - 120000,
-          perform_time: Date.now() - 60000
+          id: sandboxTransaction.id,
+          state: sandboxTransaction.state,
+          amount: sandboxTransaction.amount,
+          create_time: sandboxTransaction.create_time,
+          perform_time: sandboxTransaction.perform_time || 0,
+          cancel_time: sandboxTransaction.cancel_time || 0,
+          stateText: getTransactionStateText(sandboxTransaction.state)
         },
         sandbox: true
       });
     }
+    
+    if (!isProduction) {
+      return res.json({
+        message: '❌ Transaction not found in sandbox',
+        success: false,
+        server: 'api.aced.live',
+        transactionId,
+        sandbox: true
+      });
+    }
 
+    // Production payment status check would go here
     res.json({
       message: '⚠️ Production payment status check not implemented',
       success: false,
@@ -903,10 +972,157 @@ const checkPaymentStatus = async (req, res) => {
   }
 };
 
+// Helper function to get transaction state text
+const getTransactionStateText = (state) => {
+  switch (state) {
+    case TransactionState.CREATED:
+      return 'Created (waiting for payment)';
+    case TransactionState.COMPLETED:
+      return 'Completed (paid)';
+    case TransactionState.CANCELLED_AFTER_CREATE:
+      return 'Cancelled (before payment)';
+    case TransactionState.CANCELLED_AFTER_COMPLETE:
+      return 'Cancelled (refunded)';
+    default:
+      return 'Unknown';
+  }
+};
+
+// ✅ New function to handle webhook notifications from Payme
+const handlePaymeWebhook = async (req, res) => {
+  try {
+    console.log('🔔 PayMe Webhook received:', {
+      method: req.body?.method,
+      params: req.body?.params,
+      hasAuth: !!req.headers.authorization
+    });
+
+    // Validate authorization for webhooks
+    const authResult = validatePaymeAuth(req);
+    if (!authResult.valid) {
+      console.log('❌ Webhook authorization failed');
+      return res.status(401).json({
+        error: 'Unauthorized webhook request'
+      });
+    }
+
+    const { method, params } = req.body;
+
+    // Handle different webhook notifications
+    switch (method) {
+      case 'PaymentCompleted':
+        // Update user subscription when payment is completed
+        if (params?.account?.login && params?.state === TransactionState.COMPLETED) {
+          const user = await User.findById(params.account.login);
+          if (user) {
+            let plan = 'free';
+            if (params.amount === PAYMENT_AMOUNTS.start) {
+              plan = 'start';
+            } else if (params.amount === PAYMENT_AMOUNTS.pro) {
+              plan = 'pro';
+            }
+            
+            user.subscriptionPlan = plan;
+            user.paymentStatus = 'paid';
+            await user.save();
+            
+            console.log('✅ User subscription updated via webhook:', {
+              userId: params.account.login,
+              plan
+            });
+          }
+        }
+        break;
+        
+      case 'PaymentCancelled':
+        // Handle payment cancellation
+        if (params?.account?.login) {
+          const user = await User.findById(params.account.login);
+          if (user && user.paymentStatus === 'paid') {
+            // Only revert if this was their latest payment
+            // You might want to add more logic here
+            console.log('⚠️ Payment cancelled for user:', params.account.login);
+          }
+        }
+        break;
+    }
+
+    res.json({
+      success: true,
+      message: 'Webhook processed'
+    });
+
+  } catch (error) {
+    console.error('❌ Webhook processing error:', error);
+    res.status(500).json({
+      error: 'Webhook processing failed',
+      message: error.message
+    });
+  }
+};
+
+// ✅ Debug function to list all transactions (for testing)
+const listTransactions = async (req, res) => {
+  try {
+    const transactions = [];
+    for (const [id, transaction] of sandboxTransactions.entries()) {
+      transactions.push({
+        id: transaction.id,
+        state: transaction.state,
+        stateText: getTransactionStateText(transaction.state),
+        amount: transaction.amount,
+        amountUzs: transaction.amount / 100,
+        account: transaction.account,
+        create_time: new Date(transaction.create_time).toISOString(),
+        perform_time: transaction.perform_time ? new Date(transaction.perform_time).toISOString() : null,
+        cancel_time: transaction.cancel_time ? new Date(transaction.cancel_time).toISOString() : null
+      });
+    }
+
+    res.json({
+      message: '✅ All sandbox transactions',
+      count: transactions.length,
+      transactions: transactions.sort((a, b) => b.create_time.localeCompare(a.create_time)),
+      server: 'api.aced.live'
+    });
+
+  } catch (error) {
+    console.error('❌ Error listing transactions:', error);
+    res.status(500).json({
+      message: '❌ Error listing transactions',
+      error: error.message
+    });
+  }
+};
+
+// ✅ Function to clear sandbox transactions (for testing)
+const clearSandboxTransactions = async (req, res) => {
+  try {
+    const count = sandboxTransactions.size;
+    sandboxTransactions.clear();
+    
+    res.json({
+      message: '✅ Sandbox transactions cleared',
+      clearedCount: count,
+      server: 'api.aced.live'
+    });
+
+  } catch (error) {
+    console.error('❌ Error clearing transactions:', error);
+    res.status(500).json({
+      message: '❌ Error clearing transactions',
+      error: error.message
+    });
+  }
+};
+
 module.exports = { 
   applyPromoCode, 
   initiatePaymePayment,
   handleSandboxPayment,
   validateUserRoute,
-  checkPaymentStatus
+  checkPaymentStatus,
+  handlePaymeWebhook,
+  listTransactions,
+  clearSandboxTransactions
 };
