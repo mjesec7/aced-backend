@@ -363,6 +363,7 @@ const handleSandboxPayment = async (req, res) => {
 };
 
 // ✅ CheckPerformTransaction handler
+// ✅ CheckPerformTransaction handler
 const handleCheckPerformTransaction = async (req, res, id, params) => {
   console.log('🔍 Processing CheckPerformTransaction with:', {
     amount: params?.amount,
@@ -388,11 +389,13 @@ const handleCheckPerformTransaction = async (req, res, id, params) => {
       
     case AccountState.PROCESSING:
       console.log('❌ Account is being processed by another transaction');
-      return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
+      // changed from UNABLE_TO_PERFORM_OPERATION (–31008) to INVALID_ACCOUNT (–31050)
+      return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_ACCOUNT));
       
     case AccountState.BLOCKED:
       console.log('❌ Account is blocked (already paid/cancelled)');
-      return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
+      // changed from UNABLE_TO_PERFORM_OPERATION (–31008) to INVALID_ACCOUNT (–31050)
+      return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_ACCOUNT));
       
     case AccountState.WAITING_PAYMENT:
       // Continue with amount validation
@@ -420,12 +423,11 @@ const handleCheckPerformTransaction = async (req, res, id, params) => {
     id: id,
     result: {
       allow: true,
-      detail: {
-        receipt_type: 0
-      }
+      detail: { receipt_type: 0 }
     }
   });
 };
+
 
 // ✅ CreateTransaction handler
 const handleCreateTransaction = async (req, res, id, params) => {
