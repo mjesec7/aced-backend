@@ -41,6 +41,9 @@ const PaymeErrorCode = {
   UNABLE_TO_PERFORM_OPERATION: -31008,
   ORDER_COMPLETED: -31007,
   INVALID_ACCOUNT: -31050,
+  ACCOUNT_NOT_FOUND: -31050,  // Account doesn't exist
+  ACCOUNT_BLOCKED: -31051,     // Account is blocked
+  ACCOUNT_PROCESSING: -31052,  // Account is processing another transaction
   INVALID_JSON_RPC: -32700,
   PARSE_ERROR: -32700,
   METHOD_NOT_FOUND: -32601,
@@ -239,9 +242,20 @@ const createErrorResponse = (id, code, messageKey, data = null) => {
       messages.uz = 'Tranzaksiya topilmadi';
       break;
     case PaymeErrorCode.INVALID_ACCOUNT:
+    case PaymeErrorCode.ACCOUNT_NOT_FOUND:
       messages.ru = messageKey || 'Неверный код заказа';
       messages.en = messageKey || 'Invalid order code';
       messages.uz = messageKey || "Buyurtma kodi noto'g'ri";
+      break;
+    case PaymeErrorCode.ACCOUNT_BLOCKED:
+      messages.ru = 'Невозможно выполнить операцию';
+      messages.en = 'Unable to perform operation';
+      messages.uz = "Amalni bajarib bo'lmadi";
+      break;
+    case PaymeErrorCode.ACCOUNT_PROCESSING:
+      messages.ru = 'Невозможно выполнить операцию';
+      messages.en = 'Unable to perform operation';
+      messages.uz = "Amalni bajarib bo'lmadi";
       break;
     case PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION:
       messages.ru = 'Невозможно выполнить операцию';
@@ -376,14 +390,7 @@ const handleCheckPerformTransaction = async (req, res, id, params) => {
     return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_ACCOUNT));
   }
   
-  // ✅ First check if amount is valid (do this before account validation)
-  const validAmounts = Object.values(PAYMENT_AMOUNTS);
-  if (!params?.amount || !validAmounts.includes(params.amount)) {
-    console.log('❌ Invalid amount:', params?.amount, 'Valid amounts:', validAmounts);
-    return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_AMOUNT));
-  }
-  
-  // ✅ Check account state
+  // ✅ Check account state FIRST (before amount validation)
   const accountInfo = await validateAccountAndState(accountLogin);
   console.log('📊 Account validation result:', accountInfo);
   
@@ -391,28 +398,35 @@ const handleCheckPerformTransaction = async (req, res, id, params) => {
   switch (accountInfo.state) {
     case AccountState.NOT_EXISTS:
       console.log('❌ Account does not exist');
-      return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_ACCOUNT));
+      return res.json(createErrorResponse(id, PaymeErrorCode.ACCOUNT_NOT_FOUND));
       
     case AccountState.PROCESSING:
       console.log('❌ Account is being processed by another transaction');
-      // For CheckPerformTransaction, if account is processing, it should return UNABLE_TO_PERFORM_OPERATION
-      return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
+      // Use specific error code for processing state
+      return res.json(createErrorResponse(id, PaymeErrorCode.ACCOUNT_PROCESSING));
       
     case AccountState.BLOCKED:
       console.log('❌ Account is blocked (already paid/cancelled)');
-      // For blocked accounts, return UNABLE_TO_PERFORM_OPERATION
-      return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
+      // Use specific error code for blocked state
+      return res.json(createErrorResponse(id, PaymeErrorCode.ACCOUNT_BLOCKED));
       
     case AccountState.WAITING_PAYMENT:
-      // Continue - account is valid and ready for payment
+      // Continue with amount validation only if account is valid
       break;
       
     default:
       // If no specific state, check if account exists
       if (!accountInfo.exists) {
         console.log('❌ Account does not exist in system');
-        return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_ACCOUNT));
+        return res.json(createErrorResponse(id, PaymeErrorCode.ACCOUNT_NOT_FOUND));
       }
+  }
+  
+  // ✅ Validate amount ONLY after account is confirmed valid
+  const validAmounts = Object.values(PAYMENT_AMOUNTS);
+  if (!params?.amount || !validAmounts.includes(params.amount)) {
+    console.log('❌ Invalid amount:', params?.amount, 'Valid amounts:', validAmounts);
+    return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_AMOUNT));
   }
   
   // Success response - only for waiting_payment state with valid amount
@@ -427,7 +441,7 @@ const handleCheckPerformTransaction = async (req, res, id, params) => {
   });
 };
 
-// ✅ CreateTransaction handler - FIXED for duplicate handling
+// ✅ CreateTransaction handler - FIXED for duplicate handling and error codes
 const handleCreateTransaction = async (req, res, id, params) => {
   console.log('🔍 Processing CreateTransaction with:', {
     id: params?.id,
@@ -459,14 +473,7 @@ const handleCreateTransaction = async (req, res, id, params) => {
     return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_ACCOUNT));
   }
   
-  // ✅ Validate amount first
-  const validCreateAmounts = Object.values(PAYMENT_AMOUNTS);
-  if (!params?.amount || !validCreateAmounts.includes(params.amount)) {
-    console.log('❌ Invalid amount:', params?.amount, 'Valid amounts:', validCreateAmounts);
-    return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_AMOUNT));
-  }
-  
-  // ✅ Check account state
+  // ✅ Check account state FIRST (before amount validation)
   const createAccountInfo = await validateAccountAndState(createAccountLogin);
   console.log('📊 Create transaction account validation:', createAccountInfo);
   
@@ -474,30 +481,40 @@ const handleCreateTransaction = async (req, res, id, params) => {
   switch (createAccountInfo.state) {
     case AccountState.NOT_EXISTS:
       console.log('❌ Account does not exist');
-      return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_ACCOUNT));
+      return res.json(createErrorResponse(id, PaymeErrorCode.ACCOUNT_NOT_FOUND));
       
     case AccountState.PROCESSING:
       console.log('❌ Account is being processed by another transaction');
-      return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
+      // Use specific error code for processing state
+      return res.json(createErrorResponse(id, PaymeErrorCode.ACCOUNT_PROCESSING));
       
     case AccountState.BLOCKED:
       console.log('❌ Account is blocked (already paid/cancelled)');
-      return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
+      // Use specific error code for blocked state
+      return res.json(createErrorResponse(id, PaymeErrorCode.ACCOUNT_BLOCKED));
       
     case AccountState.WAITING_PAYMENT:
-      // Continue with transaction creation
+      // Continue with transaction creation only if account is valid
       break;
       
     default:
       if (!createAccountInfo.exists) {
         console.log('❌ Account does not exist in system');
-        return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_ACCOUNT));
+        return res.json(createErrorResponse(id, PaymeErrorCode.ACCOUNT_NOT_FOUND));
       }
+  }
+  
+  // ✅ Validate amount ONLY after account is confirmed valid
+  const validCreateAmounts = Object.values(PAYMENT_AMOUNTS);
+  if (!params?.amount || !validCreateAmounts.includes(params.amount)) {
+    console.log('❌ Invalid amount:', params?.amount, 'Valid amounts:', validCreateAmounts);
+    return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_AMOUNT));
   }
 
   // ✅ Check if account already has an unpaid transaction (for real accounts)
   if (createAccountInfo.exists && hasExistingUnpaidTransaction(createAccountLogin)) {
     console.log('❌ Account already has an unpaid transaction');
+    // Return specific error code for existing transaction
     return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
   }
 
