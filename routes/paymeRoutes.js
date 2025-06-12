@@ -10,7 +10,9 @@ const {
   checkPaymentStatus,
   handlePaymeWebhook,
   listTransactions,
-  clearSandboxTransactions
+  clearSandboxTransactions,
+  setAccountState,
+  setMerchantKey
 } = require('../controllers/paymentController');
 
 // Middleware for logging requests in development
@@ -45,6 +47,12 @@ router.post('/initiate-payme', initiatePaymePayment);
 
 // Main sandbox endpoint for PayMe API testing
 router.post('/sandbox', handleSandboxPayment);
+
+// Set account state for testing
+router.post('/sandbox/account-state', setAccountState);
+
+// Set merchant key for testing
+router.post('/sandbox/merchant-key', setMerchantKey);
 
 // Sandbox status check
 router.get('/sandbox/status', (req, res) => {
@@ -185,7 +193,9 @@ if (process.env.NODE_ENV !== 'production') {
         webhook: 'POST /api/payments/webhook',
         status: 'GET /api/payments/status/:transactionId/:userId?',
         transactions: 'GET /api/payments/transactions',
-        clearTransactions: 'DELETE /api/payments/transactions/clear'
+        clearTransactions: 'DELETE /api/payments/transactions/clear',
+        setAccountState: 'POST /api/payments/sandbox/account-state',
+        setMerchantKey: 'POST /api/payments/sandbox/merchant-key'
       }
     });
   });
@@ -234,7 +244,9 @@ router.get('/health', (req, res) => {
       sandbox: 'POST /api/payments/sandbox',
       webhook: 'POST /api/payments/webhook',
       status: 'GET /api/payments/status/:transactionId/:userId?',
-      validateUser: 'GET /api/payments/validate-user/:userId'
+      validateUser: 'GET /api/payments/validate-user/:userId',
+      setAccountState: 'POST /api/payments/sandbox/account-state',
+      setMerchantKey: 'POST /api/payments/sandbox/merchant-key'
     }
   });
 });
@@ -256,7 +268,9 @@ router.use('*', (req, res) => {
       'POST /api/payments/webhook',
       'GET /api/payments/status/:transactionId/:userId?',
       'GET /api/payments/validate-user/:userId',
-      'GET /api/payments/health'
+      'GET /api/payments/health',
+      'POST /api/payments/sandbox/account-state',
+      'POST /api/payments/sandbox/merchant-key'
     ]
   });
 });

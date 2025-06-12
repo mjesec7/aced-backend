@@ -479,6 +479,7 @@ const handleCreateTransaction = async (req, res, id, params) => {
     });
   }
   
+  
   // Get account login
   const createAccountLogin = params?.account?.login || params?.account?.Login;
   if (!createAccountLogin) {
@@ -642,7 +643,7 @@ const handleCreateTransaction = async (req, res, id, params) => {
       receivers: null
     }
   });
-};
+
 
 // ✅ PerformTransaction handler - FIXED for proper state handling
 const handlePerformTransaction = async (req, res, id, params) => {
