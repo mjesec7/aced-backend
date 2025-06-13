@@ -401,7 +401,15 @@ const handleCheckPerformTransaction = async (req, res, id, params) => {
     return res.json(createErrorResponse(id, -31050, null, 'login'));
   }
   
-  // ✅ Check account state FIRST (before amount validation)
+  // ✅ Validate amount FIRST (before account validation)
+  const validAmounts = Object.values(PAYMENT_AMOUNTS);
+  if (!params?.amount || !validAmounts.includes(params.amount)) {
+    console.log('❌ Invalid amount:', params?.amount, 'Valid amounts:', validAmounts);
+    // IMPORTANT: For amount errors, do NOT include data field
+    return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_AMOUNT, null, false));
+  }
+  
+  // ✅ Check account state AFTER amount validation
   const accountInfo = await validateAccountAndState(accountLogin);
   console.log('📊 Account validation result:', accountInfo);
   
@@ -424,7 +432,8 @@ const handleCheckPerformTransaction = async (req, res, id, params) => {
       return res.json(createErrorResponse(id, -31052, null, 'login'));
       
     case AccountState.WAITING_PAYMENT:
-      // Continue with amount validation only if account is valid
+      // ✅ FIXED: For waiting_payment state, return success
+      console.log('✅ Account is in waiting_payment state - transaction allowed');
       break;
       
     default:
@@ -433,14 +442,8 @@ const handleCheckPerformTransaction = async (req, res, id, params) => {
         console.log('❌ Account does not exist in system');
         return res.json(createErrorResponse(id, -31050, null, 'login'));
       }
-  }
-  
-  // ✅ Validate amount ONLY after account is confirmed valid
-  const validAmounts = Object.values(PAYMENT_AMOUNTS);
-  if (!params?.amount || !validAmounts.includes(params.amount)) {
-    console.log('❌ Invalid amount:', params?.amount, 'Valid amounts:', validAmounts);
-    // IMPORTANT: For amount errors, do NOT include data field
-    return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_AMOUNT, null, false));
+      // If account exists but no specific state, allow transaction
+      console.log('✅ Account exists - transaction allowed');
   }
   
   // Success response - only for waiting_payment state with valid amount
@@ -488,7 +491,15 @@ const handleCreateTransaction = async (req, res, id, params) => {
     return res.json(createErrorResponse(id, -31050, null, 'login'));
   }
   
-  // ✅ Check account state FIRST (before amount validation)
+  // ✅ Validate amount FIRST (before account validation for CreateTransaction)
+  const validCreateAmounts = Object.values(PAYMENT_AMOUNTS);
+  if (!params?.amount || !validCreateAmounts.includes(params.amount)) {
+    console.log('❌ Invalid amount:', params?.amount, 'Valid amounts:', validCreateAmounts);
+    // IMPORTANT: For amount errors, do NOT include data field
+    return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_AMOUNT, null, false));
+  }
+  
+  // ✅ Check account state AFTER amount validation
   const createAccountInfo = await validateAccountAndState(createAccountLogin);
   console.log('📊 Create transaction account validation:', createAccountInfo);
   
@@ -502,16 +513,29 @@ const handleCreateTransaction = async (req, res, id, params) => {
       
     case AccountState.PROCESSING:
       console.log('❌ Account is being processed by another transaction');
-      // Return -31008 for unable to perform operation (NOT account error)
+      // ✅ FIXED: For CreateTransaction with existing unpaid transaction, return account error
+      // Check if this is because of an existing unpaid transaction
+      if (hasExistingUnpaidTransaction(createAccountLogin)) {
+        // Return account error in range -31050 to -31099
+        return res.json(createErrorResponse(id, -31051, null, 'login'));
+      }
+      // Otherwise return -31008 for unable to perform operation
       return res.json(createErrorResponse(id, -31008, null, false));
       
     case AccountState.BLOCKED:
       console.log('❌ Account is blocked (already paid/cancelled)');
-      // Return -31008 for unable to perform operation (NOT account error)
-      return res.json(createErrorResponse(id, -31008, null, false));
+      // ✅ FIXED: For blocked account, return account error
+      return res.json(createErrorResponse(id, -31052, null, 'login'));
       
     case AccountState.WAITING_PAYMENT:
-      // Continue with transaction creation only if account is valid
+      // ✅ FIXED: For waiting_payment state, check if account has existing unpaid transaction
+      if (createAccountInfo.exists && hasExistingUnpaidTransaction(createAccountLogin)) {
+        console.log('❌ Account already has an unpaid transaction');
+        // Return account error for existing unpaid transaction
+        return res.json(createErrorResponse(id, -31051, null, 'login'));
+      }
+      // Continue with transaction creation only if no existing unpaid transaction
+      console.log('✅ Account is in waiting_payment state and ready for new transaction');
       break;
       
     default:
@@ -519,21 +543,6 @@ const handleCreateTransaction = async (req, res, id, params) => {
         console.log('❌ Account does not exist in system');
         return res.json(createErrorResponse(id, -31050, null, 'login'));
       }
-  }
-  
-  // ✅ Validate amount ONLY after account is confirmed valid
-  const validCreateAmounts = Object.values(PAYMENT_AMOUNTS);
-  if (!params?.amount || !validCreateAmounts.includes(params.amount)) {
-    console.log('❌ Invalid amount:', params?.amount, 'Valid amounts:', validCreateAmounts);
-    // IMPORTANT: For amount errors, do NOT include data field
-    return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_AMOUNT, null, false));
-  }
-
-  // ✅ Check if account already has an unpaid transaction (for real accounts)
-  if (createAccountInfo.exists && hasExistingUnpaidTransaction(createAccountLogin)) {
-    console.log('❌ Account already has an unpaid transaction');
-    // Return -31008 for unable to perform operation
-    return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION, null, false));
   }
 
   // Create transaction
@@ -552,7 +561,7 @@ const handleCreateTransaction = async (req, res, id, params) => {
   
   sandboxTransactions.set(params.id, newTransaction);
   
-  console.log('✅ CreateTransaction successful');
+  console.log('✅ CreateTransaction successful for account in waiting_payment state');
   return res.json({
     jsonrpc: '2.0',
     id: id,
