@@ -11,7 +11,6 @@ const mongoose = require('mongoose');
 const dotenv = require('dotenv');
 const path = require('path');
 const fs = require('fs');
-const crypto = require('crypto');
 
 // Load environment variables first
 dotenv.config();
