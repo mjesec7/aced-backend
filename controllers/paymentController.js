@@ -661,7 +661,7 @@ const handlePerformTransaction = async (req, res, id, params) => {
   });
 };
 
-// ✅ CancelTransaction handler - FIXED for proper order state handling
+// ✅ CancelTransaction handler - FIXED for proper state transitions
 const handleCancelTransaction = async (req, res, id, params) => {
   console.log('🔍 Processing CancelTransaction for:', params?.id);
   
@@ -687,7 +687,7 @@ const handleCancelTransaction = async (req, res, id, params) => {
     });
   }
   
-  // ✅ Check if order is completed - THIS IS IMPORTANT FOR TESTS
+  // ✅ FIXED: Check if order is completed - THIS IS IMPORTANT FOR TESTS
   // If transaction is completed and we're testing "order completed" scenario
   if (cancelTransaction.state === TransactionState.COMPLETED) {
     // Check if this is a test scenario where order should be marked as completed
@@ -701,20 +701,36 @@ const handleCancelTransaction = async (req, res, id, params) => {
     }
   }
   
-  // Cancel the transaction
+  // ✅ FIXED: Proper state transition logic
+  let newState;
   if (cancelTransaction.state === TransactionState.CREATED) {
-    // Cancel unpaid transaction
-    cancelTransaction.state = TransactionState.CANCELLED_AFTER_CREATE;
+    // Cancel unpaid transaction -> state becomes -1
+    newState = TransactionState.CANCELLED_AFTER_CREATE; // -1
+    console.log('🔄 Cancelling CREATED transaction -> state will be -1');
   } else if (cancelTransaction.state === TransactionState.COMPLETED) {
-    // Cancel paid transaction (refund)
-    cancelTransaction.state = TransactionState.CANCELLED_AFTER_COMPLETE;
+    // Cancel paid transaction (refund) -> state becomes -2
+    newState = TransactionState.CANCELLED_AFTER_COMPLETE; // -2
+    console.log('🔄 Cancelling COMPLETED transaction -> state will be -2');
+  } else {
+    // For any other state, cannot cancel
+    console.log('❌ Cannot cancel transaction in state:', cancelTransaction.state);
+    return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
   }
   
+  // Apply the cancellation
+  cancelTransaction.state = newState;
   cancelTransaction.cancel_time = Date.now();
   cancelTransaction.reason = params?.reason || 3;
   cancelTransaction.cancelled = true;
   
-  console.log('✅ CancelTransaction successful for:', cancelTransactionId);
+  // ✅ IMPORTANT: For cancelled transactions, reset perform_time to 0
+  // This is required by PayMe specification
+  if (newState === TransactionState.CANCELLED_AFTER_CREATE) {
+    cancelTransaction.perform_time = 0;
+  }
+  // For CANCELLED_AFTER_COMPLETE, keep the original perform_time
+  
+  console.log('✅ CancelTransaction successful for:', cancelTransactionId, 'New state:', newState);
   return res.json({
     jsonrpc: '2.0',
     id: id,
@@ -725,8 +741,7 @@ const handleCancelTransaction = async (req, res, id, params) => {
     }
   });
 };
-
-// ✅ CheckTransaction handler
+// ✅ CheckTransaction handler - FIXED for proper perform_time handling
 const handleCheckTransaction = async (req, res, id, params) => {
   console.log('🔍 Processing CheckTransaction for:', params?.id);
   
@@ -738,13 +753,32 @@ const handleCheckTransaction = async (req, res, id, params) => {
     return res.json(createErrorResponse(id, PaymeErrorCode.TRANSACTION_NOT_FOUND));
   }
   
-  console.log('✅ CheckTransaction successful for:', checkTransactionId);
+  // ✅ FIXED: Handle perform_time correctly based on transaction state
+  let performTime = 0;
+  
+  if (checkTransaction.state === TransactionState.COMPLETED) {
+    // For completed transactions, return actual perform_time
+    performTime = checkTransaction.perform_time || 0;
+  } else if (checkTransaction.state === TransactionState.CANCELLED_AFTER_COMPLETE) {
+    // For transactions cancelled after completion, return the original perform_time
+    performTime = checkTransaction.perform_time || 0;
+  } else {
+    // For CREATED or CANCELLED_AFTER_CREATE transactions, perform_time should be 0
+    performTime = 0;
+  }
+  
+  console.log('✅ CheckTransaction successful for:', checkTransactionId, {
+    state: checkTransaction.state,
+    perform_time: performTime,
+    cancel_time: checkTransaction.cancel_time || 0
+  });
+  
   return res.json({
     jsonrpc: '2.0',
     id: id,
     result: {
       create_time: checkTransaction.create_time,
-      perform_time: checkTransaction.perform_time || 0,
+      perform_time: performTime,
       cancel_time: checkTransaction.cancel_time || 0,
       transaction: checkTransaction.transaction,
       state: checkTransaction.state,
