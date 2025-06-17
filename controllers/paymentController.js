@@ -663,7 +663,7 @@ const handlePerformTransaction = async (req, res, id, params) => {
 
 // ✅ FIXED CancelTransaction handler - Sets correct reason values
 const handleCancelTransaction = async (req, res, id, params) => {
-  console.log('🔍 Processing CancelTransaction for:', params?.id);
+  console.log('🔍 Processing CancelTransaction for:', params?.id, 'with reason:', params?.reason);
   
   const cancelTransactionId = params?.id;
   const cancelTransaction = findTransactionById(cancelTransactionId);
@@ -672,6 +672,8 @@ const handleCancelTransaction = async (req, res, id, params) => {
     console.log('❌ Transaction not found for cancel:', cancelTransactionId);
     return res.json(createErrorResponse(id, PaymeErrorCode.TRANSACTION_NOT_FOUND));
   }
+  
+  console.log('📊 Current transaction state before cancel:', cancelTransaction.state);
   
   // Check if already cancelled
   if (cancelTransaction.state < 0) {
@@ -701,40 +703,40 @@ const handleCancelTransaction = async (req, res, id, params) => {
     }
   }
   
-  // ✅ FIXED: Proper state transition logic with correct reason values
+  // ✅ CRITICAL FIX: Determine state transition based on CURRENT transaction state
   let newState;
   let reason;
   
-  if (cancelTransaction.state === TransactionState.CREATED) {
+  // Get the current state at the time of cancellation
+  const currentState = cancelTransaction.state;
+  console.log('🔍 Determining cancellation based on current state:', currentState);
+  
+  if (currentState === TransactionState.CREATED) {
     // Cancel unpaid transaction -> state becomes -1, reason = 3
     newState = TransactionState.CANCELLED_AFTER_CREATE; // -1
     reason = 3;
     console.log('🔄 Cancelling CREATED transaction -> state will be -1, reason = 3');
-  } else if (cancelTransaction.state === TransactionState.COMPLETED) {
+    // ✅ CRITICAL: Reset perform_time to 0 for CREATED transactions
+    cancelTransaction.perform_time = 0;
+  } else if (currentState === TransactionState.COMPLETED) {
     // Cancel paid transaction (refund) -> state becomes -2, reason = 5
     newState = TransactionState.CANCELLED_AFTER_COMPLETE; // -2
     reason = 5;
     console.log('🔄 Cancelling COMPLETED transaction -> state will be -2, reason = 5');
+    // Keep the original perform_time for COMPLETED transactions
   } else {
     // For any other state, cannot cancel
-    console.log('❌ Cannot cancel transaction in state:', cancelTransaction.state);
+    console.log('❌ Cannot cancel transaction in state:', currentState);
     return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
   }
   
   // Apply the cancellation
   cancelTransaction.state = newState;
   cancelTransaction.cancel_time = Date.now();
-  cancelTransaction.reason = reason; // ✅ FIXED: Set correct reason
+  cancelTransaction.reason = reason;
   cancelTransaction.cancelled = true;
   
-  // ✅ IMPORTANT: For cancelled transactions, reset perform_time to 0
-  // This is required by PayMe specification
-  if (newState === TransactionState.CANCELLED_AFTER_CREATE) {
-    cancelTransaction.perform_time = 0;
-  }
-  // For CANCELLED_AFTER_COMPLETE, keep the original perform_time
-  
-  console.log('✅ CancelTransaction successful for:', cancelTransactionId, 'New state:', newState, 'Reason:', reason);
+  console.log('✅ CancelTransaction successful for:', cancelTransactionId, 'New state:', newState, 'Reason:', reason, 'Perform time:', cancelTransaction.perform_time);
   return res.json({
     jsonrpc: '2.0',
     id: id,
