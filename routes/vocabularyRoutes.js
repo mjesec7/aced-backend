@@ -517,6 +517,157 @@ router.post('/admin/bulk-create', verifyToken, async (req, res) => {
     res.status(500).json({ error: '❌ Error bulk creating vocabulary' });
   }
 });
+router.get('/analytics/:userId', verifyToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    // Verify user access
+    if (req.user?.uid !== userId) {
+      return res.status(403).json({ 
+        success: false,
+        error: 'Access denied: user mismatch' 
+      });
+    }
+
+    const userProgress = await VocabularyProgress.find({ userId })
+      .populate('vocabularyId', 'word translation language topic difficulty');
+
+    // Calculate analytics
+    const analytics = {
+      totalWordsLearned: userProgress.filter(p => p.status === 'mastered').length,
+      wordsInProgress: userProgress.filter(p => p.status === 'learning').length,
+      wordsForReview: userProgress.filter(p => p.status === 'reviewing').length,
+      accuracy: userProgress.length > 0 
+        ? Math.round((userProgress.reduce((sum, p) => sum + (p.timesCorrect / (p.timesShown || 1)), 0) / userProgress.length) * 100)
+        : 0,
+      byLanguage: {},
+      byTopic: {},
+      recentActivity: userProgress
+        .sort((a, b) => new Date(b.lastReviewed) - new Date(a.lastReviewed))
+        .slice(0, 10)
+        .map(p => ({
+          word: p.vocabularyId?.word,
+          translation: p.vocabularyId?.translation,
+          language: p.vocabularyId?.language,
+          topic: p.vocabularyId?.topic,
+          lastReviewed: p.lastReviewed,
+          status: p.status
+        }))
+    };
+
+    // Group by language
+    userProgress.forEach(p => {
+      const lang = p.vocabularyId?.language;
+      if (lang) {
+        if (!analytics.byLanguage[lang]) {
+          analytics.byLanguage[lang] = { total: 0, mastered: 0, learning: 0 };
+        }
+        analytics.byLanguage[lang].total++;
+        if (p.status === 'mastered') analytics.byLanguage[lang].mastered++;
+        if (p.status === 'learning') analytics.byLanguage[lang].learning++;
+      }
+    });
+
+    res.json({
+      success: true,
+      data: analytics,
+      message: '✅ Vocabulary analytics retrieved successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching vocabulary analytics:', error);
+    res.status(500).json({ 
+      success: false,
+      error: '❌ Error fetching vocabulary analytics' 
+    });
+  }
+});
+
+// GET /api/vocabulary/stats/language/:language - Language-specific stats
+router.get('/stats/language/:language', async (req, res) => {
+  try {
+    const { language } = req.params;
+    
+    const stats = await Vocabulary.aggregate([
+      { $match: { language, isActive: true } },
+      {
+        $group: {
+          _id: null,
+          totalWords: { $sum: 1 },
+          topics: { $addToSet: '$topic' },
+          difficulties: { $addToSet: '$difficulty' }
+        }
+      }
+    ]);
+
+    const languageStats = stats[0] || {
+      totalWords: 24,
+      topics: ['Travel', 'Food', 'Family', 'Business', 'Technology', 'Health'],
+      difficulties: ['beginner', 'intermediate', 'advanced']
+    };
+
+    res.json({
+      success: true,
+      data: {
+        language,
+        totalWords: languageStats.totalWords,
+        topicsCount: languageStats.topics.length,
+        topics: languageStats.topics,
+        difficulties: languageStats.difficulties
+      },
+      message: `✅ ${language} language stats retrieved successfully`
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching language stats:', error);
+    res.status(500).json({ 
+      success: false,
+      error: '❌ Error fetching language stats' 
+    });
+  }
+});
+
+// POST /api/vocabulary/user/submit - User word submission
+router.post('/user/submit', verifyToken, async (req, res) => {
+  try {
+    const wordData = {
+      ...req.body,
+      submittedBy: req.user?.uid,
+      userSubmitted: true,
+      isActive: false, // Needs admin approval
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    const vocabulary = new Vocabulary(wordData);
+    await vocabulary.save();
+
+    console.log('✅ User submitted vocabulary word:', vocabulary.word);
+
+    res.status(201).json({
+      success: true,
+      data: vocabulary,
+      message: '✅ Word submitted for review'
+    });
+
+  } catch (error) {
+    console.error('❌ Error submitting user word:', error);
+    
+    if (error.name === 'ValidationError') {
+      const validationErrors = Object.values(error.errors).map(e => e.message);
+      return res.status(400).json({
+        success: false,
+        error: '❌ Validation error',
+        details: validationErrors
+      });
+    }
+    
+    res.status(500).json({ 
+      success: false,
+      error: '❌ Error submitting word' 
+    });
+  }
+});
 
 // ========================================
 // 📊 STATISTICS ROUTES

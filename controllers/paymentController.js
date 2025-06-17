@@ -1,4 +1,4 @@
-// controllers/paymentController.js - FIXED PAYME ERROR HANDLING
+// controllers/paymentController.js - COMPLETE FIXED PAYME API IMPLEMENTATION
 
 const User = require('../models/user');
 const axios = require('axios');
@@ -458,7 +458,7 @@ const handleCheckPerformTransaction = async (req, res, id, params) => {
   });
 };
 
-// ✅ CreateTransaction handler - FIXED for duplicate handling and error codes
+// ✅ CreateTransaction handler - FIXED according to Payme documentation
 const handleCreateTransaction = async (req, res, id, params) => {
   console.log('🔍 Processing CreateTransaction with:', {
     id: params?.id,
@@ -467,10 +467,11 @@ const handleCreateTransaction = async (req, res, id, params) => {
     time: params?.time
   });
   
-  // Check if this is a duplicate transaction request
+  // ✅ IMPORTANT: Check if transaction already exists (idempotency)
   const existingTransaction = sandboxTransactions.get(params?.id);
   if (existingTransaction) {
-    console.log('✅ Returning existing transaction:', params.id);
+    console.log('✅ Transaction already exists, returning existing transaction:', params.id);
+    // According to docs: if transaction exists, return its current state
     return res.json({
       jsonrpc: '2.0',
       id: id,
@@ -478,77 +479,64 @@ const handleCreateTransaction = async (req, res, id, params) => {
         create_time: existingTransaction.create_time,
         transaction: existingTransaction.transaction,
         state: existingTransaction.state,
-        receivers: null
+        receivers: existingTransaction.receivers || null
       }
     });
+  }
+  
+  // ✅ Validate required parameters
+  if (!params?.id || !params?.time || !params?.amount || !params?.account) {
+    console.log('❌ Missing required parameters');
+    return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_PARAMS));
   }
   
   // Get account login
   const createAccountLogin = params?.account?.login || params?.account?.Login;
   if (!createAccountLogin) {
     console.log('❌ No account login provided');
-    // Return error in range -31050 to -31099 with data field
     return res.json(createErrorResponse(id, -31050, null, 'login'));
   }
   
-  // ✅ Validate amount FIRST (before account validation for CreateTransaction)
+  // ✅ Validate amount
   const validCreateAmounts = Object.values(PAYMENT_AMOUNTS);
-  if (!params?.amount || !validCreateAmounts.includes(params.amount)) {
+  if (!validCreateAmounts.includes(params.amount)) {
     console.log('❌ Invalid amount:', params?.amount, 'Valid amounts:', validCreateAmounts);
-    // IMPORTANT: For amount errors, do NOT include data field
     return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_AMOUNT, null, false));
   }
   
-  // ✅ Check account state AFTER amount validation
+  // ✅ Check account validity
   const createAccountInfo = await validateAccountAndState(createAccountLogin);
   console.log('📊 Create transaction account validation:', createAccountInfo);
   
-  // Handle different account states
-  // For CreateTransaction, account errors should be in range -31050 to -31099
+  // Check if account exists
+  if (!createAccountInfo.exists) {
+    console.log('❌ Account does not exist');
+    return res.json(createErrorResponse(id, -31050, null, 'login'));
+  }
+  
+  // ✅ Check for existing unpaid transactions (business logic)
+  // According to docs: should check if account has unpaid orders
+  if (hasExistingUnpaidTransaction(createAccountLogin)) {
+    console.log('❌ Account already has an unpaid transaction');
+    // Return unable to perform operation error
+    return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION, null, false));
+  }
+  
+  // ✅ Additional account state checks
   switch (createAccountInfo.state) {
-    case AccountState.NOT_EXISTS:
-      console.log('❌ Account does not exist');
-      // Return -31050 for non-existent account with data field
-      return res.json(createErrorResponse(id, -31050, null, 'login'));
+    case AccountState.BLOCKED:
+      console.log('❌ Account is blocked');
+      return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION, null, false));
       
     case AccountState.PROCESSING:
-      console.log('❌ Account is being processed by another transaction');
-      // ✅ FIXED: For CreateTransaction with existing unpaid transaction, return account error
-      // Check if this is because of an existing unpaid transaction
-      if (hasExistingUnpaidTransaction(createAccountLogin)) {
-        // Return account error in range -31050 to -31099
-        return res.json(createErrorResponse(id, -31051, null, 'login'));
-      }
-      // Otherwise return -31008 for unable to perform operation
-      return res.json(createErrorResponse(id, -31008, null, false));
-      
-    case AccountState.BLOCKED:
-      console.log('❌ Account is blocked (already paid/cancelled)');
-      // ✅ FIXED: For blocked account, return account error
-      return res.json(createErrorResponse(id, -31052, null, 'login'));
-      
-    case AccountState.WAITING_PAYMENT:
-      // ✅ FIXED: For waiting_payment state, check if account has existing unpaid transaction
-      if (createAccountInfo.exists && hasExistingUnpaidTransaction(createAccountLogin)) {
-        console.log('❌ Account already has an unpaid transaction');
-        // Return account error for existing unpaid transaction
-        return res.json(createErrorResponse(id, -31051, null, 'login'));
-      }
-      // Continue with transaction creation only if no existing unpaid transaction
-      console.log('✅ Account is in waiting_payment state and ready for new transaction');
-      break;
-      
-    default:
-      if (!createAccountInfo.exists) {
-        console.log('❌ Account does not exist in system');
-        return res.json(createErrorResponse(id, -31050, null, 'login'));
-      }
+      console.log('❌ Account is processing another transaction');
+      return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION, null, false));
   }
 
-  // Create transaction
+  // ✅ Create new transaction
   const newTransaction = {
     id: params.id,
-    transaction: `${params.id}`,
+    transaction: params.id.toString(), // Transaction ID in merchant system
     state: TransactionState.CREATED,
     create_time: Date.now(),
     amount: params.amount,
@@ -556,12 +544,16 @@ const handleCreateTransaction = async (req, res, id, params) => {
     cancelled: false,
     perform_time: 0,
     cancel_time: 0,
-    reason: null
+    reason: null,
+    receivers: null // Direct payment - merchant is the receiver
   };
   
+  // Store transaction
   sandboxTransactions.set(params.id, newTransaction);
   
-  console.log('✅ CreateTransaction successful for account in waiting_payment state');
+  console.log('✅ CreateTransaction successful - new transaction created');
+  
+  // Return success response according to Payme spec
   return res.json({
     jsonrpc: '2.0',
     id: id,
@@ -569,7 +561,7 @@ const handleCreateTransaction = async (req, res, id, params) => {
       create_time: newTransaction.create_time,
       transaction: newTransaction.transaction,
       state: newTransaction.state,
-      receivers: null
+      receivers: newTransaction.receivers
     }
   });
 };
@@ -765,7 +757,7 @@ const handleGetStatement = async (req, res, id, params) => {
         transaction: transaction.transaction,
         state: transaction.state,
         reason: transaction.reason || null,
-        receivers: null
+        receivers: transaction.receivers || null
       });
     }
   }
