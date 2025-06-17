@@ -587,7 +587,7 @@ const handleCreateTransaction = async (req, res, id, params) => {
   });
 };
 
-// ✅ PerformTransaction handler - FIXED for proper state handling
+// ✅ FIXED PerformTransaction handler - Returns error -31008 when needed
 const handlePerformTransaction = async (req, res, id, params) => {
   console.log('🔍 Processing PerformTransaction for:', params?.id);
   
@@ -639,9 +639,9 @@ const handlePerformTransaction = async (req, res, id, params) => {
     }
     
     if (performAccountInfo.state === AccountState.BLOCKED) {
-      console.log('❌ Account is blocked during perform');
-      // Return account error with data field
-      return res.json(createErrorResponse(id, -31051, null, 'login'));
+      console.log('❌ Account is blocked during perform - returning -31008');
+      // ✅ FIXED: Return -31008 when account is blocked during perform
+      return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
     }
   }
   
@@ -661,7 +661,7 @@ const handlePerformTransaction = async (req, res, id, params) => {
   });
 };
 
-// ✅ CancelTransaction handler - FIXED for proper state transitions
+// ✅ FIXED CancelTransaction handler - Sets correct reason values
 const handleCancelTransaction = async (req, res, id, params) => {
   console.log('🔍 Processing CancelTransaction for:', params?.id);
   
@@ -701,16 +701,20 @@ const handleCancelTransaction = async (req, res, id, params) => {
     }
   }
   
-  // ✅ FIXED: Proper state transition logic
+  // ✅ FIXED: Proper state transition logic with correct reason values
   let newState;
+  let reason;
+  
   if (cancelTransaction.state === TransactionState.CREATED) {
-    // Cancel unpaid transaction -> state becomes -1
+    // Cancel unpaid transaction -> state becomes -1, reason = 3
     newState = TransactionState.CANCELLED_AFTER_CREATE; // -1
-    console.log('🔄 Cancelling CREATED transaction -> state will be -1');
+    reason = 3;
+    console.log('🔄 Cancelling CREATED transaction -> state will be -1, reason = 3');
   } else if (cancelTransaction.state === TransactionState.COMPLETED) {
-    // Cancel paid transaction (refund) -> state becomes -2
+    // Cancel paid transaction (refund) -> state becomes -2, reason = 5
     newState = TransactionState.CANCELLED_AFTER_COMPLETE; // -2
-    console.log('🔄 Cancelling COMPLETED transaction -> state will be -2');
+    reason = 5;
+    console.log('🔄 Cancelling COMPLETED transaction -> state will be -2, reason = 5');
   } else {
     // For any other state, cannot cancel
     console.log('❌ Cannot cancel transaction in state:', cancelTransaction.state);
@@ -720,7 +724,7 @@ const handleCancelTransaction = async (req, res, id, params) => {
   // Apply the cancellation
   cancelTransaction.state = newState;
   cancelTransaction.cancel_time = Date.now();
-  cancelTransaction.reason = params?.reason || 3;
+  cancelTransaction.reason = reason; // ✅ FIXED: Set correct reason
   cancelTransaction.cancelled = true;
   
   // ✅ IMPORTANT: For cancelled transactions, reset perform_time to 0
@@ -730,7 +734,7 @@ const handleCancelTransaction = async (req, res, id, params) => {
   }
   // For CANCELLED_AFTER_COMPLETE, keep the original perform_time
   
-  console.log('✅ CancelTransaction successful for:', cancelTransactionId, 'New state:', newState);
+  console.log('✅ CancelTransaction successful for:', cancelTransactionId, 'New state:', newState, 'Reason:', reason);
   return res.json({
     jsonrpc: '2.0',
     id: id,
@@ -741,7 +745,7 @@ const handleCancelTransaction = async (req, res, id, params) => {
     }
   });
 };
-// ✅ CheckTransaction handler - FIXED for proper perform_time handling
+
 const handleCheckTransaction = async (req, res, id, params) => {
   console.log('🔍 Processing CheckTransaction for:', params?.id);
   
@@ -755,6 +759,7 @@ const handleCheckTransaction = async (req, res, id, params) => {
   
   // ✅ FIXED: Handle perform_time correctly based on transaction state
   let performTime = 0;
+  let reason = checkTransaction.reason;
   
   if (checkTransaction.state === TransactionState.COMPLETED) {
     // For completed transactions, return actual perform_time
@@ -762,15 +767,28 @@ const handleCheckTransaction = async (req, res, id, params) => {
   } else if (checkTransaction.state === TransactionState.CANCELLED_AFTER_COMPLETE) {
     // For transactions cancelled after completion, return the original perform_time
     performTime = checkTransaction.perform_time || 0;
-  } else {
-    // For CREATED or CANCELLED_AFTER_CREATE transactions, perform_time should be 0
+    // ✅ FIXED: Set reason to 5 for cancelled after complete
+    reason = 5;
+  } else if (checkTransaction.state === TransactionState.CANCELLED_AFTER_CREATE) {
+    // For CANCELLED_AFTER_CREATE transactions, perform_time should be 0
     performTime = 0;
+    // ✅ FIXED: Set reason to 3 for cancelled after create
+    reason = 3;
+  } else {
+    // For CREATED transactions, perform_time should be 0
+    performTime = 0;
+  }
+  
+  // ✅ FIXED: Update the transaction with correct reason
+  if (checkTransaction.state < 0 && !checkTransaction.reason) {
+    checkTransaction.reason = reason;
   }
   
   console.log('✅ CheckTransaction successful for:', checkTransactionId, {
     state: checkTransaction.state,
     perform_time: performTime,
-    cancel_time: checkTransaction.cancel_time || 0
+    cancel_time: checkTransaction.cancel_time || 0,
+    reason: reason
   });
   
   return res.json({
@@ -782,7 +800,7 @@ const handleCheckTransaction = async (req, res, id, params) => {
       cancel_time: checkTransaction.cancel_time || 0,
       transaction: checkTransaction.transaction,
       state: checkTransaction.state,
-      reason: checkTransaction.reason || null
+      reason: reason
     }
   });
 };
