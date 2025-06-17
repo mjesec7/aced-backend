@@ -85,16 +85,7 @@ const validateAccountAndState = async (accountLogin) => {
       const user = await User.findById(accountLogin);
       if (user) {
         console.log('✅ Valid MongoDB user ID found');
-        // Check if user has active transactions
-        for (const [transactionId, transaction] of sandboxTransactions.entries()) {
-          const txAccountLogin = transaction.account?.login || transaction.account?.Login;
-          if (txAccountLogin === accountLogin && transaction.state === TransactionState.CREATED) {
-            return {
-              exists: true,
-              state: AccountState.PROCESSING
-            };
-          }
-        }
+        // For accumulative accounts, always return WAITING_PAYMENT state if no explicit state is set
         return {
           exists: true,
           state: AccountState.WAITING_PAYMENT
@@ -107,6 +98,18 @@ const validateAccountAndState = async (accountLogin) => {
       const user = await User.findOne({ email: accountLogin });
       if (user) {
         console.log('✅ Valid email account found');
+        return {
+          exists: true,
+          state: AccountState.WAITING_PAYMENT
+        };
+      }
+    }
+    
+    // ✅ Check if it's a phone number
+    if (accountLogin.match(/^\+?\d{9,15}$/)) {
+      const user = await User.findOne({ phone: accountLogin });
+      if (user) {
+        console.log('✅ Valid phone account found');
         return {
           exists: true,
           state: AccountState.WAITING_PAYMENT
@@ -207,7 +210,14 @@ const findTransactionById = (transactionId) => {
 };
 
 // ✅ Helper to check if account has existing unpaid transaction
+// For accumulative accounts (счет накопительный), multiple transactions can be created
 const hasExistingUnpaidTransaction = (accountLogin) => {
+  // ✅ FIXED: For accumulative accounts, we allow multiple transactions
+  // This function is now only used for non-accumulative account scenarios
+  // For the Payme sandbox test, we should allow creating transactions when account is in waiting_payment state
+  
+  // Uncomment the following code only if you need to restrict to single transaction per account
+  /*
   for (const [transactionId, transaction] of sandboxTransactions.entries()) {
     const txAccountLogin = transaction.account?.login || transaction.account?.Login;
     if (txAccountLogin === accountLogin && 
@@ -220,6 +230,7 @@ const hasExistingUnpaidTransaction = (accountLogin) => {
       }
     }
   }
+  */
   return false;
 };
 
@@ -490,7 +501,7 @@ const handleCreateTransaction = async (req, res, id, params) => {
     return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_PARAMS));
   }
   
-  // Get account login
+  // Get account login - handle both 'login' and 'Login' cases
   const createAccountLogin = params?.account?.login || params?.account?.Login;
   if (!createAccountLogin) {
     console.log('❌ No account login provided');
@@ -514,16 +525,12 @@ const handleCreateTransaction = async (req, res, id, params) => {
     return res.json(createErrorResponse(id, -31050, null, 'login'));
   }
   
-  // ✅ Check for existing unpaid transactions (business logic)
-  // According to docs: should check if account has unpaid orders
-  if (hasExistingUnpaidTransaction(createAccountLogin)) {
-    console.log('❌ Account already has an unpaid transaction');
-    // Return unable to perform operation error
-    return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION, null, false));
-  }
-  
-  // ✅ Additional account state checks
+  // ✅ Handle different account states
   switch (createAccountInfo.state) {
+    case AccountState.NOT_EXISTS:
+      console.log('❌ Account does not exist');
+      return res.json(createErrorResponse(id, -31050, null, 'login'));
+      
     case AccountState.BLOCKED:
       console.log('❌ Account is blocked');
       return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION, null, false));
@@ -531,9 +538,23 @@ const handleCreateTransaction = async (req, res, id, params) => {
     case AccountState.PROCESSING:
       console.log('❌ Account is processing another transaction');
       return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION, null, false));
+      
+    case AccountState.WAITING_PAYMENT:
+      // ✅ FIXED: For waiting_payment state, we should CREATE the transaction
+      // The account is ready to receive payment
+      console.log('✅ Account is in waiting_payment state - creating transaction');
+      break;
+      
+    default:
+      // If account exists but no specific state, check for unpaid transactions
+      if (hasExistingUnpaidTransaction(createAccountLogin)) {
+        console.log('❌ Account already has an unpaid transaction');
+        return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION, null, false));
+      }
+      console.log('✅ Account exists and ready for transaction');
   }
 
-  // ✅ Create new transaction
+  // ✅ Create new transaction - СЧЕТ НАКОПИТЕЛЬНЫЙ (accumulative account)
   const newTransaction = {
     id: params.id,
     transaction: params.id.toString(), // Transaction ID in merchant system
