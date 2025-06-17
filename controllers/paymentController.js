@@ -723,7 +723,9 @@ const handleCancelTransaction = async (req, res, id, params) => {
     newState = TransactionState.CANCELLED_AFTER_COMPLETE; // -2
     reason = 5;
     console.log('🔄 Cancelling COMPLETED transaction -> state will be -2, reason = 5');
-    // Keep the original perform_time for COMPLETED transactions
+    // ✅ CRITICAL FIX: Keep the original perform_time for COMPLETED transactions
+    // Don't reset perform_time to 0 for completed transactions
+    // cancelTransaction.perform_time should remain as the original completion time
   } else {
     // For any other state, cannot cancel
     console.log('❌ Cannot cancel transaction in state:', currentState);
@@ -759,37 +761,55 @@ const handleCheckTransaction = async (req, res, id, params) => {
     return res.json(createErrorResponse(id, PaymeErrorCode.TRANSACTION_NOT_FOUND));
   }
   
-  // ✅ FIXED: Handle perform_time correctly based on transaction state
+  // ✅ FIXED: Handle perform_time and reason correctly based on transaction state
   let performTime = 0;
   let reason = checkTransaction.reason;
   
   if (checkTransaction.state === TransactionState.COMPLETED) {
     // For completed transactions, return actual perform_time
     performTime = checkTransaction.perform_time || 0;
+    // Completed transactions don't have a reason (or reason = 0)
+    reason = checkTransaction.reason || 0;
   } else if (checkTransaction.state === TransactionState.CANCELLED_AFTER_COMPLETE) {
     // For transactions cancelled after completion, return the original perform_time
     performTime = checkTransaction.perform_time || 0;
-    // ✅ FIXED: Set reason to 5 for cancelled after complete
+    // ✅ CRITICAL FIX: Always set reason to 5 for cancelled after complete
     reason = 5;
+    // Update the transaction object with correct reason if missing
+    checkTransaction.reason = 5;
   } else if (checkTransaction.state === TransactionState.CANCELLED_AFTER_CREATE) {
     // For CANCELLED_AFTER_CREATE transactions, perform_time should be 0
     performTime = 0;
-    // ✅ FIXED: Set reason to 3 for cancelled after create
+    // ✅ CRITICAL FIX: Always set reason to 3 for cancelled after create
     reason = 3;
-  } else {
+    // Update the transaction object with correct reason if missing
+    checkTransaction.reason = 3;
+  } else if (checkTransaction.state === TransactionState.CREATED) {
     // For CREATED transactions, perform_time should be 0
+    performTime = 0;
+    // Created transactions don't have a reason (or reason = 0)
+    reason = checkTransaction.reason || 0;
+  } else {
+    // For any other state, use defaults
+    performTime = checkTransaction.perform_time || 0;
+    reason = checkTransaction.reason || 0;
+  }
+  
+  // ✅ ADDITIONAL FIX: Ensure perform_time is always a valid timestamp or 0
+  if (performTime && typeof performTime !== 'number') {
     performTime = 0;
   }
   
-  // ✅ FIXED: Update the transaction with correct reason
-  if (checkTransaction.state < 0 && !checkTransaction.reason) {
-    checkTransaction.reason = reason;
+  // ✅ ADDITIONAL FIX: Ensure cancel_time is always a valid timestamp or 0
+  let cancelTime = 0;
+  if (checkTransaction.cancel_time && typeof checkTransaction.cancel_time === 'number') {
+    cancelTime = checkTransaction.cancel_time;
   }
   
   console.log('✅ CheckTransaction successful for:', checkTransactionId, {
     state: checkTransaction.state,
     perform_time: performTime,
-    cancel_time: checkTransaction.cancel_time || 0,
+    cancel_time: cancelTime,
     reason: reason
   });
   
@@ -799,7 +819,7 @@ const handleCheckTransaction = async (req, res, id, params) => {
     result: {
       create_time: checkTransaction.create_time,
       perform_time: performTime,
-      cancel_time: checkTransaction.cancel_time || 0,
+      cancel_time: cancelTime,
       transaction: checkTransaction.transaction,
       state: checkTransaction.state,
       reason: reason
