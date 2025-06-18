@@ -615,79 +615,109 @@ const handlePerformTransaction = async (req, res, id, params) => {
     }
   });
 };
-// ✅ FIXED CheckPerformTransaction handler
-const handleCheckPerformTransaction = async (req, res, id, params) => {
-  console.log('🔍 Processing CheckPerformTransaction with:', {
-    amount: params?.amount,
-    account: params?.account
+// ✅ FIXED PerformTransaction handler - Properly handles cancelled transactions
+const handlePerformTransaction = async (req, res, id, params) => {
+  console.log('🔍 Processing PerformTransaction for:', params?.id);
+  
+  // Validate that transaction ID is provided
+  if (!params?.id) {
+    console.log('❌ Transaction ID not provided');
+    return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_PARAMS));
+  }
+  
+  const performTransactionId = params.id;
+  const performTransaction = findTransactionById(performTransactionId);
+  
+  if (!performTransaction) {
+    console.log('❌ Transaction not found for perform:', performTransactionId);
+    return res.json(createErrorResponse(id, PaymeErrorCode.TRANSACTION_NOT_FOUND));
+  }
+  
+  console.log('📊 Transaction state before perform:', {
+    id: performTransactionId,
+    state: performTransaction.state,
+    stateText: getTransactionStateText(performTransaction.state)
   });
   
-  // Get account login - handle both 'login' and 'Login' cases
-  const accountLogin = params?.account?.login || params?.account?.Login;
-  if (!accountLogin) {
-    console.log('❌ No account login provided');
-    // Return error in range -31050 to -31099 with data field
-    return res.json(createErrorResponse(id, -31050, null, 'login'));
+  // ✅ CRITICAL FIX: Check if transaction is cancelled FIRST
+  if (performTransaction.state < 0) {
+    console.log('❌ Cannot perform cancelled transaction (state:', performTransaction.state, ')');
+    return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
   }
   
-  // ✅ Validate amount FIRST (before account validation)
-  const validAmounts = Object.values(PAYMENT_AMOUNTS);
-  if (!params?.amount || !validAmounts.includes(params.amount)) {
-    console.log('❌ Invalid amount:', params?.amount, 'Valid amounts:', validAmounts);
-    // IMPORTANT: For amount errors, do NOT include data field
-    return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_AMOUNT, null, false));
-  }
-  
-  // ✅ Check account state AFTER amount validation
-  const accountInfo = await validateAccountAndState(accountLogin);
-  console.log('📊 Account validation result:', accountInfo);
-  
-  // Handle different account states according to Paycom specs
-  switch (accountInfo.state) {
-    case AccountState.NOT_EXISTS:
-      console.log('❌ Account does not exist');
-      return res.json(createErrorResponse(id, -31050, null, 'login'));
-      
-    case AccountState.PROCESSING:
-      console.log('❌ Account is being processed by another transaction');
-      return res.json(createErrorResponse(id, -31051, null, 'login'));
-      
-    case AccountState.BLOCKED:
-      console.log('❌ Account is blocked');
-      return res.json(createErrorResponse(id, -31052, null, 'login'));
-      
-    case AccountState.WAITING_PAYMENT:
-      // ✅ For накопительный счет - always allow new transactions
-      console.log('✅ Account is ready for payment (накопительный счет)');
-      break;
-      
-    default:
-      // If no specific state, check if account exists
-      if (!accountInfo.exists) {
-        console.log('❌ Account does not exist in system');
-        return res.json(createErrorResponse(id, -31050, null, 'login'));
+  // Check if already performed (idempotency)
+  if (performTransaction.state === TransactionState.COMPLETED) {
+    console.log('✅ Transaction already performed, returning existing result');
+    return res.json({
+      jsonrpc: '2.0',
+      id: id,
+      result: {
+        transaction: performTransaction.transaction,
+        perform_time: performTransaction.perform_time,
+        state: performTransaction.state
       }
-      // For накопительный счет - allow transaction
-      console.log('✅ Account exists - transaction allowed (накопительный счет)');
+    });
   }
   
-  // Success response
-  console.log('✅ CheckPerformTransaction successful');
+  // Check if transaction is expired (12 hours for Payme)
+  const txAge = Date.now() - performTransaction.create_time;
+  if (txAge > 12 * 60 * 60 * 1000) {
+    console.log('❌ Transaction expired (older than 12 hours)');
+    return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
+  }
+  
+  // Check account state
+  const performAccountLogin = performTransaction.account?.login || performTransaction.account?.Login;
+  if (performAccountLogin) {
+    const performAccountInfo = await validateAccountAndState(performAccountLogin);
+    
+    if (!performAccountInfo.exists || performAccountInfo.state === AccountState.NOT_EXISTS) {
+      console.log('❌ Account not found during perform');
+      return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
+    }
+    
+    if (performAccountInfo.state === AccountState.BLOCKED) {
+      console.log('❌ Account is blocked during perform');
+      return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
+    }
+    
+    if (performAccountInfo.state === AccountState.PROCESSING) {
+      console.log('❌ Account is processing another transaction');
+      return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
+    }
+  }
+  
+  // Only perform if transaction is in CREATED state
+  if (performTransaction.state !== TransactionState.CREATED) {
+    console.log('❌ Transaction not in CREATED state, cannot perform');
+    return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
+  }
+  
+  // ✅ All checks passed - perform the transaction
+  performTransaction.state = TransactionState.COMPLETED;
+  performTransaction.perform_time = Date.now();
+  
+  console.log('✅ PerformTransaction successful:', {
+    id: performTransactionId,
+    newState: performTransaction.state,
+    perform_time: performTransaction.perform_time
+  });
+  
   return res.json({
     jsonrpc: '2.0',
     id: id,
     result: {
-      allow: true,
-      detail: { receipt_type: 0 }
+      transaction: performTransaction.transaction,
+      perform_time: performTransaction.perform_time,
+      state: performTransaction.state
     }
   });
 };
 
-// ✅ FIXED CheckTransaction handler - Handles all states correctly
+// ✅ FIXED CheckTransaction handler - Correctly preserves transaction state
 const handleCheckTransaction = async (req, res, id, params) => {
   console.log('🔍 Processing CheckTransaction for:', params?.id);
   
-  // Validate that transaction ID is provided
   if (!params?.id) {
     console.log('❌ Transaction ID not provided');
     return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_PARAMS));
@@ -701,68 +731,56 @@ const handleCheckTransaction = async (req, res, id, params) => {
     return res.json(createErrorResponse(id, PaymeErrorCode.TRANSACTION_NOT_FOUND));
   }
   
-  // Log current transaction state for debugging
-  console.log('📊 Current transaction state:', {
-    id: checkTransactionId,
-    state: checkTransaction.state,
-    stateText: getTransactionStateText(checkTransaction.state),
-    perform_time: checkTransaction.perform_time,
-    cancel_time: checkTransaction.cancel_time,
-    reason: checkTransaction.reason
-  });
-  
-  // Initialize result with exact values from transaction
+  // Build result based on ACTUAL transaction state
   let result = {
     create_time: checkTransaction.create_time || Date.now(),
-    perform_time: 0,  // Default to 0
-    cancel_time: 0,   // Default to 0
+    perform_time: 0,
+    cancel_time: 0,
     transaction: checkTransaction.transaction || checkTransaction.id,
-    state: checkTransaction.state,
-    reason: null      // Default to null
+    state: checkTransaction.state,  // ✅ Use actual state, don't modify
+    reason: null
   };
   
-  // ✅ Handle each state according to Payme specification
+  // ✅ Set times based on actual transaction state
   switch (checkTransaction.state) {
     case TransactionState.CREATED: // State 1
-      // Transaction is created but not performed yet
+      // Not performed, not cancelled
       result.perform_time = 0;
       result.cancel_time = 0;
       result.reason = null;
       break;
       
     case TransactionState.COMPLETED: // State 2
-      // Transaction is completed/performed
+      // Performed, not cancelled
       result.perform_time = checkTransaction.perform_time || 0;
       result.cancel_time = 0;
       result.reason = null;
       break;
       
     case TransactionState.CANCELLED_AFTER_CREATE: // State -1
-      // Transaction was cancelled before completion
+      // Cancelled before payment
       result.perform_time = 0;  // Never performed
-      result.cancel_time = checkTransaction.cancel_time || 0;
-      result.reason = checkTransaction.reason || 3;  // Reason 3 for cancelled before payment
+      result.cancel_time = checkTransaction.cancel_time || Date.now();
+      result.reason = 3;  // Always 3 for cancelled before payment
       break;
       
     case TransactionState.CANCELLED_AFTER_COMPLETE: // State -2
-      // ⚠️ This should not happen with no-refunds policy!
-      // But if it exists, return it correctly
+      // Should not happen with no-refunds policy
+      console.log('⚠️ WARNING: Refunded transaction found (should not happen)');
       result.perform_time = checkTransaction.perform_time || 0;
-      result.cancel_time = checkTransaction.cancel_time || 0;
-      result.reason = checkTransaction.reason || 5;  // Reason 5 for refunded
-      console.log('⚠️ WARNING: Transaction in refunded state despite no-refunds policy!');
-      break;
-      
-    default:
-      console.log('⚠️ Unknown transaction state:', checkTransaction.state);
+      result.cancel_time = checkTransaction.cancel_time || Date.now();
+      result.reason = 5;
       break;
   }
   
   console.log('✅ CheckTransaction response:', {
     id: checkTransactionId,
     state: result.state,
-    perform_time: result.perform_time,
-    cancel_time: result.cancel_time,
+    stateText: getTransactionStateText(result.state),
+    times: {
+      perform: result.perform_time,
+      cancel: result.cancel_time
+    },
     reason: result.reason
   });
   
@@ -773,11 +791,16 @@ const handleCheckTransaction = async (req, res, id, params) => {
   });
 };
 
-// ✅ FIXED CancelTransaction handler - Implements NO REFUNDS policy
+// ✅ FIXED CancelTransaction - Handles all valid cancellation scenarios
 const handleCancelTransaction = async (req, res, id, params) => {
-  console.log('🔍 Processing CancelTransaction for:', params?.id, 'with reason:', params?.reason);
+  console.log('🔍 Processing CancelTransaction for:', params?.id);
   
-  const cancelTransactionId = params?.id;
+  if (!params?.id) {
+    console.log('❌ Transaction ID not provided');
+    return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_PARAMS));
+  }
+  
+  const cancelTransactionId = params.id;
   const cancelTransaction = findTransactionById(cancelTransactionId);
   
   if (!cancelTransaction) {
@@ -785,62 +808,50 @@ const handleCancelTransaction = async (req, res, id, params) => {
     return res.json(createErrorResponse(id, PaymeErrorCode.TRANSACTION_NOT_FOUND));
   }
   
-  console.log('📊 Current transaction state before cancel:', {
+  console.log('📊 Transaction state before cancel:', {
+    id: cancelTransactionId,
     state: cancelTransaction.state,
     stateText: getTransactionStateText(cancelTransaction.state)
   });
   
-  // Check if already cancelled
-  if (cancelTransaction.state < 0) {
-    console.log('✅ Transaction already cancelled, returning existing result');
-    return res.json({
-      jsonrpc: '2.0',
-      id: id,
-      result: {
-        transaction: cancelTransaction.transaction,
-        cancel_time: cancelTransaction.cancel_time,
-        state: cancelTransaction.state
-      }
-    });
+  // ✅ Handle each state properly
+  switch (cancelTransaction.state) {
+    case TransactionState.CREATED: // State 1
+      // Can cancel unpaid transaction
+      cancelTransaction.state = TransactionState.CANCELLED_AFTER_CREATE;
+      cancelTransaction.cancel_time = Date.now();
+      cancelTransaction.reason = 3;  // Cancelled before payment
+      cancelTransaction.cancelled = true;
+      
+      console.log('✅ Cancelled unpaid transaction');
+      break;
+      
+    case TransactionState.COMPLETED: // State 2
+      // NO REFUNDS POLICY - Cannot cancel completed transaction
+      console.log('❌ Cannot cancel completed transaction - NO REFUNDS POLICY');
+      return res.json(createErrorResponse(id, PaymeErrorCode.ORDER_COMPLETED));
+      
+    case TransactionState.CANCELLED_AFTER_CREATE: // State -1
+    case TransactionState.CANCELLED_AFTER_COMPLETE: // State -2
+      // Already cancelled - return current state (idempotency)
+      console.log('✅ Transaction already cancelled, returning current state');
+      break;
+      
+    default:
+      console.log('❌ Unknown transaction state:', cancelTransaction.state);
+      return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
   }
-  
-  // ✅ CRITICAL: NO REFUNDS POLICY CHECK
-  if (cancelTransaction.state === TransactionState.COMPLETED) {
-    console.log('❌ Cannot cancel completed transaction - NO REFUNDS POLICY');
-    // Return error -31007: Order completed, unable to cancel transaction
-    return res.json(createErrorResponse(id, PaymeErrorCode.ORDER_COMPLETED));
-  }
-  
-  // Only allow cancellation of CREATED (unpaid) transactions
-  if (cancelTransaction.state !== TransactionState.CREATED) {
-    console.log('❌ Cannot cancel transaction in state:', cancelTransaction.state);
-    return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
-  }
-  
-  // ✅ Cancel the unpaid transaction
-  cancelTransaction.state = TransactionState.CANCELLED_AFTER_CREATE; // -1
-  cancelTransaction.cancel_time = Date.now();
-  cancelTransaction.reason = params?.reason || 3; // Default reason 3 for cancelled before payment
-  cancelTransaction.cancelled = true;
-  
-  console.log('✅ CancelTransaction successful for unpaid transaction:', {
-    id: cancelTransactionId,
-    newState: cancelTransaction.state,
-    reason: cancelTransaction.reason
-  });
   
   return res.json({
     jsonrpc: '2.0',
     id: id,
     result: {
       transaction: cancelTransaction.transaction,
-      cancel_time: cancelTransaction.cancel_time,
+      cancel_time: cancelTransaction.cancel_time || 0,
       state: cancelTransaction.state
     }
   });
 };
-// Note: getTransactionStateText is already defined elsewhere in the code
-
 // ✅ GetStatement handler
 const handleGetStatement = async (req, res, id, params) => {
   console.log('🔍 Processing GetStatement with:', {
