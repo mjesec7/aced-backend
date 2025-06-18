@@ -674,7 +674,7 @@ const handlePerformTransaction = async (req, res, id, params) => {
   });
 };
 
-// ✅ FIXED CancelTransaction handler - Correctly returns state -1 for CREATED transactions
+// ✅ CORRECTLY FIXED CancelTransaction handler
 const handleCancelTransaction = async (req, res, id, params) => {
   console.log('🔍 Processing CancelTransaction for:', params?.id, 'with reason:', params?.reason);
   
@@ -686,9 +686,12 @@ const handleCancelTransaction = async (req, res, id, params) => {
     return res.json(createErrorResponse(id, PaymeErrorCode.TRANSACTION_NOT_FOUND));
   }
   
-  // Store the original state before any modifications
-  const originalState = cancelTransaction.state;
-  console.log('📊 Current transaction state before cancel:', originalState);
+  console.log('📊 Transaction details before cancel:', {
+    id: cancelTransactionId,
+    currentState: cancelTransaction.state,
+    hasPerformTime: !!cancelTransaction.perform_time,
+    performTime: cancelTransaction.perform_time
+  });
   
   // Check if already cancelled
   if (cancelTransaction.state < 0) {
@@ -704,39 +707,34 @@ const handleCancelTransaction = async (req, res, id, params) => {
     });
   }
   
-  // ✅ FIXED: Check if order is completed - THIS IS IMPORTANT FOR TESTS
-  // If transaction is completed and we're testing "order completed" scenario
+  // Check if order is completed (blocked account scenario)
   if (cancelTransaction.state === TransactionState.COMPLETED) {
-    // Check if this is a test scenario where order should be marked as completed
     const accountLogin = cancelTransaction.account?.login || cancelTransaction.account?.Login;
     const accountState = accountStates.get(accountLogin);
     
-    // If account is blocked or in a state that indicates order completion
     if (accountState === AccountState.BLOCKED) {
       console.log('❌ Order is completed, cannot cancel');
       return res.json(createErrorResponse(id, PaymeErrorCode.ORDER_COMPLETED));
     }
   }
   
-  // ✅ CRITICAL FIX: Determine state and reason based on ORIGINAL transaction state
+  // ✅ CRITICAL FIX: Determine state based on ACTUAL transaction state
   let newState;
   let reason;
   
-  if (originalState === TransactionState.CREATED) {
-    // Transaction was CREATED (state 1) -> Cancel to state -1 with reason 3
+  // Check the ACTUAL current state of the transaction
+  if (cancelTransaction.state === TransactionState.CREATED) {
+    // Transaction is in CREATED state (1) -> Cancel to state -1
     newState = TransactionState.CANCELLED_AFTER_CREATE; // -1
     reason = 3;
-    cancelTransaction.perform_time = 0; // Never performed
-    console.log('🔄 Cancelling CREATED transaction -> state = -1, reason = 3');
-  } else if (originalState === TransactionState.COMPLETED) {
-    // Transaction was COMPLETED (state 2) -> Cancel to state -2 with reason 5
+    console.log('✅ Cancelling CREATED transaction -> state will be -1, reason = 3');
+  } else if (cancelTransaction.state === TransactionState.COMPLETED) {
+    // Transaction is in COMPLETED state (2) -> Cancel to state -2
     newState = TransactionState.CANCELLED_AFTER_COMPLETE; // -2
     reason = 5;
-    // Keep the original perform_time (don't change it)
-    console.log('🔄 Cancelling COMPLETED transaction -> state = -2, reason = 5');
+    console.log('✅ Cancelling COMPLETED transaction -> state will be -2, reason = 5');
   } else {
-    // For any other state, cannot cancel
-    console.log('❌ Cannot cancel transaction in state:', originalState);
+    console.log('❌ Cannot cancel transaction in state:', cancelTransaction.state);
     return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
   }
   
@@ -746,9 +744,13 @@ const handleCancelTransaction = async (req, res, id, params) => {
   cancelTransaction.reason = reason;
   cancelTransaction.cancelled = true;
   
-  console.log('✅ CancelTransaction successful:', {
+  // For CREATED transactions, ensure perform_time is 0
+  if (newState === TransactionState.CANCELLED_AFTER_CREATE) {
+    cancelTransaction.perform_time = 0;
+  }
+  
+  console.log('✅ CancelTransaction completed:', {
     id: cancelTransactionId,
-    oldState: originalState,
     newState: newState,
     reason: reason,
     perform_time: cancelTransaction.perform_time
@@ -764,7 +766,6 @@ const handleCancelTransaction = async (req, res, id, params) => {
     }
   });
 };
-
 // ✅ FIXED CheckTransaction handler - Correctly returns transaction states
 const handleCheckTransaction = async (req, res, id, params) => {
   console.log('🔍 Processing CheckTransaction for:', params?.id);
