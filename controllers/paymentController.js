@@ -750,10 +750,17 @@ const handleCancelTransaction = async (req, res, id, params) => {
   });
 };
 
+// ✅ FIXED CheckTransaction handler according to Payme documentation
 const handleCheckTransaction = async (req, res, id, params) => {
   console.log('🔍 Processing CheckTransaction for:', params?.id);
   
-  const checkTransactionId = params?.id;
+  // Validate that transaction ID is provided
+  if (!params?.id) {
+    console.log('❌ Transaction ID not provided');
+    return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_PARAMS));
+  }
+  
+  const checkTransactionId = params.id;
   const checkTransaction = findTransactionById(checkTransactionId);
   
   if (!checkTransaction) {
@@ -761,69 +768,53 @@ const handleCheckTransaction = async (req, res, id, params) => {
     return res.json(createErrorResponse(id, PaymeErrorCode.TRANSACTION_NOT_FOUND));
   }
   
-  // ✅ FIXED: Handle perform_time and reason correctly based on transaction state
-  let performTime = 0;
-  let reason = checkTransaction.reason;
+  // Prepare response fields according to documentation
+  let result = {
+    create_time: checkTransaction.create_time,
+    perform_time: checkTransaction.perform_time || 0,
+    cancel_time: checkTransaction.cancel_time || 0,
+    transaction: checkTransaction.transaction,
+    state: checkTransaction.state,
+    reason: null // Default to null as per documentation
+  };
   
-  if (checkTransaction.state === TransactionState.COMPLETED) {
-    // For completed transactions, return actual perform_time
-    performTime = checkTransaction.perform_time || 0;
-    // Completed transactions don't have a reason (or reason = 0)
-    reason = checkTransaction.reason || 0;
-  } else if (checkTransaction.state === TransactionState.CANCELLED_AFTER_COMPLETE) {
-    // For transactions cancelled after completion, return the original perform_time
-    performTime = checkTransaction.perform_time || 0;
-    // ✅ CRITICAL FIX: Always set reason to 5 for cancelled after complete
-    reason = 5;
-    // Update the transaction object with correct reason if missing
-    checkTransaction.reason = 5;
-  } else if (checkTransaction.state === TransactionState.CANCELLED_AFTER_CREATE) {
-    // For CANCELLED_AFTER_CREATE transactions, perform_time should be 0
-    performTime = 0;
-    // ✅ CRITICAL FIX: Always set reason to 3 for cancelled after create
-    reason = 3;
-    // Update the transaction object with correct reason if missing
-    checkTransaction.reason = 3;
-  } else if (checkTransaction.state === TransactionState.CREATED) {
-    // For CREATED transactions, perform_time should be 0
-    performTime = 0;
-    // Created transactions don't have a reason (or reason = 0)
-    reason = checkTransaction.reason || 0;
-  } else {
-    // For any other state, use defaults
-    performTime = checkTransaction.perform_time || 0;
-    reason = checkTransaction.reason || 0;
+  // Handle reason based on transaction state
+  if (checkTransaction.state < 0) {
+    // Transaction is cancelled, include the reason
+    result.reason = checkTransaction.reason || null;
+    
+    // Ensure correct reason codes based on state
+    if (checkTransaction.state === TransactionState.CANCELLED_AFTER_CREATE) {
+      // Cancelled before completion - typically reason 3
+      result.reason = checkTransaction.reason || 3;
+    } else if (checkTransaction.state === TransactionState.CANCELLED_AFTER_COMPLETE) {
+      // Cancelled after completion (refunded) - typically reason 5
+      result.reason = checkTransaction.reason || 5;
+    }
   }
   
-  // ✅ ADDITIONAL FIX: Ensure perform_time is always a valid timestamp or 0
-  if (performTime && typeof performTime !== 'number') {
-    performTime = 0;
+  // For накопительный счет (accumulative account), ensure times are properly handled
+  // If transaction was never performed, perform_time should be 0
+  if (checkTransaction.state === TransactionState.CREATED) {
+    result.perform_time = 0;
   }
   
-  // ✅ ADDITIONAL FIX: Ensure cancel_time is always a valid timestamp or 0
-  let cancelTime = 0;
-  if (checkTransaction.cancel_time && typeof checkTransaction.cancel_time === 'number') {
-    cancelTime = checkTransaction.cancel_time;
+  // If transaction was never cancelled, cancel_time should be 0
+  if (checkTransaction.state > 0) {
+    result.cancel_time = 0;
   }
   
   console.log('✅ CheckTransaction successful for:', checkTransactionId, {
-    state: checkTransaction.state,
-    perform_time: performTime,
-    cancel_time: cancelTime,
-    reason: reason
+    state: result.state,
+    perform_time: result.perform_time,
+    cancel_time: result.cancel_time,
+    reason: result.reason
   });
   
   return res.json({
     jsonrpc: '2.0',
     id: id,
-    result: {
-      create_time: checkTransaction.create_time,
-      perform_time: performTime,
-      cancel_time: cancelTime,
-      transaction: checkTransaction.transaction,
-      state: checkTransaction.state,
-      reason: reason
-    }
+    result: result
   });
 };
 
