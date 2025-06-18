@@ -586,8 +586,7 @@ const handleCreateTransaction = async (req, res, id, params) => {
     }
   });
 };
-
-// ✅ FIXED PerformTransaction handler - Returns error -31008 when needed
+// ✅ FIXED PerformTransaction handler - Returns error -31008 for cancelled transactions
 const handlePerformTransaction = async (req, res, id, params) => {
   console.log('🔍 Processing PerformTransaction for:', params?.id);
   
@@ -605,6 +604,12 @@ const handlePerformTransaction = async (req, res, id, params) => {
     return res.json(createErrorResponse(id, PaymeErrorCode.TRANSACTION_NOT_FOUND));
   }
   
+  // ✅ CRITICAL: Check if transaction is cancelled (state -1 or -2)
+  if (performTransaction.state < 0) {
+    console.log('❌ Cannot perform cancelled transaction. State:', performTransaction.state);
+    return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
+  }
+  
   // Check if already performed (idempotency)
   if (performTransaction.state === TransactionState.COMPLETED) {
     console.log('✅ Transaction already performed, returning existing result');
@@ -619,12 +624,6 @@ const handlePerformTransaction = async (req, res, id, params) => {
     });
   }
   
-  // Check if cancelled
-  if (performTransaction.state < 0) {
-    console.log('❌ Cannot perform cancelled transaction');
-    return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
-  }
-  
   // Check if transaction is expired (12 hours for Payme)
   const txAge = Date.now() - performTransaction.create_time;
   if (txAge > 12 * 60 * 60 * 1000) {
@@ -632,7 +631,7 @@ const handlePerformTransaction = async (req, res, id, params) => {
     return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
   }
   
-  // ✅ CRITICAL: Check account state before performing transaction
+  // ✅ Check account state before performing transaction
   const performAccountLogin = performTransaction.account?.login || performTransaction.account?.Login;
   if (performAccountLogin) {
     // Re-validate account state at the time of perform
@@ -643,11 +642,10 @@ const handlePerformTransaction = async (req, res, id, params) => {
     // Check if account doesn't exist
     if (!performAccountInfo.exists || performAccountInfo.state === AccountState.NOT_EXISTS) {
       console.log('❌ Account not found during perform');
-      // For PerformTransaction, we return -31008 instead of account-specific errors
       return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
     }
     
-    // ✅ CRITICAL: Check if account is blocked
+    // Check if account is blocked
     if (performAccountInfo.state === AccountState.BLOCKED) {
       console.log('❌ Account is blocked during perform - returning -31008');
       return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
@@ -656,16 +654,6 @@ const handlePerformTransaction = async (req, res, id, params) => {
     // Check if account is processing another transaction
     if (performAccountInfo.state === AccountState.PROCESSING) {
       console.log('❌ Account is processing another transaction - returning -31008');
-      return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
-    }
-    
-    // For накопительный счет (accumulative account), check if there's any other condition
-    // that would prevent the transaction from being performed
-    
-    // Additional validation: Check if the transaction amount still matches expected amounts
-    const validAmounts = Object.values(PAYMENT_AMOUNTS);
-    if (performTransaction.amount && !validAmounts.includes(performTransaction.amount)) {
-      console.log('❌ Transaction amount is no longer valid');
       return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
     }
   }
@@ -685,6 +673,7 @@ const handlePerformTransaction = async (req, res, id, params) => {
     }
   });
 };
+
 // ✅ FIXED CancelTransaction handler - Sets correct reason values
 const handleCancelTransaction = async (req, res, id, params) => {
   console.log('🔍 Processing CancelTransaction for:', params?.id, 'with reason:', params?.reason);
