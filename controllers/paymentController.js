@@ -397,14 +397,14 @@ const handleSandboxPayment = async (req, res) => {
   }
 };
 
-// ✅ CheckPerformTransaction handler - FIXED for all test scenarios
+// ✅ FIXED CheckPerformTransaction handler - Check account FIRST, then amount
 const handleCheckPerformTransaction = async (req, res, id, params) => {
   console.log('🔍 Processing CheckPerformTransaction with:', {
     amount: params?.amount,
     account: params?.account
   });
   
-  // Get account login - handle both 'login' and 'Login' cases
+  // ✅ STEP 1: Get account login - handle both 'login' and 'Login' cases
   const accountLogin = params?.account?.login || params?.account?.Login;
   if (!accountLogin) {
     console.log('❌ No account login provided');
@@ -412,15 +412,7 @@ const handleCheckPerformTransaction = async (req, res, id, params) => {
     return res.json(createErrorResponse(id, -31050, null, 'login'));
   }
   
-  // ✅ Validate amount FIRST (before account validation)
-  const validAmounts = Object.values(PAYMENT_AMOUNTS);
-  if (!params?.amount || !validAmounts.includes(params.amount)) {
-    console.log('❌ Invalid amount:', params?.amount, 'Valid amounts:', validAmounts);
-    // IMPORTANT: For amount errors, do NOT include data field
-    return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_AMOUNT, null, false));
-  }
-  
-  // ✅ Check account state AFTER amount validation
+  // ✅ STEP 2: Check account validity FIRST (before amount validation)
   const accountInfo = await validateAccountAndState(accountLogin);
   console.log('📊 Account validation result:', accountInfo);
   
@@ -443,8 +435,8 @@ const handleCheckPerformTransaction = async (req, res, id, params) => {
       return res.json(createErrorResponse(id, -31052, null, 'login'));
       
     case AccountState.WAITING_PAYMENT:
-      // ✅ FIXED: For waiting_payment state, return success
-      console.log('✅ Account is in waiting_payment state - transaction allowed');
+      // ✅ Account is valid and ready for payment - continue to amount validation
+      console.log('✅ Account is in waiting_payment state - checking amount');
       break;
       
     default:
@@ -453,11 +445,21 @@ const handleCheckPerformTransaction = async (req, res, id, params) => {
         console.log('❌ Account does not exist in system');
         return res.json(createErrorResponse(id, -31050, null, 'login'));
       }
-      // If account exists but no specific state, allow transaction
-      console.log('✅ Account exists - transaction allowed');
+      // If account exists but no specific state, continue to amount validation
+      console.log('✅ Account exists - checking amount');
   }
   
-  // Success response - only for waiting_payment state with valid amount
+  // ✅ STEP 3: Only after account is validated, check the amount
+  const validAmounts = Object.values(PAYMENT_AMOUNTS);
+  if (!params?.amount || !validAmounts.includes(params.amount)) {
+    console.log('❌ Invalid amount:', params?.amount, 'Valid amounts:', validAmounts);
+    // IMPORTANT: For amount errors, do NOT include data field
+    return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_AMOUNT, null, false));
+  }
+  
+  console.log('✅ Both account and amount are valid');
+  
+  // ✅ STEP 4: Success response - account exists and amount is valid
   console.log('✅ CheckPerformTransaction successful');
   return res.json({
     jsonrpc: '2.0',
