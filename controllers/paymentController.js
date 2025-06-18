@@ -1,6 +1,7 @@
-// controllers/paymentController.js - COMPLETE FIXED PAYME API IMPLEMENTATION
+// controllers/paymentController.js - COMPLETE PAYMENT SYSTEM WITH ACCOUNTS
 
 const User = require('../models/user');
+const Account = require('../models/account');
 const axios = require('axios');
 
 // Payment amounts in tiyin (1 UZS = 100 tiyin)
@@ -9,11 +10,8 @@ const PAYMENT_AMOUNTS = {
   pro: 455000    // 4550 UZS
 };
 
-// Store transactions in memory for sandbox testing
-const sandboxTransactions = new Map();
-
-// Store account states for testing different scenarios
-const accountStates = new Map();
+// Store transactions in memory (for quick access, also stored in DB)
+const transactionCache = new Map();
 
 // Store the current merchant key for sandbox testing
 let currentMerchantKey = null;
@@ -41,10 +39,10 @@ const PaymeErrorCode = {
   UNABLE_TO_PERFORM_OPERATION: -31008,
   ORDER_COMPLETED: -31007,
   INVALID_ACCOUNT: -31050,
-  ACCOUNT_NOT_FOUND: -31050,  // Account doesn't exist
-  ACCOUNT_BLOCKED: -31051,     // Account is blocked
-  ACCOUNT_PROCESSING: -31052,  // Account is processing another transaction
-  ACCOUNT_INVALID: -31099,     // General account error
+  ACCOUNT_NOT_FOUND: -31050,
+  ACCOUNT_BLOCKED: -31051,
+  ACCOUNT_PROCESSING: -31052,
+  ACCOUNT_INVALID: -31099,
   INVALID_JSON_RPC: -32700,
   PARSE_ERROR: -32700,
   METHOD_NOT_FOUND: -32601,
@@ -53,188 +51,145 @@ const PaymeErrorCode = {
   INVALID_AUTHORIZATION: -32504
 };
 
-// ✅ Account validation function - checks if account exists and its state
-const validateAccountAndState = async (accountLogin) => {
+// ✅ Initialize account for existing users on startup
+const initializeAccounts = async () => {
   try {
-    console.log('🔍 Validating account and state:', accountLogin);
+    const users = await User.find({});
     
-    // Get the current state set by sandbox UI
-    const currentState = accountStates.get(accountLogin);
-    
-    // ✅ For PayMe sandbox testing, check account state first
-    if (currentState) {
-      console.log('📊 Account state from UI:', currentState);
-      return {
-        exists: currentState !== AccountState.NOT_EXISTS,
-        state: currentState
-      };
+    for (const user of users) {
+      // Check if user already has an account
+      const existingAccount = await Account.findOne({ userId: user._id });
+      
+      if (!existingAccount) {
+        // Create account for user
+        await Account.createAccountForUser(user._id, {
+          email: user.email,
+          phone: user.phone,
+          name: user.name
+        });
+        
+        console.log(`✅ Created account for user: ${user.email || user._id}`);
+      }
     }
     
-    // ✅ For test values, treat as non-existent
-    const testValues = ['login', 'jjk', 'test', 'demo', 'admin', 'user', ''];
-    if (!accountLogin || testValues.includes(accountLogin.toLowerCase())) {
-      console.log('❌ Account is a test value or empty, treating as non-existent');
+    console.log('✅ Account initialization complete');
+  } catch (error) {
+    console.error('❌ Error initializing accounts:', error);
+  }
+};
+
+// Call this when server starts
+initializeAccounts();
+
+// ✅ Enhanced account validation with real Account model
+const validateAccountAndState = async (accountIdentifier) => {
+  try {
+    console.log('🔍 Validating account:', accountIdentifier);
+    
+    // Find account by various identifiers
+    const account = await Account.findByIdentifier(accountIdentifier);
+    
+    if (!account) {
+      console.log('❌ Account not found');
       return {
         exists: false,
-        state: AccountState.NOT_EXISTS
+        state: AccountState.NOT_EXISTS,
+        account: null
       };
     }
     
-    // ✅ Check if it looks like a real user ID (MongoDB ObjectId pattern)
-    if (accountLogin.match(/^[a-f\d]{24}$/i)) {
-      const user = await User.findById(accountLogin);
-      if (user) {
-        console.log('✅ Valid MongoDB user ID found');
-        // For accumulative accounts, always return WAITING_PAYMENT state if no explicit state is set
+    console.log('✅ Account found:', {
+      accountNumber: account.accountNumber,
+      status: account.status,
+      balance: account.balance
+    });
+    
+    // Map account status to PayMe states
+    switch (account.status) {
+      case 'active':
         return {
           exists: true,
-          state: AccountState.WAITING_PAYMENT
+          state: AccountState.WAITING_PAYMENT,
+          account: account
         };
-      }
-    }
-    
-    // ✅ Check if it looks like an email
-    if (accountLogin.includes('@') && accountLogin.includes('.')) {
-      const user = await User.findOne({ email: accountLogin });
-      if (user) {
-        console.log('✅ Valid email account found');
+        
+      case 'blocked':
         return {
           exists: true,
-          state: AccountState.WAITING_PAYMENT
+          state: AccountState.BLOCKED,
+          account: account
         };
-      }
-    }
-    
-    // ✅ Check if it's a phone number
-    if (accountLogin.match(/^\+?\d{9,15}$/)) {
-      const user = await User.findOne({ phone: accountLogin });
-      if (user) {
-        console.log('✅ Valid phone account found');
+        
+      case 'processing':
         return {
           exists: true,
-          state: AccountState.WAITING_PAYMENT
+          state: AccountState.PROCESSING,
+          account: account
         };
-      }
+        
+      case 'suspended':
+        return {
+          exists: true,
+          state: AccountState.BLOCKED,
+          account: account
+        };
+        
+      default:
+        return {
+          exists: true,
+          state: AccountState.WAITING_PAYMENT,
+          account: account
+        };
     }
-    
-    // ✅ For any other case, treat as non-existent
-    console.log('❌ Account not found in system');
-    return {
-      exists: false,
-      state: AccountState.NOT_EXISTS
-    };
     
   } catch (error) {
     console.error('❌ Error validating account:', error.message);
     return {
       exists: false,
-      state: AccountState.NOT_EXISTS
+      state: AccountState.NOT_EXISTS,
+      account: null
     };
   }
 };
 
-// ✅ ROBUST PayMe Authorization Validation
+// ✅ PayMe Authorization Validation
 const validatePaymeAuth = (req) => {
   const authHeader = req.headers.authorization;
   
-  console.log('🔐 PayMe Authorization Check:', {
-    hasAuthHeader: !!authHeader,
-    method: req.body?.method,
-    authHeaderStart: authHeader ? authHeader.substring(0, 30) + '...' : 'None'
-  });
-  
-  // Step 1: Check if Authorization header exists
-  if (!authHeader) {
-    console.log('❌ Authorization header missing');
-    return { valid: false, error: 'MISSING_AUTH_HEADER' };
-  }
-  
-  // Step 2: Check if it's Basic auth format
-  if (!authHeader.startsWith('Basic ')) {
-    console.log('❌ Not Basic authorization format');
-    return { valid: false, error: 'INVALID_AUTH_FORMAT' };
+  if (!authHeader || !authHeader.startsWith('Basic ')) {
+    return { valid: false, error: 'INVALID_AUTH' };
   }
   
   try {
-    // Step 3: Decode and validate credentials
     const credentials = Buffer.from(authHeader.slice(6), 'base64').toString();
     const [username, password] = credentials.split(':');
     
-    console.log('🔍 Decoded credentials:', {
-      username: username || 'empty',
-      hasPassword: !!password,
-      passwordLength: password?.length || 0
-    });
-    
-    // Step 4: Validate PayMe specific credentials
-    const expectedUsername = 'Paycom';
-    
-    // Check username
-    if (username !== expectedUsername) {
-      console.log('❌ Invalid username. Expected: Paycom, Got:', username);
+    if (username !== 'Paycom') {
       return { valid: false, error: 'INVALID_USERNAME' };
     }
     
-    // Step 5: Check password (merchant key)
     const expectedPassword = currentMerchantKey || process.env.PAYME_MERCHANT_KEY || process.env.PAYME_TEST_KEY;
     
-    // ✅ IMPORTANT: For sandbox testing with TEST_KEY
     if (!expectedPassword) {
-      console.log('⚠️ No PAYME_MERCHANT_KEY or PAYME_TEST_KEY configured');
-      // For sandbox testing, we'll be more lenient but still validate format
+      // Sandbox mode - accept any reasonable password
       if (!password || password.length < 10) {
-        console.log('❌ Password too short or missing');
         return { valid: false, error: 'INVALID_PASSWORD' };
       }
-      console.log('✅ Sandbox mode - accepting any reasonable password');
       return { valid: true };
     }
     
     if (password !== expectedPassword) {
-      console.log('❌ Invalid password/merchant key');
       return { valid: false, error: 'INVALID_PASSWORD' };
     }
     
-    console.log('✅ PayMe authorization successful');
     return { valid: true };
     
-  } catch (decodeError) {
-    console.log('❌ Error decoding authorization header:', decodeError.message);
+  } catch (error) {
     return { valid: false, error: 'DECODE_ERROR' };
   }
 };
 
-// ✅ Helper to check if transaction exists
-const findTransactionById = (transactionId) => {
-  return sandboxTransactions.get(transactionId);
-};
-
-// ✅ Helper to check if account has existing unpaid transaction
-// For accumulative accounts (счет накопительный), multiple transactions can be created
-const hasExistingUnpaidTransaction = (accountLogin) => {
-  // ✅ FIXED: For accumulative accounts, we allow multiple transactions
-  // This function is now only used for non-accumulative account scenarios
-  // For the Payme sandbox test, we should allow creating transactions when account is in waiting_payment state
-  
-  // Uncomment the following code only if you need to restrict to single transaction per account
-  /*
-  for (const [transactionId, transaction] of sandboxTransactions.entries()) {
-    const txAccountLogin = transaction.account?.login || transaction.account?.Login;
-    if (txAccountLogin === accountLogin && 
-        transaction.state === TransactionState.CREATED && 
-        !transaction.cancelled) {
-      // Check if transaction is not expired (12 hours)
-      const txAge = Date.now() - transaction.create_time;
-      if (txAge < 12 * 60 * 60 * 1000) { // 12 hours in milliseconds
-        return true;
-      }
-    }
-  }
-  */
-  return false;
-};
-
-// ✅ Create proper error response - FIXED FOR PAYME SPECS
+// ✅ Create proper error response
 const createErrorResponse = (id, code, messageKey, data = null) => {
   const messages = {
     ru: '',
@@ -268,25 +223,13 @@ const createErrorResponse = (id, code, messageKey, data = null) => {
       messages.en = `Method ${messageKey} not found`;
       messages.uz = `${messageKey} usuli topilmadi`;
       break;
-    case PaymeErrorCode.INVALID_PARAMS:
-      messages.ru = 'Неверный запрос';
-      messages.en = 'Invalid Request';
-      messages.uz = "Noto'g'ri so'rov";
-      break;
     case PaymeErrorCode.INVALID_AUTHORIZATION:
       messages.ru = 'Недостаточно привилегий для выполнения метода';
       messages.en = 'Insufficient privileges to perform this method';
       messages.uz = "Ushbu amalni bajarish uchun yetarli huquq yo'q";
       break;
-    case PaymeErrorCode.INTERNAL_ERROR:
-      messages.ru = 'Внутренняя ошибка сервера';
-      messages.en = 'Internal server error';
-      messages.uz = 'Server ichki xatosi';
-      break;
     default:
-      // For account errors in range -31050 to -31099
       if (code >= -31099 && code <= -31050) {
-        // Different messages based on the specific error code
         if (code === -31050) {
           messages.ru = 'Аккаунт не найден';
           messages.en = 'Account not found';
@@ -320,7 +263,6 @@ const createErrorResponse = (id, code, messageKey, data = null) => {
     }
   };
 
-  // ✅ IMPORTANT: For account errors (-31050 to -31099), ALWAYS include data field
   if (code >= -31099 && code <= -31050 && data !== false) {
     errorResponse.error.data = data || 'login';
   } else if (data !== null && data !== false) {
@@ -330,7 +272,7 @@ const createErrorResponse = (id, code, messageKey, data = null) => {
   return errorResponse;
 };
 
-// ✅ COMPLETE PayMe Sandbox Handler for ALL scenarios
+// ✅ Main PayMe Sandbox Handler
 const handleSandboxPayment = async (req, res) => {
   try {
     const { method, params, id } = req.body;
@@ -338,51 +280,35 @@ const handleSandboxPayment = async (req, res) => {
     console.log('🧪 PayMe Sandbox Request:', {
       method,
       hasParams: !!params,
-      hasId: !!id,
-      hasAuth: !!req.headers.authorization,
-      params: params ? JSON.stringify(params) : 'None'
+      hasId: !!id
     });
 
-    // ✅ STEP 1: ALWAYS validate authorization FIRST
+    // Validate authorization first
     const authResult = validatePaymeAuth(req);
-    
     if (!authResult.valid) {
-      console.log('❌ Authorization FAILED:', authResult.error);
       return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_AUTHORIZATION));
     }
 
-    console.log('✅ Authorization PASSED - processing business logic for method:', method);
-
-    // ✅ STEP 2: Validate request structure
     if (!id) {
       return res.json(createErrorResponse(null, PaymeErrorCode.INVALID_PARAMS));
     }
 
-    // ✅ STEP 3: Handle business logic AFTER authorization passes
     switch (method) {
       case 'CheckPerformTransaction':
         return handleCheckPerformTransaction(req, res, id, params);
-        
       case 'CreateTransaction':
         return handleCreateTransaction(req, res, id, params);
-        
       case 'PerformTransaction':
         return handlePerformTransaction(req, res, id, params);
-        
       case 'CancelTransaction':
         return handleCancelTransaction(req, res, id, params);
-        
       case 'CheckTransaction':
         return handleCheckTransaction(req, res, id, params);
-        
       case 'GetStatement':
         return handleGetStatement(req, res, id, params);
-        
       case 'ChangePassword':
         return handleChangePassword(req, res, id, params);
-        
       default:
-        console.log('❌ Unknown method:', method);
         return res.json(createErrorResponse(id, PaymeErrorCode.METHOD_NOT_FOUND, method));
     }
 
@@ -390,13 +316,10 @@ const handleSandboxPayment = async (req, res) => {
     console.error('❌ Sandbox error:', error);
     res.status(200).json(createErrorResponse(
       req.body?.id || null, 
-      PaymeErrorCode.INTERNAL_ERROR,
-      null,
-      process.env.NODE_ENV === 'development' ? error.message : null
+      PaymeErrorCode.INTERNAL_ERROR
     ));
   }
 };
-
 // ✅ CheckPerformTransaction handler - FIXED for all test scenarios
 const handleCheckPerformTransaction = async (req, res, id, params) => {
   console.log('🔍 Processing CheckPerformTransaction with:', {
