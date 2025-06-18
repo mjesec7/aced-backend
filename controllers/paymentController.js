@@ -471,7 +471,7 @@ const handleCheckPerformTransaction = async (req, res, id, params) => {
   });
 };
 
-// ✅ CreateTransaction handler - FIXED according to Payme documentation
+// ✅ FIXED CreateTransaction handler - Check account FIRST, then other validations
 const handleCreateTransaction = async (req, res, id, params) => {
   console.log('🔍 Processing CreateTransaction with:', {
     id: params?.id,
@@ -480,7 +480,52 @@ const handleCreateTransaction = async (req, res, id, params) => {
     time: params?.time
   });
   
-  // ✅ IMPORTANT: Check if transaction already exists (idempotency)
+  // ✅ STEP 1: Check account FIRST - Get account login (handle both 'login' and 'Login' cases)
+  const createAccountLogin = params?.account?.login || params?.account?.Login;
+  if (!createAccountLogin) {
+    console.log('❌ No account login provided');
+    return res.json(createErrorResponse(id, -31050, null, 'login'));
+  }
+  
+  // ✅ STEP 2: Validate account existence and state BEFORE everything else
+  const createAccountInfo = await validateAccountAndState(createAccountLogin);
+  console.log('📊 Create transaction account validation:', createAccountInfo);
+  
+  // Check if account exists
+  if (!createAccountInfo.exists) {
+    console.log('❌ Account does not exist');
+    return res.json(createErrorResponse(id, -31050, null, 'login'));
+  }
+  
+  // ✅ Handle different account states according to PayMe specs
+  switch (createAccountInfo.state) {
+    case AccountState.NOT_EXISTS:
+      console.log('❌ Account does not exist');
+      return res.json(createErrorResponse(id, -31050, null, 'login'));
+      
+    case AccountState.BLOCKED:
+      console.log('❌ Account is blocked');
+      return res.json(createErrorResponse(id, -31051, null, 'login'));
+      
+    case AccountState.PROCESSING:
+      console.log('❌ Account is processing another transaction');
+      return res.json(createErrorResponse(id, -31052, null, 'login'));
+      
+    case AccountState.WAITING_PAYMENT:
+      // ✅ Account is ready to receive payment - continue with other validations
+      console.log('✅ Account is in waiting_payment state - proceeding with validations');
+      break;
+      
+    default:
+      // If account exists but no specific state, check for unpaid transactions
+      if (hasExistingUnpaidTransaction(createAccountLogin)) {
+        console.log('❌ Account already has an unpaid transaction');
+        return res.json(createErrorResponse(id, -31052, null, 'login'));
+      }
+      console.log('✅ Account exists and ready for transaction');
+  }
+  
+  // ✅ STEP 3: AFTER account validation passes, check if transaction already exists (idempotency)
   const existingTransaction = sandboxTransactions.get(params?.id);
   if (existingTransaction) {
     console.log('✅ Transaction already exists, returning existing transaction:', params.id);
@@ -497,66 +542,20 @@ const handleCreateTransaction = async (req, res, id, params) => {
     });
   }
   
-  // ✅ Validate required parameters
-  if (!params?.id || !params?.time || !params?.amount || !params?.account) {
+  // ✅ STEP 4: Validate other required parameters
+  if (!params?.id || !params?.time || !params?.amount) {
     console.log('❌ Missing required parameters');
     return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_PARAMS));
   }
   
-  // Get account login - handle both 'login' and 'Login' cases
-  const createAccountLogin = params?.account?.login || params?.account?.Login;
-  if (!createAccountLogin) {
-    console.log('❌ No account login provided');
-    return res.json(createErrorResponse(id, -31050, null, 'login'));
-  }
-  
-  // ✅ Validate amount
+  // ✅ STEP 5: Validate amount (only after account validation)
   const validCreateAmounts = Object.values(PAYMENT_AMOUNTS);
   if (!validCreateAmounts.includes(params.amount)) {
     console.log('❌ Invalid amount:', params?.amount, 'Valid amounts:', validCreateAmounts);
     return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_AMOUNT, null, false));
   }
-  
-  // ✅ Check account validity
-  const createAccountInfo = await validateAccountAndState(createAccountLogin);
-  console.log('📊 Create transaction account validation:', createAccountInfo);
-  
-  // Check if account exists
-  if (!createAccountInfo.exists) {
-    console.log('❌ Account does not exist');
-    return res.json(createErrorResponse(id, -31050, null, 'login'));
-  }
-  
-  // ✅ Handle different account states
-  switch (createAccountInfo.state) {
-    case AccountState.NOT_EXISTS:
-      console.log('❌ Account does not exist');
-      return res.json(createErrorResponse(id, -31050, null, 'login'));
-      
-    case AccountState.BLOCKED:
-      console.log('❌ Account is blocked');
-      return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION, null, false));
-      
-    case AccountState.PROCESSING:
-      console.log('❌ Account is processing another transaction');
-      return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION, null, false));
-      
-    case AccountState.WAITING_PAYMENT:
-      // ✅ FIXED: For waiting_payment state, we should CREATE the transaction
-      // The account is ready to receive payment
-      console.log('✅ Account is in waiting_payment state - creating transaction');
-      break;
-      
-    default:
-      // If account exists but no specific state, check for unpaid transactions
-      if (hasExistingUnpaidTransaction(createAccountLogin)) {
-        console.log('❌ Account already has an unpaid transaction');
-        return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION, null, false));
-      }
-      console.log('✅ Account exists and ready for transaction');
-  }
 
-  // ✅ Create new transaction - СЧЕТ НАКОПИТЕЛЬНЫЙ (accumulative account)
+  // ✅ STEP 6: All validations passed - Create new transaction
   const newTransaction = {
     id: params.id,
     transaction: params.id.toString(), // Transaction ID in merchant system
