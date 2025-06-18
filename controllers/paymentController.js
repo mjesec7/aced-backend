@@ -774,7 +774,7 @@ const handleCancelTransaction = async (req, res, id, params) => {
   });
 };
 
-// ✅ FIXED CheckTransaction handler - Handles all cases correctly
+// ✅ FIXED CheckTransaction handler - Correctly handles all 4 transaction states
 const handleCheckTransaction = async (req, res, id, params) => {
   console.log('🔍 Processing CheckTransaction for:', params?.id);
   
@@ -792,73 +792,80 @@ const handleCheckTransaction = async (req, res, id, params) => {
     return res.json(createErrorResponse(id, PaymeErrorCode.TRANSACTION_NOT_FOUND));
   }
   
-  // Initialize result with all required fields
+  // Log current transaction state for debugging
+  console.log('📊 Current transaction state:', {
+    id: checkTransactionId,
+    state: checkTransaction.state,
+    stateText: getTransactionStateText(checkTransaction.state),
+    hasPerformTime: !!checkTransaction.perform_time,
+    hasCancelTime: !!checkTransaction.cancel_time
+  });
+  
+  // Initialize result with exact values from transaction
   let result = {
-    create_time: checkTransaction.create_time || 0,
-    perform_time: checkTransaction.perform_time || 0,
-    cancel_time: checkTransaction.cancel_time || 0,
+    create_time: checkTransaction.create_time || Date.now(),
+    perform_time: 0,  // Default to 0
+    cancel_time: 0,   // Default to 0
     transaction: checkTransaction.transaction || checkTransaction.id,
     state: checkTransaction.state,
-    reason: null
+    reason: null      // Default to null
   };
   
-  // ✅ CRITICAL: Handle different transaction states correctly
+  // ✅ Handle each state according to Payme specification
   switch (checkTransaction.state) {
     case TransactionState.CREATED: // State 1
-      // Transaction created but not performed
+      // Transaction is created but not performed yet
       result.perform_time = 0;
       result.cancel_time = 0;
       result.reason = null;
+      console.log('✅ Transaction is in CREATED state (1)');
       break;
       
     case TransactionState.COMPLETED: // State 2
-      // Transaction completed successfully
-      // Keep perform_time, set cancel_time to 0
+      // Transaction is completed/performed
+      result.perform_time = checkTransaction.perform_time || Date.now();
       result.cancel_time = 0;
       result.reason = null;
+      console.log('✅ Transaction is in COMPLETED state (2)');
       break;
       
     case TransactionState.CANCELLED_AFTER_CREATE: // State -1
-      // Transaction cancelled before completion
-      result.perform_time = 0;
-      result.reason = checkTransaction.reason || 3;
-      // Ensure cancel_time is set
-      if (!result.cancel_time && checkTransaction.cancelled) {
-        result.cancel_time = checkTransaction.cancel_time || Date.now();
-      }
+      // Transaction was cancelled before completion
+      result.perform_time = 0;  // Never performed
+      result.cancel_time = checkTransaction.cancel_time || Date.now();
+      result.reason = checkTransaction.reason || 3;  // Reason 3 for cancelled before payment
+      console.log('✅ Transaction is in CANCELLED_AFTER_CREATE state (-1)');
       break;
       
     case TransactionState.CANCELLED_AFTER_COMPLETE: // State -2
-      // Transaction cancelled after completion (refunded)
-      // ✅ CRITICAL: Keep the original perform_time for refunded transactions
-      // perform_time should NOT be 0 for state -2
-      result.reason = 5; // Always 5 for refunded transactions
-      // Ensure cancel_time is set
-      if (!result.cancel_time && checkTransaction.cancelled) {
-        result.cancel_time = checkTransaction.cancel_time || Date.now();
-      }
+      // Transaction was cancelled after completion (refunded)
+      result.perform_time = checkTransaction.perform_time || Date.now();  // Keep original perform time
+      result.cancel_time = checkTransaction.cancel_time || Date.now();
+      result.reason = checkTransaction.reason || 5;  // Reason 5 for refunded
+      console.log('✅ Transaction is in CANCELLED_AFTER_COMPLETE state (-2)');
       break;
       
     default:
       console.log('⚠️ Unknown transaction state:', checkTransaction.state);
+      // Keep defaults
       break;
   }
   
-  // ✅ VALIDATION: Ensure all timestamps are valid numbers
-  result.create_time = (typeof result.create_time === 'number' && result.create_time > 0) ? result.create_time : Date.now();
-  result.perform_time = (typeof result.perform_time === 'number' && result.perform_time >= 0) ? result.perform_time : 0;
-  result.cancel_time = (typeof result.cancel_time === 'number' && result.cancel_time >= 0) ? result.cancel_time : 0;
+  // ✅ Ensure all timestamps are valid
+  result.create_time = (typeof result.create_time === 'number' && result.create_time > 0) 
+    ? result.create_time 
+    : Date.now();
+    
+  result.perform_time = (typeof result.perform_time === 'number' && result.perform_time >= 0) 
+    ? result.perform_time 
+    : 0;
+    
+  result.cancel_time = (typeof result.cancel_time === 'number' && result.cancel_time >= 0) 
+    ? result.cancel_time 
+    : 0;
   
-  // ✅ SPECIAL HANDLING: For the failing test case
-  // If transaction was completed (has perform_time) but current state shows as completed (2)
-  // when it should be cancelled after complete (-2), we need to check the actual state
-  if (result.state === TransactionState.COMPLETED && result.cancel_time > 0) {
-    // This indicates the transaction was actually cancelled after completion
-    result.state = TransactionState.CANCELLED_AFTER_COMPLETE;
-    result.reason = 5;
-  }
-  
-  console.log('✅ CheckTransaction response:', {
+  // ✅ Final validation log
+  console.log('✅ CheckTransaction final response:', {
     id: checkTransactionId,
     state: result.state,
     stateText: getTransactionStateText(result.state),
@@ -874,6 +881,7 @@ const handleCheckTransaction = async (req, res, id, params) => {
   });
 };
 
+// Note: getTransactionStateText is already defined elsewhere in the code
 
 // ✅ GetStatement handler
 const handleGetStatement = async (req, res, id, params) => {
