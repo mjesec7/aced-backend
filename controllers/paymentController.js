@@ -1058,9 +1058,19 @@ const applyPromoCode = async (req, res) => {
   }
 };
 
+// ✅ FIXED: initiatePaymePayment function in controllers/paymentController.js
+// Replace your existing initiatePaymePayment function with this:
+
 const initiatePaymePayment = async (req, res) => {
   try {
     const { userId, plan } = req.body;
+
+    console.log('🚀 Payment initiation request:', {
+      userId,
+      plan,
+      userIdType: typeof userId,
+      userIdLength: userId?.length
+    });
 
     if (!userId || !plan) {
       return res.status(400).json({ 
@@ -1075,12 +1085,60 @@ const initiatePaymePayment = async (req, res) => {
       });
     }
 
-    const user = await User.findById(userId);
+    // ✅ FIXED: Enhanced user search logic
+    let user = null;
+
+    try {
+      // 1. Check if it's a Firebase UID (typical length 28, alphanumeric)
+      if (userId.length >= 20 && !userId.match(/^[0-9a-fA-F]{24}$/)) {
+        console.log('🔥 Searching user by firebaseId');
+        user = await User.findOne({ firebaseId: userId });
+      }
+      // 2. Check if it's a valid MongoDB ObjectId (24 hex characters)
+      else if (userId.match(/^[0-9a-fA-F]{24}$/)) {
+        console.log('🍃 Searching user by _id');
+        user = await User.findById(userId);
+      }
+      // 3. Check if it's an email
+      else if (userId.includes('@') && userId.includes('.')) {
+        console.log('📧 Searching user by email');
+        user = await User.findOne({ email: userId });
+      }
+      // 4. Fallback: try multiple fields
+      else {
+        console.log('🔄 Fallback: searching by multiple fields');
+        user = await User.findOne({
+          $or: [
+            { firebaseId: userId },
+            { email: userId },
+            { login: userId }
+          ]
+        });
+      }
+    } catch (searchError) {
+      console.error('❌ User search error:', searchError.message);
+      
+      if (searchError.name === 'CastError') {
+        console.log('🔧 CastError - trying firebaseId search as fallback');
+        user = await User.findOne({ firebaseId: userId });
+      }
+    }
+
     if (!user) {
+      console.log('❌ User not found for payment initiation:', userId);
       return res.status(404).json({ 
-        message: '❌ Пользователь не найден по ID' 
+        message: '❌ Пользователь не найден по ID',
+        userId,
+        suggestion: 'Проверьте правильность ID пользователя'
       });
     }
+
+    console.log('✅ User found for payment:', {
+      id: user._id,
+      firebaseId: user.firebaseId,
+      email: user.email,
+      name: user.name
+    });
 
     const amount = PAYMENT_AMOUNTS[plan];
     if (!amount) {
@@ -1089,12 +1147,17 @@ const initiatePaymePayment = async (req, res) => {
       });
     }
 
-    const accountLogin = userId;
+    console.log('💰 Payment amount for plan', plan, ':', amount, 'tiyin');
+
+    // Use firebaseId for account login (consistent with validation)
+    const accountLogin = user.firebaseId || userId;
     const requestId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
     const isProduction = process.env.NODE_ENV === 'production';
     
     // Set account state to waiting_payment for new payment
     accountStates.set(accountLogin, AccountState.WAITING_PAYMENT);
+    
+    console.log('🔧 Account state set to waiting_payment for:', accountLogin);
     
     let paymeApiUrl;
     if (isProduction) {
@@ -1103,7 +1166,11 @@ const initiatePaymePayment = async (req, res) => {
       paymeApiUrl = 'https://api.aced.live/api/payments/sandbox';
     }
 
+    console.log('🌐 PayMe API URL:', paymeApiUrl);
+
     try {
+      // Step 1: Check if payment can be performed
+      console.log('🔍 Step 1: Checking payment eligibility...');
       const checkResponse = await makePaymeRequest(paymeApiUrl, {
         id: requestId,
         method: 'CheckPerformTransaction',
@@ -1114,6 +1181,7 @@ const initiatePaymePayment = async (req, res) => {
       });
 
       if (checkResponse.error) {
+        console.error('❌ CheckPerformTransaction failed:', checkResponse.error);
         return res.status(400).json({
           message: '❌ Не удалось проверить возможность оплаты',
           error: checkResponse.error.message?.ru || checkResponse.error.message?.en || 'Ошибка проверки',
@@ -1122,6 +1190,10 @@ const initiatePaymePayment = async (req, res) => {
         });
       }
 
+      console.log('✅ CheckPerformTransaction successful');
+
+      // Step 2: Create transaction
+      console.log('🔧 Step 2: Creating transaction...');
       const createResponse = await makePaymeRequest(paymeApiUrl, {
         id: requestId,
         method: 'CreateTransaction',
@@ -1134,6 +1206,7 @@ const initiatePaymePayment = async (req, res) => {
       });
 
       if (createResponse.error) {
+        console.error('❌ CreateTransaction failed:', createResponse.error);
         return res.status(400).json({
           message: '❌ Не удалось создать транзакцию',
           error: createResponse.error.message?.ru || createResponse.error.message?.en || 'Ошибка создания транзакции',
@@ -1142,12 +1215,20 @@ const initiatePaymePayment = async (req, res) => {
         });
       }
 
+      console.log('✅ CreateTransaction successful:', {
+        transactionId: requestId,
+        state: createResponse.result.state
+      });
+
+      // Step 3: Generate payment URL
       let paymentUrl;
       if (isProduction) {
         paymentUrl = `https://checkout.paycom.uz/${process.env.PAYME_MERCHANT_ID}`;
       } else {
         paymentUrl = `https://aced.live/payment/checkout/${requestId}`;
       }
+
+      console.log('🔗 Payment URL generated:', paymentUrl);
 
       return res.status(200).json({
         message: '✅ Транзакция успешно создана',
@@ -1164,6 +1245,8 @@ const initiatePaymePayment = async (req, res) => {
         paymentUrl: paymentUrl,
         metadata: {
           userId: userId,
+          userFirebaseId: user.firebaseId,
+          userName: user.name,
           plan: plan,
           amountUzs: amount / 100,
           environment: isProduction ? 'production' : 'sandbox',
@@ -1173,18 +1256,40 @@ const initiatePaymePayment = async (req, res) => {
       });
 
     } catch (apiError) {
+      console.error('❌ PayMe API Error:', apiError);
       return res.status(500).json({
         message: '❌ Ошибка при обращении к платёжной системе',
         error: apiError.message,
-        sandbox: !isProduction
+        sandbox: !isProduction,
+        details: process.env.NODE_ENV === 'development' ? apiError.stack : undefined
       });
     }
 
   } catch (err) {
-    console.error('❌ Ошибка инициации платежа:', err);
-    res.status(500).json({ 
-      message: '❌ Ошибка сервера при инициации платежа',
-      error: err.message
+    console.error('❌ Payment initiation error:', err);
+    console.error('❌ Error stack:', err.stack);
+    
+    // Enhanced error response
+    let errorMessage = '❌ Ошибка сервера при инициации платежа';
+    let statusCode = 500;
+
+    if (err.name === 'CastError') {
+      errorMessage = '❌ Неверный формат ID пользователя';
+      statusCode = 400;
+    } else if (err.name === 'ValidationError') {
+      errorMessage = '❌ Ошибка валидации данных';
+      statusCode = 400;
+    }
+
+    res.status(statusCode).json({ 
+      message: errorMessage,
+      error: err.message,
+      errorType: err.name,
+      userId: req.body?.userId,
+      plan: req.body?.plan,
+      server: 'api.aced.live',
+      timestamp: new Date().toISOString(),
+      details: process.env.NODE_ENV === 'development' ? err.stack : undefined
     });
   }
 };
