@@ -5,8 +5,8 @@ const axios = require('axios');
 
 // Payment amounts in tiyin (1 UZS = 100 tiyin)
 const PAYMENT_AMOUNTS = {
-  start: 260000, // 2600 UZS
-  pro: 455000    // 4550 UZS
+  start: 26000000,  // 260,000 UZS in tiyin (260000 * 100)
+  pro: 45500000     // 455,000 UZS in tiyin (455000 * 100)
 };
 
 // Store transactions in memory for sandbox testing
