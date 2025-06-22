@@ -80,41 +80,52 @@ const validateAccountAndState = async (accountLogin) => {
       };
     }
     
-    // ✅ Check if it looks like a real user ID (MongoDB ObjectId pattern)
-    if (accountLogin.match(/^[a-f\d]{24}$/i)) {
-      const user = await User.findById(accountLogin);
-      if (user) {
-        console.log('✅ Valid MongoDB user ID found');
-        // For accumulative accounts, always return WAITING_PAYMENT state if no explicit state is set
-        return {
-          exists: true,
-          state: AccountState.WAITING_PAYMENT
-        };
-      }
+    let user = null;
+
+    // ✅ FIXED: Enhanced user search logic
+    
+    // 1. Check if it's a Firebase UID (typical length 28, alphanumeric)
+    if (accountLogin.length >= 20 && !accountLogin.match(/^[0-9a-fA-F]{24}$/)) {
+      console.log('🔥 Searching user by firebaseId');
+      user = await User.findOne({ firebaseId: accountLogin });
+    }
+    // 2. Check if it's a valid MongoDB ObjectId (24 hex characters)
+    else if (accountLogin.match(/^[0-9a-fA-F]{24}$/)) {
+      console.log('🍃 Searching user by _id');
+      user = await User.findById(accountLogin);
+    }
+    // 3. Check if it's an email
+    else if (accountLogin.includes('@') && accountLogin.includes('.')) {
+      console.log('📧 Searching user by email');
+      user = await User.findOne({ email: accountLogin });
+    }
+    // 4. Check if it's a phone number
+    else if (accountLogin.match(/^\+?\d{9,15}$/)) {
+      console.log('📱 Searching user by phone');
+      user = await User.findOne({ phone: accountLogin });
+    }
+    // 5. Fallback: try multiple fields
+    else {
+      console.log('🔄 Fallback: searching by multiple fields');
+      user = await User.findOne({
+        $or: [
+          { firebaseId: accountLogin },
+          { email: accountLogin },
+          { login: accountLogin }
+        ]
+      });
     }
     
-    // ✅ Check if it looks like an email
-    if (accountLogin.includes('@') && accountLogin.includes('.')) {
-      const user = await User.findOne({ email: accountLogin });
-      if (user) {
-        console.log('✅ Valid email account found');
-        return {
-          exists: true,
-          state: AccountState.WAITING_PAYMENT
-        };
-      }
-    }
-    
-    // ✅ Check if it's a phone number
-    if (accountLogin.match(/^\+?\d{9,15}$/)) {
-      const user = await User.findOne({ phone: accountLogin });
-      if (user) {
-        console.log('✅ Valid phone account found');
-        return {
-          exists: true,
-          state: AccountState.WAITING_PAYMENT
-        };
-      }
+    if (user) {
+      console.log('✅ User found for account validation:', {
+        id: user._id,
+        firebaseId: user.firebaseId,
+        email: user.email
+      });
+      return {
+        exists: true,
+        state: AccountState.WAITING_PAYMENT
+      };
     }
     
     // ✅ For any other case, treat as non-existent
@@ -126,6 +137,16 @@ const validateAccountAndState = async (accountLogin) => {
     
   } catch (error) {
     console.error('❌ Error validating account:', error.message);
+    
+    // ✅ ENHANCED: Don't fail on CastError, just treat as non-existent
+    if (error.name === 'CastError') {
+      console.log('🔧 CastError occurred, treating account as non-existent');
+      return {
+        exists: false,
+        state: AccountState.NOT_EXISTS
+      };
+    }
+    
     return {
       exists: false,
       state: AccountState.NOT_EXISTS
@@ -1179,22 +1200,70 @@ const validateUserRoute = async (req, res) => {
       });
     }
 
-    const user = await User.findById(userId);
+    console.log('🔍 Validating user ID:', userId);
+    console.log('🔍 User ID type:', typeof userId);
+    console.log('🔍 User ID length:', userId.length);
+
+    let user = null;
+
+    // ✅ FIXED: Try different search strategies based on ID format
     
-    if (!user) {
-      return res.status(404).json({
-        message: '❌ User not found',
-        valid: false,
-        userId
+    // 1. Check if it's a Firebase UID (typical length 28, alphanumeric)
+    if (userId.length >= 20 && !userId.match(/^[0-9a-fA-F]{24}$/)) {
+      console.log('🔥 Searching by firebaseId (Firebase UID)');
+      user = await User.findOne({ firebaseId: userId });
+    }
+    // 2. Check if it's a valid MongoDB ObjectId (24 hex characters)
+    else if (userId.match(/^[0-9a-fA-F]{24}$/)) {
+      console.log('🍃 Searching by _id (MongoDB ObjectId)');
+      user = await User.findById(userId);
+    }
+    // 3. Try email format
+    else if (userId.includes('@') && userId.includes('.')) {
+      console.log('📧 Searching by email');
+      user = await User.findOne({ email: userId });
+    }
+    // 4. Try phone number format
+    else if (userId.match(/^\+?\d{9,15}$/)) {
+      console.log('📱 Searching by phone');
+      user = await User.findOne({ phone: userId });
+    }
+    // 5. Fallback: try both firebaseId and email
+    else {
+      console.log('🔄 Fallback: searching by firebaseId or email');
+      user = await User.findOne({
+        $or: [
+          { firebaseId: userId },
+          { email: userId },
+          { login: userId }
+        ]
       });
     }
 
+    if (!user) {
+      console.log('❌ User not found for ID:', userId);
+      return res.status(404).json({
+        message: '❌ User not found',
+        valid: false,
+        userId,
+        searchedBy: 'Multiple strategies attempted'
+      });
+    }
+
+    console.log('✅ User found:', {
+      id: user._id,
+      firebaseId: user.firebaseId,
+      email: user.email,
+      name: user.name
+    });
+
     return res.status(200).json({
-      message: '✅ User route is valid',
+      message: '✅ User validation successful',
       valid: true,
       server: 'api.aced.live',
       user: {
         id: user._id,
+        firebaseId: user.firebaseId,
         name: user.name || 'Unknown',
         email: user.email || 'Unknown',
         subscriptionPlan: user.subscriptionPlan || 'free',
@@ -1204,10 +1273,30 @@ const validateUserRoute = async (req, res) => {
 
   } catch (error) {
     console.error('❌ User validation error:', error);
-    res.status(500).json({
-      message: '❌ Server error during user validation',
+    
+    // ✅ ENHANCED: Better error handling for different error types
+    let errorMessage = '❌ Server error during user validation';
+    let statusCode = 500;
+
+    if (error.name === 'CastError') {
+      errorMessage = '❌ Invalid user ID format';
+      statusCode = 400;
+      console.log('🔧 CastError details:', {
+        path: error.path,
+        value: error.value,
+        kind: error.kind
+      });
+    } else if (error.name === 'ValidationError') {
+      errorMessage = '❌ User data validation error';
+      statusCode = 400;
+    }
+
+    res.status(statusCode).json({
+      message: errorMessage,
       valid: false,
-      error: error.message
+      error: error.message,
+      userId: req.params.userId,
+      errorType: error.name
     });
   }
 };
