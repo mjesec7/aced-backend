@@ -66,7 +66,7 @@ router.post('/initialize', async (req, res) => {
       });
     }
     
-    // Simulate card validation
+    // Validate card type
     const cardType = cardNumber.startsWith('8600') || cardNumber.startsWith('9860') || 
                     cardNumber.startsWith('5440') || cardNumber.startsWith('6440') ? 'Humo' : 
                     cardNumber.startsWith('5614') || cardNumber.startsWith('6262') ? 'UzCard' : null;
@@ -78,23 +78,19 @@ router.post('/initialize', async (req, res) => {
       });
     }
     
-    // For Uzbek cards, require SMS verification
-    if (cardType === 'Humo' || cardType === 'UzCard') {
-      return res.json({
-        success: true,
-        requiresSms: true,
-        maskedPhone: '+998 ** *** **12',
-        cardType,
-        message: 'SMS verification required'
-      });
-    }
+    // In a real PayMe integration:
+    // 1. This would send card data to PayMe API
+    // 2. PayMe would communicate with the bank
+    // 3. Bank would send SMS to cardholder's registered phone number
+    // 4. We get response from PayMe saying "SMS sent, wait for user input"
     
-    // For other cards, proceed directly
+    // For now, simulate this flow
     return res.json({
       success: true,
-      requiresSms: false,
+      requiresSms: true,
+      maskedPhone: '+998 ** *** **56', // This would come from the bank
       cardType,
-      message: 'Card validated successfully'
+      message: 'SMS code sent by bank to your registered phone number'
     });
     
   } catch (error) {
