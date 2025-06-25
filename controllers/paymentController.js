@@ -3,10 +3,9 @@
 const User = require('../models/user');
 const axios = require('axios');
 
-// Payment amounts in tiyin (1 UZS = 100 tiyin)
 const PAYMENT_AMOUNTS = {
-  start: 26000000,  // 260,000 UZS in tiyin (260000 * 100)
-  pro: 45500000     // 455,000 UZS in tiyin (455000 * 100)
+  start: 26000000,  // ✅ 260,000 UZS in tiyin (260000 * 100)
+  pro: 45500000     // ✅ 455,000 UZS in tiyin (455000 * 100)
 };
 
 // Store transactions in memory for sandbox testing
@@ -1069,20 +1068,24 @@ const initiatePaymePayment = async (req, res) => {
 
     console.log('🚀 PayMe payment initiation:', { userId, plan, name, phone });
 
+    // ✅ Validate required fields
     if (!userId || !plan) {
       return res.status(400).json({ 
+        success: false,
         message: '❌ userId and plan are required' 
       });
     }
 
+    // ✅ Validate plan
     const allowedPlans = ['start', 'pro'];
     if (!allowedPlans.includes(plan)) {
       return res.status(400).json({ 
+        success: false,
         message: '❌ Invalid plan. Allowed: start, pro' 
       });
     }
 
-    // Find user (with proper Firebase UID handling)
+    // ✅ Find user with enhanced search
     let user = null;
     try {
       if (userId.length >= 20 && !userId.match(/^[0-9a-fA-F]{24}$/)) {
@@ -1102,38 +1105,32 @@ const initiatePaymePayment = async (req, res) => {
 
     if (!user) {
       return res.status(404).json({ 
+        success: false,
         message: '❌ User not found' 
       });
     }
 
+    // ✅ Get correct amount
     const amount = PAYMENT_AMOUNTS[plan];
     if (!amount) {
       return res.status(400).json({ 
+        success: false,
         message: '❌ Invalid plan amount' 
       });
     }
 
-    // ✅ REAL PAYME INTEGRATION
-    const isProduction = process.env.NODE_ENV === 'production';
-    const merchantId = process.env.PAYME_MERCHANT_ID;
-    const merchantKey = process.env.PAYME_MERCHANT_KEY;
-
-    if (!merchantId) {
-      console.error('❌ PAYME_MERCHANT_ID not configured');
-      return res.status(500).json({
-        message: '❌ Payment system not configured'
-      });
-    }
-
-    // Create unique transaction ID
+    // ✅ Generate transaction ID
     const transactionId = `aced_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
-    // ✅ FOR PRODUCTION: Real PayMe checkout URL
+    // ✅ Check environment
+    const isProduction = process.env.NODE_ENV === 'production';
+    const merchantId = process.env.PAYME_MERCHANT_ID;
+
     if (isProduction && merchantId) {
-      // Create PayMe checkout URL with proper parameters
+      // ✅ Production PayMe URL
       const paymeParams = new URLSearchParams({
         'm': merchantId,                    // Merchant ID
-        'ac.login': user.firebaseId,        // Account login (user ID)
+        'ac.login': user.firebaseId,        // Account login
         'a': amount,                        // Amount in tiyin
         'c': transactionId,                 // Transaction reference
         'ct': Date.now(),                   // Current timestamp
@@ -1143,22 +1140,6 @@ const initiatePaymePayment = async (req, res) => {
 
       const paymentUrl = `https://checkout.paycom.uz/?${paymeParams.toString()}`;
       
-      console.log('🔗 Production PayMe URL generated:', paymentUrl);
-
-      // Store transaction in your database for tracking
-      const transactionData = {
-        id: transactionId,
-        userId: user.firebaseId,
-        amount: amount,
-        plan: plan,
-        status: 'pending',
-        createdAt: new Date(),
-        paymeParams: Object.fromEntries(paymeParams)
-      };
-
-      // Save to your transactions collection (you'll need to create this model)
-      // await Transaction.create(transactionData);
-
       return res.status(200).json({
         success: true,
         message: '✅ Payment URL created',
@@ -1176,11 +1157,8 @@ const initiatePaymePayment = async (req, res) => {
           environment: 'production'
         }
       });
-    }
-
-    // ✅ FOR DEVELOPMENT: Simplified sandbox
-    else {
-      // Create a simple checkout page URL for testing
+    } else {
+      // ✅ Development/Sandbox mode
       const checkoutUrl = `https://aced.live/payment/checkout?` + new URLSearchParams({
         transactionId: transactionId,
         userId: user.firebaseId,
@@ -1191,18 +1169,18 @@ const initiatePaymePayment = async (req, res) => {
         userEmail: user.email || ''
       }).toString();
 
-      console.log('🧪 Sandbox checkout URL:', checkoutUrl);
-
-      // Store in memory for sandbox testing
-      sandboxTransactions.set(transactionId, {
-        id: transactionId,
-        userId: user.firebaseId,
-        amount: amount,
-        plan: plan,
-        state: 1, // Created
-        create_time: Date.now(),
-        account: { login: user.firebaseId }
-      });
+      // Store in sandbox for testing
+      if (typeof sandboxTransactions !== 'undefined') {
+        sandboxTransactions.set(transactionId, {
+          id: transactionId,
+          userId: user.firebaseId,
+          amount: amount,
+          plan: plan,
+          state: 1,
+          create_time: Date.now(),
+          account: { login: user.firebaseId }
+        });
+      }
 
       return res.status(200).json({
         success: true,
@@ -1226,6 +1204,7 @@ const initiatePaymePayment = async (req, res) => {
   } catch (error) {
     console.error('❌ Payment initiation error:', error);
     res.status(500).json({
+      success: false,
       message: '❌ Payment initiation failed',
       error: error.message
     });
