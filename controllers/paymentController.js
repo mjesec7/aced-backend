@@ -1057,6 +1057,8 @@ const applyPromoCode = async (req, res) => {
   }
 };
 
+// Replace your initiatePaymePayment function in controllers/paymentController.js
+
 const initiatePaymePayment = async (req, res) => {
   try {
     const { userId, plan, name, phone } = req.body;
@@ -1078,7 +1080,7 @@ const initiatePaymePayment = async (req, res) => {
       });
     }
 
-    // Find user
+    // Find user with enhanced search
     let user = null;
     try {
       if (userId.length >= 20 && !userId.match(/^[0-9a-fA-F]{24}$/)) {
@@ -1116,7 +1118,7 @@ const initiatePaymePayment = async (req, res) => {
     const merchantId = process.env.PAYME_MERCHANT_ID;
 
     if (isProduction && merchantId) {
-      // ✅ REAL PAYME INTEGRATION - Redirect to PayMe's checkout
+      // ✅ PRODUCTION: Direct redirect to PayMe official checkout
       const paymeParams = new URLSearchParams({
         'm': merchantId,                    // Your merchant ID
         'ac.login': user.firebaseId,        // Account identifier
@@ -1127,20 +1129,14 @@ const initiatePaymePayment = async (req, res) => {
         'cr': 'UZS'                        // Currency
       });
 
-      // This is PayMe's OFFICIAL checkout URL where THEY handle everything:
-      // - Card input forms
-      // - Bank communication  
-      // - SMS sending (by the bank)
-      // - SMS verification
-      // - Payment processing
       const paymentUrl = `https://checkout.paycom.uz/?${paymeParams.toString()}`;
       
-      console.log('🔗 Redirecting to PayMe official checkout:', paymentUrl);
+      console.log('🔗 Production PayMe URL generated:', paymentUrl);
 
       return res.status(200).json({
         success: true,
         message: '✅ Redirecting to PayMe checkout',
-        paymentUrl: paymentUrl,  // ← User goes directly here
+        paymentUrl: paymentUrl,
         transaction: {
           id: transactionId,
           amount: amount,
@@ -1151,44 +1147,52 @@ const initiatePaymePayment = async (req, res) => {
           userId: userId,
           plan: plan,
           amountUzs: amount / 100,
-          environment: 'production',
-          note: 'User will be redirected to PayMe official checkout'
+          environment: 'production'
         }
       });
     } else {
-      // ✅ DEVELOPMENT/TESTING - Simulate PayMe redirect
-      console.log('🧪 Development mode - simulating PayMe redirect');
-      
-      // In development, you can either:
-      // 1. Redirect to PayMe test environment
-      // 2. Show a demo success page
-      // 3. Use your custom checkout for testing UI only
-      
-      const testPaymentUrl = `https://aced.live/payment-success?` + new URLSearchParams({
-        transaction: transactionId,
-        plan: plan,
+      // ✅ DEVELOPMENT: Redirect to your custom checkout with user info
+      const checkoutUrl = `https://aced.live/payment/checkout?` + new URLSearchParams({
+        transactionId: transactionId,
+        userId: user.firebaseId,
         amount: amount,
-        userId: userId,
-        status: 'test_completed',
-        note: 'This is a test payment in development mode'
+        plan: plan,
+        amountUzs: amount / 100,
+        userName: user.name || 'User',
+        userEmail: user.email || '',
+        currentPlan: user.subscriptionPlan || 'free' // ✅ Include current plan
       }).toString();
+
+      // Store in sandbox for tracking
+      if (typeof sandboxTransactions !== 'undefined') {
+        sandboxTransactions.set(transactionId, {
+          id: transactionId,
+          userId: user.firebaseId,
+          amount: amount,
+          plan: plan,
+          state: 1,
+          create_time: Date.now(),
+          account: { login: user.firebaseId }
+        });
+      }
+
+      console.log('🧪 Development checkout URL:', checkoutUrl);
 
       return res.status(200).json({
         success: true,
-        message: '✅ Test payment created (development)',
-        paymentUrl: testPaymentUrl,  // ← Goes to success page in dev
+        message: '✅ Checkout URL created',
+        paymentUrl: checkoutUrl,
         transaction: {
           id: transactionId,
           amount: amount,
           plan: plan,
-          state: 2  // Mark as completed for testing
+          state: 1
         },
         metadata: {
           userId: userId,
           plan: plan,
           amountUzs: amount / 100,
-          environment: 'development',
-          note: 'Development mode - payment auto-completed'
+          environment: 'development'
         }
       });
     }
@@ -1202,7 +1206,6 @@ const initiatePaymePayment = async (req, res) => {
     });
   }
 };
-
 const validateUserRoute = async (req, res) => {
   try {
     const { userId } = req.params;
