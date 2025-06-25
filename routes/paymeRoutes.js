@@ -1,4 +1,4 @@
-// routes/paymeRoutes.js - UPDATED WITH ALL NEW ENDPOINTS
+// routes/paymeRoutes.js - COMPLETE UPDATED WITH ALL ENDPOINTS
 
 const express = require('express');
 const router = express.Router();
@@ -40,6 +40,201 @@ router.post('/promo-code', applyPromoCode);
 
 // Initiate PayMe payment
 router.post('/initiate-payme', initiatePaymePayment);
+
+// ======================================
+// PAYME CHECKOUT ENDPOINTS (NEW)
+// ======================================
+
+// Initialize payment (for checkout page)
+router.post('/initialize', async (req, res) => {
+  try {
+    const { transactionId, cardNumber, expiryDate, cardHolder, amount, userId, plan } = req.body;
+    
+    console.log('💳 Payment initialization request:', {
+      transactionId,
+      cardNumber: cardNumber ? cardNumber.slice(0, 4) + '****' + cardNumber.slice(-4) : 'None',
+      amount,
+      userId,
+      plan
+    });
+    
+    // Validate required fields
+    if (!transactionId || !cardNumber || !expiryDate || !cardHolder || !amount || !userId || !plan) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields'
+      });
+    }
+    
+    // Simulate card validation
+    const cardType = cardNumber.startsWith('8600') || cardNumber.startsWith('9860') || 
+                    cardNumber.startsWith('5440') || cardNumber.startsWith('6440') ? 'Humo' : 
+                    cardNumber.startsWith('5614') || cardNumber.startsWith('6262') ? 'UzCard' : null;
+    
+    if (!cardType) {
+      return res.status(400).json({
+        success: false,
+        message: 'Unsupported card type. Please use Humo (8600, 9860, 5440, 6440) or UzCard (5614, 6262)'
+      });
+    }
+    
+    // For Uzbek cards, require SMS verification
+    if (cardType === 'Humo' || cardType === 'UzCard') {
+      return res.json({
+        success: true,
+        requiresSms: true,
+        maskedPhone: '+998 ** *** **12',
+        cardType,
+        message: 'SMS verification required'
+      });
+    }
+    
+    // For other cards, proceed directly
+    return res.json({
+      success: true,
+      requiresSms: false,
+      cardType,
+      message: 'Card validated successfully'
+    });
+    
+  } catch (error) {
+    console.error('❌ Payment initialization error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Payment initialization failed',
+      error: error.message
+    });
+  }
+});
+
+// Verify SMS code
+router.post('/verify-sms', async (req, res) => {
+  try {
+    const { transactionId, smsCode } = req.body;
+    
+    console.log('📱 SMS verification request:', {
+      transactionId,
+      smsCodeLength: smsCode?.length
+    });
+    
+    if (!transactionId || !smsCode) {
+      return res.status(400).json({
+        success: false,
+        message: 'Transaction ID and SMS code are required'
+      });
+    }
+    
+    if (smsCode.length !== 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'SMS code must be 6 digits'
+      });
+    }
+    
+    // For demo purposes, accept any 6-digit code
+    // In production, this would verify with the actual bank/PayMe
+    return res.json({
+      success: true,
+      message: 'SMS code verified successfully'
+    });
+    
+  } catch (error) {
+    console.error('❌ SMS verification error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'SMS verification failed',
+      error: error.message
+    });
+  }
+});
+
+// Complete payment
+router.post('/complete', async (req, res) => {
+  try {
+    const { transactionId, userId, plan, cardType, cardLast4 } = req.body;
+    
+    console.log('✅ Payment completion request:', {
+      transactionId,
+      userId,
+      plan,
+      cardType,
+      cardLast4
+    });
+    
+    if (!transactionId || !userId || !plan) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields'
+      });
+    }
+    
+    // Find and update user subscription
+    const User = require('../models/user');
+    let user = null;
+    
+    try {
+      // Try different search methods for user
+      if (userId.length >= 20 && !userId.match(/^[0-9a-fA-F]{24}$/)) {
+        user = await User.findOne({ firebaseId: userId });
+      } else if (userId.match(/^[0-9a-fA-F]{24}$/)) {
+        user = await User.findById(userId);
+      } else {
+        user = await User.findOne({
+          $or: [
+            { firebaseId: userId },
+            { email: userId }
+          ]
+        });
+      }
+    } catch (searchError) {
+      if (searchError.name === 'CastError') {
+        user = await User.findOne({ firebaseId: userId });
+      }
+    }
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    // Update user subscription
+    user.subscriptionPlan = plan;
+    user.paymentStatus = 'paid';
+    user.lastPaymentDate = new Date();
+    
+    await user.save();
+    
+    console.log('✅ User subscription updated:', {
+      userId: user.firebaseId,
+      newPlan: plan
+    });
+    
+    return res.json({
+      success: true,
+      message: 'Payment completed successfully',
+      user: {
+        id: user.firebaseId,
+        plan: user.subscriptionPlan,
+        paymentStatus: user.paymentStatus
+      },
+      transaction: {
+        id: transactionId,
+        status: 'completed',
+        completedAt: new Date().toISOString()
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Payment completion error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Payment completion failed',
+      error: error.message
+    });
+  }
+});
 
 // ======================================
 // PAYME SANDBOX & WEBHOOK ROUTES
@@ -113,7 +308,7 @@ if (process.env.NODE_ENV !== 'production') {
             transaction: {
               id: 'test_' + Date.now(),
               state: 2,
-              amount: plan === 'pro' ? 455000 : 260000
+              amount: plan === 'pro' ? 45500000 : 26000000
             }
           });
           break;
@@ -136,7 +331,7 @@ if (process.env.NODE_ENV !== 'production') {
             transaction: {
               id: 'test_' + Date.now(),
               state: 1,
-              amount: plan === 'pro' ? 455000 : 260000
+              amount: plan === 'pro' ? 45500000 : 26000000
             }
           });
           break;
@@ -148,7 +343,7 @@ if (process.env.NODE_ENV !== 'production') {
             transaction: {
               id: 'test_' + Date.now(),
               state: -1,
-              amount: plan === 'pro' ? 455000 : 260000
+              amount: plan === 'pro' ? 45500000 : 26000000
             }
           });
           break;
@@ -179,8 +374,8 @@ if (process.env.NODE_ENV !== 'production') {
       liveUrl: process.env.PAYME_API_URL_LIVE || 'https://checkout.paycom.uz/api',
       webhookUrl: 'https://api.aced.live/api/payments/webhook',
       paymentAmounts: {
-        start: '2600 UZS (260000 tiyin)',
-        pro: '4550 UZS (455000 tiyin)'
+        start: '260,000 UZS (26000000 tiyin)',
+        pro: '455,000 UZS (45500000 tiyin)'
       },
       transactionStates: {
         1: 'Created (waiting for payment)',
@@ -189,6 +384,9 @@ if (process.env.NODE_ENV !== 'production') {
         '-2': 'Cancelled (refunded)'
       },
       routes: {
+        initialize: 'POST /api/payments/initialize',
+        verifySms: 'POST /api/payments/verify-sms',
+        complete: 'POST /api/payments/complete',
         sandbox: 'POST /api/payments/sandbox',
         webhook: 'POST /api/payments/webhook',
         status: 'GET /api/payments/status/:transactionId/:userId?',
@@ -211,7 +409,7 @@ if (process.env.NODE_ENV !== 'production') {
     }
     
     const transactionId = 'test_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-    const amount = plan === 'pro' ? 455000 : 260000;
+    const amount = plan === 'pro' ? 45500000 : 26000000;
     
     res.json({
       message: '✅ Test transaction created',
@@ -221,7 +419,16 @@ if (process.env.NODE_ENV !== 'production') {
         amountUzs: amount / 100,
         plan: plan,
         userId: userId,
-        paymentUrl: `https://aced.live/payment/checkout/${transactionId}`,
+        checkoutUrl: `https://aced.live/payment/checkout?${new URLSearchParams({
+          transactionId,
+          userId,
+          amount,
+          plan,
+          amountUzs: amount / 100,
+          userName: 'Test User',
+          userEmail: 'test@example.com',
+          currentPlan: 'free'
+        }).toString()}`,
         sandbox: true
       }
     });
@@ -241,6 +448,9 @@ router.get('/health', (req, res) => {
     endpoints: {
       promo: 'POST /api/payments/promo-code',
       initiate: 'POST /api/payments/initiate-payme',
+      initialize: 'POST /api/payments/initialize',
+      verifySms: 'POST /api/payments/verify-sms',
+      complete: 'POST /api/payments/complete',
       sandbox: 'POST /api/payments/sandbox',
       webhook: 'POST /api/payments/webhook',
       status: 'GET /api/payments/status/:transactionId/:userId?',
@@ -264,6 +474,9 @@ router.use('*', (req, res) => {
     availableEndpoints: [
       'POST /api/payments/promo-code',
       'POST /api/payments/initiate-payme',
+      'POST /api/payments/initialize',
+      'POST /api/payments/verify-sms',
+      'POST /api/payments/complete',
       'POST /api/payments/sandbox',
       'POST /api/payments/webhook',
       'GET /api/payments/status/:transactionId/:userId?',
@@ -299,5 +512,5 @@ router.use((error, req, res, next) => {
     timestamp: new Date().toISOString()
   });
 });
-//lets imagine i put smth here
+
 module.exports = router;
