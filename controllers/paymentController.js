@@ -1158,16 +1158,19 @@ const initiatePaymePayment = async (req, res) => {
         }
       });
     } else {
-      // ✅ Development/Sandbox mode
-      const checkoutUrl = `https://aced.live/payment/checkout?` + new URLSearchParams({
-        transactionId: transactionId,
-        userId: user.firebaseId,
-        amount: amount,
-        plan: plan,
-        amountUzs: amount / 100,
-        userName: user.name || 'User',
-        userEmail: user.email || ''
-      }).toString();
+     // Update your controllers/paymentController.js - Replace the sandbox checkout URL creation
+
+// ✅ Development/Sandbox mode with enhanced user info
+const checkoutUrl = `https://aced.live/payment/checkout?` + new URLSearchParams({
+  transactionId: transactionId,
+  userId: user.firebaseId,
+  amount: amount,
+  plan: plan,
+  amountUzs: amount / 100,
+  userName: user.name || 'User',
+  userEmail: user.email || '',
+  currentPlan: user.subscriptionPlan || 'free'  // ✅ Add current plan
+}).toString();
 
       // Store in sandbox for testing
       if (typeof sandboxTransactions !== 'undefined') {
