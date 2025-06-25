@@ -1057,18 +1057,12 @@ const applyPromoCode = async (req, res) => {
   }
 };
 
-// ✅ FIXED: initiatePaymePayment function in controllers/paymentController.js
-// Replace your existing initiatePaymePayment function with this:
-
-// ✅ PROPER PAYME INTEGRATION - Replace initiatePaymePayment in paymentController.js
-
 const initiatePaymePayment = async (req, res) => {
   try {
     const { userId, plan, name, phone } = req.body;
 
     console.log('🚀 PayMe payment initiation:', { userId, plan, name, phone });
 
-    // ✅ Validate required fields
     if (!userId || !plan) {
       return res.status(400).json({ 
         success: false,
@@ -1076,7 +1070,6 @@ const initiatePaymePayment = async (req, res) => {
       });
     }
 
-    // ✅ Validate plan
     const allowedPlans = ['start', 'pro'];
     if (!allowedPlans.includes(plan)) {
       return res.status(400).json({ 
@@ -1085,7 +1078,7 @@ const initiatePaymePayment = async (req, res) => {
       });
     }
 
-    // ✅ Find user with enhanced search
+    // Find user
     let user = null;
     try {
       if (userId.length >= 20 && !userId.match(/^[0-9a-fA-F]{24}$/)) {
@@ -1110,7 +1103,6 @@ const initiatePaymePayment = async (req, res) => {
       });
     }
 
-    // ✅ Get correct amount
     const amount = PAYMENT_AMOUNTS[plan];
     if (!amount) {
       return res.status(400).json({ 
@@ -1119,18 +1111,15 @@ const initiatePaymePayment = async (req, res) => {
       });
     }
 
-    // ✅ Generate transaction ID
     const transactionId = `aced_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
-    // ✅ Check environment
     const isProduction = process.env.NODE_ENV === 'production';
     const merchantId = process.env.PAYME_MERCHANT_ID;
 
     if (isProduction && merchantId) {
-      // ✅ Production PayMe URL
+      // ✅ REAL PAYME INTEGRATION - Redirect to PayMe's checkout
       const paymeParams = new URLSearchParams({
-        'm': merchantId,                    // Merchant ID
-        'ac.login': user.firebaseId,        // Account login
+        'm': merchantId,                    // Your merchant ID
+        'ac.login': user.firebaseId,        // Account identifier
         'a': amount,                        // Amount in tiyin
         'c': transactionId,                 // Transaction reference
         'ct': Date.now(),                   // Current timestamp
@@ -1138,57 +1127,20 @@ const initiatePaymePayment = async (req, res) => {
         'cr': 'UZS'                        // Currency
       });
 
+      // This is PayMe's OFFICIAL checkout URL where THEY handle everything:
+      // - Card input forms
+      // - Bank communication  
+      // - SMS sending (by the bank)
+      // - SMS verification
+      // - Payment processing
       const paymentUrl = `https://checkout.paycom.uz/?${paymeParams.toString()}`;
       
-      return res.status(200).json({
-        success: true,
-        message: '✅ Payment URL created',
-        paymentUrl: paymentUrl,
-        transaction: {
-          id: transactionId,
-          amount: amount,
-          plan: plan,
-          state: 1 // Created
-        },
-        metadata: {
-          userId: userId,
-          plan: plan,
-          amountUzs: amount / 100,
-          environment: 'production'
-        }
-      });
-    } else {
-     // Update your controllers/paymentController.js - Replace the sandbox checkout URL creation
-
-// ✅ Development/Sandbox mode with enhanced user info
-const checkoutUrl = `https://aced.live/payment/checkout?` + new URLSearchParams({
-  transactionId: transactionId,
-  userId: user.firebaseId,
-  amount: amount,
-  plan: plan,
-  amountUzs: amount / 100,
-  userName: user.name || 'User',
-  userEmail: user.email || '',
-  currentPlan: user.subscriptionPlan || 'free'  // ✅ Add current plan
-}).toString();
-
-      // Store in sandbox for testing
-      if (typeof sandboxTransactions !== 'undefined') {
-        sandboxTransactions.set(transactionId, {
-          id: transactionId,
-          userId: user.firebaseId,
-          amount: amount,
-          plan: plan,
-          state: 1,
-          create_time: Date.now(),
-          account: { login: user.firebaseId }
-        });
-      }
+      console.log('🔗 Redirecting to PayMe official checkout:', paymentUrl);
 
       return res.status(200).json({
         success: true,
-        message: '✅ Sandbox payment created',
-        paymentUrl: checkoutUrl,
+        message: '✅ Redirecting to PayMe checkout',
+        paymentUrl: paymentUrl,  // ← User goes directly here
         transaction: {
           id: transactionId,
           amount: amount,
@@ -1199,7 +1151,44 @@ const checkoutUrl = `https://aced.live/payment/checkout?` + new URLSearchParams(
           userId: userId,
           plan: plan,
           amountUzs: amount / 100,
-          environment: 'sandbox'
+          environment: 'production',
+          note: 'User will be redirected to PayMe official checkout'
+        }
+      });
+    } else {
+      // ✅ DEVELOPMENT/TESTING - Simulate PayMe redirect
+      console.log('🧪 Development mode - simulating PayMe redirect');
+      
+      // In development, you can either:
+      // 1. Redirect to PayMe test environment
+      // 2. Show a demo success page
+      // 3. Use your custom checkout for testing UI only
+      
+      const testPaymentUrl = `https://aced.live/payment-success?` + new URLSearchParams({
+        transaction: transactionId,
+        plan: plan,
+        amount: amount,
+        userId: userId,
+        status: 'test_completed',
+        note: 'This is a test payment in development mode'
+      }).toString();
+
+      return res.status(200).json({
+        success: true,
+        message: '✅ Test payment created (development)',
+        paymentUrl: testPaymentUrl,  // ← Goes to success page in dev
+        transaction: {
+          id: transactionId,
+          amount: amount,
+          plan: plan,
+          state: 2  // Mark as completed for testing
+        },
+        metadata: {
+          userId: userId,
+          plan: plan,
+          amountUzs: amount / 100,
+          environment: 'development',
+          note: 'Development mode - payment auto-completed'
         }
       });
     }
