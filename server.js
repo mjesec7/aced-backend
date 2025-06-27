@@ -1071,9 +1071,38 @@ const paymentInitiationHandler = async (req, res) => {
       const amountParam = amountInTiyin;
       
       const isProduction = process.env.NODE_ENV === 'production';
-      const paymentUrl = isProduction && merchantId
-        ? `https://checkout.paycom.uz/${merchantId}?amount=${amountParam}&account=${account}`
-        : `https://aced.live/payment/checkout/${finalUserId}?amount=${finalAmount}&plan=${finalPlan}&transactionId=${transactionId}`;
+      
+      let paymentUrl;
+      
+      if (isProduction && merchantId) {
+        // PRODUCTION: Use actual PayMe checkout
+        // PayMe URL format: https://checkout.paycom.uz/{merchant_id}?{params}
+        const paymeParams = new URLSearchParams({
+          'm': merchantId,                    // Merchant ID
+          'ac.user_id': finalUserId,          // Account user ID
+          'a': amountParam,                   // Amount in tiyin
+          'c': transactionId,                 // Transaction ID
+          'l': 'uz',                         // Language
+          'cr': 'UZS'                        // Currency
+        });
+        
+        paymentUrl = `https://checkout.paycom.uz/${merchantId}?${paymeParams.toString()}`;
+        console.log('🏭 Production PayMe URL generated:', paymentUrl);
+      } else {
+        // DEVELOPMENT/SANDBOX: Use our custom checkout page
+        const checkoutParams = new URLSearchParams({
+          transactionId: transactionId,
+          userId: finalUserId,
+          amount: finalAmount,
+          plan: finalPlan,
+          userName: user.name || name || 'User',
+          userEmail: user.email || 'user@example.com',
+          currentPlan: user.subscriptionPlan || 'free'
+        });
+        
+        paymentUrl = `https://aced.live/payment/checkout?${checkoutParams.toString()}`;
+        console.log('🧪 Development checkout URL generated:', paymentUrl);
+      }
       
       console.log('💳 Payment URL generated:', paymentUrl);
       
@@ -1121,9 +1150,35 @@ const paymentInitiationHandler = async (req, res) => {
         const account = encodeURIComponent(JSON.stringify({ user_id: finalUserId }));
         
         const isProduction = process.env.NODE_ENV === 'production';
-        const paymentUrl = isProduction && merchantId
-          ? `https://checkout.paycom.uz/${merchantId}?amount=${amountInTiyin}&account=${account}`
-          : `https://aced.live/payment/checkout/${finalUserId}?amount=${finalAmount}&plan=${finalPlan}&transactionId=${transactionId}`;
+        
+        let paymentUrl;
+        
+        if (isProduction && merchantId) {
+          // PRODUCTION: Use actual PayMe checkout
+          const paymeParams = new URLSearchParams({
+            'm': merchantId,
+            'ac.user_id': finalUserId,
+            'a': amountInTiyin,
+            'c': transactionId,
+            'l': 'uz',
+            'cr': 'UZS'
+          });
+          
+          paymentUrl = `https://checkout.paycom.uz/${merchantId}?${paymeParams.toString()}`;
+        } else {
+          // DEVELOPMENT/SANDBOX: Use our custom checkout page
+          const checkoutParams = new URLSearchParams({
+            transactionId: transactionId,
+            userId: finalUserId,
+            amount: finalAmount,
+            plan: finalPlan,
+            userName: name || 'User',
+            userEmail: 'user@firebase.app',
+            currentPlan: 'free'
+          });
+          
+          paymentUrl = `https://aced.live/payment/checkout?${checkoutParams.toString()}`;
+        }
         
         return res.json({
           success: true,
