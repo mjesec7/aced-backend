@@ -969,25 +969,53 @@ const handleGetStatement = async (params) => {
 };
 
 // ========================================
-// 💳 PAYME PAYMENT INITIATION ENDPOINT - FIXED
+// 💳 PAYME PAYMENT INITIATION ENDPOINT - MULTIPLE ROUTES
 // ========================================
 
-app.post('/api/payments/initiate', async (req, res) => {
+const paymentInitiationHandler = async (req, res) => {
   try {
     console.log('🚀 Payment initiation request');
     
-    const { amount, userId, description } = req.body;
+    const { amount, userId, description, plan, name, phone } = req.body;
     
-    if (!amount || !userId) {
+    // Support both old format (amount, userId) and new format (userId, plan)
+    let finalAmount, finalUserId, finalPlan;
+    
+    if (plan && userId) {
+      // New format: { userId, plan, name, phone }
+      finalUserId = userId;
+      finalPlan = plan;
+      const PAYMENT_AMOUNTS = {
+        start: 260000, // 260,000 UZS
+        pro: 455000    // 455,000 UZS
+      };
+      finalAmount = PAYMENT_AMOUNTS[plan];
+    } else if (amount && userId) {
+      // Old format: { amount, userId, description }
+      finalAmount = amount;
+      finalUserId = userId;
+      finalPlan = amount >= 400000 ? 'pro' : 'start';
+    } else {
       return res.status(400).json({
         error: 'Missing required fields',
-        required: ['amount', 'userId'],
+        required: ['userId and plan'] || ['amount and userId'],
+        received: req.body,
+        server: 'api.aced.live'
+      });
+    }
+    
+    if (!finalAmount || !finalUserId) {
+      return res.status(400).json({
+        error: 'Invalid payment parameters',
+        amount: finalAmount,
+        userId: finalUserId,
+        plan: finalPlan,
         server: 'api.aced.live'
       });
     }
     
     // Validate amount
-    if (amount < 1) {
+    if (finalAmount < 1) {
       return res.status(400).json({
         error: 'Invalid amount',
         message: 'Amount must be at least 1 UZS',
@@ -995,48 +1023,151 @@ app.post('/api/payments/initiate', async (req, res) => {
       });
     }
     
-    // Convert amount to tiyin (1 UZS = 100 tiyin)
-    const amountInTiyin = Math.round(amount * 100);
-    
-    // Generate payment URL for PayMe
-    const merchantId = process.env.PAYME_MERCHANT_ID;
-    const account = encodeURIComponent(JSON.stringify({ user_id: userId }));
-    const amountParam = amountInTiyin;
-    
-    const isProduction = process.env.NODE_ENV === 'production';
-    const paymentUrl = isProduction 
-      ? `https://checkout.paycom.uz/${merchantId}?amount=${amountParam}&account=${account}`
-      : `https://aced.live/payment/checkout/${userId}?amount=${amount}`;
-    
-    console.log('💳 Payment URL generated:', paymentUrl);
-    
-    res.json({
-      success: true,
-      paymentUrl,
-      amount: amount,
-      amountInTiyin,
-      userId,
-      description,
-      server: 'api.aced.live',
-      environment: isProduction ? 'production' : 'sandbox',
-      timestamp: new Date().toISOString(),
-      // Add debug info for development
-      debug: process.env.NODE_ENV === 'development' ? {
-        merchantId,
-        account: JSON.parse(decodeURIComponent(account)),
-        redirectNote: 'In development, this redirects to frontend payment page'
-      } : undefined
-    });
+    // Find user
+    try {
+      const User = require('./models/user');
+      let user = null;
+      
+      // Try multiple search strategies
+      if (finalUserId.length >= 20 && !finalUserId.match(/^[0-9a-fA-F]{24}$/)) {
+        user = await User.findOne({ firebaseId: finalUserId });
+      } else if (finalUserId.match(/^[0-9a-fA-F]{24}$/)) {
+        user = await User.findById(finalUserId);
+      } else {
+        user = await User.findOne({
+          $or: [{ firebaseId: finalUserId }, { email: finalUserId }]
+        });
+      }
+      
+      // If user not found but we have a valid Firebase ID format, create a minimal user object
+      if (!user && finalUserId.length >= 20) {
+        console.log('⚠️ User not found in DB, using Firebase ID format validation');
+        user = {
+          firebaseId: finalUserId,
+          name: name || 'User',
+          email: 'user@firebase.app',
+          subscriptionPlan: 'free'
+        };
+      }
+      
+      if (!user) {
+        return res.status(404).json({ 
+          success: false,
+          error: 'User not found',
+          userId: finalUserId,
+          server: 'api.aced.live'
+        });
+      }
+      
+      // Convert amount to tiyin (1 UZS = 100 tiyin)
+      const amountInTiyin = Math.round(finalAmount * 100);
+      
+      // Generate transaction ID
+      const transactionId = `aced_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      // Generate payment URL for PayMe
+      const merchantId = process.env.PAYME_MERCHANT_ID;
+      const account = encodeURIComponent(JSON.stringify({ user_id: finalUserId }));
+      const amountParam = amountInTiyin;
+      
+      const isProduction = process.env.NODE_ENV === 'production';
+      const paymentUrl = isProduction && merchantId
+        ? `https://checkout.paycom.uz/${merchantId}?amount=${amountParam}&account=${account}`
+        : `https://aced.live/payment/checkout/${finalUserId}?amount=${finalAmount}&plan=${finalPlan}&transactionId=${transactionId}`;
+      
+      console.log('💳 Payment URL generated:', paymentUrl);
+      
+      res.json({
+        success: true,
+        paymentUrl,
+        amount: finalAmount,
+        amountInTiyin,
+        userId: finalUserId,
+        plan: finalPlan,
+        description: description || `Payment for ${finalPlan} plan`,
+        server: 'api.aced.live',
+        environment: isProduction ? 'production' : 'sandbox',
+        transaction: {
+          id: transactionId,
+          amount: finalAmount,
+          plan: finalPlan,
+          state: 1 // Created
+        },
+        metadata: {
+          userId: finalUserId,
+          plan: finalPlan,
+          amountUzs: finalAmount,
+          environment: isProduction ? 'production' : 'development'
+        },
+        timestamp: new Date().toISOString(),
+        // Add debug info for development
+        debug: process.env.NODE_ENV === 'development' ? {
+          merchantId: merchantId || 'Not set',
+          account: JSON.parse(decodeURIComponent(account)),
+          redirectNote: 'In development, this redirects to frontend payment page'
+        } : undefined
+      });
+      
+    } catch (userError) {
+      console.error('❌ User lookup error:', userError);
+      
+      // If database error but we have a valid Firebase ID, proceed
+      if (finalUserId.length >= 20 && /^[a-zA-Z0-9_-]+$/.test(finalUserId)) {
+        console.log('🔧 Database error but valid Firebase ID, proceeding...');
+        
+        const amountInTiyin = Math.round(finalAmount * 100);
+        const transactionId = `aced_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const merchantId = process.env.PAYME_MERCHANT_ID;
+        const account = encodeURIComponent(JSON.stringify({ user_id: finalUserId }));
+        
+        const isProduction = process.env.NODE_ENV === 'production';
+        const paymentUrl = isProduction && merchantId
+          ? `https://checkout.paycom.uz/${merchantId}?amount=${amountInTiyin}&account=${account}`
+          : `https://aced.live/payment/checkout/${finalUserId}?amount=${finalAmount}&plan=${finalPlan}&transactionId=${transactionId}`;
+        
+        return res.json({
+          success: true,
+          paymentUrl,
+          amount: finalAmount,
+          amountInTiyin,
+          userId: finalUserId,
+          plan: finalPlan,
+          description: description || `Payment for ${finalPlan} plan`,
+          server: 'api.aced.live',
+          environment: isProduction ? 'production' : 'sandbox',
+          transaction: {
+            id: transactionId,
+            amount: finalAmount,
+            plan: finalPlan,
+            state: 1
+          },
+          note: 'Proceeding with format validation due to database error',
+          timestamp: new Date().toISOString()
+        });
+      }
+      
+      return res.status(503).json({
+        success: false,
+        error: 'User lookup service unavailable',
+        message: userError.message,
+        server: 'api.aced.live'
+      });
+    }
     
   } catch (error) {
     console.error('❌ Payment initiation error:', error);
     res.status(500).json({
+      success: false,
       error: 'Payment initiation failed',
       message: error.message,
       server: 'api.aced.live'
     });
   }
-});
+};
+
+// Payment initiation endpoints - both /initiate and /initiate-payme
+app.post('/api/payments/initiate', paymentInitiationHandler);
+app.post('/api/payments/initiate-payme', paymentInitiationHandler);
 
 // ========================================
 // 💳 PAYMENT USER VALIDATION ENDPOINT - PRODUCTION-READY WITH FALLBACKS
@@ -1630,7 +1761,8 @@ app.get('/api/routes', (req, res) => {
     paymeRoutes: [
       { path: '/api/payments/payme', methods: 'POST', description: 'PayMe RPC endpoint' },
       { path: '/api/payments/sandbox', methods: 'POST', description: 'PayMe sandbox endpoint' },
-      { path: '/api/payments/initiate', methods: 'POST', description: 'Payment initiation' },
+      { path: '/api/payments/initiate', methods: 'POST', description: 'Payment initiation (unified)' },
+      { path: '/api/payments/initiate-payme', methods: 'POST', description: 'PayMe payment initiation' },
       { path: '/api/payments/status/:transactionId', methods: 'GET', description: 'Payment status check' },
       { path: '/api/payments/validate-user/:userId', methods: 'GET', description: 'User validation for payments' }
     ],
