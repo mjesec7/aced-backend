@@ -531,10 +531,10 @@ app.get('/health', healthCheckHandler);
 app.get('/api/health', healthCheckHandler);
 
 // ========================================
-// 🔐 AUTH TEST ENDPOINT WITH ERROR HANDLING
+// 🔐 AUTH TEST ENDPOINT WITH ERROR HANDLING - MULTIPLE ROUTES
 // ========================================
 
-app.get('/auth-test', async (req, res) => {
+const authTestHandler = async (req, res) => {
   try {
     const authenticateUser = require('./middlewares/authMiddleware');
     authenticateUser(req, res, (err) => {
@@ -565,7 +565,11 @@ app.get('/auth-test', async (req, res) => {
       timestamp: new Date().toISOString()
     });
   }
-});
+};
+
+// Auth test endpoints - both /auth-test and /api/auth-test
+app.get('/auth-test', authTestHandler);
+app.get('/api/auth-test', authTestHandler);
 
 // ========================================
 // 💳 PAYME RPC ENDPOINT (PRODUCTION) - FIXED
@@ -1025,8 +1029,93 @@ app.post('/api/payments/initiate', async (req, res) => {
 });
 
 // ========================================
-// 💳 PAYMENT STATUS ENDPOINT - NEW
+// 💳 PAYMENT USER VALIDATION ENDPOINT - NEW
 // ========================================
+
+app.get('/api/payments/validate-user/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    console.log('👤 Validating user for payment:', userId);
+    
+    if (!userId || userId.trim() === '') {
+      return res.status(400).json({
+        valid: false,
+        error: 'User ID is required',
+        server: 'api.aced.live',
+        timestamp: new Date().toISOString()
+      });
+    }
+    
+    try {
+      const User = require('./models/user');
+      const user = await User.findOne({ 
+        $or: [
+          { firebaseId: userId },
+          { _id: userId }
+        ]
+      });
+      
+      if (user) {
+        console.log('✅ User found:', user.name || user.email);
+        return res.json({
+          valid: true,
+          user: {
+            id: user._id,
+            firebaseId: user.firebaseId,
+            name: user.name,
+            email: user.email,
+            subscriptionPlan: user.subscriptionPlan
+          },
+          server: 'api.aced.live',
+          timestamp: new Date().toISOString()
+        });
+      } else {
+        console.log('❌ User not found for ID:', userId);
+        return res.status(404).json({
+          valid: false,
+          error: 'User not found',
+          server: 'api.aced.live',
+          timestamp: new Date().toISOString()
+        });
+      }
+    } catch (dbError) {
+      console.error('❌ Database error during user validation:', dbError);
+      // If database is not available, return a more permissive response for development
+      if (process.env.NODE_ENV === 'development') {
+        return res.json({
+          valid: true,
+          user: {
+            id: userId,
+            firebaseId: userId,
+            name: 'Development User',
+            email: 'dev@example.com',
+            subscriptionPlan: 'free'
+          },
+          note: 'Development mode - bypassing database check',
+          server: 'api.aced.live',
+          timestamp: new Date().toISOString()
+        });
+      } else {
+        return res.status(503).json({
+          valid: false,
+          error: 'Database service unavailable',
+          server: 'api.aced.live',
+          timestamp: new Date().toISOString()
+        });
+      }
+    }
+  } catch (error) {
+    console.error('❌ User validation error:', error);
+    res.status(500).json({
+      valid: false,
+      error: 'Validation service error',
+      message: error.message,
+      server: 'api.aced.live',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
 
 app.get('/api/payments/status/:transactionId', async (req, res) => {
   try {
@@ -1257,7 +1346,31 @@ app.get('/api/users/test', (req, res) => {
     routes: [
       'GET /api/users/test',
       'POST /api/users/save (emergency)',
+      'GET /api/health',
+      'GET /api/auth-test',
+      'GET /api/payments/validate-user/:userId'
     ]
+  });
+});
+
+// Add a simple status endpoint for debugging
+app.get('/api/status', (req, res) => {
+  res.json({
+    status: 'API server running',
+    server: 'api.aced.live',
+    environment: process.env.NODE_ENV || 'development',
+    timestamp: new Date().toISOString(),
+    database: {
+      status: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+      readyState: mongoose.connection.readyState
+    },
+    endpoints: {
+      health: '/api/health',
+      authTest: '/api/auth-test',
+      userValidation: '/api/payments/validate-user/:userId',
+      userSave: '/api/users/save',
+      routes: '/api/routes'
+    }
   });
 });
 
@@ -1325,7 +1438,15 @@ app.get('/api/routes', (req, res) => {
       { path: '/api/payments/payme', methods: 'POST', description: 'PayMe RPC endpoint' },
       { path: '/api/payments/sandbox', methods: 'POST', description: 'PayMe sandbox endpoint' },
       { path: '/api/payments/initiate', methods: 'POST', description: 'Payment initiation' },
-      { path: '/api/payments/status/:transactionId', methods: 'GET', description: 'Payment status check' }
+      { path: '/api/payments/status/:transactionId', methods: 'GET', description: 'Payment status check' },
+      { path: '/api/payments/validate-user/:userId', methods: 'GET', description: 'User validation for payments' }
+    ],
+    systemRoutes: [
+      { path: '/health', methods: 'GET', description: 'System health check' },
+      { path: '/api/health', methods: 'GET', description: 'API health check' },
+      { path: '/auth-test', methods: 'GET', description: 'Authentication test' },
+      { path: '/api/auth-test', methods: 'GET', description: 'API authentication test' },
+      { path: '/api/routes', methods: 'GET', description: 'Routes information' }
     ],
     mountedRoutes: mountedRoutes.map(r => r.path),
     timestamp: new Date().toISOString(),
