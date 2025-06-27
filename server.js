@@ -1,6 +1,6 @@
 // server.js
 // ========================================
-// 🔧 COMPLETE MONGOOSE DEBUG SETUP WITH PAYME INTEGRATION
+// 🔧 COMPLETE MONGOOSE DEBUG SETUP WITH PAYME INTEGRATION - FIXED
 // ========================================
 
 const express = require('express');
@@ -42,6 +42,74 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // ========================================
+// 🚫 CRITICAL: PREVENT INFINITE LOOP IN PAYME SANDBOX
+// ========================================
+
+// Add request tracking to prevent loops
+const requestTracker = new Map();
+const RATE_LIMIT_WINDOW = 60000; // 1 minute
+const MAX_REQUESTS_PER_WINDOW = 10;
+
+const preventInfiniteLoop = (req, res, next) => {
+  const clientIP = req.ip || req.connection.remoteAddress;
+  const userAgent = req.headers['user-agent'] || '';
+  const key = `${clientIP}-${req.url}`;
+  
+  // Check if this is a PayMe webhook vs browser request
+  const isPayMeWebhook = req.headers.authorization?.startsWith('Basic ') && 
+                        req.headers['content-type']?.includes('application/json');
+  const isBrowserRequest = userAgent.includes('Mozilla') || userAgent.includes('Chrome');
+  
+  // Block browser requests to PayMe endpoints
+  if (isBrowserRequest && (req.url.includes('/payme') || req.url.includes('/payments/sandbox'))) {
+    console.log('🚫 BLOCKED: Browser request to PayMe endpoint');
+    return res.status(403).json({
+      error: 'Direct browser access not allowed',
+      message: 'PayMe endpoints are for webhook/API use only',
+      redirectTo: '/payment/status',
+      timestamp: new Date().toISOString()
+    });
+  }
+  
+  // Rate limiting for all requests
+  const now = Date.now();
+  if (!requestTracker.has(key)) {
+    requestTracker.set(key, { count: 1, firstRequest: now });
+  } else {
+    const data = requestTracker.get(key);
+    if (now - data.firstRequest < RATE_LIMIT_WINDOW) {
+      data.count++;
+      if (data.count > MAX_REQUESTS_PER_WINDOW) {
+        console.log(`🚫 RATE LIMITED: ${key} - ${data.count} requests`);
+        return res.status(429).json({
+          error: 'Too many requests',
+          retryAfter: Math.ceil((RATE_LIMIT_WINDOW - (now - data.firstRequest)) / 1000),
+          timestamp: new Date().toISOString()
+        });
+      }
+    } else {
+      // Reset counter for new window
+      requestTracker.set(key, { count: 1, firstRequest: now });
+    }
+  }
+  
+  // Clean old entries
+  if (requestTracker.size > 1000) {
+    const cutoff = now - RATE_LIMIT_WINDOW;
+    for (const [k, v] of requestTracker.entries()) {
+      if (v.firstRequest < cutoff) {
+        requestTracker.delete(k);
+      }
+    }
+  }
+  
+  next();
+};
+
+// Apply loop prevention globally
+app.use(preventInfiniteLoop);
+
+// ========================================
 // 🛡️ SECURITY & PERFORMANCE MIDDLEWARES
 // ========================================
 
@@ -72,24 +140,36 @@ app.use(express.json({
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // ========================================
-// 🔍 ENHANCED REQUEST LOGGING
+// 🔍 ENHANCED REQUEST LOGGING WITH LOOP DETECTION
 // ========================================
 
 app.use((req, res, next) => {
   const timestamp = new Date().toISOString();
+  const isPayMeRequest = req.url.includes('/payme') || req.url.includes('/payment');
+  
   console.log(`\n📅 [${timestamp}] ${req.method} ${req.url}`);
   console.log(`🌐 Origin: ${req.headers.origin || 'Direct access'}`);
   console.log(`🔑 Auth: ${req.headers.authorization ? 'Present' : 'None'}`);
   console.log(`🆔 User-Agent: ${req.headers['user-agent']?.substring(0, 50)}...`);
   
-  // Special logging for PayMe webhooks
-  if (req.url.includes('/payme') || req.url.includes('/payment')) {
+  // Special logging for PayMe webhooks with loop detection
+  if (isPayMeRequest) {
+    const userAgent = req.headers['user-agent'] || '';
+    const isBrowser = userAgent.includes('Mozilla') || userAgent.includes('Chrome');
+    
     console.log('💳 PayMe/Payment Request Detected');
+    console.log(`🤖 Request Type: ${isBrowser ? 'BROWSER (POTENTIAL LOOP)' : 'WEBHOOK/API'}`);
     console.log(`📋 Headers:`, {
       'content-type': req.headers['content-type'],
       'authorization': req.headers.authorization ? 'Present' : 'None',
-      'x-forwarded-for': req.headers['x-forwarded-for']
+      'x-forwarded-for': req.headers['x-forwarded-for'],
+      'user-agent': userAgent.substring(0, 100)
     });
+    
+    // Alert on potential loop
+    if (isBrowser) {
+      console.warn('⚠️  WARNING: Browser making direct PayMe request - potential infinite loop!');
+    }
   }
   
   // Log POST/PUT request bodies (excluding sensitive data)
@@ -291,7 +371,7 @@ const connectDB = async () => {
 };
 
 // ========================================
-// 💳 PAYME UTILITY FUNCTIONS
+// 💳 PAYME UTILITY FUNCTIONS - FIXED
 // ========================================
 
 class PayMeError extends Error {
@@ -316,18 +396,30 @@ const PayMeErrorCodes = {
   INVALID_JSON_RPC: -32700
 };
 
-// PayMe authorization check
+// PayMe authorization check - FIXED
 const checkPayMeAuth = (req) => {
+  // Skip auth check in development mode
+  if (process.env.NODE_ENV === 'development') {
+    console.log('🔧 Skipping PayMe auth in development mode');
+    return true;
+  }
+  
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Basic ')) {
     throw new PayMeError(PayMeErrorCodes.INVALID_AUTHORIZATION, 'Invalid authorization header');
   }
   
-  const credentials = Buffer.from(authHeader.slice(6), 'base64').toString();
-  const [username, password] = credentials.split(':');
-  
-  if (username !== 'Paycom' || password !== process.env.PAYME_MERCHANT_KEY) {
-    throw new PayMeError(PayMeErrorCodes.ACCESS_DENIED, 'Access denied');
+  try {
+    const credentials = Buffer.from(authHeader.slice(6), 'base64').toString();
+    const [username, password] = credentials.split(':');
+    
+    if (username !== 'Paycom' || password !== process.env.PAYME_MERCHANT_KEY) {
+      throw new PayMeError(PayMeErrorCodes.ACCESS_DENIED, 'Access denied');
+    }
+    
+    return true;
+  } catch (error) {
+    throw new PayMeError(PayMeErrorCodes.INVALID_AUTHORIZATION, 'Invalid authorization format');
   }
 };
 
@@ -337,6 +429,18 @@ const validateAmount = (amount) => {
     throw new PayMeError(PayMeErrorCodes.INVALID_AMOUNT, 'Invalid amount');
   }
   return true;
+};
+
+// Transaction state manager - FIXED
+const transactionStates = new Map();
+
+const getTransaction = (id) => {
+  return transactionStates.get(id) || null;
+};
+
+const setTransaction = (id, transaction) => {
+  transactionStates.set(id, transaction);
+  return transaction;
 };
 
 // ========================================
@@ -367,7 +471,8 @@ app.get('/health', async (req, res) => {
       configured: !!process.env.PAYME_MERCHANT_KEY,
       testMode: process.env.NODE_ENV !== 'production',
       merchantKey: process.env.PAYME_MERCHANT_KEY ? 'Set' : 'Missing',
-      sandboxEndpoint: 'https://api.aced.live/api/payments/sandbox'
+      sandboxEndpoint: 'https://api.aced.live/api/payments/sandbox',
+      loopPrevention: 'Active'
     },
     firebase: {
       projectId: process.env.FIREBASE_PROJECT_ID || 'Not set',
@@ -431,19 +536,34 @@ app.get('/auth-test', async (req, res) => {
 });
 
 // ========================================
-// 💳 PAYME RPC ENDPOINT (PRODUCTION)
+// 💳 PAYME RPC ENDPOINT (PRODUCTION) - FIXED
 // ========================================
 
 app.post('/api/payments/payme', async (req, res) => {
   console.log('\n💳 PayMe RPC Request received');
   
   try {
-    // Check PayMe authorization for production
-    if (process.env.NODE_ENV === 'production') {
-      checkPayMeAuth(req);
+    // Enhanced request validation
+    const userAgent = req.headers['user-agent'] || '';
+    const isBrowserRequest = userAgent.includes('Mozilla') || userAgent.includes('Chrome');
+    
+    if (isBrowserRequest) {
+      console.log('🚫 Blocking browser request to PayMe RPC endpoint');
+      return res.status(403).json({
+        jsonrpc: '2.0',
+        id: req.body?.id || null,
+        error: {
+          code: PayMeErrorCodes.ACCESS_DENIED,
+          message: 'Direct browser access not allowed',
+          data: 'This endpoint is for PayMe webhooks only'
+        }
+      });
     }
     
-    const { method, params } = req.body;
+    // Check PayMe authorization
+    checkPayMeAuth(req);
+    
+    const { method, params, id } = req.body;
     
     if (!method) {
       throw new PayMeError(PayMeErrorCodes.METHOD_NOT_FOUND, 'Method not found');
@@ -485,7 +605,7 @@ app.post('/api/payments/payme', async (req, res) => {
     
     const response = {
       jsonrpc: '2.0',
-      id: req.body.id || null,
+      id: id || null,
       result
     };
     
@@ -497,7 +617,7 @@ app.post('/api/payments/payme', async (req, res) => {
     
     const errorResponse = {
       jsonrpc: '2.0',
-      id: req.body.id || null,
+      id: req.body?.id || null,
       error: {
         code: error.code || PayMeErrorCodes.INVALID_JSON_RPC,
         message: error.message,
@@ -510,15 +630,51 @@ app.post('/api/payments/payme', async (req, res) => {
 });
 
 // ========================================
-// 💳 PAYME SANDBOX ENDPOINT (DEVELOPMENT/TESTING)
+// 💳 PAYME SANDBOX ENDPOINT (DEVELOPMENT/TESTING) - FIXED
 // ========================================
 
 app.post('/api/payments/sandbox', async (req, res) => {
   console.log('\n🧪 PayMe Sandbox Request received on api.aced.live');
   
   try {
+    // Detect request type to prevent loops
+    const userAgent = req.headers['user-agent'] || '';
+    const isBrowserRequest = userAgent.includes('Mozilla') || userAgent.includes('Chrome');
+    const hasAuthHeader = !!req.headers.authorization;
+    
+    console.log('🔍 Sandbox Request Analysis:', {
+      userAgent: userAgent.substring(0, 50),
+      isBrowser: isBrowserRequest,
+      hasAuth: hasAuthHeader,
+      origin: req.headers.origin,
+      contentType: req.headers['content-type']
+    });
+    
+    // If this is a browser request without proper headers, block it
+    if (isBrowserRequest && !hasAuthHeader) {
+      console.log('🚫 Blocking browser request to sandbox - potential infinite loop');
+      return res.status(403).json({
+        jsonrpc: '2.0',
+        id: req.body?.id || null,
+        error: {
+          code: -32000,
+          message: {
+            ru: 'Прямой доступ браузера запрещен',
+            en: 'Direct browser access not allowed'
+          },
+          data: {
+            reason: 'This endpoint is for API/webhook use only',
+            redirectTo: '/payment/status',
+            timestamp: new Date().toISOString()
+          }
+        }
+      });
+    }
+    
+    // Try to load the payment controller
     const { handleSandboxPayment } = require('./controllers/paymentController');
     return handleSandboxPayment(req, res);
+    
   } catch (error) {
     console.error('❌ Sandbox route error:', error);
     res.status(500).json({
@@ -527,14 +683,17 @@ app.post('/api/payments/sandbox', async (req, res) => {
       error: {
         code: -32000,
         message: { ru: 'Ошибка сервера', en: 'Server error' },
-        data: error.message
+        data: {
+          error: error.message,
+          timestamp: new Date().toISOString()
+        }
       }
     });
   }
 });
 
 // ========================================
-// 💳 PAYME RPC HANDLERS (PLACEHOLDER IMPLEMENTATIONS)
+// 💳 PAYME RPC HANDLERS - FIXED IMPLEMENTATIONS
 // ========================================
 
 const handleCheckPerformTransaction = async (params) => {
@@ -542,12 +701,24 @@ const handleCheckPerformTransaction = async (params) => {
   
   const { amount, account } = params;
   
-  // Validate amount
+  // Validate account FIRST (as per PayMe docs)
+  if (!account || !account.user_id) {
+    throw new PayMeError(PayMeErrorCodes.INVALID_ACCOUNT, 'Invalid account: user_id required');
+  }
+  
+  // Then validate amount
   validateAmount(amount);
   
-  // Check if account exists
-  if (!account || !account.user_id) {
-    throw new PayMeError(PayMeErrorCodes.INVALID_ACCOUNT, 'Invalid account');
+  // Check if user exists in your system
+  try {
+    const User = require('./models/user');
+    const user = await User.findOne({ firebaseId: account.user_id });
+    if (!user) {
+      throw new PayMeError(PayMeErrorCodes.INVALID_ACCOUNT, 'User not found');
+    }
+  } catch (error) {
+    if (error instanceof PayMeError) throw error;
+    console.warn('⚠️  User validation skipped (DB unavailable)');
   }
   
   return {
@@ -559,6 +730,17 @@ const handleCreateTransaction = async (params) => {
   console.log('🆕 CreateTransaction');
   
   const { id, time, amount, account } = params;
+  
+  // Check for existing transaction (idempotency)
+  const existingTransaction = getTransaction(id);
+  if (existingTransaction) {
+    console.log('🔄 Returning existing transaction');
+    return {
+      create_time: existingTransaction.create_time,
+      transaction: existingTransaction.id.toString(),
+      state: existingTransaction.state
+    };
+  }
   
   validateAmount(amount);
   
@@ -578,6 +760,9 @@ const handleCreateTransaction = async (params) => {
     reason: null
   };
   
+  // Store transaction
+  setTransaction(id, transaction);
+  
   console.log('📝 Transaction created:', transaction);
   
   return {
@@ -596,11 +781,31 @@ const handlePerformTransaction = async (params) => {
     throw new PayMeError(PayMeErrorCodes.TRANSACTION_NOT_FOUND, 'Transaction not found');
   }
   
-  const transaction = {
-    id: id,
-    state: 2, // Performed state
-    perform_time: Date.now()
-  };
+  const transaction = getTransaction(id);
+  if (!transaction) {
+    throw new PayMeError(PayMeErrorCodes.TRANSACTION_NOT_FOUND, 'Transaction not found');
+  }
+  
+  // Check if already performed
+  if (transaction.state === 2) {
+    console.log('🔄 Transaction already performed');
+    return {
+      perform_time: transaction.perform_time,
+      transaction: transaction.id.toString(),
+      state: transaction.state
+    };
+  }
+  
+  // Check if transaction can be performed
+  if (transaction.state !== 1) {
+    throw new PayMeError(PayMeErrorCodes.UNABLE_TO_PERFORM, 'Transaction cannot be performed');
+  }
+  
+  // Update transaction state
+  transaction.state = 2; // Performed state
+  transaction.perform_time = Date.now();
+  
+  setTransaction(id, transaction);
   
   console.log('✅ Transaction performed:', transaction);
   
@@ -620,12 +825,36 @@ const handleCancelTransaction = async (params) => {
     throw new PayMeError(PayMeErrorCodes.TRANSACTION_NOT_FOUND, 'Transaction not found');
   }
   
-  const transaction = {
-    id: id,
-    state: -1, // Cancelled state
-    cancel_time: Date.now(),
-    reason: reason
-  };
+  const transaction = getTransaction(id);
+  if (!transaction) {
+    throw new PayMeError(PayMeErrorCodes.TRANSACTION_NOT_FOUND, 'Transaction not found');
+  }
+  
+  // Check if already cancelled
+  if (transaction.state === -1 || transaction.state === -2) {
+    console.log('🔄 Transaction already cancelled');
+    return {
+      cancel_time: transaction.cancel_time,
+      transaction: transaction.id.toString(),
+      state: transaction.state
+    };
+  }
+  
+  // Determine cancellation state based on current state
+  let newState;
+  if (transaction.state === 1) {
+    newState = -1; // Cancelled after creation
+  } else if (transaction.state === 2) {
+    newState = -2; // Cancelled after performance
+  } else {
+    throw new PayMeError(PayMeErrorCodes.UNABLE_TO_PERFORM, 'Transaction cannot be cancelled');
+  }
+  
+  transaction.state = newState;
+  transaction.cancel_time = Date.now();
+  transaction.reason = reason;
+  
+  setTransaction(id, transaction);
   
   console.log('❌ Transaction cancelled:', transaction);
   
@@ -645,14 +874,10 @@ const handleCheckTransaction = async (params) => {
     throw new PayMeError(PayMeErrorCodes.TRANSACTION_NOT_FOUND, 'Transaction not found');
   }
   
-  const transaction = {
-    id: id,
-    state: 2,
-    create_time: Date.now() - 3600000,
-    perform_time: Date.now(),
-    cancel_time: 0,
-    reason: null
-  };
+  const transaction = getTransaction(id);
+  if (!transaction) {
+    throw new PayMeError(PayMeErrorCodes.TRANSACTION_NOT_FOUND, 'Transaction not found');
+  }
   
   console.log('🔍 Transaction status:', transaction);
   
@@ -671,20 +896,24 @@ const handleGetStatement = async (params) => {
   
   const { from, to } = params;
   
-  const transactions = [
-    {
-      id: 'example_transaction_id',
-      time: Date.now(),
-      amount: 10000,
-      account: { user_id: 'example_user' },
-      create_time: Date.now() - 7200000,
-      perform_time: Date.now() - 3600000,
-      cancel_time: 0,
-      transaction: 'example_transaction_id',
-      state: 2,
-      reason: null
+  // Get all transactions in the time range
+  const transactions = [];
+  for (const [id, transaction] of transactionStates.entries()) {
+    if (transaction.time >= from && transaction.time <= to) {
+      transactions.push({
+        id: transaction.id,
+        time: transaction.time,
+        amount: transaction.amount,
+        account: transaction.account,
+        create_time: transaction.create_time,
+        perform_time: transaction.perform_time,
+        cancel_time: transaction.cancel_time,
+        transaction: transaction.id.toString(),
+        state: transaction.state,
+        reason: transaction.reason
+      });
     }
-  ];
+  }
   
   console.log('📊 Statement returned:', transactions.length, 'transactions');
   
@@ -694,7 +923,7 @@ const handleGetStatement = async (params) => {
 };
 
 // ========================================
-// 💳 PAYME PAYMENT INITIATION ENDPOINT
+// 💳 PAYME PAYMENT INITIATION ENDPOINT - FIXED
 // ========================================
 
 app.post('/api/payments/initiate', async (req, res) => {
@@ -707,6 +936,15 @@ app.post('/api/payments/initiate', async (req, res) => {
       return res.status(400).json({
         error: 'Missing required fields',
         required: ['amount', 'userId'],
+        server: 'api.aced.live'
+      });
+    }
+    
+    // Validate amount
+    if (amount < 1) {
+      return res.status(400).json({
+        error: 'Invalid amount',
+        message: 'Amount must be at least 1 UZS',
         server: 'api.aced.live'
       });
     }
@@ -735,13 +973,87 @@ app.post('/api/payments/initiate', async (req, res) => {
       description,
       server: 'api.aced.live',
       environment: isProduction ? 'production' : 'sandbox',
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      // Add debug info for development
+      debug: process.env.NODE_ENV === 'development' ? {
+        merchantId,
+        account: JSON.parse(decodeURIComponent(account)),
+        redirectNote: 'In development, this redirects to frontend payment page'
+      } : undefined
     });
     
   } catch (error) {
     console.error('❌ Payment initiation error:', error);
     res.status(500).json({
       error: 'Payment initiation failed',
+      message: error.message,
+      server: 'api.aced.live'
+    });
+  }
+});
+
+// ========================================
+// 💳 PAYMENT STATUS ENDPOINT - NEW
+// ========================================
+
+app.get('/api/payments/status/:transactionId', async (req, res) => {
+  try {
+    const { transactionId } = req.params;
+    
+    console.log('🔍 Payment status check for:', transactionId);
+    
+    const transaction = getTransaction(transactionId);
+    
+    if (!transaction) {
+      return res.status(404).json({
+        error: 'Transaction not found',
+        transactionId,
+        server: 'api.aced.live',
+        timestamp: new Date().toISOString()
+      });
+    }
+    
+    // Map PayMe states to user-friendly status
+    let status, message;
+    switch (transaction.state) {
+      case 1:
+        status = 'pending';
+        message = 'Payment is being processed';
+        break;
+      case 2:
+        status = 'completed';
+        message = 'Payment completed successfully';
+        break;
+      case -1:
+        status = 'cancelled';
+        message = 'Payment was cancelled before completion';
+        break;
+      case -2:
+        status = 'refunded';
+        message = 'Payment was refunded';
+        break;
+      default:
+        status = 'unknown';
+        message = 'Unknown payment status';
+    }
+    
+    res.json({
+      transactionId,
+      status,
+      message,
+      amount: transaction.amount,
+      userId: transaction.account?.user_id,
+      createdAt: new Date(transaction.create_time).toISOString(),
+      completedAt: transaction.perform_time ? new Date(transaction.perform_time).toISOString() : null,
+      cancelledAt: transaction.cancel_time ? new Date(transaction.cancel_time).toISOString() : null,
+      server: 'api.aced.live',
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('❌ Payment status error:', error);
+    res.status(500).json({
+      error: 'Failed to get payment status',
       message: error.message,
       server: 'api.aced.live'
     });
@@ -799,7 +1111,7 @@ const routesToMount = [
   ['/api/homeworks', './routes/homeworkRoutes', 'Homework routes'],
   ['/api/tests', './routes/testRoutes', 'Test/quiz routes'],
   ['/api/analytics', './routes/userAnalytics', 'User analytics routes'],
-  ['/api/vocabulary', './routes/vocabularyRoutes', 'Vocabulary management routes'], // ← ADD THIS LINE
+  ['/api/vocabulary', './routes/vocabularyRoutes', 'Vocabulary management routes'],
 ];
 
 // Mount routes
@@ -920,7 +1232,7 @@ app.get('/api/users/test', (req, res) => {
 console.log('✅ Emergency user routes added');
 
 // ========================================
-// 🔍 ROUTE DIAGNOSTICS ENDPOINT
+// 🔍 ROUTE DIAGNOSTICS ENDPOINT - ENHANCED
 // ========================================
 
 app.get('/api/routes', (req, res) => {
@@ -980,10 +1292,17 @@ app.get('/api/routes', (req, res) => {
     paymeRoutes: [
       { path: '/api/payments/payme', methods: 'POST', description: 'PayMe RPC endpoint' },
       { path: '/api/payments/sandbox', methods: 'POST', description: 'PayMe sandbox endpoint' },
-      { path: '/api/payments/initiate', methods: 'POST', description: 'Payment initiation' }
+      { path: '/api/payments/initiate', methods: 'POST', description: 'Payment initiation' },
+      { path: '/api/payments/status/:transactionId', methods: 'GET', description: 'Payment status check' }
     ],
     mountedRoutes: mountedRoutes.map(r => r.path),
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    loopPrevention: {
+      active: true,
+      rateLimitWindow: RATE_LIMIT_WINDOW,
+      maxRequestsPerWindow: MAX_REQUESTS_PER_WINDOW,
+      trackedRequests: requestTracker.size
+    }
   });
 });
 
@@ -1013,6 +1332,7 @@ app.use('/api/*', (req, res) => {
       'POST /api/payments/sandbox',
       'POST /api/payments/payme',
       'POST /api/payments/initiate',
+      'GET /api/payments/status/:transactionId',
       ...mountedRoutes.map(r => `${r.path}/*`)
     ]
   });
@@ -1059,7 +1379,8 @@ app.get('*', (req, res) => {
       api: {
         health: 'https://api.aced.live/health',
         routes: 'https://api.aced.live/api/routes',
-        authTest: 'https://api.aced.live/auth-test'
+        authTest: 'https://api.aced.live/auth-test',
+        paymentStatus: 'https://api.aced.live/api/payments/status/:transactionId'
       },
       timestamp: new Date().toISOString()
     });
@@ -1115,6 +1436,10 @@ app.use((err, req, res, next) => {
     statusCode = 401;
     message = 'Authentication error';
     details.firebaseError = err.code || err.message;
+  } else if (err.message.includes('Too many requests')) {
+    statusCode = 429;
+    message = 'Rate limit exceeded';
+    details.preventionActive = true;
   }
   
   const errorResponse = {
@@ -1166,6 +1491,7 @@ const startServer = async () => {
       console.log(`🔍 Routes debug: https://api.aced.live/api/routes`);
       console.log(`💳 PayMe sandbox: https://api.aced.live/api/payments/sandbox`);
       console.log(`📊 Routes: ${mountedRoutes.length} mounted`);
+      console.log(`🚫 Loop prevention: ACTIVE`);
       console.log('=====================================\n');
       
       if (mountedRoutes.length > 0) {
@@ -1181,6 +1507,8 @@ const startServer = async () => {
       console.log(`   Merchant Key: ${process.env.PAYME_MERCHANT_KEY ? '✅ Set' : '❌ Missing'}`);
       console.log(`   Environment: ${process.env.NODE_ENV === 'production' ? 'Production' : 'Sandbox/Development'}`);
       console.log(`   Sandbox URL: https://api.aced.live/api/payments/sandbox`);
+      console.log(`   Loop Prevention: ✅ Active`);
+      console.log(`   Rate Limiting: ${MAX_REQUESTS_PER_WINDOW} requests per ${RATE_LIMIT_WINDOW/1000}s`);
       console.log('');
 
       // Show Firebase configuration

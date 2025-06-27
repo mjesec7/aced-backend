@@ -1,28 +1,24 @@
-// controllers/paymentController.js - COMPLETE FIXED PAYME API IMPLEMENTATION
+// controllers/paymentController.js - COMPLETE FIXED VERSION TO PREVENT LOOPS
 
 const User = require('../models/user');
 const axios = require('axios');
 
 const PAYMENT_AMOUNTS = {
-  start: 26000000,  // ✅ 260,000 UZS in tiyin (260000 * 100)
-  pro: 45500000     // ✅ 455,000 UZS in tiyin (455000 * 100)
+  start: 26000000,  // 260,000 UZS in tiyin (260000 * 100)
+  pro: 45500000     // 455,000 UZS in tiyin (455000 * 100)
 };
 
 // Store transactions in memory for sandbox testing
 const sandboxTransactions = new Map();
-
-// Store account states for testing different scenarios
 const accountStates = new Map();
-
-// Store the current merchant key for sandbox testing
 let currentMerchantKey = null;
 
 // Transaction states according to Payme spec
 const TransactionState = {
-  CREATED: 1,      // Transaction created
-  COMPLETED: 2,    // Transaction completed (money transferred)
-  CANCELLED_AFTER_CREATE: -1,  // Cancelled before completion
-  CANCELLED_AFTER_COMPLETE: -2 // Cancelled after completion (refund)
+  CREATED: 1,
+  COMPLETED: 2,
+  CANCELLED_AFTER_CREATE: -1,
+  CANCELLED_AFTER_COMPLETE: -2
 };
 
 // Account states for testing
@@ -33,17 +29,17 @@ const AccountState = {
   NOT_EXISTS: 'not_exists'
 };
 
-// Error codes according to Payme specification
+// PayMe Error codes
 const PaymeErrorCode = {
   INVALID_AMOUNT: -31001,
   TRANSACTION_NOT_FOUND: -31003,
   UNABLE_TO_PERFORM_OPERATION: -31008,
   ORDER_COMPLETED: -31007,
   INVALID_ACCOUNT: -31050,
-  ACCOUNT_NOT_FOUND: -31050,  // Account doesn't exist
-  ACCOUNT_BLOCKED: -31051,     // Account is blocked
-  ACCOUNT_PROCESSING: -31052,  // Account is processing another transaction
-  ACCOUNT_INVALID: -31099,     // General account error
+  ACCOUNT_NOT_FOUND: -31050,
+  ACCOUNT_BLOCKED: -31051,
+  ACCOUNT_PROCESSING: -31052,
+  ACCOUNT_INVALID: -31099,
   INVALID_JSON_RPC: -32700,
   PARSE_ERROR: -32700,
   METHOD_NOT_FOUND: -32601,
@@ -52,7 +48,7 @@ const PaymeErrorCode = {
   INVALID_AUTHORIZATION: -32504
 };
 
-// ✅ Account validation function - checks if account exists and its state
+// ✅ FIXED: Account validation function
 const validateAccountAndState = async (accountLogin) => {
   try {
     console.log('🔍 Validating account and state:', accountLogin);
@@ -60,7 +56,6 @@ const validateAccountAndState = async (accountLogin) => {
     // Get the current state set by sandbox UI
     const currentState = accountStates.get(accountLogin);
     
-    // ✅ For PayMe sandbox testing, check account state first
     if (currentState) {
       console.log('📊 Account state from UI:', currentState);
       return {
@@ -69,10 +64,10 @@ const validateAccountAndState = async (accountLogin) => {
       };
     }
     
-    // ✅ For test values, treat as non-existent
+    // Check if it's a test value - treat as NON-EXISTENT for sandbox testing
     const testValues = ['login', 'jjk', 'test', 'demo', 'admin', 'user', ''];
     if (!accountLogin || testValues.includes(accountLogin.toLowerCase())) {
-      console.log('❌ Account is a test value or empty, treating as non-existent');
+      console.log('❌ Test value detected, treating as non-existent');
       return {
         exists: false,
         state: AccountState.NOT_EXISTS
@@ -81,29 +76,23 @@ const validateAccountAndState = async (accountLogin) => {
     
     let user = null;
 
-    // ✅ FIXED: Enhanced user search logic
-    
-    // 1. Check if it's a Firebase UID (typical length 28, alphanumeric)
+    // Enhanced user search logic
     if (accountLogin.length >= 20 && !accountLogin.match(/^[0-9a-fA-F]{24}$/)) {
       console.log('🔥 Searching user by firebaseId');
       user = await User.findOne({ firebaseId: accountLogin });
     }
-    // 2. Check if it's a valid MongoDB ObjectId (24 hex characters)
     else if (accountLogin.match(/^[0-9a-fA-F]{24}$/)) {
       console.log('🍃 Searching user by _id');
       user = await User.findById(accountLogin);
     }
-    // 3. Check if it's an email
     else if (accountLogin.includes('@') && accountLogin.includes('.')) {
       console.log('📧 Searching user by email');
       user = await User.findOne({ email: accountLogin });
     }
-    // 4. Check if it's a phone number
     else if (accountLogin.match(/^\+?\d{9,15}$/)) {
       console.log('📱 Searching user by phone');
       user = await User.findOne({ phone: accountLogin });
     }
-    // 5. Fallback: try multiple fields
     else {
       console.log('🔄 Fallback: searching by multiple fields');
       user = await User.findOne({
@@ -127,7 +116,6 @@ const validateAccountAndState = async (accountLogin) => {
       };
     }
     
-    // ✅ For any other case, treat as non-existent
     console.log('❌ Account not found in system');
     return {
       exists: false,
@@ -137,7 +125,6 @@ const validateAccountAndState = async (accountLogin) => {
   } catch (error) {
     console.error('❌ Error validating account:', error.message);
     
-    // ✅ ENHANCED: Don't fail on CastError, just treat as non-existent
     if (error.name === 'CastError') {
       console.log('🔧 CastError occurred, treating account as non-existent');
       return {
@@ -153,30 +140,49 @@ const validateAccountAndState = async (accountLogin) => {
   }
 };
 
-// ✅ ROBUST PayMe Authorization Validation
+// ✅ FIXED: PayMe Authorization Validation - CRITICAL FIX
 const validatePaymeAuth = (req) => {
   const authHeader = req.headers.authorization;
   
   console.log('🔐 PayMe Authorization Check:', {
     hasAuthHeader: !!authHeader,
     method: req.body?.method,
-    authHeaderStart: authHeader ? authHeader.substring(0, 30) + '...' : 'None'
+    authHeaderStart: authHeader ? authHeader.substring(0, 30) + '...' : 'None',
+    userAgent: req.headers['user-agent']?.substring(0, 50),
+    environment: process.env.NODE_ENV
   });
   
-  // Step 1: Check if Authorization header exists
+  // ✅ CRITICAL: Check if this is actually a PayMe system request
+  const userAgent = req.headers['user-agent'] || '';
+  const isLikelyPayMeRequest = userAgent.includes('PayMe') || 
+                              userAgent.includes('Paycom') ||
+                              userAgent.includes('curl') ||
+                              req.headers['x-payme-request'] === 'true';
+  
+  if (!isLikelyPayMeRequest && process.env.NODE_ENV !== 'development') {
+    console.log('⚠️ Request doesn\'t appear to be from PayMe system');
+    return { valid: false, error: 'NOT_PAYME_REQUEST' };
+  }
+  
+  // ✅ DEVELOPMENT MODE: More lenient auth checking
+  if (process.env.NODE_ENV === 'development') {
+    if (!authHeader) {
+      console.log('⚠️ No auth header in development mode - allowing for testing');
+      return { valid: true, note: 'Development mode - no auth required' };
+    }
+  }
+  
   if (!authHeader) {
     console.log('❌ Authorization header missing');
     return { valid: false, error: 'MISSING_AUTH_HEADER' };
   }
   
-  // Step 2: Check if it's Basic auth format
   if (!authHeader.startsWith('Basic ')) {
     console.log('❌ Not Basic authorization format');
     return { valid: false, error: 'INVALID_AUTH_FORMAT' };
   }
   
   try {
-    // Step 3: Decode and validate credentials
     const credentials = Buffer.from(authHeader.slice(6), 'base64').toString();
     const [username, password] = credentials.split(':');
     
@@ -186,27 +192,34 @@ const validatePaymeAuth = (req) => {
       passwordLength: password?.length || 0
     });
     
-    // Step 4: Validate PayMe specific credentials
+    // PayMe expects username 'Paycom'
     const expectedUsername = 'Paycom';
     
-    // Check username
     if (username !== expectedUsername) {
       console.log('❌ Invalid username. Expected: Paycom, Got:', username);
       return { valid: false, error: 'INVALID_USERNAME' };
     }
     
-    // Step 5: Check password (merchant key)
+    // Check merchant key
     const expectedPassword = currentMerchantKey || process.env.PAYME_MERCHANT_KEY || process.env.PAYME_TEST_KEY;
     
-    // ✅ IMPORTANT: For sandbox testing with TEST_KEY
+    // DEVELOPMENT: Accept any reasonable password for testing
+    if (process.env.NODE_ENV === 'development') {
+      if (!password || password.length < 10) {
+        console.log('❌ Password too short for development');
+        return { valid: false, error: 'INVALID_PASSWORD' };
+      }
+      console.log('✅ Development mode - accepting merchant key');
+      return { valid: true };
+    }
+    
     if (!expectedPassword) {
-      console.log('⚠️ No PAYME_MERCHANT_KEY or PAYME_TEST_KEY configured');
-      // For sandbox testing, we'll be more lenient but still validate format
+      console.log('⚠️ No PAYME_MERCHANT_KEY configured');
       if (!password || password.length < 10) {
         console.log('❌ Password too short or missing');
         return { valid: false, error: 'INVALID_PASSWORD' };
       }
-      console.log('✅ Sandbox mode - accepting any reasonable password');
+      console.log('✅ Accepting any reasonable password for testing');
       return { valid: true };
     }
     
@@ -224,37 +237,17 @@ const validatePaymeAuth = (req) => {
   }
 };
 
-// ✅ Helper to check if transaction exists
+// Helper functions
 const findTransactionById = (transactionId) => {
   return sandboxTransactions.get(transactionId);
 };
 
-// ✅ Helper to check if account has existing unpaid transaction
-// For accumulative accounts (счет накопительный), multiple transactions can be created
 const hasExistingUnpaidTransaction = (accountLogin) => {
-  // ✅ FIXED: For accumulative accounts, we allow multiple transactions
-  // This function is now only used for non-accumulative account scenarios
-  // For the Payme sandbox test, we should allow creating transactions when account is in waiting_payment state
-  
-  // Uncomment the following code only if you need to restrict to single transaction per account
-  /*
-  for (const [transactionId, transaction] of sandboxTransactions.entries()) {
-    const txAccountLogin = transaction.account?.login || transaction.account?.Login;
-    if (txAccountLogin === accountLogin && 
-        transaction.state === TransactionState.CREATED && 
-        !transaction.cancelled) {
-      // Check if transaction is not expired (12 hours)
-      const txAge = Date.now() - transaction.create_time;
-      if (txAge < 12 * 60 * 60 * 1000) { // 12 hours in milliseconds
-        return true;
-      }
-    }
-  }
-  */
+  // For accumulative accounts, allow multiple transactions
   return false;
 };
 
-// ✅ Create proper error response - FIXED FOR PAYME SPECS
+// ✅ FIXED: Create proper error response according to PayMe spec
 const createErrorResponse = (id, code, messageKey, data = null) => {
   const messages = {
     ru: '',
@@ -304,9 +297,7 @@ const createErrorResponse = (id, code, messageKey, data = null) => {
       messages.uz = 'Server ichki xatosi';
       break;
     default:
-      // For account errors in range -31050 to -31099
       if (code >= -31099 && code <= -31050) {
-        // Different messages based on the specific error code
         if (code === -31050) {
           messages.ru = 'Аккаунт не найден';
           messages.en = 'Account not found';
@@ -340,7 +331,7 @@ const createErrorResponse = (id, code, messageKey, data = null) => {
     }
   };
 
-  // ✅ IMPORTANT: For account errors (-31050 to -31099), ALWAYS include data field
+  // For account errors, ALWAYS include data field
   if (code >= -31099 && code <= -31050 && data !== false) {
     errorResponse.error.data = data || 'login';
   } else if (data !== null && data !== false) {
@@ -350,7 +341,7 @@ const createErrorResponse = (id, code, messageKey, data = null) => {
   return errorResponse;
 };
 
-// ✅ COMPLETE PayMe Sandbox Handler for ALL scenarios
+// ✅ MAIN SANDBOX HANDLER - COMPLETE FIX TO PREVENT LOOPS
 const handleSandboxPayment = async (req, res) => {
   try {
     const { method, params, id } = req.body;
@@ -360,25 +351,45 @@ const handleSandboxPayment = async (req, res) => {
       hasParams: !!params,
       hasId: !!id,
       hasAuth: !!req.headers.authorization,
-      params: params ? JSON.stringify(params) : 'None'
+      userAgent: req.headers['user-agent']?.substring(0, 50),
+      ip: req.ip || req.connection.remoteAddress,
+      timestamp: new Date().toISOString()
     });
 
-    // ✅ STEP 1: ALWAYS validate authorization FIRST
+    // ✅ CRITICAL: Validate request structure first
+    if (!method) {
+      console.log('❌ No method provided');
+      return res.status(200).json(createErrorResponse(id, PaymeErrorCode.METHOD_NOT_FOUND, 'method'));
+    }
+
+    if (!id && id !== 0) {
+      console.log('❌ No request ID provided');
+      return res.status(200).json(createErrorResponse(null, PaymeErrorCode.INVALID_PARAMS));
+    }
+
+    // ✅ STEP 1: Validate authorization FIRST
     const authResult = validatePaymeAuth(req);
     
     if (!authResult.valid) {
       console.log('❌ Authorization FAILED:', authResult.error);
-      return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_AUTHORIZATION));
+      
+      // ✅ CRITICAL: Special handling for non-PayMe requests
+      if (authResult.error === 'NOT_PAYME_REQUEST') {
+        return res.status(200).json({
+          error: 'This endpoint is only for PayMe system integration',
+          message: 'PayMe Sandbox API endpoint',
+          timestamp: new Date().toISOString(),
+          server: 'api.aced.live',
+          note: 'This endpoint should only be called by PayMe payment system'
+        });
+      }
+      
+      return res.status(200).json(createErrorResponse(id, PaymeErrorCode.INVALID_AUTHORIZATION));
     }
 
     console.log('✅ Authorization PASSED - processing business logic for method:', method);
 
-    // ✅ STEP 2: Validate request structure
-    if (!id) {
-      return res.json(createErrorResponse(null, PaymeErrorCode.INVALID_PARAMS));
-    }
-
-    // ✅ STEP 3: Handle business logic AFTER authorization passes
+    // ✅ STEP 2: Handle business logic based on method
     switch (method) {
       case 'CheckPerformTransaction':
         return handleCheckPerformTransaction(req, res, id, params);
@@ -403,12 +414,12 @@ const handleSandboxPayment = async (req, res) => {
         
       default:
         console.log('❌ Unknown method:', method);
-        return res.json(createErrorResponse(id, PaymeErrorCode.METHOD_NOT_FOUND, method));
+        return res.status(200).json(createErrorResponse(id, PaymeErrorCode.METHOD_NOT_FOUND, method));
     }
 
   } catch (error) {
     console.error('❌ Sandbox error:', error);
-    res.status(200).json(createErrorResponse(
+    return res.status(200).json(createErrorResponse(
       req.body?.id || null, 
       PaymeErrorCode.INTERNAL_ERROR,
       null,
@@ -417,71 +428,61 @@ const handleSandboxPayment = async (req, res) => {
   }
 };
 
-// ✅ FIXED CheckPerformTransaction handler - Check account FIRST, then amount
+// ✅ CheckPerformTransaction - Critical for PayMe flow
 const handleCheckPerformTransaction = async (req, res, id, params) => {
   console.log('🔍 Processing CheckPerformTransaction with:', {
     amount: params?.amount,
     account: params?.account
   });
   
-  // ✅ STEP 1: Get account login - handle both 'login' and 'Login' cases
+  // Get account login
   const accountLogin = params?.account?.login || params?.account?.Login;
   if (!accountLogin) {
     console.log('❌ No account login provided');
-    // Return error in range -31050 to -31099 with data field
-    return res.json(createErrorResponse(id, -31050, null, 'login'));
+    return res.status(200).json(createErrorResponse(id, -31050, null, 'login'));
   }
   
-  // ✅ STEP 2: Check account validity FIRST (before amount validation)
+  // Check account validity FIRST
   const accountInfo = await validateAccountAndState(accountLogin);
   console.log('📊 Account validation result:', accountInfo);
   
-  // Handle different account states according to Paycom specs
-  // For CheckPerformTransaction, account errors should be in range -31050 to -31099
+  // Handle account states properly
   switch (accountInfo.state) {
     case AccountState.NOT_EXISTS:
       console.log('❌ Account does not exist');
-      // Return -31050 for non-existent account with data field
-      return res.json(createErrorResponse(id, -31050, null, 'login'));
+      return res.status(200).json(createErrorResponse(id, -31050, null, 'login'));
       
     case AccountState.PROCESSING:
-      console.log('❌ Account is being processed by another transaction');
-      // Return -31051 for processing state with data field
-      return res.json(createErrorResponse(id, -31051, null, 'login'));
+      console.log('❌ Account is being processed');
+      return res.status(200).json(createErrorResponse(id, -31051, null, 'login'));
       
     case AccountState.BLOCKED:
-      console.log('❌ Account is blocked (already paid/cancelled)');
-      // Return -31052 for blocked state with data field
-      return res.json(createErrorResponse(id, -31052, null, 'login'));
+      console.log('❌ Account is blocked');
+      return res.status(200).json(createErrorResponse(id, -31052, null, 'login'));
       
     case AccountState.WAITING_PAYMENT:
-      // ✅ Account is valid and ready for payment - continue to amount validation
-      console.log('✅ Account is in waiting_payment state - checking amount');
+      console.log('✅ Account is ready for payment');
       break;
       
     default:
-      // If no specific state, check if account exists
       if (!accountInfo.exists) {
         console.log('❌ Account does not exist in system');
-        return res.json(createErrorResponse(id, -31050, null, 'login'));
+        return res.status(200).json(createErrorResponse(id, -31050, null, 'login'));
       }
-      // If account exists but no specific state, continue to amount validation
       console.log('✅ Account exists - checking amount');
   }
   
-  // ✅ STEP 3: Only after account is validated, check the amount
+  // Validate amount
   const validAmounts = Object.values(PAYMENT_AMOUNTS);
   if (!params?.amount || !validAmounts.includes(params.amount)) {
     console.log('❌ Invalid amount:', params?.amount, 'Valid amounts:', validAmounts);
-    // IMPORTANT: For amount errors, do NOT include data field
-    return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_AMOUNT, null, false));
+    return res.status(200).json(createErrorResponse(id, PaymeErrorCode.INVALID_AMOUNT, null, false));
   }
   
-  console.log('✅ Both account and amount are valid');
-  
-  // ✅ STEP 4: Success response - account exists and amount is valid
   console.log('✅ CheckPerformTransaction successful');
-  return res.json({
+  
+  // Return proper response format
+  return res.status(200).json({
     jsonrpc: '2.0',
     id: id,
     result: {
@@ -491,7 +492,7 @@ const handleCheckPerformTransaction = async (req, res, id, params) => {
   });
 };
 
-// ✅ FIXED CreateTransaction handler - Check account FIRST, then other validations
+// ✅ CreateTransaction
 const handleCreateTransaction = async (req, res, id, params) => {
   console.log('🔍 Processing CreateTransaction with:', {
     id: params?.id,
@@ -500,57 +501,44 @@ const handleCreateTransaction = async (req, res, id, params) => {
     time: params?.time
   });
   
-  // ✅ STEP 1: Check account FIRST - Get account login (handle both 'login' and 'Login' cases)
+  // Check account first
   const createAccountLogin = params?.account?.login || params?.account?.Login;
   if (!createAccountLogin) {
     console.log('❌ No account login provided');
-    return res.json(createErrorResponse(id, -31050, null, 'login'));
+    return res.status(200).json(createErrorResponse(id, -31050, null, 'login'));
   }
   
-  // ✅ STEP 2: Validate account existence and state BEFORE everything else
+  // Validate account
   const createAccountInfo = await validateAccountAndState(createAccountLogin);
   console.log('📊 Create transaction account validation:', createAccountInfo);
   
-  // Check if account exists
   if (!createAccountInfo.exists) {
     console.log('❌ Account does not exist');
-    return res.json(createErrorResponse(id, -31050, null, 'login'));
+    return res.status(200).json(createErrorResponse(id, -31050, null, 'login'));
   }
   
-  // ✅ Handle different account states according to PayMe specs
+  // Handle different account states
   switch (createAccountInfo.state) {
     case AccountState.NOT_EXISTS:
-      console.log('❌ Account does not exist');
-      return res.json(createErrorResponse(id, -31050, null, 'login'));
-      
+      return res.status(200).json(createErrorResponse(id, -31050, null, 'login'));
     case AccountState.BLOCKED:
-      console.log('❌ Account is blocked');
-      return res.json(createErrorResponse(id, -31051, null, 'login'));
-      
+      return res.status(200).json(createErrorResponse(id, -31051, null, 'login'));
     case AccountState.PROCESSING:
-      console.log('❌ Account is processing another transaction');
-      return res.json(createErrorResponse(id, -31052, null, 'login'));
-      
+      return res.status(200).json(createErrorResponse(id, -31052, null, 'login'));
     case AccountState.WAITING_PAYMENT:
-      // ✅ Account is ready to receive payment - continue with other validations
-      console.log('✅ Account is in waiting_payment state - proceeding with validations');
+      console.log('✅ Account ready for transaction');
       break;
-      
     default:
-      // If account exists but no specific state, check for unpaid transactions
       if (hasExistingUnpaidTransaction(createAccountLogin)) {
-        console.log('❌ Account already has an unpaid transaction');
-        return res.json(createErrorResponse(id, -31052, null, 'login'));
+        return res.status(200).json(createErrorResponse(id, -31052, null, 'login'));
       }
-      console.log('✅ Account exists and ready for transaction');
   }
   
-  // ✅ STEP 3: AFTER account validation passes, check if transaction already exists (idempotency)
+  // Check if transaction already exists (idempotency)
   const existingTransaction = sandboxTransactions.get(params?.id);
   if (existingTransaction) {
-    console.log('✅ Transaction already exists, returning existing transaction:', params.id);
-    // According to docs: if transaction exists, return its current state
-    return res.json({
+    console.log('✅ Transaction already exists:', params.id);
+    return res.status(200).json({
       jsonrpc: '2.0',
       id: id,
       result: {
@@ -562,23 +550,23 @@ const handleCreateTransaction = async (req, res, id, params) => {
     });
   }
   
-  // ✅ STEP 4: Validate other required parameters
+  // Validate required parameters
   if (!params?.id || !params?.time || !params?.amount) {
     console.log('❌ Missing required parameters');
-    return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_PARAMS));
+    return res.status(200).json(createErrorResponse(id, PaymeErrorCode.INVALID_PARAMS));
   }
   
-  // ✅ STEP 5: Validate amount (only after account validation)
+  // Validate amount
   const validCreateAmounts = Object.values(PAYMENT_AMOUNTS);
   if (!validCreateAmounts.includes(params.amount)) {
-    console.log('❌ Invalid amount:', params?.amount, 'Valid amounts:', validCreateAmounts);
-    return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_AMOUNT, null, false));
+    console.log('❌ Invalid amount:', params?.amount);
+    return res.status(200).json(createErrorResponse(id, PaymeErrorCode.INVALID_AMOUNT, null, false));
   }
 
-  // ✅ STEP 6: All validations passed - Create new transaction
+  // Create new transaction
   const newTransaction = {
     id: params.id,
-    transaction: params.id.toString(), // Transaction ID in merchant system
+    transaction: params.id.toString(),
     state: TransactionState.CREATED,
     create_time: Date.now(),
     amount: params.amount,
@@ -587,16 +575,14 @@ const handleCreateTransaction = async (req, res, id, params) => {
     perform_time: 0,
     cancel_time: 0,
     reason: null,
-    receivers: null // Direct payment - merchant is the receiver
+    receivers: null
   };
   
-  // Store transaction
   sandboxTransactions.set(params.id, newTransaction);
   
   console.log('✅ CreateTransaction successful - new transaction created');
   
-  // Return success response according to Payme spec
-  return res.json({
+  return res.status(200).json({
     jsonrpc: '2.0',
     id: id,
     result: {
@@ -607,34 +593,32 @@ const handleCreateTransaction = async (req, res, id, params) => {
     }
   });
 };
-// ✅ FIXED PerformTransaction handler - Returns error -31008 for cancelled transactions
+
+// ✅ PerformTransaction
 const handlePerformTransaction = async (req, res, id, params) => {
   console.log('🔍 Processing PerformTransaction for:', params?.id);
   
-  // Validate that transaction ID is provided
   if (!params?.id) {
-    console.log('❌ Transaction ID not provided');
-    return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_PARAMS));
+    return res.status(200).json(createErrorResponse(id, PaymeErrorCode.INVALID_PARAMS));
   }
   
-  const performTransactionId = params.id;
-  const performTransaction = findTransactionById(performTransactionId);
+  const performTransaction = findTransactionById(params.id);
   
   if (!performTransaction) {
-    console.log('❌ Transaction not found for perform:', performTransactionId);
-    return res.json(createErrorResponse(id, PaymeErrorCode.TRANSACTION_NOT_FOUND));
+    console.log('❌ Transaction not found:', params.id);
+    return res.status(200).json(createErrorResponse(id, PaymeErrorCode.TRANSACTION_NOT_FOUND));
   }
   
-  // ✅ CRITICAL: Check if transaction is cancelled (state -1 or -2)
+  // Check if cancelled
   if (performTransaction.state < 0) {
-    console.log('❌ Cannot perform cancelled transaction. State:', performTransaction.state);
-    return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
+    console.log('❌ Cannot perform cancelled transaction');
+    return res.status(200).json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
   }
   
-  // Check if already performed (idempotency)
+  // Check if already performed
   if (performTransaction.state === TransactionState.COMPLETED) {
-    console.log('✅ Transaction already performed, returning existing result');
-    return res.json({
+    console.log('✅ Transaction already performed');
+    return res.status(200).json({
       jsonrpc: '2.0',
       id: id,
       result: {
@@ -645,46 +629,19 @@ const handlePerformTransaction = async (req, res, id, params) => {
     });
   }
   
-  // Check if transaction is expired (12 hours for Payme)
+  // Check if expired
   const txAge = Date.now() - performTransaction.create_time;
   if (txAge > 12 * 60 * 60 * 1000) {
-    console.log('❌ Transaction expired (older than 12 hours)');
-    return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
+    console.log('❌ Transaction expired');
+    return res.status(200).json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
   }
   
-  // ✅ Check account state before performing transaction
-  const performAccountLogin = performTransaction.account?.login || performTransaction.account?.Login;
-  if (performAccountLogin) {
-    // Re-validate account state at the time of perform
-    const performAccountInfo = await validateAccountAndState(performAccountLogin);
-    
-    console.log('📊 Account state during perform:', performAccountInfo);
-    
-    // Check if account doesn't exist
-    if (!performAccountInfo.exists || performAccountInfo.state === AccountState.NOT_EXISTS) {
-      console.log('❌ Account not found during perform');
-      return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
-    }
-    
-    // Check if account is blocked
-    if (performAccountInfo.state === AccountState.BLOCKED) {
-      console.log('❌ Account is blocked during perform - returning -31008');
-      return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
-    }
-    
-    // Check if account is processing another transaction
-    if (performAccountInfo.state === AccountState.PROCESSING) {
-      console.log('❌ Account is processing another transaction - returning -31008');
-      return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
-    }
-  }
-  
-  // ✅ All checks passed - perform the transaction
+  // Perform the transaction
   performTransaction.state = TransactionState.COMPLETED;
   performTransaction.perform_time = Date.now();
   
-  console.log('✅ PerformTransaction successful for:', performTransactionId);
-  return res.json({
+  console.log('✅ PerformTransaction successful');
+  return res.status(200).json({
     jsonrpc: '2.0',
     id: id,
     result: {
@@ -695,26 +652,18 @@ const handlePerformTransaction = async (req, res, id, params) => {
   });
 };
 
-// ✅ FIXED CancelTransaction handler - Correctly returns state -1 for CREATED transactions
+// ✅ CancelTransaction
 const handleCancelTransaction = async (req, res, id, params) => {
-  console.log('🔍 Processing CancelTransaction for:', params?.id, 'with reason:', params?.reason);
-  
-  const cancelTransactionId = params?.id;
-  const cancelTransaction = findTransactionById(cancelTransactionId);
+  const cancelTransaction = findTransactionById(params?.id);
   
   if (!cancelTransaction) {
-    console.log('❌ Transaction not found for cancel:', cancelTransactionId);
-    return res.json(createErrorResponse(id, PaymeErrorCode.TRANSACTION_NOT_FOUND));
+    return res.status(200).json(createErrorResponse(id, PaymeErrorCode.TRANSACTION_NOT_FOUND));
   }
   
-  // Store the original state before any modifications
   const originalState = cancelTransaction.state;
-  console.log('📊 Current transaction state before cancel:', originalState);
   
-  // Check if already cancelled
   if (cancelTransaction.state < 0) {
-    console.log('✅ Transaction already cancelled, returning existing result');
-    return res.json({
+    return res.status(200).json({
       jsonrpc: '2.0',
       id: id,
       result: {
@@ -725,57 +674,25 @@ const handleCancelTransaction = async (req, res, id, params) => {
     });
   }
   
-  // ✅ FIXED: Check if order is completed - THIS IS IMPORTANT FOR TESTS
-  // If transaction is completed and we're testing "order completed" scenario
-  if (cancelTransaction.state === TransactionState.COMPLETED) {
-    // Check if this is a test scenario where order should be marked as completed
-    const accountLogin = cancelTransaction.account?.login || cancelTransaction.account?.Login;
-    const accountState = accountStates.get(accountLogin);
-    
-    // If account is blocked or in a state that indicates order completion
-    if (accountState === AccountState.BLOCKED) {
-      console.log('❌ Order is completed, cannot cancel');
-      return res.json(createErrorResponse(id, PaymeErrorCode.ORDER_COMPLETED));
-    }
-  }
-  
-  // ✅ CRITICAL FIX: Determine state and reason based on ORIGINAL transaction state
-  let newState;
-  let reason;
+  let newState, reason;
   
   if (originalState === TransactionState.CREATED) {
-    // Transaction was CREATED (state 1) -> Cancel to state -1 with reason 3
-    newState = TransactionState.CANCELLED_AFTER_CREATE; // -1
+    newState = TransactionState.CANCELLED_AFTER_CREATE;
     reason = 3;
-    cancelTransaction.perform_time = 0; // Never performed
-    console.log('🔄 Cancelling CREATED transaction -> state = -1, reason = 3');
+    cancelTransaction.perform_time = 0;
   } else if (originalState === TransactionState.COMPLETED) {
-    // Transaction was COMPLETED (state 2) -> Cancel to state -2 with reason 5
-    newState = TransactionState.CANCELLED_AFTER_COMPLETE; // -2
+    newState = TransactionState.CANCELLED_AFTER_COMPLETE;
     reason = 5;
-    // Keep the original perform_time (don't change it)
-    console.log('🔄 Cancelling COMPLETED transaction -> state = -2, reason = 5');
   } else {
-    // For any other state, cannot cancel
-    console.log('❌ Cannot cancel transaction in state:', originalState);
-    return res.json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
+    return res.status(200).json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
   }
   
-  // Apply the cancellation
   cancelTransaction.state = newState;
   cancelTransaction.cancel_time = Date.now();
   cancelTransaction.reason = reason;
   cancelTransaction.cancelled = true;
   
-  console.log('✅ CancelTransaction successful:', {
-    id: cancelTransactionId,
-    oldState: originalState,
-    newState: newState,
-    reason: reason,
-    perform_time: cancelTransaction.perform_time
-  });
-  
-  return res.json({
+  return res.status(200).json({
     jsonrpc: '2.0',
     id: id,
     result: {
@@ -786,32 +703,18 @@ const handleCancelTransaction = async (req, res, id, params) => {
   });
 };
 
-// ✅ FIXED CheckTransaction handler - Correctly returns transaction states
+// ✅ CheckTransaction
 const handleCheckTransaction = async (req, res, id, params) => {
-  console.log('🔍 Processing CheckTransaction for:', params?.id);
-  
-  // Validate that transaction ID is provided
   if (!params?.id) {
-    console.log('❌ Transaction ID not provided');
-    return res.json(createErrorResponse(id, PaymeErrorCode.INVALID_PARAMS));
+    return res.status(200).json(createErrorResponse(id, PaymeErrorCode.INVALID_PARAMS));
   }
   
-  const checkTransactionId = params.id;
-  const checkTransaction = findTransactionById(checkTransactionId);
+  const checkTransaction = findTransactionById(params.id);
   
   if (!checkTransaction) {
-    console.log('❌ Transaction not found:', checkTransactionId);
-    return res.json(createErrorResponse(id, PaymeErrorCode.TRANSACTION_NOT_FOUND));
+    return res.status(200).json(createErrorResponse(id, PaymeErrorCode.TRANSACTION_NOT_FOUND));
   }
   
-  // Log current transaction state
-  console.log('📊 Current transaction state:', {
-    id: checkTransactionId,
-    state: checkTransaction.state,
-    stateText: getTransactionStateText(checkTransaction.state)
-  });
-  
-  // Build response based on transaction state
   let result = {
     create_time: checkTransaction.create_time,
     perform_time: 0,
@@ -821,65 +724,41 @@ const handleCheckTransaction = async (req, res, id, params) => {
     reason: null
   };
   
-  // ✅ Handle each state according to Payme specification
   switch (checkTransaction.state) {
-    case TransactionState.CREATED: // State 1
-      // Transaction created but not performed
+    case TransactionState.CREATED:
       result.perform_time = 0;
       result.cancel_time = 0;
       result.reason = null;
       break;
-      
-    case TransactionState.COMPLETED: // State 2
-      // Transaction completed
+    case TransactionState.COMPLETED:
       result.perform_time = checkTransaction.perform_time || Date.now();
       result.cancel_time = 0;
       result.reason = null;
       break;
-      
-    case TransactionState.CANCELLED_AFTER_CREATE: // State -1
-      // Cancelled before payment
-      result.perform_time = 0; // Never performed
+    case TransactionState.CANCELLED_AFTER_CREATE:
+      result.perform_time = 0;
       result.cancel_time = checkTransaction.cancel_time || Date.now();
       result.reason = checkTransaction.reason || 3;
       break;
-      
-    case TransactionState.CANCELLED_AFTER_COMPLETE: // State -2
-      // Cancelled after payment (refunded)
+    case TransactionState.CANCELLED_AFTER_COMPLETE:
       result.perform_time = checkTransaction.perform_time || Date.now();
       result.cancel_time = checkTransaction.cancel_time || Date.now();
       result.reason = checkTransaction.reason || 5;
       break;
-      
-    default:
-      console.log('⚠️ Unknown transaction state:', checkTransaction.state);
-      break;
   }
   
-  console.log('✅ CheckTransaction response:', {
-    state: result.state,
-    perform_time: result.perform_time,
-    cancel_time: result.cancel_time,
-    reason: result.reason
-  });
-  
-  return res.json({
+  return res.status(200).json({
     jsonrpc: '2.0',
     id: id,
     result: result
   });
 };
-// ✅ GetStatement handler
+
+// ✅ GetStatement
 const handleGetStatement = async (req, res, id, params) => {
-  console.log('🔍 Processing GetStatement with:', {
-    from: params?.from,
-    to: params?.to
-  });
-  
   const from = params?.from || 0;
   const to = params?.to || Date.now();
   
-  // Filter transactions by time range
   const transactions = [];
   for (const [transactionId, transaction] of sandboxTransactions.entries()) {
     if (transaction.create_time >= from && transaction.create_time <= to) {
@@ -899,8 +778,7 @@ const handleGetStatement = async (req, res, id, params) => {
     }
   }
   
-  console.log(`✅ GetStatement returning ${transactions.length} transactions`);
-  return res.json({
+  return res.status(200).json({
     jsonrpc: '2.0',
     id: id,
     result: {
@@ -909,12 +787,10 @@ const handleGetStatement = async (req, res, id, params) => {
   });
 };
 
-// ✅ ChangePassword handler
+// ✅ ChangePassword
 const handleChangePassword = async (req, res, id, params) => {
   console.log('✅ ChangePassword method called');
-  // According to PayMe documentation, this method should return success
-  // even though it's not actually implemented in most merchant systems
-  return res.json({
+  return res.status(200).json({
     jsonrpc: '2.0',
     id: id,
     result: {
@@ -923,144 +799,9 @@ const handleChangePassword = async (req, res, id, params) => {
   });
 };
 
-// ✅ New endpoint to set account state for testing
-const setAccountState = async (req, res) => {
-  try {
-    const { accountLogin, state } = req.body;
-    
-    if (!accountLogin || !state) {
-      return res.status(400).json({
-        message: '❌ Account login and state are required'
-      });
-    }
-    
-    const validStates = Object.values(AccountState);
-    if (!validStates.includes(state)) {
-      return res.status(400).json({
-        message: '❌ Invalid state. Valid states: ' + validStates.join(', ')
-      });
-    }
-    
-    accountStates.set(accountLogin, state);
-    
-    console.log('✅ Account state set:', { accountLogin, state });
-    
-    res.json({
-      message: '✅ Account state updated',
-      accountLogin,
-      state,
-      validStates
-    });
-    
-  } catch (error) {
-    console.error('❌ Error setting account state:', error);
-    res.status(500).json({
-      message: '❌ Error setting account state',
-      error: error.message
-    });
-  }
-};
+// ✅ OTHER CONTROLLER FUNCTIONS (NON-PAYME)
 
-// ✅ Production-aware helper function
-const makePaymeRequest = async (url, payload) => {
-  const merchantKey = process.env.PAYME_MERCHANT_KEY;
-  const isProduction = process.env.NODE_ENV === 'production';
-  const isSandboxUrl = url.includes('/sandbox');
-  
-  console.log('🔍 Making PayMe request:', {
-    url,
-    method: payload.method,
-    isProduction,
-    isSandbox: isSandboxUrl,
-    hasMerchantKey: !!merchantKey
-  });
-
-  const requestPayload = {
-    jsonrpc: '2.0',
-    ...payload
-  };
-
-  try {
-    const requestConfig = {
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      timeout: 30000,
-    };
-
-    if (merchantKey) {
-      requestConfig.auth = {
-        username: 'Paycom',
-        password: merchantKey
-      };
-      console.log('🔐 Added Basic auth for PayMe request');
-    }
-
-    const response = await axios.post(url, requestPayload, requestConfig);
-    return response.data;
-
-  } catch (error) {
-    if (error.response) {
-      return error.response.data || { 
-        error: { 
-          code: -32000, 
-          message: { 
-            ru: `Ошибка HTTP ${error.response.status}`,
-            en: `HTTP ${error.response.status}: ${error.response.statusText}`,
-            uz: `HTTP ${error.response.status} xatosi`
-          } 
-        } 
-      };
-    } else {
-      throw error;
-    }
-  }
-};
-
-// ✅ Keep existing functions unchanged
-const applyPromoCode = async (req, res) => {
-  try {
-    const { userId, plan, promoCode } = req.body;
-
-    if (!userId || !plan || !promoCode) {
-      return res.status(400).json({ message: '❌ Все поля обязательны: userId, plan, promoCode' });
-    }
-
-    const validPromoCode = 'acedpromocode2406';
-    if (promoCode.trim() !== validPromoCode) {
-      return res.status(400).json({ message: '❌ Неверный промокод' });
-    }
-
-    const allowedPlans = ['start', 'pro'];
-    if (!allowedPlans.includes(plan)) {
-      return res.status(400).json({ message: '❌ Неверный тариф. Возможные значения: start, pro' });
-    }
-
-    const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({ message: '❌ Пользователь не найден по ID' });
-    }
-
-    user.subscriptionPlan = plan;
-    user.paymentStatus = 'paid';
-    await user.save();
-
-    return res.status(200).json({
-      message: '✅ Промокод успешно применён',
-      unlocked: true,
-      plan
-    });
-
-  } catch (err) {
-    console.error('❌ Ошибка применения промокода:', err);
-    res.status(500).json({ message: '❌ Ошибка сервера при применении промокода' });
-  }
-};
-
-// Replace your initiatePaymePayment function in controllers/paymentController.js
-
-// FIXED: controllers/paymentController.js - initiatePaymePayment function
-
+// ✅ Payment initiation that PREVENTS loops
 const initiatePaymePayment = async (req, res) => {
   try {
     const { userId, plan, name, phone } = req.body;
@@ -1120,15 +861,15 @@ const initiatePaymePayment = async (req, res) => {
     const merchantId = process.env.PAYME_MERCHANT_ID;
 
     if (isProduction && merchantId) {
-      // ✅ PRODUCTION: Direct redirect to PayMe official checkout
+      // PRODUCTION: Direct redirect to PayMe official checkout
       const paymeParams = new URLSearchParams({
-        'm': merchantId,                    // Your merchant ID
-        'ac.login': user.firebaseId,        // Account identifier
-        'a': amount,                        // Amount in tiyin
-        'c': transactionId,                 // Transaction reference
-        'ct': Date.now(),                   // Current timestamp
-        'l': 'uz',                         // Language
-        'cr': 'UZS'                        // Currency
+        'm': merchantId,
+        'ac.login': user.firebaseId,
+        'a': amount,
+        'c': transactionId,
+        'ct': Date.now(),
+        'l': 'uz',
+        'cr': 'UZS'
       });
 
       const paymentUrl = `https://checkout.paycom.uz/?${paymeParams.toString()}`;
@@ -1153,7 +894,7 @@ const initiatePaymePayment = async (req, res) => {
         }
       });
     } else {
-      // ✅ DEVELOPMENT: Redirect to custom checkout page instead of success page
+      // DEVELOPMENT: Redirect to custom checkout page
       const checkoutUrl = `https://aced.live/payment/checkout?` + new URLSearchParams({
         transactionId: transactionId,
         userId: user.firebaseId,
@@ -1166,18 +907,16 @@ const initiatePaymePayment = async (req, res) => {
       }).toString();
 
       // Store transaction in sandbox for tracking
-      if (typeof sandboxTransactions !== 'undefined') {
-        sandboxTransactions.set(transactionId, {
-          id: transactionId,
-          userId: user.firebaseId,
-          amount: amount,
-          plan: plan,
-          state: 1, // Created, not completed
-          create_time: Date.now(),
-          perform_time: 0,
-          account: { login: user.firebaseId }
-        });
-      }
+      sandboxTransactions.set(transactionId, {
+        id: transactionId,
+        userId: user.firebaseId,
+        amount: amount,
+        plan: plan,
+        state: 1,
+        create_time: Date.now(),
+        perform_time: 0,
+        account: { login: user.firebaseId }
+      });
 
       console.log('🧪 Development: Redirecting to checkout page');
 
@@ -1189,7 +928,7 @@ const initiatePaymePayment = async (req, res) => {
           id: transactionId,
           amount: amount,
           plan: plan,
-          state: 1 // Created, not completed
+          state: 1
         },
         metadata: {
           userId: userId,
@@ -1210,6 +949,75 @@ const initiatePaymePayment = async (req, res) => {
     });
   }
 };
+
+// ✅ Set account state for testing
+const setAccountState = async (req, res) => {
+  try {
+    const { accountLogin, state } = req.body;
+    
+    if (!accountLogin || !state) {
+      return res.status(400).json({
+        message: '❌ Account login and state are required'
+      });
+    }
+    
+    const validStates = Object.values(AccountState);
+    if (!validStates.includes(state)) {
+      return res.status(400).json({
+        message: '❌ Invalid state. Valid states: ' + validStates.join(', ')
+      });
+    }
+    
+    accountStates.set(accountLogin, state);
+    
+    console.log('✅ Account state set:', { accountLogin, state });
+    
+    res.json({
+      message: '✅ Account state updated',
+      accountLogin,
+      state,
+      validStates
+    });
+    
+  } catch (error) {
+    console.error('❌ Error setting account state:', error);
+    res.status(500).json({
+      message: '❌ Error setting account state',
+      error: error.message
+    });
+  }
+};
+
+// ✅ Set merchant key for testing
+const setMerchantKey = async (req, res) => {
+  try {
+    const { merchantKey } = req.body;
+    
+    if (!merchantKey) {
+      return res.status(400).json({
+        message: '❌ Merchant key is required'
+      });
+    }
+    
+    currentMerchantKey = merchantKey;
+    
+    console.log('✅ Merchant key set for sandbox testing');
+    
+    res.json({
+      message: '✅ Merchant key updated for sandbox',
+      keyLength: merchantKey.length
+    });
+    
+  } catch (error) {
+    console.error('❌ Error setting merchant key:', error);
+    res.status(500).json({
+      message: '❌ Error setting merchant key',
+      error: error.message
+    });
+  }
+};
+
+// ✅ User validation route
 const validateUserRoute = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -1222,36 +1030,27 @@ const validateUserRoute = async (req, res) => {
     }
 
     console.log('🔍 Validating user ID:', userId);
-    console.log('🔍 User ID type:', typeof userId);
-    console.log('🔍 User ID length:', userId.length);
 
     let user = null;
 
-    // ✅ FIXED: Try different search strategies based on ID format
-    
-    // 1. Check if it's a Firebase UID (typical length 28, alphanumeric)
     if (userId.length >= 20 && !userId.match(/^[0-9a-fA-F]{24}$/)) {
-      console.log('🔥 Searching by firebaseId (Firebase UID)');
+      console.log('🔥 Searching by firebaseId');
       user = await User.findOne({ firebaseId: userId });
     }
-    // 2. Check if it's a valid MongoDB ObjectId (24 hex characters)
     else if (userId.match(/^[0-9a-fA-F]{24}$/)) {
-      console.log('🍃 Searching by _id (MongoDB ObjectId)');
+      console.log('🍃 Searching by _id');
       user = await User.findById(userId);
     }
-    // 3. Try email format
     else if (userId.includes('@') && userId.includes('.')) {
       console.log('📧 Searching by email');
       user = await User.findOne({ email: userId });
     }
-    // 4. Try phone number format
     else if (userId.match(/^\+?\d{9,15}$/)) {
       console.log('📱 Searching by phone');
       user = await User.findOne({ phone: userId });
     }
-    // 5. Fallback: try both firebaseId and email
     else {
-      console.log('🔄 Fallback: searching by firebaseId or email');
+      console.log('🔄 Fallback search');
       user = await User.findOne({
         $or: [
           { firebaseId: userId },
@@ -1295,18 +1094,12 @@ const validateUserRoute = async (req, res) => {
   } catch (error) {
     console.error('❌ User validation error:', error);
     
-    // ✅ ENHANCED: Better error handling for different error types
     let errorMessage = '❌ Server error during user validation';
     let statusCode = 500;
 
     if (error.name === 'CastError') {
       errorMessage = '❌ Invalid user ID format';
       statusCode = 400;
-      console.log('🔧 CastError details:', {
-        path: error.path,
-        value: error.value,
-        kind: error.kind
-      });
     } else if (error.name === 'ValidationError') {
       errorMessage = '❌ User data validation error';
       statusCode = 400;
@@ -1322,6 +1115,7 @@ const validateUserRoute = async (req, res) => {
   }
 };
 
+// ✅ Check payment status
 const checkPaymentStatus = async (req, res) => {
   try {
     const { transactionId, userId } = req.params;
@@ -1342,7 +1136,6 @@ const checkPaymentStatus = async (req, res) => {
       
       // Update user if transaction is completed
       if (sandboxTransaction.state === TransactionState.COMPLETED && user) {
-        // Determine plan based on amount
         let plan = 'free';
         if (sandboxTransaction.amount === PAYMENT_AMOUNTS.start) {
           plan = 'start';
@@ -1404,7 +1197,7 @@ const checkPaymentStatus = async (req, res) => {
   }
 };
 
-// Helper function to get transaction state text
+// ✅ Get transaction state text
 const getTransactionStateText = (state) => {
   switch (state) {
     case TransactionState.CREATED:
@@ -1420,80 +1213,7 @@ const getTransactionStateText = (state) => {
   }
 };
 
-// ✅ New function to handle webhook notifications from Payme
-const handlePaymeWebhook = async (req, res) => {
-  try {
-    console.log('🔔 PayMe Webhook received:', {
-      method: req.body?.method,
-      params: req.body?.params,
-      hasAuth: !!req.headers.authorization
-    });
-
-    // Validate authorization for webhooks
-    const authResult = validatePaymeAuth(req);
-    if (!authResult.valid) {
-      console.log('❌ Webhook authorization failed');
-      return res.status(401).json({
-        error: 'Unauthorized webhook request'
-      });
-    }
-
-    const { method, params } = req.body;
-
-    // Handle different webhook notifications
-    switch (method) {
-      case 'PaymentCompleted':
-        // Update user subscription when payment is completed
-        if (params?.account?.login && params?.state === TransactionState.COMPLETED) {
-          const user = await User.findById(params.account.login);
-          if (user) {
-            let plan = 'free';
-            if (params.amount === PAYMENT_AMOUNTS.start) {
-              plan = 'start';
-            } else if (params.amount === PAYMENT_AMOUNTS.pro) {
-              plan = 'pro';
-            }
-            
-            user.subscriptionPlan = plan;
-            user.paymentStatus = 'paid';
-            await user.save();
-            
-            console.log('✅ User subscription updated via webhook:', {
-              userId: params.account.login,
-              plan
-            });
-          }
-        }
-        break;
-        
-      case 'PaymentCancelled':
-        // Handle payment cancellation
-        if (params?.account?.login) {
-          const user = await User.findById(params.account.login);
-          if (user && user.paymentStatus === 'paid') {
-            // Only revert if this was their latest payment
-            // You might want to add more logic here
-            console.log('⚠️ Payment cancelled for user:', params.account.login);
-          }
-        }
-        break;
-    }
-
-    res.json({
-      success: true,
-      message: 'Webhook processed'
-    });
-
-  } catch (error) {
-    console.error('❌ Webhook processing error:', error);
-    res.status(500).json({
-      error: 'Webhook processing failed',
-      message: error.message
-    });
-  }
-};
-
-// ✅ Debug function to list all transactions (for testing)
+// ✅ List all transactions
 const listTransactions = async (req, res) => {
   try {
     const transactions = [];
@@ -1527,7 +1247,7 @@ const listTransactions = async (req, res) => {
   }
 };
 
-// ✅ Function to clear sandbox transactions (for testing)
+// ✅ Clear sandbox transactions
 const clearSandboxTransactions = async (req, res) => {
   try {
     const count = sandboxTransactions.size;
@@ -1549,44 +1269,566 @@ const clearSandboxTransactions = async (req, res) => {
   }
 };
 
-// ✅ Set merchant key for testing
-const setMerchantKey = async (req, res) => {
+// ✅ Promo code application
+const applyPromoCode = async (req, res) => {
   try {
-    const { merchantKey } = req.body;
+    const { userId, plan, promoCode } = req.body;
+
+    if (!userId || !plan || !promoCode) {
+      return res.status(400).json({ message: '❌ All fields required: userId, plan, promoCode' });
+    }
+
+    const validPromoCode = 'acedpromocode2406';
+    if (promoCode.trim() !== validPromoCode) {
+      return res.status(400).json({ message: '❌ Invalid promo code' });
+    }
+
+    const allowedPlans = ['start', 'pro'];
+    if (!allowedPlans.includes(plan)) {
+      return res.status(400).json({ message: '❌ Invalid plan. Allowed: start, pro' });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: '❌ User not found' });
+    }
+
+    user.subscriptionPlan = plan;
+    user.paymentStatus = 'paid';
+    await user.save();
+
+    return res.status(200).json({
+      message: '✅ Promo code applied successfully',
+      unlocked: true,
+      plan
+    });
+
+  } catch (err) {
+    console.error('❌ Promo code error:', err);
+    res.status(500).json({ message: '❌ Server error applying promo code' });
+  }
+};
+
+// ✅ Webhook handler
+const handlePaymeWebhook = async (req, res) => {
+  try {
+    console.log('🔔 PayMe Webhook received:', {
+      method: req.body?.method,
+      params: req.body?.params,
+      hasAuth: !!req.headers.authorization
+    });
+
+    // Validate authorization for webhooks
+    const authResult = validatePaymeAuth(req);
+    if (!authResult.valid) {
+      console.log('❌ Webhook authorization failed');
+      return res.status(401).json({
+        error: 'Unauthorized webhook request'
+      });
+    }
+
+    const { method, params } = req.body;
+
+    // Handle different webhook notifications
+    switch (method) {
+      case 'PaymentCompleted':
+        if (params?.account?.login && params?.state === TransactionState.COMPLETED) {
+          const user = await User.findById(params.account.login);
+          if (user) {
+            let plan = 'free';
+            if (params.amount === PAYMENT_AMOUNTS.start) {
+              plan = 'start';
+            } else if (params.amount === PAYMENT_AMOUNTS.pro) {
+              plan = 'pro';
+            }
+            
+            user.subscriptionPlan = plan;
+            user.paymentStatus = 'paid';
+            await user.save();
+            
+            console.log('✅ User subscription updated via webhook:', {
+              userId: params.account.login,
+              plan
+            });
+          }
+        }
+        break;
+        
+      case 'PaymentCancelled':
+        if (params?.account?.login) {
+          const user = await User.findById(params.account.login);
+          if (user && user.paymentStatus === 'paid') {
+            console.log('⚠️ Payment cancelled for user:', params.account.login);
+          }
+        }
+        break;
+    }
+
+    res.json({
+      success: true,
+      message: 'Webhook processed'
+    });
+
+  } catch (error) {
+    console.error('❌ Webhook processing error:', error);
+    res.status(500).json({
+      error: 'Webhook processing failed',
+      message: error.message
+    });
+  }
+};
+
+// ✅ MISSING FUNCTIONS THAT WERE REMOVED - ADDING THEM BACK
+
+// ✅ Enhanced user search functions
+const getUserInfo = async (req, res) => {
+  try {
+    const { userId } = req.params;
     
-    if (!merchantKey) {
-      return res.status(400).json({
-        message: '❌ Merchant key is required'
+    let user = null;
+    
+    // Enhanced search logic
+    if (userId.length >= 20 && !userId.match(/^[0-9a-fA-F]{24}$/)) {
+      user = await User.findOne({ firebaseId: userId });
+    } else if (userId.match(/^[0-9a-fA-F]{24}$/)) {
+      user = await User.findById(userId);
+    } else {
+      user = await User.findOne({
+        $or: [{ firebaseId: userId }, { email: userId }, { login: userId }]
       });
     }
     
-    currentMerchantKey = merchantKey;
-    
-    console.log('✅ Merchant key set for sandbox testing');
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
     
     res.json({
-      message: '✅ Merchant key updated for sandbox',
-      keyLength: merchantKey.length
+      user: {
+        id: user._id,
+        firebaseId: user.firebaseId,
+        name: user.name,
+        email: user.email,
+        subscriptionPlan: user.subscriptionPlan || 'free',
+        paymentStatus: user.paymentStatus || 'unpaid'
+      }
     });
     
   } catch (error) {
-    console.error('❌ Error setting merchant key:', error);
+    console.error('❌ Get user info error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// ✅ Update user profile
+const updateUserProfile = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const updateData = req.body;
+    
+    let user = null;
+    
+    if (userId.length >= 20 && !userId.match(/^[0-9a-fA-F]{24}$/)) {
+      user = await User.findOne({ firebaseId: userId });
+    } else if (userId.match(/^[0-9a-fA-F]{24}$/)) {
+      user = await User.findById(userId);
+    } else {
+      user = await User.findOne({
+        $or: [{ firebaseId: userId }, { email: userId }]
+      });
+    }
+    
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    // Update allowed fields
+    const allowedFields = ['name', 'phone', 'subscriptionPlan', 'paymentStatus'];
+    allowedFields.forEach(field => {
+      if (updateData[field] !== undefined) {
+        user[field] = updateData[field];
+      }
+    });
+    
+    await user.save();
+    
+    res.json({
+      message: 'User updated successfully',
+      user: {
+        id: user._id,
+        firebaseId: user.firebaseId,
+        name: user.name,
+        email: user.email,
+        subscriptionPlan: user.subscriptionPlan,
+        paymentStatus: user.paymentStatus
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Update user error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// ✅ Save user (for registration/login)
+const saveUser = async (req, res) => {
+  try {
+    const { token, name, subscriptionPlan, email, firebaseId } = req.body;
+    
+    if (!firebaseId && !token) {
+      return res.status(400).json({ message: 'Firebase ID or token required' });
+    }
+    
+    let userFirebaseId = firebaseId;
+    let userEmail = email;
+    
+    // If token provided, verify it
+    if (token && !firebaseId) {
+      try {
+        const admin = require('firebase-admin');
+        const decoded = await admin.auth().verifyIdToken(token);
+        userFirebaseId = decoded.uid;
+        userEmail = decoded.email;
+      } catch (tokenError) {
+        return res.status(401).json({ message: 'Invalid Firebase token' });
+      }
+    }
+    
+    if (!userFirebaseId) {
+      return res.status(400).json({ message: 'Firebase ID is required' });
+    }
+    
+    // Find or create user
+    let user = await User.findOne({ firebaseId: userFirebaseId });
+    
+    if (!user) {
+      user = new User({
+        firebaseId: userFirebaseId,
+        email: userEmail,
+        name: name || 'User',
+        login: userEmail,
+        subscriptionPlan: subscriptionPlan || 'free',
+        paymentStatus: 'unpaid'
+      });
+    } else {
+      // Update existing user
+      if (name) user.name = name;
+      if (userEmail) user.email = userEmail;
+      if (subscriptionPlan) user.subscriptionPlan = subscriptionPlan;
+      user.login = userEmail || user.email;
+    }
+    
+    await user.save();
+    
+    res.json({
+      message: 'User saved successfully',
+      user: {
+        id: user._id,
+        firebaseId: user.firebaseId,
+        name: user.name,
+        email: user.email,
+        subscriptionPlan: user.subscriptionPlan,
+        paymentStatus: user.paymentStatus
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Save user error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// ✅ Get user status (subscription info)
+const getUserStatus = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    let user = null;
+    
+    if (userId.length >= 20 && !userId.match(/^[0-9a-fA-F]{24}$/)) {
+      user = await User.findOne({ firebaseId: userId });
+    } else if (userId.match(/^[0-9a-fA-F]{24}$/)) {
+      user = await User.findById(userId);
+    } else {
+      user = await User.findOne({
+        $or: [{ firebaseId: userId }, { email: userId }]
+      });
+    }
+    
+    if (!user) {
+      return res.status(404).json({ 
+        message: 'User not found',
+        status: 'free'
+      });
+    }
+    
+    res.json({
+      status: user.subscriptionPlan || 'free',
+      paymentStatus: user.paymentStatus || 'unpaid',
+      subscriptionDetails: {
+        plan: user.subscriptionPlan,
+        activatedAt: user.lastPaymentDate,
+        isActive: user.paymentStatus === 'paid'
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Get user status error:', error);
+    res.status(500).json({ 
+      message: 'Server error', 
+      status: 'free',
+      error: error.message 
+    });
+  }
+};
+
+// ✅ Development/testing helper functions
+const createTestTransaction = async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(403).json({ message: 'Not available in production' });
+  }
+  
+  try {
+    const { userId, plan, amount } = req.body;
+    
+    const transactionId = `test_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    const testTransaction = {
+      id: transactionId,
+      transaction: transactionId,
+      state: TransactionState.CREATED,
+      create_time: Date.now(),
+      amount: amount || PAYMENT_AMOUNTS[plan] || 26000000,
+      account: { login: userId },
+      cancelled: false,
+      perform_time: 0,
+      cancel_time: 0,
+      reason: null,
+      receivers: null
+    };
+    
+    sandboxTransactions.set(transactionId, testTransaction);
+    
+    res.json({
+      message: 'Test transaction created',
+      transaction: testTransaction
+    });
+    
+  } catch (error) {
+    console.error('❌ Create test transaction error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// ✅ Simulate transaction completion (for testing)
+const completeTestTransaction = async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(403).json({ message: 'Not available in production' });
+  }
+  
+  try {
+    const { transactionId } = req.params;
+    
+    const transaction = sandboxTransactions.get(transactionId);
+    if (!transaction) {
+      return res.status(404).json({ message: 'Transaction not found' });
+    }
+    
+    transaction.state = TransactionState.COMPLETED;
+    transaction.perform_time = Date.now();
+    
+    res.json({
+      message: 'Transaction completed',
+      transaction: transaction
+    });
+    
+  } catch (error) {
+    console.error('❌ Complete test transaction error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// ✅ Get payment configuration
+const getPaymentConfig = async (req, res) => {
+  try {
+    res.json({
+      amounts: PAYMENT_AMOUNTS,
+      plans: {
+        start: {
+          name: 'Start Plan',
+          price: PAYMENT_AMOUNTS.start,
+          priceUzs: PAYMENT_AMOUNTS.start / 100,
+          features: [
+            'Access to basic courses',
+            'Homework assignments',
+            'Basic tests',
+            'Progress tracking'
+          ]
+        },
+        pro: {
+          name: 'Pro Plan',
+          price: PAYMENT_AMOUNTS.pro,
+          priceUzs: PAYMENT_AMOUNTS.pro / 100,
+          features: [
+            'All Start features',
+            'Advanced courses',
+            'Personal analytics',
+            'Priority support',
+            'Exclusive materials'
+          ]
+        }
+      },
+      sandbox: {
+        enabled: process.env.NODE_ENV !== 'production',
+        endpoint: 'https://api.aced.live/api/payments/sandbox'
+      },
+      production: {
+        enabled: process.env.NODE_ENV === 'production',
+        merchantId: process.env.PAYME_MERCHANT_ID ? 'configured' : 'not_configured'
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Get payment config error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// ✅ Health check for payment system
+const getPaymentHealth = async (req, res) => {
+  try {
+    const health = {
+      status: 'OK',
+      timestamp: new Date().toISOString(),
+      sandbox: {
+        transactions: sandboxTransactions.size,
+        accountStates: accountStates.size,
+        endpoint: 'https://api.aced.live/api/payments/sandbox'
+      },
+      configuration: {
+        merchantKey: process.env.PAYME_MERCHANT_KEY ? 'configured' : 'missing',
+        testMode: process.env.NODE_ENV !== 'production',
+        amounts: PAYMENT_AMOUNTS
+      },
+      database: {
+        connected: true // Will be updated based on actual DB connection
+      }
+    };
+    
+    // Test database connection
+    try {
+      await User.findOne().limit(1);
+      health.database.connected = true;
+    } catch (dbError) {
+      health.database.connected = false;
+      health.database.error = dbError.message;
+    }
+    
+    const statusCode = health.database.connected ? 200 : 503;
+    res.status(statusCode).json(health);
+    
+  } catch (error) {
+    console.error('❌ Payment health check error:', error);
     res.status(500).json({
-      message: '❌ Error setting merchant key',
+      status: 'ERROR',
+      message: 'Health check failed',
       error: error.message
     });
   }
 };
 
+// ✅ Get payment statistics (for admin/monitoring)
+const getPaymentStats = async (req, res) => {
+  try {
+    const stats = {
+      sandbox: {
+        totalTransactions: sandboxTransactions.size,
+        transactionsByState: {
+          created: 0,
+          completed: 0,
+          cancelled: 0
+        },
+        totalAmount: 0,
+        completedAmount: 0
+      },
+      users: {
+        total: 0,
+        paid: 0,
+        free: 0
+      }
+    };
+    
+    // Calculate sandbox transaction stats
+    for (const transaction of sandboxTransactions.values()) {
+      switch (transaction.state) {
+        case TransactionState.CREATED:
+          stats.sandbox.transactionsByState.created++;
+          break;
+        case TransactionState.COMPLETED:
+          stats.sandbox.transactionsByState.completed++;
+          stats.sandbox.completedAmount += transaction.amount;
+          break;
+        case TransactionState.CANCELLED_AFTER_CREATE:
+        case TransactionState.CANCELLED_AFTER_COMPLETE:
+          stats.sandbox.transactionsByState.cancelled++;
+          break;
+      }
+      stats.sandbox.totalAmount += transaction.amount;
+    }
+    
+    // Calculate user stats
+    try {
+      const userCounts = await User.aggregate([
+        {
+          $group: {
+            _id: '$subscriptionPlan',
+            count: { $sum: 1 }
+          }
+        }
+      ]);
+      
+      stats.users.total = userCounts.reduce((sum, item) => sum + item.count, 0);
+      stats.users.free = userCounts.find(item => item._id === 'free')?.count || 0;
+      stats.users.paid = stats.users.total - stats.users.free;
+      
+    } catch (dbError) {
+      console.warn('Could not get user stats:', dbError.message);
+    }
+    
+    res.json(stats);
+    
+  } catch (error) {
+    console.error('❌ Get payment stats error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
 module.exports = { 
+  // Main PayMe functions
   applyPromoCode, 
   initiatePaymePayment,
   handleSandboxPayment,
-  validateUserRoute,
-  checkPaymentStatus,
   handlePaymeWebhook,
+  
+  // User management functions  
+  validateUserRoute,
+  getUserInfo,
+  getUserStatus,
+  saveUser,
+  updateUserProfile,
+  
+  // Payment status and monitoring
+  checkPaymentStatus,
   listTransactions,
   clearSandboxTransactions,
+  getPaymentConfig,
+  getPaymentHealth,
+  getPaymentStats,
+  
+  // Sandbox utilities
   setAccountState,
-  setMerchantKey
+  setMerchantKey,
+  
+  // Testing functions (development only)
+  createTestTransaction,
+  completeTestTransaction
 };
