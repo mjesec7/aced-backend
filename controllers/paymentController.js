@@ -1059,7 +1059,7 @@ const applyPromoCode = async (req, res) => {
 
 // Replace your initiatePaymePayment function in controllers/paymentController.js
 
-// Replace your initiatePaymePayment function in controllers/paymentController.js
+// FIXED: controllers/paymentController.js - initiatePaymePayment function
 
 const initiatePaymePayment = async (req, res) => {
   try {
@@ -1153,69 +1153,50 @@ const initiatePaymePayment = async (req, res) => {
         }
       });
     } else {
-      // ✅ DEVELOPMENT: Option 1 - Redirect to success page (no loop)
-      const successUrl = `https://aced.live/payment-success?` + new URLSearchParams({
-        transaction: transactionId,
-        plan: plan,
-        amount: amount,
+      // ✅ DEVELOPMENT: Redirect to custom checkout page instead of success page
+      const checkoutUrl = `https://aced.live/payment/checkout?` + new URLSearchParams({
+        transactionId: transactionId,
         userId: user.firebaseId,
-        status: 'test_completed',
+        amount: amount,
+        amountUzs: amount / 100,
+        plan: plan,
         userName: user.name || 'User',
         userEmail: user.email || '',
-        note: 'Development mode - payment simulation'
+        currentPlan: user.subscriptionPlan || 'free'
       }).toString();
 
-      // ✅ DEVELOPMENT: Option 2 - Use PayMe test environment (uncomment to use)
-      // const paymeTestParams = new URLSearchParams({
-      //   'm': 'test_merchant_id',
-      //   'ac.login': user.firebaseId,
-      //   'a': amount,
-      //   'c': transactionId,
-      //   'ct': Date.now(),
-      //   'l': 'uz',
-      //   'cr': 'UZS'
-      // });
-      // const paymeTestUrl = `https://checkout.test.paycom.uz/?${paymeTestParams.toString()}`;
-
-      // Store in sandbox for tracking
+      // Store transaction in sandbox for tracking
       if (typeof sandboxTransactions !== 'undefined') {
         sandboxTransactions.set(transactionId, {
           id: transactionId,
           userId: user.firebaseId,
           amount: amount,
           plan: plan,
-          state: 2, // Mark as completed for testing
+          state: 1, // Created, not completed
           create_time: Date.now(),
-          perform_time: Date.now(),
+          perform_time: 0,
           account: { login: user.firebaseId }
         });
-
-        // Auto-update user subscription in development
-        user.subscriptionPlan = plan;
-        user.paymentStatus = 'paid';
-        user.lastPaymentDate = new Date();
-        await user.save();
-        console.log('✅ Development: User subscription auto-updated');
       }
 
-      console.log('🧪 Development: Redirecting to success page');
+      console.log('🧪 Development: Redirecting to checkout page');
 
       return res.status(200).json({
         success: true,
-        message: '✅ Development payment completed',
-        paymentUrl: successUrl, // ← Redirect to success, not checkout
+        message: '✅ Development payment checkout',
+        paymentUrl: checkoutUrl,
         transaction: {
           id: transactionId,
           amount: amount,
           plan: plan,
-          state: 2 // Completed
+          state: 1 // Created, not completed
         },
         metadata: {
           userId: userId,
           plan: plan,
           amountUzs: amount / 100,
           environment: 'development',
-          note: 'Auto-completed in development mode'
+          note: 'Redirecting to checkout page'
         }
       });
     }

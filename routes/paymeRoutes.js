@@ -15,6 +15,15 @@ const {
   setMerchantKey
 } = require('../controllers/paymentController');
 
+// In-memory storage for sandbox transactions
+let sandboxTransactions = new Map();
+
+// Payment amounts configuration
+const PAYMENT_AMOUNTS = {
+  start: 26000000, // 260,000 UZS in tiyin
+  pro: 45500000    // 455,000 UZS in tiyin
+};
+
 // Middleware for logging requests in development
 const logRequests = (req, res, next) => {
   if (process.env.NODE_ENV !== 'production') {
@@ -38,154 +47,243 @@ router.use(logRequests);
 // Promo code application
 router.post('/promo-code', applyPromoCode);
 
-// Initiate PayMe payment
-router.post('/initiate-payme', initiatePaymePayment);
-
-// ======================================
-// PAYME CHECKOUT ENDPOINTS (NEW)
-// ======================================
-
-// Initialize payment (for checkout page)
-router.post('/initialize', async (req, res) => {
+// Initiate PayMe payment - UPDATED VERSION
+router.post('/initiate-payme', async (req, res) => {
   try {
-    const { transactionId, cardNumber, expiryDate, cardHolder, amount, userId, plan } = req.body;
-    
-    console.log('💳 Payment initialization request:', {
-      transactionId,
-      cardNumber: cardNumber ? cardNumber.slice(0, 4) + '****' + cardNumber.slice(-4) : 'None',
-      amount,
-      userId,
-      plan
-    });
-    
-    // Validate required fields
-    if (!transactionId || !cardNumber || !expiryDate || !cardHolder || !amount || !userId || !plan) {
-      return res.status(400).json({
+    const { userId, plan, name, phone } = req.body;
+
+    console.log('🚀 PayMe payment initiation:', { userId, plan });
+
+    if (!userId || !plan) {
+      return res.status(400).json({ 
         success: false,
-        message: 'Missing required fields'
+        message: '❌ userId and plan are required' 
       });
     }
-    
-    // Validate card type
-    const cardType = cardNumber.startsWith('8600') || cardNumber.startsWith('9860') || 
-                    cardNumber.startsWith('5440') || cardNumber.startsWith('6440') ? 'Humo' : 
-                    cardNumber.startsWith('5614') || cardNumber.startsWith('6262') ? 'UzCard' : null;
-    
-    if (!cardType) {
-      return res.status(400).json({
+
+    const allowedPlans = ['start', 'pro'];
+    if (!allowedPlans.includes(plan)) {
+      return res.status(400).json({ 
         success: false,
-        message: 'Unsupported card type. Please use Humo (8600, 9860, 5440, 6440) or UzCard (5614, 6262)'
+        message: '❌ Invalid plan. Allowed: start, pro' 
       });
     }
-    
-    // In a real PayMe integration:
-    // 1. This would send card data to PayMe API
-    // 2. PayMe would communicate with the bank
-    // 3. Bank would send SMS to cardholder's registered phone number
-    // 4. We get response from PayMe saying "SMS sent, wait for user input"
-    
-    // For now, simulate this flow
-    return res.json({
-      success: true,
-      requiresSms: true,
-      maskedPhone: '+998 ** *** **56', // This would come from the bank
-      cardType,
-      message: 'SMS code sent by bank to your registered phone number'
-    });
-    
+
+    // Find user
+    const User = require('../models/user');
+    let user = await User.findOne({ firebaseId: userId }).catch(() => null) ||
+               await User.findById(userId).catch(() => null) ||
+               await User.findOne({ email: userId }).catch(() => null);
+
+    if (!user) {
+      return res.status(404).json({ 
+        success: false,
+        message: '❌ User not found' 
+      });
+    }
+
+    const amount = PAYMENT_AMOUNTS[plan];
+    if (!amount) {
+      return res.status(400).json({ 
+        success: false,
+        message: '❌ Invalid plan amount' 
+      });
+    }
+
+    const transactionId = `aced_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const isProduction = process.env.NODE_ENV === 'production';
+    const merchantId = process.env.PAYME_MERCHANT_ID;
+
+    if (isProduction && merchantId) {
+      // PRODUCTION: Direct to PayMe
+      const paymeParams = {
+        m: merchantId,                    // Merchant ID
+        'ac.login': user.firebaseId,      // Account ID
+        a: amount,                        // Amount in tiyin
+        c: transactionId,                 // Our transaction ID
+        ct: Date.now(),                   // Timestamp
+        l: 'uz',                         // Language
+        cr: 'UZS'                        // Currency
+      };
+
+      const paymentUrl = `https://checkout.paycom.uz/?${new URLSearchParams(paymeParams).toString()}`;
+      
+      console.log('🔗 Production PayMe URL generated');
+
+      return res.status(200).json({
+        success: true,
+        message: '✅ Redirecting to PayMe checkout',
+        paymentUrl: paymentUrl,
+        transaction: {
+          id: transactionId,
+          amount: amount,
+          plan: plan,
+          state: 1
+        },
+        metadata: {
+          userId: userId,
+          plan: plan,
+          amountUzs: amount / 100,
+          environment: 'production'
+        }
+      });
+    } else {
+      // DEVELOPMENT: Our checkout page
+      const checkoutUrl = `https://aced.live/payment/checkout?${new URLSearchParams({
+        transactionId: transactionId,
+        userId: user.firebaseId,
+        amount: amount,
+        amountUzs: amount / 100,
+        plan: plan,
+        userName: user.name || 'User',
+        userEmail: user.email || '',
+        currentPlan: user.subscriptionPlan || 'free'
+      }).toString()}`;
+
+      // Store transaction for development
+      sandboxTransactions.set(transactionId, {
+        id: transactionId,
+        userId: user.firebaseId,
+        amount: amount,
+        plan: plan,
+        state: 1, // Created
+        create_time: Date.now(),
+        perform_time: 0,
+        account: { login: user.firebaseId }
+      });
+
+      console.log('🧪 Development: Redirecting to checkout page');
+
+      return res.status(200).json({
+        success: true,
+        message: '✅ Development checkout',
+        paymentUrl: checkoutUrl,
+        transaction: {
+          id: transactionId,
+          amount: amount,
+          plan: plan,
+          state: 1
+        },
+        metadata: {
+          userId: userId,
+          plan: plan,
+          amountUzs: amount / 100,
+          environment: 'development'
+        }
+      });
+    }
+
   } catch (error) {
-    console.error('❌ Payment initialization error:', error);
+    console.error('❌ Payment initiation error:', error);
     res.status(500).json({
       success: false,
-      message: 'Payment initialization failed',
+      message: '❌ Payment initiation failed',
       error: error.message
     });
   }
 });
 
-// Verify SMS code
+// ======================================
+// DEVELOPMENT SIMULATION ENDPOINTS
+// ======================================
+
+// Initialize payment (for checkout page) - UPDATED
+router.post('/initialize', async (req, res) => {
+  try {
+    const { transactionId, cardNumber, expiryDate, cardHolder, amount, userId, plan } = req.body;
+    
+    console.log('💳 Development: Simulating card initialization');
+    
+    // Basic validation
+    if (!cardNumber || !expiryDate || !cardHolder) {
+      return res.json({
+        success: false,
+        message: 'Missing card details'
+      });
+    }
+    
+    // Check card type
+    const cleanNumber = cardNumber.replace(/\s/g, '');
+    let cardType = null;
+    
+    if (cleanNumber.startsWith('8600') || cleanNumber.startsWith('9860') || 
+        cleanNumber.startsWith('5440') || cleanNumber.startsWith('6440')) {
+      cardType = 'Humo';
+    } else if (cleanNumber.startsWith('5614') || cleanNumber.startsWith('6262')) {
+      cardType = 'UzCard';
+    }
+    
+    if (!cardType) {
+      return res.json({
+        success: false,
+        message: 'Only Humo and UzCard are supported'
+      });
+    }
+    
+    // In development, just return success
+    // In production, PayMe handles this
+    return res.json({
+      success: true,
+      requiresSms: true,
+      maskedPhone: '+998 ** *** **56', // Fake masked phone
+      cardType: cardType,
+      message: 'SMS code sent (development mode - use any 6 digits)'
+    });
+    
+  } catch (error) {
+    console.error('Initialize error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Initialization failed'
+    });
+  }
+});
+
+// Verify SMS code - UPDATED
 router.post('/verify-sms', async (req, res) => {
   try {
     const { transactionId, smsCode } = req.body;
     
-    console.log('📱 SMS verification request:', {
-      transactionId,
-      smsCodeLength: smsCode?.length
-    });
+    console.log('📱 Development: Simulating SMS verification');
     
-    if (!transactionId || !smsCode) {
-      return res.status(400).json({
-        success: false,
-        message: 'Transaction ID and SMS code are required'
-      });
-    }
-    
-    if (smsCode.length !== 6) {
-      return res.status(400).json({
+    if (!smsCode || smsCode.length !== 6) {
+      return res.json({
         success: false,
         message: 'SMS code must be 6 digits'
       });
     }
     
-    // For demo purposes, accept any 6-digit code
-    // In production, this would verify with the actual bank/PayMe
+    // In development, accept any 6-digit code
+    // In production, PayMe handles this
     return res.json({
       success: true,
-      message: 'SMS code verified successfully'
+      message: 'SMS verified successfully (development mode)'
     });
     
   } catch (error) {
-    console.error('❌ SMS verification error:', error);
+    console.error('SMS verification error:', error);
     res.status(500).json({
       success: false,
-      message: 'SMS verification failed',
-      error: error.message
+      message: 'Verification failed'
     });
   }
 });
 
-// Complete payment
+// Complete payment - UPDATED
 router.post('/complete', async (req, res) => {
   try {
-    const { transactionId, userId, plan, cardType, cardLast4 } = req.body;
+    const { transactionId, userId, plan } = req.body;
     
-    console.log('✅ Payment completion request:', {
-      transactionId,
-      userId,
-      plan,
-      cardType,
-      cardLast4
-    });
+    console.log('✅ Development: Completing payment');
     
-    if (!transactionId || !userId || !plan) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required fields'
-      });
-    }
-    
-    // Find and update user subscription
+    // Find user and update subscription
     const User = require('../models/user');
-    let user = null;
+    let user = await User.findOne({ firebaseId: userId });
     
-    try {
-      // Try different search methods for user
-      if (userId.length >= 20 && !userId.match(/^[0-9a-fA-F]{24}$/)) {
-        user = await User.findOne({ firebaseId: userId });
-      } else if (userId.match(/^[0-9a-fA-F]{24}$/)) {
-        user = await User.findById(userId);
-      } else {
-        user = await User.findOne({
-          $or: [
-            { firebaseId: userId },
-            { email: userId }
-          ]
-        });
-      }
-    } catch (searchError) {
-      if (searchError.name === 'CastError') {
-        user = await User.findOne({ firebaseId: userId });
-      }
+    if (!user) {
+      // Try other search methods
+      user = await User.findById(userId).catch(() => null) ||
+             await User.findOne({ email: userId }).catch(() => null);
     }
     
     if (!user) {
@@ -195,17 +293,20 @@ router.post('/complete', async (req, res) => {
       });
     }
     
-    // Update user subscription
+    // Update subscription
     user.subscriptionPlan = plan;
     user.paymentStatus = 'paid';
     user.lastPaymentDate = new Date();
-    
     await user.save();
     
-    console.log('✅ User subscription updated:', {
-      userId: user.firebaseId,
-      newPlan: plan
-    });
+    // Update transaction if exists
+    if (sandboxTransactions && sandboxTransactions.has(transactionId)) {
+      const transaction = sandboxTransactions.get(transactionId);
+      transaction.state = 2; // Completed
+      transaction.perform_time = Date.now();
+    }
+    
+    console.log('✅ Payment completed for user:', user.firebaseId);
     
     return res.json({
       success: true,
@@ -223,7 +324,7 @@ router.post('/complete', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Payment completion error:', error);
+    console.error('Payment completion error:', error);
     res.status(500).json({
       success: false,
       message: 'Payment completion failed',
@@ -285,11 +386,26 @@ router.get('/status/:transactionId', checkPaymentStatus);
 // ======================================
 
 if (process.env.NODE_ENV !== 'production') {
-  // List all sandbox transactions
-  router.get('/transactions', listTransactions);
+  // List all sandbox transactions - UPDATED to use local storage
+  router.get('/transactions', (req, res) => {
+    const transactions = Array.from(sandboxTransactions.values());
+    res.json({
+      message: '✅ Sandbox transactions',
+      count: transactions.length,
+      transactions: transactions,
+      timestamp: new Date().toISOString()
+    });
+  });
   
-  // Clear all sandbox transactions
-  router.delete('/transactions/clear', clearSandboxTransactions);
+  // Clear all sandbox transactions - UPDATED
+  router.delete('/transactions/clear', (req, res) => {
+    const count = sandboxTransactions.size;
+    sandboxTransactions.clear();
+    res.json({
+      message: `✅ Cleared ${count} sandbox transactions`,
+      timestamp: new Date().toISOString()
+    });
+  });
   
   // Test endpoint to simulate different payment scenarios
   router.post('/test/scenario', async (req, res) => {
