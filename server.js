@@ -55,17 +55,27 @@ const preventInfiniteLoop = (req, res, next) => {
   const userAgent = req.headers['user-agent'] || '';
   const key = `${clientIP}-${req.url}`;
   
+  // Set CORS headers early for all requests
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+  }
+  
   // Check if this is a PayMe webhook vs browser request
   const isPayMeWebhook = req.headers.authorization?.startsWith('Basic ') && 
                         req.headers['content-type']?.includes('application/json');
   const isBrowserRequest = userAgent.includes('Mozilla') || userAgent.includes('Chrome');
   
-  // Block browser requests to PayMe endpoints
-  if (isBrowserRequest && (req.url.includes('/payme') || req.url.includes('/payments/sandbox'))) {
-    console.log('🚫 BLOCKED: Browser request to PayMe endpoint');
+  // Block browser requests to specific PayMe webhook endpoints only
+  const webhookPaths = ['/api/payments/sandbox', '/api/payments/payme'];
+  const isWebhookPath = webhookPaths.some(path => req.url === path);
+  
+  if (isBrowserRequest && isWebhookPath && !req.headers['x-request-source']) {
+    console.log('🚫 BLOCKED: Browser request to PayMe webhook endpoint:', req.url);
     return res.status(403).json({
       error: 'Direct browser access not allowed',
-      message: 'PayMe endpoints are for webhook/API use only',
+      message: 'PayMe webhook endpoints are for API use only',
       redirectTo: '/payment/status',
       timestamp: new Date().toISOString()
     });
@@ -194,7 +204,7 @@ app.use((req, res, next) => {
 });
 
 // ========================================
-// 🌐 ENHANCED CORS CONFIGURATION
+// 🌐 ENHANCED CORS CONFIGURATION - FIXED
 // ========================================
 
 const allowedOrigins = [
@@ -219,20 +229,24 @@ if (process.env.NODE_ENV === 'development') {
   );
 }
 
+console.log('🌐 CORS Allowed Origins:', allowedOrigins);
+
 app.use(cors({
   origin: (origin, callback) => {
-    console.log('🔍 CORS Check for:', origin);
+    console.log('🔍 CORS Check for origin:', origin);
     
+    // Allow requests with no origin (mobile apps, curl, webhooks)
     if (!origin) {
-      console.log('✅ CORS: No origin (mobile/desktop app or webhook)');
+      console.log('✅ CORS: No origin (mobile/desktop app or webhook) - ALLOWED');
       return callback(null, true);
     }
     
     if (allowedOrigins.includes(origin)) {
-      console.log('✅ CORS: Origin allowed');
+      console.log('✅ CORS: Origin allowed -', origin);
       callback(null, true);
     } else {
       console.warn('❌ CORS: Origin blocked -', origin);
+      console.warn('   Allowed origins:', allowedOrigins);
       callback(new Error(`CORS policy violation: ${origin} not allowed`));
     }
   },
@@ -244,13 +258,27 @@ app.use(cors({
     'X-Requested-With',
     'Accept',
     'Origin',
-    'X-Auth'
+    'X-Auth',
+    'X-Request-Source',
+    'X-User-Agent'
   ],
   exposedHeaders: ['X-Total-Count'],
-  maxAge: 86400,
+  maxAge: 86400, // 24 hours
+  optionsSuccessStatus: 200 // For legacy browser support
 }));
 
-app.options('*', cors());
+// Handle preflight requests explicitly
+app.options('*', (req, res) => {
+  console.log('🔧 Preflight request for:', req.url, 'from:', req.headers.origin);
+  
+  res.header('Access-Control-Allow-Origin', req.headers.origin);
+  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH');
+  res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin,X-Auth,X-Request-Source,X-User-Agent');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Max-Age', '86400');
+  
+  res.status(200).end();
+});
 
 // ========================================
 // 💾 IMPROVED MONGODB CONNECTION
@@ -444,10 +472,10 @@ const setTransaction = (id, transaction) => {
 };
 
 // ========================================
-// 🏥 ENHANCED HEALTH CHECK
+// 🏥 ENHANCED HEALTH CHECK - MULTIPLE ENDPOINTS
 // ========================================
 
-app.get('/health', async (req, res) => {
+const healthCheckHandler = async (req, res) => {
   const healthCheck = {
     status: 'OK',
     timestamp: new Date().toISOString(),
@@ -496,7 +524,11 @@ app.get('/health', async (req, res) => {
 
   const statusCode = healthCheck.database.status === 'connected' ? 200 : 503;
   res.status(statusCode).json(healthCheck);
-});
+};
+
+// Health check endpoints - both /health and /api/health
+app.get('/health', healthCheckHandler);
+app.get('/api/health', healthCheckHandler);
 
 // ========================================
 // 🔐 AUTH TEST ENDPOINT WITH ERROR HANDLING
