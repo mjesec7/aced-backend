@@ -1,4 +1,4 @@
-// routes/paymeRoutes.js - COMPLETE UPDATED WITH ALL ENDPOINTS
+// routes/paymeRoutes.js - COMPLETE UPDATED WITH ALL ENDPOINTS INCLUDING RETURN HANDLERS
 
 const express = require('express');
 const router = express.Router();
@@ -17,6 +17,24 @@ const {
 
 // In-memory storage for sandbox transactions
 let sandboxTransactions = new Map();
+
+// Helper functions for transaction management
+const getTransaction = (transactionId) => {
+  return sandboxTransactions.get(transactionId) || null;
+};
+
+const setTransaction = (transactionId, transaction) => {
+  sandboxTransactions.set(transactionId, transaction);
+};
+
+const findTransactionById = (transactionId) => {
+  for (let [key, value] of sandboxTransactions) {
+    if (value.id === transactionId || key === transactionId) {
+      return value;
+    }
+  }
+  return null;
+};
 
 // Payment amounts configuration
 const PAYMENT_AMOUNTS = {
@@ -39,6 +57,184 @@ const logRequests = (req, res, next) => {
 
 // Apply logging middleware
 router.use(logRequests);
+
+// ======================================
+// PAYME RETURN HANDLERS (SUCCESS/FAILURE/CANCEL)
+// ======================================
+
+// ✅ PayMe Success Return Handler
+router.get('/payme/return/success', async (req, res) => {
+  console.log('✅ PayMe SUCCESS return:', req.query);
+  
+  const transactionId = req.query.transaction || req.query.id || req.query.c;
+  const userId = req.query.userId || req.query.user_id;
+  
+  try {
+    if (!transactionId) {
+      console.warn('⚠️ No transaction ID in PayMe success return');
+      return res.redirect('https://aced.live/payment-failed?error=missing_transaction_id');
+    }
+
+    // Check transaction status in your system
+    const transaction = getTransaction(transactionId) || findTransactionById(transactionId);
+    
+    if (transaction) {
+      // Update transaction as completed
+      transaction.state = 2; // Completed
+      transaction.perform_time = Date.now();
+      setTransaction(transactionId, transaction);
+      
+      // Update user subscription if transaction is valid
+      if (transaction.account?.user_id) {
+        try {
+          const User = require('../models/user');
+          const user = await User.findOne({ firebaseId: transaction.account.user_id });
+          
+          if (user && transaction.plan) {
+            user.subscriptionPlan = transaction.plan;
+            user.paymentStatus = 'paid';
+            user.lastPaymentDate = new Date();
+            await user.save();
+            console.log(`✅ User ${user.firebaseId} upgraded to ${transaction.plan}`);
+          }
+        } catch (userUpdateError) {
+          console.warn('⚠️ Failed to update user subscription:', userUpdateError.message);
+        }
+      }
+      
+      // Redirect to success page with transaction details
+      const successParams = new URLSearchParams({
+        transaction: transactionId,
+        plan: transaction.plan || 'unknown',
+        amount: transaction.amount || 0,
+        source: 'payme'
+      });
+      
+      return res.redirect(`https://aced.live/payment-success?${successParams.toString()}`);
+    } else {
+      console.warn('⚠️ Transaction not found in our system:', transactionId);
+      // Still redirect to success, but without details
+      return res.redirect(`https://aced.live/payment-success?transaction=${transactionId}&source=payme`);
+    }
+    
+  } catch (error) {
+    console.error('❌ Error processing PayMe success return:', error);
+    return res.redirect(`https://aced.live/payment-failed?transaction=${transactionId}&error=processing_error&source=payme`);
+  }
+});
+
+// ✅ PayMe Failure Return Handler
+router.get('/payme/return/failure', async (req, res) => {
+  console.log('❌ PayMe FAILURE return:', req.query);
+  
+  const transactionId = req.query.transaction || req.query.id || req.query.c;
+  const error = req.query.error || req.query.reason || 'payment_failed';
+  
+  // Update transaction status if we have it
+  if (transactionId) {
+    const transaction = getTransaction(transactionId);
+    if (transaction) {
+      transaction.state = -1; // Cancelled
+      transaction.cancel_time = Date.now();
+      transaction.reason = error;
+      setTransaction(transactionId, transaction);
+    }
+  }
+  
+  const failureParams = new URLSearchParams({
+    transaction: transactionId || 'unknown',
+    error: error,
+    source: 'payme'
+  });
+  
+  res.redirect(`https://aced.live/payment-failed?${failureParams.toString()}`);
+});
+
+// ✅ PayMe Cancel Return Handler
+router.get('/payme/return/cancel', async (req, res) => {
+  console.log('🚫 PayMe CANCEL return:', req.query);
+  
+  const transactionId = req.query.transaction || req.query.id || req.query.c;
+  
+  // Update transaction status
+  if (transactionId) {
+    const transaction = getTransaction(transactionId);
+    if (transaction) {
+      transaction.state = -1; // Cancelled
+      transaction.cancel_time = Date.now();
+      transaction.reason = 'user_cancelled';
+      setTransaction(transactionId, transaction);
+    }
+  }
+  
+  const cancelParams = new URLSearchParams({
+    transaction: transactionId || 'unknown',
+    error: 'payment_cancelled',
+    source: 'payme'
+  });
+  
+  res.redirect(`https://aced.live/payment-failed?${cancelParams.toString()}`);
+});
+
+// ✅ PayMe Webhook/Notification Handler
+router.post('/payme/notify', async (req, res) => {
+  console.log('🔔 PayMe WEBHOOK notification:', req.body);
+  
+  try {
+    // PayMe sends JSON-RPC 2.0 notifications
+    const { method, params } = req.body;
+    
+    if (method && params) {
+      console.log(`🔔 PayMe notification method: ${method}`);
+      
+      // Handle different notification types
+      switch (method) {
+        case 'TransactionPerformed':
+          if (params.transaction && params.state === 2) {
+            const transactionId = params.transaction;
+            const transaction = getTransaction(transactionId);
+            
+            if (transaction) {
+              transaction.state = 2; // Completed
+              transaction.perform_time = Date.now();
+              setTransaction(transactionId, transaction);
+              console.log(`✅ Transaction ${transactionId} marked as completed via webhook`);
+            }
+          }
+          break;
+          
+        case 'TransactionCancelled':
+          if (params.transaction) {
+            const transactionId = params.transaction;
+            const transaction = getTransaction(transactionId);
+            
+            if (transaction) {
+              transaction.state = -1; // Cancelled
+              transaction.cancel_time = Date.now();
+              setTransaction(transactionId, transaction);
+              console.log(`❌ Transaction ${transactionId} marked as cancelled via webhook`);
+            }
+          }
+          break;
+      }
+    }
+    
+    // Always respond with success to PayMe
+    res.json({ 
+      jsonrpc: '2.0',
+      result: { received: true },
+      id: req.body.id || null
+    });
+    
+  } catch (error) {
+    console.error('❌ Error processing PayMe webhook:', error);
+    res.status(500).json({ 
+      jsonrpc: '2.0',
+      error: { code: -32000, message: 'Internal error' },
+      id: req.body?.id || null
+    });
+  }
+});
 
 // ======================================
 // MAIN PAYMENT ROUTES
@@ -94,6 +290,22 @@ router.post('/initiate-payme', async (req, res) => {
     const isProduction = process.env.NODE_ENV === 'production';
     const merchantId = process.env.PAYME_MERCHANT_ID;
 
+    // Store transaction in our system
+    const transaction = {
+      id: transactionId,
+      userId: user.firebaseId,
+      amount: amount,
+      plan: plan,
+      state: 1, // Created
+      create_time: Date.now(),
+      perform_time: 0,
+      account: { 
+        login: user.firebaseId,
+        user_id: user.firebaseId 
+      }
+    };
+    setTransaction(transactionId, transaction);
+
     if (isProduction && merchantId) {
       // PRODUCTION: Direct to PayMe
       const paymeParams = {
@@ -139,18 +351,6 @@ router.post('/initiate-payme', async (req, res) => {
         userEmail: user.email || '',
         currentPlan: user.subscriptionPlan || 'free'
       }).toString()}`;
-
-      // Store transaction for development
-      sandboxTransactions.set(transactionId, {
-        id: transactionId,
-        userId: user.firebaseId,
-        amount: amount,
-        plan: plan,
-        state: 1, // Created
-        create_time: Date.now(),
-        perform_time: 0,
-        account: { login: user.firebaseId }
-      });
 
       console.log('🧪 Development: Redirecting to checkout page');
 
@@ -505,7 +705,11 @@ if (process.env.NODE_ENV !== 'production') {
         transactions: 'GET /api/payments/transactions',
         clearTransactions: 'DELETE /api/payments/transactions/clear',
         setAccountState: 'POST /api/payments/sandbox/account-state',
-        setMerchantKey: 'POST /api/payments/sandbox/merchant-key'
+        setMerchantKey: 'POST /api/payments/sandbox/merchant-key',
+        paymeReturnSuccess: 'GET /api/payments/payme/return/success',
+        paymeReturnFailure: 'GET /api/payments/payme/return/failure',
+        paymeReturnCancel: 'GET /api/payments/payme/return/cancel',
+        paymeNotify: 'POST /api/payments/payme/notify'
       }
     });
   });
@@ -568,7 +772,11 @@ router.get('/health', (req, res) => {
       status: 'GET /api/payments/status/:transactionId/:userId?',
       validateUser: 'GET /api/payments/validate-user/:userId',
       setAccountState: 'POST /api/payments/sandbox/account-state',
-      setMerchantKey: 'POST /api/payments/sandbox/merchant-key'
+      setMerchantKey: 'POST /api/payments/sandbox/merchant-key',
+      paymeReturnSuccess: 'GET /api/payments/payme/return/success',
+      paymeReturnFailure: 'GET /api/payments/payme/return/failure',
+      paymeReturnCancel: 'GET /api/payments/payme/return/cancel',
+      paymeNotify: 'POST /api/payments/payme/notify'
     }
   });
 });
@@ -595,7 +803,11 @@ router.use('*', (req, res) => {
       'GET /api/payments/validate-user/:userId',
       'GET /api/payments/health',
       'POST /api/payments/sandbox/account-state',
-      'POST /api/payments/sandbox/merchant-key'
+      'POST /api/payments/sandbox/merchant-key',
+      'GET /api/payments/payme/return/success',
+      'GET /api/payments/payme/return/failure',
+      'GET /api/payments/payme/return/cancel',
+      'POST /api/payments/payme/notify'
     ]
   });
 });

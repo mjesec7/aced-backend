@@ -799,86 +799,46 @@ const handleChangePassword = async (req, res, id, params) => {
   });
 };
 
-// ✅ OTHER CONTROLLER FUNCTIONS (NON-PAYME)
+// controllers/paymentController.js - Fixed PayMe URL generation
 
-// ✅ Payment initiation that PREVENTS loops
 const initiatePaymePayment = async (req, res) => {
   try {
-    const { userId, plan, name, phone } = req.body;
-
-    console.log('🚀 PayMe payment initiation:', { userId, plan, name, phone });
-
-    if (!userId || !plan) {
-      return res.status(400).json({ 
-        success: false,
-        message: '❌ userId and plan are required' 
-      });
-    }
-
-    const allowedPlans = ['start', 'pro'];
-    if (!allowedPlans.includes(plan)) {
-      return res.status(400).json({ 
-        success: false,
-        message: '❌ Invalid plan. Allowed: start, pro' 
-      });
-    }
-
-    // Find user with enhanced search
-    let user = null;
-    try {
-      if (userId.length >= 20 && !userId.match(/^[0-9a-fA-F]{24}$/)) {
-        user = await User.findOne({ firebaseId: userId });
-      } else if (userId.match(/^[0-9a-fA-F]{24}$/)) {
-        user = await User.findById(userId);
-      } else {
-        user = await User.findOne({
-          $or: [{ firebaseId: userId }, { email: userId }]
-        });
-      }
-    } catch (searchError) {
-      if (searchError.name === 'CastError') {
-        user = await User.findOne({ firebaseId: userId });
-      }
-    }
-
-    if (!user) {
-      return res.status(404).json({ 
-        success: false,
-        message: '❌ User not found' 
-      });
-    }
-
+    const { userId, plan, additionalData = {} } = req.body;
+    
     const amount = PAYMENT_AMOUNTS[plan];
-    if (!amount) {
-      return res.status(400).json({ 
-        success: false,
-        message: '❌ Invalid plan amount' 
-      });
-    }
-
     const transactionId = `aced_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const isProduction = process.env.NODE_ENV === 'production';
     const merchantId = process.env.PAYME_MERCHANT_ID;
-
-    if (isProduction && merchantId) {
-      // PRODUCTION: Direct redirect to PayMe official checkout
+    
+    if (process.env.NODE_ENV === 'production' && merchantId) {
+      // ✅ PRODUCTION: Use correct PayMe URL structure
       const paymeParams = new URLSearchParams({
-        'm': merchantId,
-        'ac.login': user.firebaseId,
-        'a': amount,
-        'c': transactionId,
-        'ct': Date.now(),
-        'l': 'uz',
-        'cr': 'UZS'
+        'm': merchantId,                    // Merchant ID
+        'ac.user_id': userId,              // Account user ID
+        'a': amount,                       // Amount in tiyin
+        'c': transactionId,                // Transaction reference
+        'l': 'uz',                        // Language
+        'cr': 'UZS'                       // Currency
       });
 
-      const paymentUrl = `https://checkout.paycom.uz/?${paymeParams.toString()}`;
+      // ✅ FIXED: Use environment variable for PayMe base URL
+      const baseUrl = process.env.PAYME_API_URL_LIVE || 'https://checkout.paycom.uz';
+      const paymentUrl = `${baseUrl}?${paymeParams.toString()}`;
       
       console.log('🔗 Production PayMe URL generated:', paymentUrl);
+      
+      // ✅ Store transaction for webhook processing
+      setTransaction(transactionId, {
+        id: transactionId,
+        transaction: transactionId,
+        state: 1, // Created
+        create_time: Date.now(),
+        amount: amount,
+        account: { user_id: userId },
+        plan: plan
+      });
 
-      return res.status(200).json({
+      return res.json({
         success: true,
-        message: '✅ Redirecting to PayMe checkout',
         paymentUrl: paymentUrl,
         transaction: {
           id: transactionId,
@@ -894,36 +854,33 @@ const initiatePaymePayment = async (req, res) => {
         }
       });
     } else {
-      // DEVELOPMENT: Redirect to custom checkout page
-      const checkoutUrl = `https://aced.live/payment/checkout?` + new URLSearchParams({
+      // ✅ DEVELOPMENT: Custom checkout page
+      const checkoutParams = new URLSearchParams({
         transactionId: transactionId,
-        userId: user.firebaseId,
+        userId: userId,
         amount: amount,
         amountUzs: amount / 100,
         plan: plan,
-        userName: user.name || 'User',
-        userEmail: user.email || '',
-        currentPlan: user.subscriptionPlan || 'free'
-      }).toString();
-
-      // Store transaction in sandbox for tracking
-      sandboxTransactions.set(transactionId, {
-        id: transactionId,
-        userId: user.firebaseId,
-        amount: amount,
-        plan: plan,
-        state: 1,
-        create_time: Date.now(),
-        perform_time: 0,
-        account: { login: user.firebaseId }
+        userName: additionalData.name || 'User',
+        userEmail: additionalData.email || 'user@example.com'
       });
 
-      console.log('🧪 Development: Redirecting to checkout page');
+      const paymentUrl = `https://aced.live/payment/checkout?${checkoutParams.toString()}`;
+      
+      // Store transaction for development
+      setTransaction(transactionId, {
+        id: transactionId,
+        transaction: transactionId,
+        state: 1,
+        create_time: Date.now(),
+        amount: amount,
+        account: { user_id: userId },
+        plan: plan
+      });
 
-      return res.status(200).json({
+      return res.json({
         success: true,
-        message: '✅ Development payment checkout',
-        paymentUrl: checkoutUrl,
+        paymentUrl: paymentUrl,
         transaction: {
           id: transactionId,
           amount: amount,
@@ -934,8 +891,7 @@ const initiatePaymePayment = async (req, res) => {
           userId: userId,
           plan: plan,
           amountUzs: amount / 100,
-          environment: 'development',
-          note: 'Redirecting to checkout page'
+          environment: 'development'
         }
       });
     }
@@ -944,7 +900,6 @@ const initiatePaymePayment = async (req, res) => {
     console.error('❌ Payment initiation error:', error);
     res.status(500).json({
       success: false,
-      message: '❌ Payment initiation failed',
       error: error.message
     });
   }

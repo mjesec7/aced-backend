@@ -35,7 +35,9 @@ console.log("🧪 ENVIRONMENT DEBUG:", {
   // Production Environment Check
   isProduction: process.env.NODE_ENV === 'production',
   serverDomain: 'api.aced.live',
-  frontendDomain: 'aced.live'
+  frontendDomain: 'aced.live',
+  // CORS Configuration
+  allowedOrigins: process.env.ALLOWED_ORIGINS ? '✅ Set' : '❌ Using defaults'
 });
 
 const app = express();
@@ -204,20 +206,23 @@ app.use((req, res, next) => {
 });
 
 // ========================================
-// 🌐 ENHANCED CORS CONFIGURATION - FIXED
+// 🌐 ENHANCED CORS CONFIGURATION - UPDATED WITH ENVIRONMENT VARIABLE SUPPORT
 // ========================================
 
-const allowedOrigins = [
-  'https://aced.live',
-  'https://www.aced.live',
-  'https://admin.aced.live',
-  'http://localhost:3000',
-  'http://localhost:3001',
-  'http://127.0.0.1:3000',
-  // PayMe allowed origins
-  'https://checkout.paycom.uz',
-  'https://checkout.test.paycom.uz',
-];
+// ✅ FIXED: Use environment variable for CORS origins with fallback
+const allowedOrigins = process.env.ALLOWED_ORIGINS 
+  ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
+  : [
+      'https://aced.live',
+      'https://www.aced.live',
+      'https://admin.aced.live',
+      'http://localhost:3000',
+      'http://localhost:3001',
+      'http://127.0.0.1:3000',
+      // ✅ CRITICAL: PayMe allowed origins
+      'https://checkout.paycom.uz',
+      'https://checkout.test.paycom.uz',
+    ];
 
 // Add development origins if in dev mode
 if (process.env.NODE_ENV === 'development') {
@@ -235,9 +240,9 @@ app.use(cors({
   origin: (origin, callback) => {
     console.log('🔍 CORS Check for origin:', origin);
     
-    // Allow requests with no origin (mobile apps, curl, webhooks)
+    // ✅ CRITICAL: Allow requests with no origin (PayMe webhooks, mobile apps, curl)
     if (!origin) {
-      console.log('✅ CORS: No origin (mobile/desktop app or webhook) - ALLOWED');
+      console.log('✅ CORS: No origin (PayMe webhook, mobile/desktop app) - ALLOWED');
       return callback(null, true);
     }
     
@@ -260,7 +265,8 @@ app.use(cors({
     'Origin',
     'X-Auth',
     'X-Request-Source',
-    'X-User-Agent'
+    'X-User-Agent',
+    'X-PayMe-Request' // ✅ NEW: Allow PayMe specific headers
   ],
   exposedHeaders: ['X-Total-Count'],
   maxAge: 86400, // 24 hours
@@ -273,7 +279,7 @@ app.options('*', (req, res) => {
   
   res.header('Access-Control-Allow-Origin', req.headers.origin);
   res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH');
-  res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin,X-Auth,X-Request-Source,X-User-Agent');
+  res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin,X-Auth,X-Request-Source,X-User-Agent,X-PayMe-Request');
   res.header('Access-Control-Allow-Credentials', 'true');
   res.header('Access-Control-Max-Age', '86400');
   
@@ -515,6 +521,11 @@ const healthCheckHandler = async (req, res) => {
     firebase: {
       projectId: process.env.FIREBASE_PROJECT_ID || 'Not set',
       configured: !!(process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY)
+    },
+    cors: {
+      allowedOrigins: allowedOrigins.length,
+      environmentOverride: !!process.env.ALLOWED_ORIGINS,
+      paymeDomainsIncluded: allowedOrigins.some(origin => origin.includes('paycom.uz'))
     }
   };
 
@@ -1733,6 +1744,7 @@ app.get('/api/db-health', async (req, res) => {
     });
   }
 });
+
 app.get('/api/status', (req, res) => {
   res.json({
     status: 'API server running',
@@ -1835,6 +1847,11 @@ app.get('/api/routes', (req, res) => {
       rateLimitWindow: RATE_LIMIT_WINDOW,
       maxRequestsPerWindow: MAX_REQUESTS_PER_WINDOW,
       trackedRequests: requestTracker.size
+    },
+    cors: {
+      allowedOrigins: allowedOrigins,
+      environmentOverride: !!process.env.ALLOWED_ORIGINS,
+      paymeDomainsIncluded: allowedOrigins.some(origin => origin.includes('paycom.uz'))
     }
   });
 });
@@ -2049,6 +2066,14 @@ const startServer = async () => {
       console.log(`   Project ID: ${process.env.FIREBASE_PROJECT_ID || 'Not set'}`);
       console.log(`   Client Email: ${process.env.FIREBASE_CLIENT_EMAIL ? '✅ Set' : '❌ Missing'}`);
       console.log(`   Private Key: ${process.env.FIREBASE_PRIVATE_KEY ? '✅ Set' : '❌ Missing'}`);
+      console.log('');
+
+      // Show CORS configuration
+      console.log('🌐 CORS Configuration:');
+      console.log(`   Environment Override: ${process.env.ALLOWED_ORIGINS ? '✅ Active' : '❌ Using defaults'}`);
+      console.log(`   Allowed Origins: ${allowedOrigins.length} configured`);
+      console.log(`   PayMe Domains: ${allowedOrigins.some(origin => origin.includes('paycom.uz')) ? '✅ Included' : '❌ Missing'}`);
+      console.log(`   No-Origin Requests: ✅ Allowed (webhooks, mobile apps)`);
       console.log('');
     });
     
