@@ -1,6 +1,6 @@
-// server.js
+// server.js - COMPLETE UPDATED VERSION WITH PAYME INTEGRATION
 // ========================================
-// 🔧 COMPLETE MONGOOSE DEBUG SETUP WITH PAYME INTEGRATION - FIXED
+// 🔧 COMPLETE MONGOOSE DEBUG SETUP WITH PAYME INTEGRATION - UPDATED
 // ========================================
 
 const express = require('express');
@@ -29,9 +29,10 @@ console.log("🧪 ENVIRONMENT DEBUG:", {
   mongoUri: process.env.MONGO_URI ? '✅ Set' : '❌ Missing',
   mongoUriStart: process.env.MONGO_URI?.substring(0, 20) + '...' || 'Not set',
   // PayMe Configuration
+  paymeMerchantId: process.env.PAYME_MERCHANT_ID ? '✅ Set' : '❌ Missing',
   paymeMerchantKey: process.env.PAYME_MERCHANT_KEY ? '✅ Set' : '❌ Missing',
-  paymeTestMode: process.env.PAYME_TEST_MODE || 'true',
-  paymeEndpoint: process.env.PAYME_ENDPOINT || 'https://checkout.test.paycom.uz/api',
+  paymeCheckoutUrl: process.env.PAYME_CHECKOUT_URL || 'https://checkout.paycom.uz',
+  paymeTestMode: process.env.PAYME_TEST_MODE || 'false',
   // Production Environment Check
   isProduction: process.env.NODE_ENV === 'production',
   serverDomain: 'api.aced.live',
@@ -44,13 +45,13 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // ========================================
-// 🚫 CRITICAL: PREVENT INFINITE LOOP IN PAYME SANDBOX
+// 🚫 CRITICAL: PREVENT INFINITE LOOP IN PAYME INTEGRATION
 // ========================================
 
 // Add request tracking to prevent loops
 const requestTracker = new Map();
 const RATE_LIMIT_WINDOW = 60000; // 1 minute
-const MAX_REQUESTS_PER_WINDOW = 10;
+const MAX_REQUESTS_PER_WINDOW = 15; // Increased for PayMe webhooks
 
 const preventInfiniteLoop = (req, res, next) => {
   const clientIP = req.ip || req.connection.remoteAddress;
@@ -59,6 +60,20 @@ const preventInfiniteLoop = (req, res, next) => {
   
   // Set CORS headers early for all requests
   const origin = req.headers.origin;
+  const allowedOrigins = process.env.ALLOWED_ORIGINS 
+    ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
+    : [
+        'https://aced.live',
+        'https://www.aced.live',
+        'https://api.aced.live',
+        'http://localhost:3000',
+        'http://localhost:3001',
+        'http://127.0.0.1:3000',
+        // PayMe allowed origins
+        'https://checkout.paycom.uz',
+        'https://checkout.test.paycom.uz',
+      ];
+  
   if (origin && allowedOrigins.includes(origin)) {
     res.header('Access-Control-Allow-Origin', origin);
     res.header('Access-Control-Allow-Credentials', 'true');
@@ -66,14 +81,15 @@ const preventInfiniteLoop = (req, res, next) => {
   
   // Check if this is a PayMe webhook vs browser request
   const isPayMeWebhook = req.headers.authorization?.startsWith('Basic ') && 
-                        req.headers['content-type']?.includes('application/json');
+                        req.headers['content-type']?.includes('application/json') &&
+                        req.url === '/api/payments/payme';
   const isBrowserRequest = userAgent.includes('Mozilla') || userAgent.includes('Chrome');
   
-  // Block browser requests to specific PayMe webhook endpoints only
-  const webhookPaths = ['/api/payments/sandbox', '/api/payments/payme'];
-  const isWebhookPath = webhookPaths.some(path => req.url === path);
+  // Allow PayMe webhooks but block browser requests to webhook endpoints
+  const webhookPaths = ['/api/payments/payme'];
+  const isWebhookPath = webhookPaths.some(path => req.url.startsWith(path));
   
-  if (isBrowserRequest && isWebhookPath && !req.headers['x-request-source']) {
+  if (isBrowserRequest && isWebhookPath && !req.headers['x-request-source'] && !isPayMeWebhook) {
     console.log('🚫 BLOCKED: Browser request to PayMe webhook endpoint:', req.url);
     return res.status(403).json({
       error: 'Direct browser access not allowed',
@@ -132,7 +148,7 @@ app.use(helmet({
 
 app.use(compression());
 
-// Enhanced JSON parsing with error handling
+// Enhanced JSON parsing with error handling for PayMe
 app.use(express.json({ 
   limit: '10mb',
   verify: (req, res, buf, encoding) => {
@@ -152,7 +168,7 @@ app.use(express.json({
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // ========================================
-// 🔍 ENHANCED REQUEST LOGGING WITH LOOP DETECTION
+// 🔍 ENHANCED REQUEST LOGGING WITH PAYME DETECTION
 // ========================================
 
 app.use((req, res, next) => {
@@ -164,13 +180,15 @@ app.use((req, res, next) => {
   console.log(`🔑 Auth: ${req.headers.authorization ? 'Present' : 'None'}`);
   console.log(`🆔 User-Agent: ${req.headers['user-agent']?.substring(0, 50)}...`);
   
-  // Special logging for PayMe webhooks with loop detection
+  // Special logging for PayMe requests with loop detection
   if (isPayMeRequest) {
     const userAgent = req.headers['user-agent'] || '';
     const isBrowser = userAgent.includes('Mozilla') || userAgent.includes('Chrome');
+    const isPayMeWebhook = req.headers.authorization?.startsWith('Basic ') && 
+                          req.headers['content-type']?.includes('application/json');
     
     console.log('💳 PayMe/Payment Request Detected');
-    console.log(`🤖 Request Type: ${isBrowser ? 'BROWSER (POTENTIAL LOOP)' : 'WEBHOOK/API'}`);
+    console.log(`🤖 Request Type: ${isBrowser ? 'BROWSER' : 'WEBHOOK/API'} ${isPayMeWebhook ? '(PayMe Webhook)' : ''}`);
     console.log(`📋 Headers:`, {
       'content-type': req.headers['content-type'],
       'authorization': req.headers.authorization ? 'Present' : 'None',
@@ -179,8 +197,8 @@ app.use((req, res, next) => {
     });
     
     // Alert on potential loop
-    if (isBrowser) {
-      console.warn('⚠️  WARNING: Browser making direct PayMe request - potential infinite loop!');
+    if (isBrowser && !isPayMeWebhook) {
+      console.warn('⚠️  WARNING: Browser making PayMe request - monitoring for loops');
     }
   }
   
@@ -206,10 +224,10 @@ app.use((req, res, next) => {
 });
 
 // ========================================
-// 🌐 ENHANCED CORS CONFIGURATION - UPDATED WITH ENVIRONMENT VARIABLE SUPPORT
+// 🌐 ENHANCED CORS CONFIGURATION WITH PAYME DOMAINS
 // ========================================
 
-// ✅ FIXED: Use environment variable for CORS origins with fallback
+// Use environment variable for CORS origins with PayMe domains
 const allowedOrigins = process.env.ALLOWED_ORIGINS 
   ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
   : [
@@ -219,7 +237,7 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
       'http://localhost:3000',
       'http://localhost:3001',
       'http://127.0.0.1:3000',
-      // ✅ CRITICAL: PayMe allowed origins
+      // CRITICAL: PayMe allowed origins
       'https://checkout.paycom.uz',
       'https://checkout.test.paycom.uz',
     ];
@@ -240,7 +258,7 @@ app.use(cors({
   origin: (origin, callback) => {
     console.log('🔍 CORS Check for origin:', origin);
     
-    // ✅ CRITICAL: Allow requests with no origin (PayMe webhooks, mobile apps, curl)
+    // CRITICAL: Allow requests with no origin (PayMe webhooks, mobile apps, curl)
     if (!origin) {
       console.log('✅ CORS: No origin (PayMe webhook, mobile/desktop app) - ALLOWED');
       return callback(null, true);
@@ -266,7 +284,7 @@ app.use(cors({
     'X-Auth',
     'X-Request-Source',
     'X-User-Agent',
-    'X-PayMe-Request' // ✅ NEW: Allow PayMe specific headers
+    'X-PayMe-Request' // PayMe specific headers
   ],
   exposedHeaders: ['X-Total-Count'],
   maxAge: 86400, // 24 hours
@@ -415,77 +433,132 @@ const connectDB = async () => {
 };
 
 // ========================================
-// 💳 PAYME UTILITY FUNCTIONS - FIXED
+// 💳 PAYME INTEGRATION - IMPORT CONTROLLERS
 // ========================================
 
-class PayMeError extends Error {
-  constructor(code, message, data = null) {
-    super(message);
-    this.code = code;
-    this.data = data;
-  }
+// Import PayMe controllers
+let handlePaymeWebhook, initiatePaymePayment;
+
+try {
+  const paymentController = require('./controllers/paymentController');
+  handlePaymeWebhook = paymentController.handlePaymeWebhook;
+  initiatePaymePayment = paymentController.initiatePaymePayment;
+  console.log('✅ PayMe controllers loaded successfully');
+} catch (error) {
+  console.error('❌ Failed to load PayMe controllers:', error.message);
+  console.log('⚠️  PayMe routes will not be available');
 }
 
-const PayMeErrorCodes = {
-  INVALID_AMOUNT: -31001,
-  TRANSACTION_NOT_FOUND: -31003,
-  INVALID_ACCOUNT: -31050,
-  UNABLE_TO_PERFORM: -31008,
-  TRANSACTION_CANCELLED: -31007,
-  ALREADY_DONE: -31060,
-  PENDING_PAYMENT: -31061,
-  INVALID_AUTHORIZATION: -32504,
-  ACCESS_DENIED: -32401,
-  METHOD_NOT_FOUND: -32601,
-  INVALID_JSON_RPC: -32700
-};
+// ========================================
+// 💳 PAYME ROUTES - CRITICAL ENDPOINTS
+// ========================================
 
-// PayMe authorization check - FIXED
-const checkPayMeAuth = (req) => {
-  // Skip auth check in development mode
-  if (process.env.NODE_ENV === 'development') {
-    console.log('🔧 Skipping PayMe auth in development mode');
-    return true;
-  }
+if (handlePaymeWebhook && initiatePaymePayment) {
   
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Basic ')) {
-    throw new PayMeError(PayMeErrorCodes.INVALID_AUTHORIZATION, 'Invalid authorization header');
-  }
-  
-  try {
-    const credentials = Buffer.from(authHeader.slice(6), 'base64').toString();
-    const [username, password] = credentials.split(':');
+  // ✅ CRITICAL: PayMe JSON-RPC webhook endpoint (WHERE PAYME SENDS REQUESTS)
+  app.post('/api/payments/payme', (req, res, next) => {
+    console.log('💳 PayMe webhook endpoint hit');
+    handlePaymeWebhook(req, res, next);
+  });
+
+  // ✅ Payment initiation endpoint (for your frontend)
+  app.post('/api/payments/initiate-payme', (req, res, next) => {
+    console.log('🚀 PayMe initiation endpoint hit');
+    initiatePaymePayment(req, res, next);
+  });
+
+  // ✅ PayMe return URLs (for success/failure/cancel)
+  app.get('/api/payments/payme/return/success', (req, res) => {
+    console.log('✅ PayMe success return:', req.query);
     
-    if (username !== 'Paycom' || password !== process.env.PAYME_MERCHANT_KEY) {
-      throw new PayMeError(PayMeErrorCodes.ACCESS_DENIED, 'Access denied');
-    }
+    const transactionId = req.query.transaction || req.query.id;
+    const orderId = req.query.order_id;
     
-    return true;
-  } catch (error) {
-    throw new PayMeError(PayMeErrorCodes.INVALID_AUTHORIZATION, 'Invalid authorization format');
-  }
-};
+    // Redirect to frontend success page
+    const successParams = new URLSearchParams({
+      transaction: transactionId || 'unknown',
+      order: orderId || 'unknown',
+      status: 'success',
+      source: 'payme'
+    });
+    
+    res.redirect(`https://aced.live/payment-success?${successParams.toString()}`);
+  });
 
-// Validate transaction amount (in tiyin - 1 sum = 100 tiyin)
-const validateAmount = (amount) => {
-  if (!amount || amount < 100) { // Minimum 1 sum
-    throw new PayMeError(PayMeErrorCodes.INVALID_AMOUNT, 'Invalid amount');
-  }
-  return true;
-};
+  app.get('/api/payments/payme/return/failure', (req, res) => {
+    console.log('❌ PayMe failure return:', req.query);
+    
+    const transactionId = req.query.transaction || req.query.id;
+    const error = req.query.error || 'payment_failed';
+    
+    // Redirect to frontend failure page
+    const failureParams = new URLSearchParams({
+      transaction: transactionId || 'unknown',
+      error: error,
+      status: 'failed',
+      source: 'payme'
+    });
+    
+    res.redirect(`https://aced.live/payment-failed?${failureParams.toString()}`);
+  });
 
-// Transaction state manager - FIXED
-const transactionStates = new Map();
+  app.get('/api/payments/payme/return/cancel', (req, res) => {
+    console.log('🚫 PayMe cancel return:', req.query);
+    
+    const transactionId = req.query.transaction || req.query.id;
+    
+    // Redirect to frontend cancel page
+    const cancelParams = new URLSearchParams({
+      transaction: transactionId || 'unknown',
+      error: 'payment_cancelled',
+      status: 'cancelled',
+      source: 'payme'
+    });
+    
+    res.redirect(`https://aced.live/payment-failed?${cancelParams.toString()}`);
+  });
 
-const getTransaction = (id) => {
-  return transactionStates.get(id) || null;
-};
+  // ✅ PayMe notification endpoint (for webhooks)
+  app.post('/api/payments/payme/notify', (req, res, next) => {
+    console.log('🔔 PayMe notification endpoint hit');
+    handlePaymeWebhook(req, res, next);
+  });
 
-const setTransaction = (id, transaction) => {
-  transactionStates.set(id, transaction);
-  return transaction;
-};
+  // ✅ Test endpoint to verify PayMe integration
+  app.get('/api/payments/payme/test', (req, res) => {
+    res.json({
+      message: '✅ PayMe integration endpoints are working',
+      server: 'api.aced.live',
+      timestamp: new Date().toISOString(),
+      endpoints: {
+        webhook: 'POST /api/payments/payme',
+        initiate: 'POST /api/payments/initiate-payme',
+        success: 'GET /api/payments/payme/return/success',
+        failure: 'GET /api/payments/payme/return/failure',
+        cancel: 'GET /api/payments/payme/return/cancel',
+        notify: 'POST /api/payments/payme/notify'
+      },
+      configuration: {
+        merchantId: process.env.PAYME_MERCHANT_ID ? 'configured' : 'missing',
+        merchantKey: process.env.PAYME_MERCHANT_KEY ? 'configured' : 'missing',
+        checkoutUrl: process.env.PAYME_CHECKOUT_URL || 'https://checkout.paycom.uz',
+        environment: process.env.NODE_ENV || 'development'
+      }
+    });
+  });
+
+  console.log('✅ PayMe routes configured:');
+  console.log('   POST /api/payments/payme - JSON-RPC webhook');
+  console.log('   POST /api/payments/initiate-payme - Payment initiation');
+  console.log('   GET /api/payments/payme/return/success - Success callback');
+  console.log('   GET /api/payments/payme/return/failure - Failure callback');
+  console.log('   GET /api/payments/payme/return/cancel - Cancel callback');
+  console.log('   POST /api/payments/payme/notify - Notifications');
+  console.log('   GET /api/payments/payme/test - Test endpoint');
+
+} else {
+  console.warn('⚠️  PayMe controllers not available - routes not configured');
+}
 
 // ========================================
 // 🏥 ENHANCED HEALTH CHECK - MULTIPLE ENDPOINTS
@@ -512,11 +585,14 @@ const healthCheckHandler = async (req, res) => {
     },
     // PayMe configuration status
     payme: {
-      configured: !!process.env.PAYME_MERCHANT_KEY,
+      configured: !!(process.env.PAYME_MERCHANT_ID && process.env.PAYME_MERCHANT_KEY),
       testMode: process.env.NODE_ENV !== 'production',
+      merchantId: process.env.PAYME_MERCHANT_ID ? 'Set' : 'Missing',
       merchantKey: process.env.PAYME_MERCHANT_KEY ? 'Set' : 'Missing',
-      sandboxEndpoint: 'https://api.aced.live/api/payments/sandbox',
-      loopPrevention: 'Active'
+      checkoutUrl: process.env.PAYME_CHECKOUT_URL || 'https://checkout.paycom.uz',
+      webhookEndpoint: 'https://api.aced.live/api/payments/payme',
+      loopPrevention: 'Active',
+      controllersLoaded: !!(handlePaymeWebhook && initiatePaymePayment)
     },
     firebase: {
       projectId: process.env.FIREBASE_PROJECT_ID || 'Not set',
@@ -543,7 +619,7 @@ const healthCheckHandler = async (req, res) => {
     healthCheck.database.error = error.message;
   }
 
-  const statusCode = healthCheck.database.status === 'connected' ? 200 : 503;
+  const statusCode = healthCheck.database.status === 'connected' && healthCheck.payme.configured ? 200 : 503;
   res.status(statusCode).json(healthCheck);
 };
 
@@ -593,939 +669,6 @@ app.get('/auth-test', authTestHandler);
 app.get('/api/auth-test', authTestHandler);
 
 // ========================================
-// 💳 PAYME RPC ENDPOINT (PRODUCTION) - FIXED
-// ========================================
-
-app.post('/api/payments/payme', async (req, res) => {
-  console.log('\n💳 PayMe RPC Request received');
-  
-  try {
-    // Enhanced request validation
-    const userAgent = req.headers['user-agent'] || '';
-    const isBrowserRequest = userAgent.includes('Mozilla') || userAgent.includes('Chrome');
-    
-    if (isBrowserRequest) {
-      console.log('🚫 Blocking browser request to PayMe RPC endpoint');
-      return res.status(403).json({
-        jsonrpc: '2.0',
-        id: req.body?.id || null,
-        error: {
-          code: PayMeErrorCodes.ACCESS_DENIED,
-          message: 'Direct browser access not allowed',
-          data: 'This endpoint is for PayMe webhooks only'
-        }
-      });
-    }
-    
-    // Check PayMe authorization
-    checkPayMeAuth(req);
-    
-    const { method, params, id } = req.body;
-    
-    if (!method) {
-      throw new PayMeError(PayMeErrorCodes.METHOD_NOT_FOUND, 'Method not found');
-    }
-    
-    console.log(`🔧 PayMe Method: ${method}`);
-    console.log(`📋 PayMe Params:`, params);
-    
-    let result;
-    
-    switch (method) {
-      case 'CheckPerformTransaction':
-        result = await handleCheckPerformTransaction(params);
-        break;
-        
-      case 'CreateTransaction':
-        result = await handleCreateTransaction(params);
-        break;
-        
-      case 'PerformTransaction':
-        result = await handlePerformTransaction(params);
-        break;
-        
-      case 'CancelTransaction':
-        result = await handleCancelTransaction(params);
-        break;
-        
-      case 'CheckTransaction':
-        result = await handleCheckTransaction(params);
-        break;
-        
-      case 'GetStatement':
-        result = await handleGetStatement(params);
-        break;
-        
-      default:
-        throw new PayMeError(PayMeErrorCodes.METHOD_NOT_FOUND, `Method ${method} not found`);
-    }
-    
-    const response = {
-      jsonrpc: '2.0',
-      id: id || null,
-      result
-    };
-    
-    console.log('✅ PayMe Response:', JSON.stringify(response, null, 2));
-    res.json(response);
-    
-  } catch (error) {
-    console.error('❌ PayMe Error:', error.message);
-    
-    const errorResponse = {
-      jsonrpc: '2.0',
-      id: req.body?.id || null,
-      error: {
-        code: error.code || PayMeErrorCodes.INVALID_JSON_RPC,
-        message: error.message,
-        data: error.data || null
-      }
-    };
-    
-    res.json(errorResponse);
-  }
-});
-
-// ========================================
-// 💳 PAYME SANDBOX ENDPOINT (DEVELOPMENT/TESTING) - FIXED
-// ========================================
-
-app.post('/api/payments/sandbox', async (req, res) => {
-  console.log('\n🧪 PayMe Sandbox Request received on api.aced.live');
-  
-  try {
-    // Detect request type to prevent loops
-    const userAgent = req.headers['user-agent'] || '';
-    const isBrowserRequest = userAgent.includes('Mozilla') || userAgent.includes('Chrome');
-    const hasAuthHeader = !!req.headers.authorization;
-    
-    console.log('🔍 Sandbox Request Analysis:', {
-      userAgent: userAgent.substring(0, 50),
-      isBrowser: isBrowserRequest,
-      hasAuth: hasAuthHeader,
-      origin: req.headers.origin,
-      contentType: req.headers['content-type']
-    });
-    
-    // If this is a browser request without proper headers, block it
-    if (isBrowserRequest && !hasAuthHeader) {
-      console.log('🚫 Blocking browser request to sandbox - potential infinite loop');
-      return res.status(403).json({
-        jsonrpc: '2.0',
-        id: req.body?.id || null,
-        error: {
-          code: -32000,
-          message: {
-            ru: 'Прямой доступ браузера запрещен',
-            en: 'Direct browser access not allowed'
-          },
-          data: {
-            reason: 'This endpoint is for API/webhook use only',
-            redirectTo: '/payment/status',
-            timestamp: new Date().toISOString()
-          }
-        }
-      });
-    }
-    
-    // Try to load the payment controller
-    const { handleSandboxPayment } = require('./controllers/paymentController');
-    return handleSandboxPayment(req, res);
-    
-  } catch (error) {
-    console.error('❌ Sandbox route error:', error);
-    res.status(500).json({
-      jsonrpc: '2.0',
-      id: req.body?.id || null,
-      error: {
-        code: -32000,
-        message: { ru: 'Ошибка сервера', en: 'Server error' },
-        data: {
-          error: error.message,
-          timestamp: new Date().toISOString()
-        }
-      }
-    });
-  }
-});
-
-// ========================================
-// 💳 PAYME RPC HANDLERS - FIXED IMPLEMENTATIONS
-// ========================================
-
-const handleCheckPerformTransaction = async (params) => {
-  console.log('🔍 CheckPerformTransaction');
-  
-  const { amount, account } = params;
-  
-  // Validate account FIRST (as per PayMe docs)
-  if (!account || !account.user_id) {
-    throw new PayMeError(PayMeErrorCodes.INVALID_ACCOUNT, 'Invalid account: user_id required');
-  }
-  
-  // Then validate amount
-  validateAmount(amount);
-  
-  // Check if user exists in your system
-  try {
-    const User = require('./models/user');
-    const user = await User.findOne({ firebaseId: account.user_id });
-    if (!user) {
-      throw new PayMeError(PayMeErrorCodes.INVALID_ACCOUNT, 'User not found');
-    }
-  } catch (error) {
-    if (error instanceof PayMeError) throw error;
-    console.warn('⚠️  User validation skipped (DB unavailable)');
-  }
-  
-  return {
-    allow: true
-  };
-};
-
-const handleCreateTransaction = async (params) => {
-  console.log('🆕 CreateTransaction');
-  
-  const { id, time, amount, account } = params;
-  
-  // Check for existing transaction (idempotency)
-  const existingTransaction = getTransaction(id);
-  if (existingTransaction) {
-    console.log('🔄 Returning existing transaction');
-    return {
-      create_time: existingTransaction.create_time,
-      transaction: existingTransaction.id.toString(),
-      state: existingTransaction.state
-    };
-  }
-  
-  validateAmount(amount);
-  
-  if (!account || !account.user_id) {
-    throw new PayMeError(PayMeErrorCodes.INVALID_ACCOUNT, 'Invalid account');
-  }
-  
-  const transaction = {
-    id: id,
-    time: time,
-    amount: amount,
-    account: account,
-    state: 1, // Created state
-    create_time: Date.now(),
-    perform_time: 0,
-    cancel_time: 0,
-    reason: null
-  };
-  
-  // Store transaction
-  setTransaction(id, transaction);
-  
-  console.log('📝 Transaction created:', transaction);
-  
-  return {
-    create_time: transaction.create_time,
-    transaction: transaction.id.toString(),
-    state: transaction.state
-  };
-};
-
-const handlePerformTransaction = async (params) => {
-  console.log('✅ PerformTransaction');
-  
-  const { id } = params;
-  
-  if (!id) {
-    throw new PayMeError(PayMeErrorCodes.TRANSACTION_NOT_FOUND, 'Transaction not found');
-  }
-  
-  const transaction = getTransaction(id);
-  if (!transaction) {
-    throw new PayMeError(PayMeErrorCodes.TRANSACTION_NOT_FOUND, 'Transaction not found');
-  }
-  
-  // Check if already performed
-  if (transaction.state === 2) {
-    console.log('🔄 Transaction already performed');
-    return {
-      perform_time: transaction.perform_time,
-      transaction: transaction.id.toString(),
-      state: transaction.state
-    };
-  }
-  
-  // Check if transaction can be performed
-  if (transaction.state !== 1) {
-    throw new PayMeError(PayMeErrorCodes.UNABLE_TO_PERFORM, 'Transaction cannot be performed');
-  }
-  
-  // Update transaction state
-  transaction.state = 2; // Performed state
-  transaction.perform_time = Date.now();
-  
-  setTransaction(id, transaction);
-  
-  console.log('✅ Transaction performed:', transaction);
-  
-  return {
-    perform_time: transaction.perform_time,
-    transaction: transaction.id.toString(),
-    state: transaction.state
-  };
-};
-
-const handleCancelTransaction = async (params) => {
-  console.log('❌ CancelTransaction');
-  
-  const { id, reason } = params;
-  
-  if (!id) {
-    throw new PayMeError(PayMeErrorCodes.TRANSACTION_NOT_FOUND, 'Transaction not found');
-  }
-  
-  const transaction = getTransaction(id);
-  if (!transaction) {
-    throw new PayMeError(PayMeErrorCodes.TRANSACTION_NOT_FOUND, 'Transaction not found');
-  }
-  
-  // Check if already cancelled
-  if (transaction.state === -1 || transaction.state === -2) {
-    console.log('🔄 Transaction already cancelled');
-    return {
-      cancel_time: transaction.cancel_time,
-      transaction: transaction.id.toString(),
-      state: transaction.state
-    };
-  }
-  
-  // Determine cancellation state based on current state
-  let newState;
-  if (transaction.state === 1) {
-    newState = -1; // Cancelled after creation
-  } else if (transaction.state === 2) {
-    newState = -2; // Cancelled after performance
-  } else {
-    throw new PayMeError(PayMeErrorCodes.UNABLE_TO_PERFORM, 'Transaction cannot be cancelled');
-  }
-  
-  transaction.state = newState;
-  transaction.cancel_time = Date.now();
-  transaction.reason = reason;
-  
-  setTransaction(id, transaction);
-  
-  console.log('❌ Transaction cancelled:', transaction);
-  
-  return {
-    cancel_time: transaction.cancel_time,
-    transaction: transaction.id.toString(),
-    state: transaction.state
-  };
-};
-
-const handleCheckTransaction = async (params) => {
-  console.log('🔍 CheckTransaction');
-  
-  const { id } = params;
-  
-  if (!id) {
-    throw new PayMeError(PayMeErrorCodes.TRANSACTION_NOT_FOUND, 'Transaction not found');
-  }
-  
-  const transaction = getTransaction(id);
-  if (!transaction) {
-    throw new PayMeError(PayMeErrorCodes.TRANSACTION_NOT_FOUND, 'Transaction not found');
-  }
-  
-  console.log('🔍 Transaction status:', transaction);
-  
-  return {
-    create_time: transaction.create_time,
-    perform_time: transaction.perform_time,
-    cancel_time: transaction.cancel_time,
-    transaction: transaction.id.toString(),
-    state: transaction.state,
-    reason: transaction.reason
-  };
-};
-
-const handleGetStatement = async (params) => {
-  console.log('📊 GetStatement');
-  
-  const { from, to } = params;
-  
-  // Get all transactions in the time range
-  const transactions = [];
-  for (const [id, transaction] of transactionStates.entries()) {
-    if (transaction.time >= from && transaction.time <= to) {
-      transactions.push({
-        id: transaction.id,
-        time: transaction.time,
-        amount: transaction.amount,
-        account: transaction.account,
-        create_time: transaction.create_time,
-        perform_time: transaction.perform_time,
-        cancel_time: transaction.cancel_time,
-        transaction: transaction.id.toString(),
-        state: transaction.state,
-        reason: transaction.reason
-      });
-    }
-  }
-  
-  console.log('📊 Statement returned:', transactions.length, 'transactions');
-  
-  return {
-    transactions: transactions
-  };
-};
-
-// ========================================
-// 💳 PAYME PAYMENT INITIATION ENDPOINT - MULTIPLE ROUTES
-// ========================================
-
-const paymentInitiationHandler = async (req, res) => {
-  try {
-    console.log('🚀 Payment initiation request');
-    
-    const { amount, userId, description, plan, name, phone } = req.body;
-    
-    // Support both old format (amount, userId) and new format (userId, plan)
-    let finalAmount, finalUserId, finalPlan;
-    
-    if (plan && userId) {
-      // New format: { userId, plan, name, phone }
-      finalUserId = userId;
-      finalPlan = plan;
-      const PAYMENT_AMOUNTS = {
-        start: 260000, // 260,000 UZS
-        pro: 455000    // 455,000 UZS
-      };
-      finalAmount = PAYMENT_AMOUNTS[plan];
-    } else if (amount && userId) {
-      // Old format: { amount, userId, description }
-      finalAmount = amount;
-      finalUserId = userId;
-      finalPlan = amount >= 400000 ? 'pro' : 'start';
-    } else {
-      return res.status(400).json({
-        error: 'Missing required fields',
-        required: ['userId and plan'] || ['amount and userId'],
-        received: req.body,
-        server: 'api.aced.live'
-      });
-    }
-    
-    if (!finalAmount || !finalUserId) {
-      return res.status(400).json({
-        error: 'Invalid payment parameters',
-        amount: finalAmount,
-        userId: finalUserId,
-        plan: finalPlan,
-        server: 'api.aced.live'
-      });
-    }
-    
-    // Validate amount
-    if (finalAmount < 1) {
-      return res.status(400).json({
-        error: 'Invalid amount',
-        message: 'Amount must be at least 1 UZS',
-        server: 'api.aced.live'
-      });
-    }
-    
-    // Find user
-    try {
-      const User = require('./models/user');
-      let user = null;
-      
-      // Try multiple search strategies
-      if (finalUserId.length >= 20 && !finalUserId.match(/^[0-9a-fA-F]{24}$/)) {
-        user = await User.findOne({ firebaseId: finalUserId });
-      } else if (finalUserId.match(/^[0-9a-fA-F]{24}$/)) {
-        user = await User.findById(finalUserId);
-      } else {
-        user = await User.findOne({
-          $or: [{ firebaseId: finalUserId }, { email: finalUserId }]
-        });
-      }
-      
-      // If user not found but we have a valid Firebase ID format, create a minimal user object
-      if (!user && finalUserId.length >= 20) {
-        console.log('⚠️ User not found in DB, using Firebase ID format validation');
-        user = {
-          firebaseId: finalUserId,
-          name: name || 'User',
-          email: 'user@firebase.app',
-          subscriptionPlan: 'free'
-        };
-      }
-      
-      if (!user) {
-        return res.status(404).json({ 
-          success: false,
-          error: 'User not found',
-          userId: finalUserId,
-          server: 'api.aced.live'
-        });
-      }
-      
-      // Convert amount to tiyin (1 UZS = 100 tiyin)
-      const amountInTiyin = Math.round(finalAmount * 100);
-      
-      // Generate transaction ID
-      const transactionId = `aced_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      
-      // Generate payment URL for PayMe
-      const merchantId = process.env.PAYME_MERCHANT_ID;
-      const account = encodeURIComponent(JSON.stringify({ user_id: finalUserId }));
-      const amountParam = amountInTiyin;
-      
-      const isProduction = process.env.NODE_ENV === 'production';
-      
-      let paymentUrl;
-      
-      if (isProduction && merchantId) {
-        // PRODUCTION: Use actual PayMe checkout
-        // PayMe URL format: https://checkout.paycom.uz/{merchant_id}?{params}
-        const paymeParams = new URLSearchParams({
-          'm': merchantId,                    // Merchant ID
-          'ac.user_id': finalUserId,          // Account user ID
-          'a': amountParam,                   // Amount in tiyin
-          'c': transactionId,                 // Transaction ID
-          'l': 'uz',                         // Language
-          'cr': 'UZS'                        // Currency
-        });
-        
-        paymentUrl = `https://checkout.paycom.uz/${merchantId}?${paymeParams.toString()}`;
-        console.log('🏭 Production PayMe URL generated:', paymentUrl);
-      } else {
-        // DEVELOPMENT/SANDBOX: Use our custom checkout page
-        const checkoutParams = new URLSearchParams({
-          transactionId: transactionId,
-          userId: finalUserId,
-          amount: finalAmount,
-          plan: finalPlan,
-          userName: user.name || name || 'User',
-          userEmail: user.email || 'user@example.com',
-          currentPlan: user.subscriptionPlan || 'free'
-        });
-        
-        paymentUrl = `https://aced.live/payment/checkout?${checkoutParams.toString()}`;
-        console.log('🧪 Development checkout URL generated:', paymentUrl);
-      }
-      
-      console.log('💳 Payment URL generated:', paymentUrl);
-      
-      res.json({
-        success: true,
-        paymentUrl,
-        amount: finalAmount,
-        amountInTiyin,
-        userId: finalUserId,
-        plan: finalPlan,
-        description: description || `Payment for ${finalPlan} plan`,
-        server: 'api.aced.live',
-        environment: isProduction ? 'production' : 'sandbox',
-        transaction: {
-          id: transactionId,
-          amount: finalAmount,
-          plan: finalPlan,
-          state: 1 // Created
-        },
-        metadata: {
-          userId: finalUserId,
-          plan: finalPlan,
-          amountUzs: finalAmount,
-          environment: isProduction ? 'production' : 'development'
-        },
-        timestamp: new Date().toISOString(),
-        // Add debug info for development
-        debug: process.env.NODE_ENV === 'development' ? {
-          merchantId: merchantId || 'Not set',
-          account: JSON.parse(decodeURIComponent(account)),
-          redirectNote: 'In development, this redirects to frontend payment page'
-        } : undefined
-      });
-      
-    } catch (userError) {
-      console.error('❌ User lookup error:', userError);
-      
-      // If database error but we have a valid Firebase ID, proceed
-      if (finalUserId.length >= 20 && /^[a-zA-Z0-9_-]+$/.test(finalUserId)) {
-        console.log('🔧 Database error but valid Firebase ID, proceeding...');
-        
-        const amountInTiyin = Math.round(finalAmount * 100);
-        const transactionId = `aced_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        const merchantId = process.env.PAYME_MERCHANT_ID;
-        const account = encodeURIComponent(JSON.stringify({ user_id: finalUserId }));
-        
-        const isProduction = process.env.NODE_ENV === 'production';
-        
-        let paymentUrl;
-        
-        if (isProduction && merchantId) {
-          // PRODUCTION: Use actual PayMe checkout
-          const paymeParams = new URLSearchParams({
-            'm': merchantId,
-            'ac.user_id': finalUserId,
-            'a': amountInTiyin,
-            'c': transactionId,
-            'l': 'uz',
-            'cr': 'UZS'
-          });
-          
-          paymentUrl = `https://checkout.paycom.uz/${merchantId}?${paymeParams.toString()}`;
-        } else {
-          // DEVELOPMENT/SANDBOX: Use our custom checkout page
-          const checkoutParams = new URLSearchParams({
-            transactionId: transactionId,
-            userId: finalUserId,
-            amount: finalAmount,
-            plan: finalPlan,
-            userName: name || 'User',
-            userEmail: 'user@firebase.app',
-            currentPlan: 'free'
-          });
-          
-          paymentUrl = `https://aced.live/payment/checkout?${checkoutParams.toString()}`;
-        }
-        
-        return res.json({
-          success: true,
-          paymentUrl,
-          amount: finalAmount,
-          amountInTiyin,
-          userId: finalUserId,
-          plan: finalPlan,
-          description: description || `Payment for ${finalPlan} plan`,
-          server: 'api.aced.live',
-          environment: isProduction ? 'production' : 'sandbox',
-          transaction: {
-            id: transactionId,
-            amount: finalAmount,
-            plan: finalPlan,
-            state: 1
-          },
-          note: 'Proceeding with format validation due to database error',
-          timestamp: new Date().toISOString()
-        });
-      }
-      
-      return res.status(503).json({
-        success: false,
-        error: 'User lookup service unavailable',
-        message: userError.message,
-        server: 'api.aced.live'
-      });
-    }
-    
-  } catch (error) {
-    console.error('❌ Payment initiation error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Payment initiation failed',
-      message: error.message,
-      server: 'api.aced.live'
-    });
-  }
-};
-
-// Payment initiation endpoints - both /initiate and /initiate-payme
-app.post('/api/payments/initiate', paymentInitiationHandler);
-app.post('/api/payments/initiate-payme', paymentInitiationHandler);
-
-// ========================================
-// 💳 PAYMENT USER VALIDATION ENDPOINT - PRODUCTION-READY WITH FALLBACKS
-// ========================================
-
-app.get('/api/payments/validate-user/:userId', async (req, res) => {
-  try {
-    const { userId } = req.params;
-    
-    console.log('👤 Validating user for payment:', userId);
-    
-    if (!userId || userId.trim() === '') {
-      return res.status(400).json({
-        valid: false,
-        error: 'User ID is required',
-        server: 'api.aced.live',
-        timestamp: new Date().toISOString()
-      });
-    }
-
-    // Validate Firebase ID format (basic validation)
-    const isValidFirebaseId = userId.length >= 20 && /^[a-zA-Z0-9_-]+$/.test(userId);
-    const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(userId);
-    const isValidEmail = userId.includes('@') && userId.includes('.');
-    
-    if (!isValidFirebaseId && !isValidObjectId && !isValidEmail) {
-      return res.status(400).json({
-        valid: false,
-        error: 'Invalid user ID format',
-        expected: 'Firebase ID (20+ chars), MongoDB ObjectId (24 hex), or email',
-        received: `${userId.length} characters`,
-        server: 'api.aced.live',
-        timestamp: new Date().toISOString()
-      });
-    }
-
-    // Check database connection
-    const dbConnected = mongoose.connection.readyState === 1;
-    console.log('🔍 Database connection status:', dbConnected ? 'Connected' : 'Disconnected');
-
-    if (dbConnected) {
-      // Database is available - do full validation
-      try {
-        const User = require('./models/user');
-        
-        let user = null;
-        
-        // Strategy 1: Firebase ID (most common)
-        if (isValidFirebaseId) {
-          console.log('🔥 Searching by Firebase ID');
-          user = await User.findOne({ firebaseId: userId });
-        }
-        
-        // Strategy 2: MongoDB ObjectId
-        if (!user && isValidObjectId) {
-          console.log('🍃 Searching by MongoDB _id');
-          try {
-            user = await User.findById(userId);
-          } catch (castError) {
-            console.log('⚠️ ObjectId cast failed');
-          }
-        }
-        
-        // Strategy 3: Email format
-        if (!user && isValidEmail) {
-          console.log('📧 Searching by email');
-          user = await User.findOne({ email: userId });
-        }
-        
-        // Strategy 4: Broad search
-        if (!user) {
-          console.log('🔄 Fallback search across multiple fields');
-          user = await User.findOne({
-            $or: [
-              { firebaseId: userId },
-              { email: userId },
-              { login: userId }
-            ]
-          });
-        }
-        
-        if (user) {
-          console.log('✅ User found in database:', {
-            id: user._id,
-            firebaseId: user.firebaseId,
-            name: user.name,
-            email: user.email
-          });
-          
-          return res.json({
-            valid: true,
-            user: {
-              id: user._id,
-              firebaseId: user.firebaseId,
-              name: user.name || 'User',
-              email: user.email || 'No email',
-              subscriptionPlan: user.subscriptionPlan || 'free',
-              paymentStatus: user.paymentStatus || 'unpaid'
-            },
-            source: 'database',
-            server: 'api.aced.live',
-            timestamp: new Date().toISOString()
-          });
-        } else {
-          console.log('❌ User not found in database for ID:', userId);
-          
-          // Even if not found in DB, allow valid Firebase IDs to proceed in development
-          if (process.env.NODE_ENV === 'development' && isValidFirebaseId) {
-            console.log('🔧 Development mode: Allowing unknown Firebase ID');
-            return res.json({
-              valid: true,
-              user: {
-                id: userId,
-                firebaseId: userId,
-                name: 'Development User (Not in DB)',
-                email: 'dev@example.com',
-                subscriptionPlan: 'free',
-                paymentStatus: 'unpaid'
-              },
-              source: 'development_fallback',
-              note: 'User not found in database but allowed in development',
-              server: 'api.aced.live',
-              timestamp: new Date().toISOString()
-            });
-          }
-          
-          return res.status(404).json({
-            valid: false,
-            error: 'User not found',
-            searchedId: userId,
-            server: 'api.aced.live',
-            timestamp: new Date().toISOString()
-          });
-        }
-        
-      } catch (dbError) {
-        console.error('❌ Database error during user validation:', dbError);
-        
-        // Fall through to no-database handling
-        console.log('🔧 Falling back to format-based validation due to DB error');
-      }
-    }
-    
-    // Database not available OR database error - use format-based validation
-    console.log('⚠️ Database not available, using format-based validation');
-    
-    if (isValidFirebaseId) {
-      console.log('✅ Valid Firebase ID format - allowing payment');
-      return res.json({
-        valid: true,
-        user: {
-          id: userId,
-          firebaseId: userId,
-          name: 'Firebase User',
-          email: 'user@firebase.app',
-          subscriptionPlan: 'free',
-          paymentStatus: 'unpaid'
-        },
-        source: 'format_validation',
-        note: 'Database unavailable - validated by Firebase ID format',
-        server: 'api.aced.live',
-        timestamp: new Date().toISOString()
-      });
-    } else if (isValidEmail) {
-      console.log('✅ Valid email format - allowing payment');
-      return res.json({
-        valid: true,
-        user: {
-          id: userId,
-          firebaseId: userId,
-          name: 'Email User',
-          email: userId,
-          subscriptionPlan: 'free',
-          paymentStatus: 'unpaid'
-        },
-        source: 'format_validation',
-        note: 'Database unavailable - validated by email format',
-        server: 'api.aced.live',
-        timestamp: new Date().toISOString()
-      });
-    } else {
-      return res.status(400).json({
-        valid: false,
-        error: 'Invalid user ID format and database unavailable',
-        note: 'Cannot validate without database connection',
-        server: 'api.aced.live',
-        timestamp: new Date().toISOString()
-      });
-    }
-    
-  } catch (error) {
-    console.error('❌ User validation service error:', error);
-    
-    // Last resort - if it's a valid Firebase ID, allow it
-    const userId = req.params.userId;
-    const isValidFirebaseId = userId && userId.length >= 20 && /^[a-zA-Z0-9_-]+$/.test(userId);
-    
-    if (isValidFirebaseId) {
-      console.log('🆘 Emergency fallback - allowing valid Firebase ID');
-      return res.json({
-        valid: true,
-        user: {
-          id: userId,
-          firebaseId: userId,
-          name: 'Emergency User',
-          email: 'emergency@firebase.app',
-          subscriptionPlan: 'free',
-          paymentStatus: 'unpaid'
-        },
-        source: 'emergency_fallback',
-        note: 'Service error - emergency validation by Firebase ID format',
-        error: process.env.NODE_ENV === 'development' ? error.message : undefined,
-        server: 'api.aced.live',
-        timestamp: new Date().toISOString()
-      });
-    }
-    
-    res.status(500).json({
-      valid: false,
-      error: 'Validation service error',
-      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
-      server: 'api.aced.live',
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-app.get('/api/payments/status/:transactionId', async (req, res) => {
-  try {
-    const { transactionId } = req.params;
-    
-    console.log('🔍 Payment status check for:', transactionId);
-    
-    const transaction = getTransaction(transactionId);
-    
-    if (!transaction) {
-      return res.status(404).json({
-        error: 'Transaction not found',
-        transactionId,
-        server: 'api.aced.live',
-        timestamp: new Date().toISOString()
-      });
-    }
-    
-    // Map PayMe states to user-friendly status
-    let status, message;
-    switch (transaction.state) {
-      case 1:
-        status = 'pending';
-        message = 'Payment is being processed';
-        break;
-      case 2:
-        status = 'completed';
-        message = 'Payment completed successfully';
-        break;
-      case -1:
-        status = 'cancelled';
-        message = 'Payment was cancelled before completion';
-        break;
-      case -2:
-        status = 'refunded';
-        message = 'Payment was refunded';
-        break;
-      default:
-        status = 'unknown';
-        message = 'Unknown payment status';
-    }
-    
-    res.json({
-      transactionId,
-      status,
-      message,
-      amount: transaction.amount,
-      userId: transaction.account?.user_id,
-      createdAt: new Date(transaction.create_time).toISOString(),
-      completedAt: transaction.perform_time ? new Date(transaction.perform_time).toISOString() : null,
-      cancelledAt: transaction.cancel_time ? new Date(transaction.cancel_time).toISOString() : null,
-      server: 'api.aced.live',
-      timestamp: new Date().toISOString()
-    });
-    
-  } catch (error) {
-    console.error('❌ Payment status error:', error);
-    res.status(500).json({
-      error: 'Failed to get payment status',
-      message: error.message,
-      server: 'api.aced.live'
-    });
-  }
-});
-
-// ========================================
 // 📁 IMPROVED ROUTE MOUNTING
 // ========================================
 
@@ -1549,25 +692,15 @@ const mountRoute = (path, routeFile, description) => {
   }
 };
 
-// ✅ TEST: Check if userRoutes can be loaded
-console.log('🔍 Testing userRoutes loading...');
-try {
-  const testUserRoutes = require('./routes/userRoutes');
-  console.log('✅ userRoutes loaded successfully');
-} catch (error) {
-  console.error('❌ CRITICAL: userRoutes failed to load:', error.message);
-  console.error('❌ Stack:', error.stack);
-}
-
 const routesToMount = [
-  // PayMe routes FIRST (most specific)
-  ['/api/payments', './routes/paymeRoutes', 'PayMe payment routes'],
+  // PayMe routes FIRST (most specific) - these are handled above manually
+  ['/api/payments', './routes/paymeRoutes', 'PayMe payment routes (legacy)'],
   
   // User routes - CRITICAL
   ['/api/users', './routes/userRoutes', 'User management routes (MAIN)'],
   ['/api/user', './routes/userRoutes', 'User management routes (LEGACY)'],
   
-  // ✅ ALL ROUTES UNCOMMENTED - THEY ALL EXIST!
+  // Other routes
   ['/api/progress', './routes/userProgressRoutes', 'Progress tracking routes'],
   ['/api/lessons', './routes/lessonRoutes', 'Lesson management routes'],
   ['/api/subjects', './routes/subjectRoutes', 'Subject management routes'],
@@ -1692,7 +825,8 @@ app.get('/api/users/test', (req, res) => {
       'POST /api/users/save (emergency)',
       'GET /api/health',
       'GET /api/auth-test',
-      'GET /api/payments/validate-user/:userId'
+      'POST /api/payments/payme (PayMe webhook)',
+      'POST /api/payments/initiate-payme (Payment initiation)'
     ]
   });
 });
@@ -1755,11 +889,17 @@ app.get('/api/status', (req, res) => {
       status: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
       readyState: mongoose.connection.readyState
     },
+    payme: {
+      configured: !!(process.env.PAYME_MERCHANT_ID && process.env.PAYME_MERCHANT_KEY),
+      controllersLoaded: !!(handlePaymeWebhook && initiatePaymePayment)
+    },
     endpoints: {
       health: '/api/health',
       authTest: '/api/auth-test',
-      userValidation: '/api/payments/validate-user/:userId',
       userSave: '/api/users/save',
+      paymeWebhook: '/api/payments/payme',
+      paymeInitiate: '/api/payments/initiate-payme',
+      paymeTest: '/api/payments/payme/test',
       routes: '/api/routes'
     }
   });
@@ -1826,19 +966,22 @@ app.get('/api/routes', (req, res) => {
     routes: groupedRoutes,
     allRoutes: routes,
     paymeRoutes: [
-      { path: '/api/payments/payme', methods: 'POST', description: 'PayMe RPC endpoint' },
-      { path: '/api/payments/sandbox', methods: 'POST', description: 'PayMe sandbox endpoint' },
-      { path: '/api/payments/initiate', methods: 'POST', description: 'Payment initiation (unified)' },
+      { path: '/api/payments/payme', methods: 'POST', description: 'PayMe JSON-RPC webhook endpoint' },
       { path: '/api/payments/initiate-payme', methods: 'POST', description: 'PayMe payment initiation' },
-      { path: '/api/payments/status/:transactionId', methods: 'GET', description: 'Payment status check' },
-      { path: '/api/payments/validate-user/:userId', methods: 'GET', description: 'User validation for payments' }
+      { path: '/api/payments/payme/return/success', methods: 'GET', description: 'PayMe success return' },
+      { path: '/api/payments/payme/return/failure', methods: 'GET', description: 'PayMe failure return' },
+      { path: '/api/payments/payme/return/cancel', methods: 'GET', description: 'PayMe cancel return' },
+      { path: '/api/payments/payme/notify', methods: 'POST', description: 'PayMe notifications' },
+      { path: '/api/payments/payme/test', methods: 'GET', description: 'PayMe test endpoint' }
     ],
     systemRoutes: [
       { path: '/health', methods: 'GET', description: 'System health check' },
       { path: '/api/health', methods: 'GET', description: 'API health check' },
       { path: '/auth-test', methods: 'GET', description: 'Authentication test' },
       { path: '/api/auth-test', methods: 'GET', description: 'API authentication test' },
-      { path: '/api/routes', methods: 'GET', description: 'Routes information' }
+      { path: '/api/routes', methods: 'GET', description: 'Routes information' },
+      { path: '/api/status', methods: 'GET', description: 'Server status' },
+      { path: '/api/db-health', methods: 'GET', description: 'Database health check' }
     ],
     mountedRoutes: mountedRoutes.map(r => r.path),
     timestamp: new Date().toISOString(),
@@ -1852,6 +995,13 @@ app.get('/api/routes', (req, res) => {
       allowedOrigins: allowedOrigins,
       environmentOverride: !!process.env.ALLOWED_ORIGINS,
       paymeDomainsIncluded: allowedOrigins.some(origin => origin.includes('paycom.uz'))
+    },
+    payme: {
+      configured: !!(process.env.PAYME_MERCHANT_ID && process.env.PAYME_MERCHANT_KEY),
+      controllersLoaded: !!(handlePaymeWebhook && initiatePaymePayment),
+      merchantId: process.env.PAYME_MERCHANT_ID ? 'Set' : 'Missing',
+      merchantKey: process.env.PAYME_MERCHANT_KEY ? 'Set' : 'Missing',
+      checkoutUrl: process.env.PAYME_CHECKOUT_URL || 'https://checkout.paycom.uz'
     }
   });
 });
@@ -1878,11 +1028,19 @@ app.use('/api/*', (req, res) => {
     timestamp: new Date().toISOString(),
     availableRoutes: mountedRoutes.map(r => r.path),
     suggestion: 'Check the route path and method',
-    allMountedRoutes: [
-      'POST /api/payments/sandbox',
+    paymeEndpoints: [
       'POST /api/payments/payme',
-      'POST /api/payments/initiate',
-      'GET /api/payments/status/:transactionId',
+      'POST /api/payments/initiate-payme',
+      'GET /api/payments/payme/test'
+    ],
+    allMountedRoutes: [
+      'POST /api/payments/payme',
+      'POST /api/payments/initiate-payme',
+      'GET /api/payments/payme/return/success',
+      'GET /api/payments/payme/return/failure',
+      'GET /api/payments/payme/return/cancel',
+      'POST /api/payments/payme/notify',
+      'GET /api/payments/payme/test',
       ...mountedRoutes.map(r => `${r.path}/*`)
     ]
   });
@@ -1930,7 +1088,8 @@ app.get('*', (req, res) => {
         health: 'https://api.aced.live/health',
         routes: 'https://api.aced.live/api/routes',
         authTest: 'https://api.aced.live/auth-test',
-        paymentStatus: 'https://api.aced.live/api/payments/status/:transactionId'
+        paymeWebhook: 'https://api.aced.live/api/payments/payme',
+        paymeTest: 'https://api.aced.live/api/payments/payme/test'
       },
       timestamp: new Date().toISOString()
     });
@@ -1990,6 +1149,10 @@ app.use((err, req, res, next) => {
     statusCode = 429;
     message = 'Rate limit exceeded';
     details.preventionActive = true;
+  } else if (err.message.includes('PayMe') || err.message.includes('payme')) {
+    statusCode = 500;
+    message = 'PayMe integration error';
+    details.paymeError = true;
   }
   
   const errorResponse = {
@@ -2039,7 +1202,6 @@ const startServer = async () => {
       console.log(`🔗 Health: https://api.aced.live/health`);
       console.log(`🧪 Auth test: https://api.aced.live/auth-test`);
       console.log(`🔍 Routes debug: https://api.aced.live/api/routes`);
-      console.log(`💳 PayMe sandbox: https://api.aced.live/api/payments/sandbox`);
       console.log(`📊 Routes: ${mountedRoutes.length} mounted`);
       console.log(`🚫 Loop prevention: ACTIVE`);
       console.log('=====================================\n');
@@ -2054,9 +1216,13 @@ const startServer = async () => {
 
       // Show PayMe configuration
       console.log('💳 PayMe Configuration:');
+      console.log(`   Controllers Loaded: ${handlePaymeWebhook && initiatePaymePayment ? '✅ Yes' : '❌ No'}`);
+      console.log(`   Merchant ID: ${process.env.PAYME_MERCHANT_ID ? '✅ Set' : '❌ Missing'}`);
       console.log(`   Merchant Key: ${process.env.PAYME_MERCHANT_KEY ? '✅ Set' : '❌ Missing'}`);
-      console.log(`   Environment: ${process.env.NODE_ENV === 'production' ? 'Production' : 'Sandbox/Development'}`);
-      console.log(`   Sandbox URL: https://api.aced.live/api/payments/sandbox`);
+      console.log(`   Checkout URL: ${process.env.PAYME_CHECKOUT_URL || 'https://checkout.paycom.uz'}`);
+      console.log(`   Environment: ${process.env.NODE_ENV === 'production' ? 'Production' : 'Development'}`);
+      console.log(`   Webhook URL: https://api.aced.live/api/payments/payme`);
+      console.log(`   Test URL: https://api.aced.live/api/payments/payme/test`);
       console.log(`   Loop Prevention: ✅ Active`);
       console.log(`   Rate Limiting: ${MAX_REQUESTS_PER_WINDOW} requests per ${RATE_LIMIT_WINDOW/1000}s`);
       console.log('');
@@ -2075,6 +1241,19 @@ const startServer = async () => {
       console.log(`   PayMe Domains: ${allowedOrigins.some(origin => origin.includes('paycom.uz')) ? '✅ Included' : '❌ Missing'}`);
       console.log(`   No-Origin Requests: ✅ Allowed (webhooks, mobile apps)`);
       console.log('');
+
+      // PayMe Endpoint Summary
+      if (handlePaymeWebhook && initiatePaymePayment) {
+        console.log('💳 PayMe Endpoints Active:');
+        console.log('   POST /api/payments/payme - JSON-RPC webhook');
+        console.log('   POST /api/payments/initiate-payme - Payment initiation');
+        console.log('   GET /api/payments/payme/test - Test endpoint');
+        console.log('   GET /api/payments/payme/return/* - Return handlers');
+        console.log('');
+      } else {
+        console.log('⚠️  PayMe Endpoints NOT Available - Check controller loading');
+        console.log('');
+      }
     });
     
     // Graceful shutdown
