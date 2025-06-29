@@ -1,4 +1,4 @@
-// controllers/paymentController.js - FIXED VERSION BASED ON PHP TEMPLATE
+// controllers/paymentController.js - FIXED VERSION WITH CORRECT ERRORS
 const User = require('../models/user');
 const PaymeTransaction = require('../models/paymeTransaction');
 const mongoose = require('mongoose');
@@ -9,20 +9,37 @@ const PAYMENT_AMOUNTS = {
   pro: 45500000     // 455,000 UZS
 };
 
-// PayMe Error codes (matching PHP template exactly)
+// ✅ CORRECT PayMe Error codes from documentation
 const PaymeErrorCode = {
+  // System errors
   ERROR_INTERNAL_SYSTEM: -32400,
   ERROR_INSUFFICIENT_PRIVILEGE: -32504,
   ERROR_INVALID_JSON_RPC_OBJECT: -32600,
   ERROR_METHOD_NOT_FOUND: -32601,
+  ERROR_INVALID_PARAMS: -32602,
+  ERROR_PARSE_ERROR: -32700,
+  
+  // Transaction errors
   ERROR_INVALID_AMOUNT: -31001,
   ERROR_TRANSACTION_NOT_FOUND: -31003,
-  ERROR_INVALID_ACCOUNT: -31050,
   ERROR_COULD_NOT_CANCEL: -31007,
-  ERROR_COULD_NOT_PERFORM: -31008
+  ERROR_COULD_NOT_PERFORM: -31008,
+  
+  // Account errors (range -31050 to -31099 for account validation)
+  ERROR_INVALID_ACCOUNT: -31050,
+  ERROR_ACCOUNT_NOT_FOUND: -31051,
+  ERROR_INVALID_ORDER_ID: -31052,
+  ERROR_ORDER_NOT_FOUND: -31053,
+  ERROR_ORDER_ALREADY_PAID: -31054,
+  ERROR_ORDER_EXPIRED: -31055,
+  
+  // SetFiscalData errors
+  ERROR_RECEIPT_NOT_FOUND: -32001,
+  ERROR_INVALID_JSON: -32700,
+  ERROR_INVALID_FISCAL_PARAMS: -32602
 };
 
-// ✅ AUTHORIZATION VALIDATION (matching PHP Merchant::Authorize)
+// ✅ AUTHORIZATION VALIDATION
 const validatePaymeAuth = (req) => {
   console.log('🔐 PayMe Authorization Check');
   
@@ -39,7 +56,7 @@ const validatePaymeAuth = (req) => {
     
     console.log('🔍 Auth credentials:', { username, hasPassword: !!password });
     
-    // PayMe expects username 'Paycom' (matching PHP template)
+    // PayMe expects username 'Paycom'
     if (username !== 'Paycom') {
       console.log('❌ Invalid username. Expected: Paycom, Got:', username);
       return { valid: false, error: 'INVALID_USERNAME' };
@@ -67,55 +84,97 @@ const validatePaymeAuth = (req) => {
   }
 };
 
-// ✅ CREATE ERROR RESPONSE (matching PHP PaycomException format)
+// ✅ CREATE ERROR RESPONSE with proper message format
 const createErrorResponse = (id, code, message = null, data = null) => {
-  const messages = {
-    ru: '',
-    en: '',
-    uz: ''
-  };
-
-  // Set messages based on error code (matching PHP template)
-  switch (code) {
-    case PaymeErrorCode.ERROR_INVALID_AMOUNT:
-      messages.ru = 'Неверная сумма';
-      messages.en = 'Invalid amount';
-      messages.uz = "Noto'g'ri summa";
-      break;
-    case PaymeErrorCode.ERROR_TRANSACTION_NOT_FOUND:
-      messages.ru = 'Транзакция не найдена';
-      messages.en = 'Transaction not found';
-      messages.uz = 'Tranzaksiya topilmadi';
-      break;
-    case PaymeErrorCode.ERROR_COULD_NOT_PERFORM:
-      messages.ru = 'Невозможно выполнить операцию';
-      messages.en = 'Unable to perform operation';
-      messages.uz = "Amalni bajarib bo'lmadi";
-      break;
-    case PaymeErrorCode.ERROR_INVALID_ACCOUNT:
-      messages.ru = 'Неверный код заказа';
-      messages.en = 'Incorrect order code';
-      messages.uz = 'Harid kodida xatolik';
-      break;
-    case PaymeErrorCode.ERROR_METHOD_NOT_FOUND:
-      messages.ru = `Метод ${message} не найден`;
-      messages.en = `Method ${message} not found`;
-      messages.uz = `${message} usuli topilmadi`;
-      break;
-    case PaymeErrorCode.ERROR_INSUFFICIENT_PRIVILEGE:
-      messages.ru = 'Недостаточно привилегий для выполнения метода';
-      messages.en = 'Insufficient privilege to perform this method';
-      messages.uz = "Ushbu amalni bajarish uchun yetarli huquq yo'q";
-      break;
-    case PaymeErrorCode.ERROR_INTERNAL_SYSTEM:
-      messages.ru = 'Внутренняя ошибка сервера';
-      messages.en = 'Internal server error';
-      messages.uz = 'Server ichki xatosi';
-      break;
-    default:
-      messages.ru = message || 'Неизвестная ошибка';
-      messages.en = message || 'Unknown error';
-      messages.uz = message || "Noma'lum xato";
+  // Default messages based on PayMe documentation
+  let errorMessage = message;
+  
+  if (!errorMessage) {
+    switch (code) {
+      case PaymeErrorCode.ERROR_INVALID_AMOUNT:
+        errorMessage = {
+          ru: 'Неверная сумма',
+          en: 'Invalid amount',
+          uz: "Noto'g'ri summa"
+        };
+        break;
+      case PaymeErrorCode.ERROR_TRANSACTION_NOT_FOUND:
+        errorMessage = {
+          ru: 'Транзакция не найдена',
+          en: 'Transaction not found',
+          uz: 'Tranzaksiya topilmadi'
+        };
+        break;
+      case PaymeErrorCode.ERROR_COULD_NOT_PERFORM:
+        errorMessage = {
+          ru: 'Невозможно выполнить операцию',
+          en: 'Unable to perform operation',
+          uz: "Amalni bajarib bo'lmadi"
+        };
+        break;
+      case PaymeErrorCode.ERROR_COULD_NOT_CANCEL:
+        errorMessage = {
+          ru: 'Заказ выполнен. Невозможно отменить транзакцию. Товар или услуга предоставлена покупателю в полном объеме.',
+          en: 'Order completed. Cannot cancel transaction. Product or service has been fully provided to the customer.',
+          uz: 'Buyurtma bajarildi. Tranzaksiyani bekor qilib bolmaydi. Mahsulot yoki xizmat xaridorga toʻliq hajmda taqdim etildi.'
+        };
+        break;
+      case PaymeErrorCode.ERROR_INVALID_ACCOUNT:
+        errorMessage = {
+          ru: 'Неверный код заказа',
+          en: 'Incorrect order code',
+          uz: 'Harid kodida xatolik'
+        };
+        break;
+      case PaymeErrorCode.ERROR_METHOD_NOT_FOUND:
+        errorMessage = {
+          ru: `Метод не найден`,
+          en: `Method not found`,
+          uz: `Usul topilmadi`
+        };
+        break;
+      case PaymeErrorCode.ERROR_INSUFFICIENT_PRIVILEGE:
+        errorMessage = {
+          ru: 'Недостаточно привилегий для выполнения метода',
+          en: 'Insufficient privilege to perform this method',
+          uz: "Ushbu amalni bajarish uchun yetarli huquq yo'q"
+        };
+        break;
+      case PaymeErrorCode.ERROR_INTERNAL_SYSTEM:
+        errorMessage = {
+          ru: 'Внутренняя ошибка сервера',
+          en: 'Internal server error',
+          uz: 'Server ichki xatosi'
+        };
+        break;
+      case PaymeErrorCode.ERROR_RECEIPT_NOT_FOUND:
+        errorMessage = {
+          ru: 'Чек с таким id не найден',
+          en: 'Receipt with this id not found',
+          uz: 'Bunday id bilan chek topilmadi'
+        };
+        break;
+      case PaymeErrorCode.ERROR_INVALID_JSON:
+        errorMessage = {
+          ru: 'Отправлен не валидный JSON объект',
+          en: 'Invalid JSON object sent',
+          uz: 'Yaroqsiz JSON obyekt yuborildi'
+        };
+        break;
+      case PaymeErrorCode.ERROR_INVALID_FISCAL_PARAMS:
+        errorMessage = {
+          ru: 'Не валидные параметры',
+          en: 'Invalid parameters',
+          uz: 'Yaroqsiz parametrlar'
+        };
+        break;
+      default:
+        errorMessage = {
+          ru: 'Неизвестная ошибка',
+          en: 'Unknown error',
+          uz: "Noma'lum xato"
+        };
+    }
   }
 
   const errorResponse = {
@@ -123,7 +182,7 @@ const createErrorResponse = (id, code, message = null, data = null) => {
     id: id || null,
     error: {
       code: code,
-      message: messages
+      message: errorMessage
     }
   };
 
@@ -134,20 +193,20 @@ const createErrorResponse = (id, code, message = null, data = null) => {
   return errorResponse;
 };
 
-// ✅ ORDER VALIDATION (matching PHP Order::validate)
+// ✅ ORDER VALIDATION with correct error codes
 const validateOrder = async (params, request_id) => {
   console.log('🔍 Validating order parameters');
   
-  // Validate amount (matching PHP template logic)
-  if (!params.amount || !Number.isInteger(params.amount)) {
+  // Validate amount
+  if (!params.amount || !Number.isInteger(params.amount) || params.amount <= 0) {
     throw {
       code: PaymeErrorCode.ERROR_INVALID_AMOUNT,
-      message: 'Incorrect amount',
+      message: null,
       data: null
     };
   }
   
-  // Validate account parameters (matching PHP template)
+  // Validate account parameters
   if (!params.account || !params.account.order_id) {
     throw {
       code: PaymeErrorCode.ERROR_INVALID_ACCOUNT,
@@ -167,20 +226,20 @@ const validateOrder = async (params, request_id) => {
     };
   }
   
-  // Validate amount matches order amount (matching PHP template)
+  // Validate amount matches order amount
   if (orderInfo.amount !== params.amount) {
     throw {
       code: PaymeErrorCode.ERROR_INVALID_AMOUNT,
-      message: 'Incorrect amount',
+      message: null,
       data: null
     };
   }
   
-  // Check order state (matching PHP template)
+  // Check order state
   if (orderInfo.state !== 'waiting_pay') {
     throw {
       code: PaymeErrorCode.ERROR_COULD_NOT_PERFORM,
-      message: 'Order state is invalid',
+      message: null,
       data: null
     };
   }
@@ -188,7 +247,7 @@ const validateOrder = async (params, request_id) => {
   return orderInfo;
 };
 
-// ✅ FIND ORDER BY ID (matching PHP Order::find)
+// ✅ FIND ORDER BY ID
 const findOrderById = async (order_id) => {
   try {
     console.log('🔍 Finding order by ID:', order_id);
@@ -218,7 +277,7 @@ const findOrderById = async (order_id) => {
     
     // Determine expected amount based on plan
     let expectedAmount = PAYMENT_AMOUNTS.start;
-    const planFromOrderId = orderParts[3]; // If plan is encoded in order ID
+    const planFromOrderId = orderParts[3];
     if (planFromOrderId === 'pro') {
       expectedAmount = PAYMENT_AMOUNTS.pro;
     }
@@ -228,7 +287,7 @@ const findOrderById = async (order_id) => {
     return {
       id: parseInt(order_id),
       amount: expectedAmount,
-      state: 'waiting_pay', // Assuming order is ready for payment
+      state: 'waiting_pay',
       user_id: userId
     };
     
@@ -238,15 +297,15 @@ const findOrderById = async (order_id) => {
   }
 };
 
-// ✅ 1. CheckPerformTransaction (matching PHP Application::CheckPerformTransaction)
+// ✅ 1. CheckPerformTransaction
 const handleCheckPerformTransaction = async (req, res, id, params) => {
   console.log('🔍 CheckPerformTransaction');
   
   try {
-    // Validate order (matching PHP template)
+    // Validate order
     const order = await validateOrder(params, id);
     
-    // Check for existing active/completed transactions (matching PHP template)
+    // Check for existing active/completed transactions
     const existingTransaction = await PaymeTransaction.findByOrderId(params.account.order_id);
     
     if (existingTransaction && 
@@ -257,7 +316,7 @@ const handleCheckPerformTransaction = async (req, res, id, params) => {
       return res.status(200).json(createErrorResponse(
         id, 
         PaymeErrorCode.ERROR_COULD_NOT_PERFORM,
-        'There is other active/completed transaction for this order'
+        null
       ));
     }
     
@@ -277,15 +336,15 @@ const handleCheckPerformTransaction = async (req, res, id, params) => {
   }
 };
 
-// ✅ 2. CreateTransaction (matching PHP Application::CreateTransaction)
+// ✅ 2. CreateTransaction
 const handleCreateTransaction = async (req, res, id, params) => {
   console.log('🆕 CreateTransaction');
   
   try {
-    // Validate order first (matching PHP template)
+    // Validate order first
     const order = await validateOrder(params, id);
     
-    // Check for existing transactions for this order (matching PHP template)
+    // Check for existing transactions for this order
     const existingOrderTransaction = await PaymeTransaction.findByOrderId(params.account.order_id);
     
     if (existingOrderTransaction) {
@@ -296,8 +355,8 @@ const handleCreateTransaction = async (req, res, id, params) => {
         console.log('❌ Found other active/completed transaction for this order');
         return res.status(200).json(createErrorResponse(
           id,
-          PaymeErrorCode.ERROR_INVALID_ACCOUNT,
-          'There is other active/completed transaction for this order'
+          PaymeErrorCode.ERROR_COULD_NOT_PERFORM,
+          null
         ));
       }
     }
@@ -313,7 +372,7 @@ const handleCreateTransaction = async (req, res, id, params) => {
         return res.status(200).json(createErrorResponse(
           id,
           PaymeErrorCode.ERROR_COULD_NOT_PERFORM,
-          'Transaction found, but is not active'
+          null
         ));
       }
       
@@ -324,7 +383,7 @@ const handleCreateTransaction = async (req, res, id, params) => {
         return res.status(200).json(createErrorResponse(
           id,
           PaymeErrorCode.ERROR_COULD_NOT_PERFORM,
-          'Transaction is expired'
+          null
         ));
       }
       
@@ -342,7 +401,7 @@ const handleCreateTransaction = async (req, res, id, params) => {
       });
     }
     
-    // Validate transaction time (matching PHP template)
+    // Validate transaction time
     const currentTime = Date.now();
     const transactionTime = parseInt(params.time);
     
@@ -350,13 +409,12 @@ const handleCreateTransaction = async (req, res, id, params) => {
       console.log('❌ Transaction time is too old');
       return res.status(200).json(createErrorResponse(
         id,
-        PaymeErrorCode.ERROR_INVALID_ACCOUNT,
-        `Since create time of the transaction passed ${PaymeTransaction.TIMEOUT}ms`,
-        'time'
+        PaymeErrorCode.ERROR_COULD_NOT_PERFORM,
+        null
       ));
     }
     
-    // Create new transaction (matching PHP template structure)
+    // Create new transaction
     const createTime = new Date();
     
     transaction = new PaymeTransaction({
@@ -397,7 +455,7 @@ const handleCreateTransaction = async (req, res, id, params) => {
   }
 };
 
-// ✅ 3. PerformTransaction (matching PHP Application::PerformTransaction)
+// ✅ 3. PerformTransaction
 const handlePerformTransaction = async (req, res, id, params) => {
   console.log('⚡ PerformTransaction');
   
@@ -410,7 +468,7 @@ const handlePerformTransaction = async (req, res, id, params) => {
       return res.status(200).json(createErrorResponse(
         id,
         PaymeErrorCode.ERROR_TRANSACTION_NOT_FOUND,
-        'Transaction not found'
+        null
       ));
     }
     
@@ -426,11 +484,11 @@ const handlePerformTransaction = async (req, res, id, params) => {
           return res.status(200).json(createErrorResponse(
             id,
             PaymeErrorCode.ERROR_COULD_NOT_PERFORM,
-            'Transaction is expired'
+            null
           ));
         }
         
-        // Perform the transaction (matching PHP template)
+        // Perform the transaction
         const performTime = new Date();
         transaction.state = PaymeTransaction.STATES.STATE_COMPLETED;
         transaction.perform_time = performTime;
@@ -442,7 +500,7 @@ const handlePerformTransaction = async (req, res, id, params) => {
         try {
           await transaction.save({ session });
           
-          // Update user subscription (matching PHP template Order::changeState)
+          // Update user subscription
           const user = await User.findOne({
             $or: [
               { firebaseId: transaction.user_id },
@@ -480,7 +538,7 @@ const handlePerformTransaction = async (req, res, id, params) => {
         }
         
       case PaymeTransaction.STATES.STATE_COMPLETED:
-        // Transaction already completed, return it (matching PHP template)
+        // Transaction already completed, return it
         console.log('🔄 Transaction already completed');
         
         return res.status(200).json({
@@ -494,12 +552,12 @@ const handlePerformTransaction = async (req, res, id, params) => {
         });
         
       default:
-        // Unknown situation (matching PHP template)
+        // Unknown situation
         console.log('❌ Cannot perform transaction in current state');
         return res.status(200).json(createErrorResponse(
           id,
           PaymeErrorCode.ERROR_COULD_NOT_PERFORM,
-          'Could not perform this operation'
+          null
         ));
     }
     
@@ -509,7 +567,7 @@ const handlePerformTransaction = async (req, res, id, params) => {
   }
 };
 
-// ✅ 4. CancelTransaction (matching PHP Application::CancelTransaction)
+// ✅ 4. CancelTransaction
 const handleCancelTransaction = async (req, res, id, params) => {
   console.log('❌ CancelTransaction');
   
@@ -522,7 +580,7 @@ const handleCancelTransaction = async (req, res, id, params) => {
       return res.status(200).json(createErrorResponse(
         id,
         PaymeErrorCode.ERROR_TRANSACTION_NOT_FOUND,
-        'Transaction not found'
+        null
       ));
     }
     
@@ -531,7 +589,7 @@ const handleCancelTransaction = async (req, res, id, params) => {
     switch (transaction.state) {
       case PaymeTransaction.STATES.STATE_CANCELLED:
       case PaymeTransaction.STATES.STATE_CANCELLED_AFTER_COMPLETE:
-        // Already cancelled, return it (matching PHP template)
+        // Already cancelled, return it
         console.log('🔄 Transaction already cancelled');
         
         return res.status(200).json({
@@ -545,7 +603,7 @@ const handleCancelTransaction = async (req, res, id, params) => {
         });
         
       case PaymeTransaction.STATES.STATE_CREATED:
-        // Cancel active transaction (matching PHP template)
+        // Cancel active transaction
         console.log('❌ Cancelling active transaction');
         await transaction.cancel(reason);
         
@@ -560,7 +618,7 @@ const handleCancelTransaction = async (req, res, id, params) => {
         });
         
       case PaymeTransaction.STATES.STATE_COMPLETED:
-        // Check if cancelling completed transaction is allowed (matching PHP template)
+        // Check if cancelling completed transaction is allowed
         const allowCancel = false; // Set based on your business logic
         
         if (allowCancel) {
@@ -581,7 +639,7 @@ const handleCancelTransaction = async (req, res, id, params) => {
           return res.status(200).json(createErrorResponse(
             id,
             PaymeErrorCode.ERROR_COULD_NOT_CANCEL,
-            'Could not cancel transaction. Order is delivered/Service is completed'
+            null
           ));
         }
         
@@ -590,7 +648,7 @@ const handleCancelTransaction = async (req, res, id, params) => {
         return res.status(200).json(createErrorResponse(
           id,
           PaymeErrorCode.ERROR_COULD_NOT_PERFORM,
-          'Could not cancel transaction'
+          null
         ));
     }
     
@@ -600,7 +658,7 @@ const handleCancelTransaction = async (req, res, id, params) => {
   }
 };
 
-// ✅ 5. CheckTransaction (matching PHP Application::CheckTransaction)
+// ✅ 5. CheckTransaction
 const handleCheckTransaction = async (req, res, id, params) => {
   console.log('🔍 CheckTransaction');
   
@@ -613,13 +671,13 @@ const handleCheckTransaction = async (req, res, id, params) => {
       return res.status(200).json(createErrorResponse(
         id,
         PaymeErrorCode.ERROR_TRANSACTION_NOT_FOUND,
-        'Transaction not found'
+        null
       ));
     }
     
     console.log('✅ Transaction found:', transaction.paycom_transaction_id);
     
-    // Return transaction details (matching PHP template format)
+    // Return transaction details
     return res.status(200).json({
       jsonrpc: '2.0',
       id: id,
@@ -632,17 +690,17 @@ const handleCheckTransaction = async (req, res, id, params) => {
   }
 };
 
-// ✅ 6. GetStatement (matching PHP Application::GetStatement)
+// ✅ 6. GetStatement
 const handleGetStatement = async (req, res, id, params) => {
   console.log('📊 GetStatement');
   
   try {
-    // Validate parameters (matching PHP template)
+    // Validate parameters
     if (!params.from) {
       return res.status(200).json(createErrorResponse(
         id,
-        PaymeErrorCode.ERROR_INVALID_ACCOUNT,
-        'Incorrect period',
+        PaymeErrorCode.ERROR_INVALID_PARAMS,
+        null,
         'from'
       ));
     }
@@ -650,8 +708,8 @@ const handleGetStatement = async (req, res, id, params) => {
     if (!params.to) {
       return res.status(200).json(createErrorResponse(
         id,
-        PaymeErrorCode.ERROR_INVALID_ACCOUNT,
-        'Incorrect period',
+        PaymeErrorCode.ERROR_INVALID_PARAMS,
+        null,
         'to'
       ));
     }
@@ -659,16 +717,16 @@ const handleGetStatement = async (req, res, id, params) => {
     if (parseInt(params.from) >= parseInt(params.to)) {
       return res.status(200).json(createErrorResponse(
         id,
-        PaymeErrorCode.ERROR_INVALID_ACCOUNT,
-        'Incorrect period. (from >= to)',
+        PaymeErrorCode.ERROR_INVALID_PARAMS,
+        null,
         'from'
       ));
     }
     
-    // Get transactions for the specified period (matching PHP template)
+    // Get transactions for the specified period
     const transactions = await PaymeTransaction.getStatement(params.from, params.to);
     
-    // Convert to statement format (matching PHP template)
+    // Convert to statement format
     const result = transactions.map(tx => tx.toStatementFormat());
     
     console.log('📊 Statement returned:', result.length, 'transactions');
@@ -687,33 +745,60 @@ const handleGetStatement = async (req, res, id, params) => {
   }
 };
 
-// ✅ 7. ChangePassword (matching PHP Application::ChangePassword)
-const handleChangePassword = async (req, res, id, params) => {
-  console.log('🔐 ChangePassword');
+// ✅ 7. SetFiscalData (NEW - from documentation)
+const handleSetFiscalData = async (req, res, id, params) => {
+  console.log('🧾 SetFiscalData');
   
   try {
-    // Validate password parameter (matching PHP template)
-    if (!params.password || !params.password.trim()) {
+    // Validate parameters
+    if (!params.id || !params.type || !params.fiscal_data) {
       return res.status(200).json(createErrorResponse(
         id,
-        PaymeErrorCode.ERROR_INVALID_ACCOUNT,
-        'New password not specified',
-        'password'
+        PaymeErrorCode.ERROR_INVALID_FISCAL_PARAMS,
+        null
       ));
     }
     
-    // Check if new password is same as current (matching PHP template)
-    if (process.env.PAYME_MERCHANT_KEY === params.password) {
+    // Validate type
+    if (!['PERFORM', 'CANCEL'].includes(params.type)) {
       return res.status(200).json(createErrorResponse(
         id,
-        PaymeErrorCode.ERROR_INSUFFICIENT_PRIVILEGE,
-        'Insufficient privilege. Incorrect new password'
+        PaymeErrorCode.ERROR_INVALID_FISCAL_PARAMS,
+        {
+          ru: 'Неверный тип чека',
+          en: 'Invalid receipt type',
+          uz: 'Chek turi noto\'g\'ri'
+        }
       ));
     }
     
-    // In production, you would save the new password
-    // For now, just return success (matching PHP template)
-    console.log('✅ Password change requested (not implemented)');
+    // Find transaction by receipt ID (this is different from PayMe transaction ID)
+    const transaction = await PaymeTransaction.findOne({
+      $or: [
+        { paycom_transaction_id: params.id },
+        { receipt_id: params.id }
+      ]
+    });
+    
+    if (!transaction) {
+      console.log('❌ Receipt not found');
+      return res.status(200).json(createErrorResponse(
+        id,
+        PaymeErrorCode.ERROR_RECEIPT_NOT_FOUND,
+        null
+      ));
+    }
+    
+    // Store fiscal data
+    if (params.type === 'PERFORM') {
+      transaction.fiscal_perform_data = params.fiscal_data;
+    } else if (params.type === 'CANCEL') {
+      transaction.fiscal_cancel_data = params.fiscal_data;
+    }
+    
+    await transaction.save();
+    
+    console.log('✅ Fiscal data saved for transaction:', transaction.paycom_transaction_id);
     
     return res.status(200).json({
       jsonrpc: '2.0',
@@ -724,12 +809,16 @@ const handleChangePassword = async (req, res, id, params) => {
     });
     
   } catch (error) {
-    console.error('❌ ChangePassword error:', error);
-    return res.status(200).json(createErrorResponse(id, PaymeErrorCode.ERROR_INTERNAL_SYSTEM));
+    console.error('❌ SetFiscalData error:', error);
+    return res.status(200).json(createErrorResponse(
+      id,
+      PaymeErrorCode.ERROR_INTERNAL_SYSTEM,
+      null
+    ));
   }
 };
 
-// ✅ MAIN HANDLER (matching PHP Application::run)
+// ✅ MAIN HANDLER
 const handlePaymeWebhook = async (req, res) => {
   console.log('\n💳 PayMe JSON-RPC Request received');
   
@@ -743,13 +832,13 @@ const handlePaymeWebhook = async (req, res) => {
       hasParams: !!params
     });
     
-    // Validate JSON-RPC format (matching PHP template)
+    // Validate JSON-RPC format
     if (!jsonrpc || jsonrpc !== '2.0') {
       console.log('❌ Invalid JSON-RPC version');
       return res.status(200).json(createErrorResponse(
         id,
         PaymeErrorCode.ERROR_INVALID_JSON_RPC_OBJECT,
-        'Invalid JSON-RPC object'
+        null
       ));
     }
     
@@ -758,21 +847,22 @@ const handlePaymeWebhook = async (req, res) => {
       return res.status(200).json(createErrorResponse(
         id,
         PaymeErrorCode.ERROR_METHOD_NOT_FOUND,
-        'Method not found'
+        null
       ));
     }
     
-    // Authorize session (matching PHP Merchant::Authorize)
+    // Authorize session
     const authResult = validatePaymeAuth(req);
     if (!authResult.valid) {
       console.log('❌ Authorization failed:', authResult.error);
       return res.status(200).json(createErrorResponse(
         id,
-        PaymeErrorCode.ERROR_INSUFFICIENT_PRIVILEGE
+        PaymeErrorCode.ERROR_INSUFFICIENT_PRIVILEGE,
+        null
       ));
     }
     
-    // Route to appropriate handler (matching PHP Application switch statement)
+    // Route to appropriate handler
     switch (method) {
       case 'CheckPerformTransaction':
         return handleCheckPerformTransaction(req, res, id, params);
@@ -792,15 +882,15 @@ const handlePaymeWebhook = async (req, res) => {
       case 'GetStatement':
         return handleGetStatement(req, res, id, params);
         
-      case 'ChangePassword':
-        return handleChangePassword(req, res, id, params);
+      case 'SetFiscalData':
+        return handleSetFiscalData(req, res, id, params);
         
       default:
         console.log('❌ Unknown method:', method);
         return res.status(200).json(createErrorResponse(
           id,
           PaymeErrorCode.ERROR_METHOD_NOT_FOUND,
-          method
+          null
         ));
     }
     
@@ -808,12 +898,13 @@ const handlePaymeWebhook = async (req, res) => {
     console.error('❌ PayMe webhook error:', error);
     return res.status(200).json(createErrorResponse(
       req.body?.id || null,
-      PaymeErrorCode.ERROR_INTERNAL_SYSTEM
+      PaymeErrorCode.ERROR_INTERNAL_SYSTEM,
+      null
     ));
   }
 };
 
-// ✅ PAYMENT INITIATION (FIXED URL GENERATION)
+// ✅ PAYMENT INITIATION
 const initiatePaymePayment = async (req, res) => {
   try {
     const { userId, plan } = req.body;
@@ -853,7 +944,7 @@ const initiatePaymePayment = async (req, res) => {
     const amount = PAYMENT_AMOUNTS[plan];
     const orderId = `order_${Date.now()}_${user._id}_${plan}`;
     
-    // ✅ FIXED: Generate correct PayMe URL
+    // Generate correct PayMe URL
     const merchantId = process.env.PAYME_MERCHANT_ID;
     const isProduction = process.env.NODE_ENV === 'production' && merchantId;
     

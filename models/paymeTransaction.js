@@ -1,120 +1,98 @@
-// models/paymeTransaction.js - EXACT REPLICA OF PHP TEMPLATE STRUCTURE
+// models/paymeTransaction.js - UPDATED with fiscal data support
 const mongoose = require('mongoose');
 
-// Transaction states matching PHP template exactly
-const TRANSACTION_STATES = {
-  STATE_CREATED: 1,
-  STATE_COMPLETED: 2,
-  STATE_CANCELLED: -1,
-  STATE_CANCELLED_AFTER_COMPLETE: -2
+// Transaction states (matching PayMe documentation)
+const STATES = {
+  STATE_CREATED: 1,                    // Transaction created, waiting for payment
+  STATE_COMPLETED: 2,                  // Transaction completed successfully
+  STATE_CANCELLED: -1,                 // Transaction cancelled before completion
+  STATE_CANCELLED_AFTER_COMPLETE: -2  // Transaction cancelled after completion (refund)
 };
 
-// Cancellation reasons matching PHP template
-const CANCELLATION_REASONS = {
-  REASON_RECEIVERS_NOT_FOUND: 1,
-  REASON_PROCESSING_EXECUTION_FAILED: 2,
-  REASON_EXECUTION_FAILED: 3,
-  REASON_CANCELLED_BY_TIMEOUT: 4,
-  REASON_FUND_RETURNED: 5,
-  REASON_UNKNOWN: 10
+// Cancellation reasons (matching PayMe documentation)
+const REASONS = {
+  REASON_RECIPIENTS_NOT_FOUND: 1,      // Recipients not found
+  REASON_PROCESSING_EXECUTION_FAILED: 2, // Processing execution failed
+  REASON_EXECUTION_FAILED: 3,          // Execution failed
+  REASON_CANCELLED_BY_TIMEOUT: 4,      // Cancelled by timeout
+  REASON_FUND_RETURNED: 5,             // Fund returned
+  REASON_UNKNOWN: 10                   // Unknown reason
 };
+
+// Transaction timeout (12 hours in milliseconds)
+const TIMEOUT = 43200000; // 12 hours
 
 const paymeTransactionSchema = new mongoose.Schema({
-  // ✅ EXACT FIELDS FROM PHP TEMPLATE
-  
-  // PayMe transaction ID (VARCHAR(25) in PHP)
+  // PayMe transaction identifiers
   paycom_transaction_id: {
     type: String,
     required: true,
     unique: true,
-    maxlength: 25,
     index: true
   },
   
-  // PayMe time as string (VARCHAR(13) in PHP)
+  // PayMe transaction time (as string for exact storage)
   paycom_time: {
     type: String,
-    required: true,
-    maxlength: 13
+    required: true
   },
   
-  // PayMe time as datetime (DATETIME in PHP)
+  // PayMe transaction time as Date object
   paycom_time_datetime: {
     type: Date,
     required: true
   },
   
-  // Create time (DATETIME in PHP)
+  // Transaction creation time in our system
   create_time: {
     type: Date,
     required: true,
-    default: Date.now
+    default: Date.now,
+    index: true
   },
   
-  // Perform time (DATETIME NULL in PHP)
+  // Transaction performance time
   perform_time: {
     type: Date,
     default: null
   },
   
-  // Cancel time (DATETIME NULL in PHP)
+  // Transaction cancellation time
   cancel_time: {
     type: Date,
     default: null
   },
   
-  // Amount in tiyin (INT(11) in PHP)
+  // Transaction amount in tiyin
   amount: {
     type: Number,
     required: true,
-    min: 0
+    min: 1
   },
   
-  // Transaction state (TINYINT(2) in PHP)
+  // Transaction state
   state: {
     type: Number,
     required: true,
-    enum: [
-      TRANSACTION_STATES.STATE_CREATED,
-      TRANSACTION_STATES.STATE_COMPLETED,
-      TRANSACTION_STATES.STATE_CANCELLED,
-      TRANSACTION_STATES.STATE_CANCELLED_AFTER_COMPLETE
-    ],
-    default: TRANSACTION_STATES.STATE_CREATED
+    enum: Object.values(STATES),
+    default: STATES.STATE_CREATED
   },
   
-  // Cancellation reason (TINYINT(2) NULL in PHP)
+  // Cancellation reason (if cancelled)
   reason: {
     type: Number,
-    default: null,
-    enum: [
-      null,
-      CANCELLATION_REASONS.REASON_RECEIVERS_NOT_FOUND,
-      CANCELLATION_REASONS.REASON_PROCESSING_EXECUTION_FAILED,
-      CANCELLATION_REASONS.REASON_EXECUTION_FAILED,
-      CANCELLATION_REASONS.REASON_CANCELLED_BY_TIMEOUT,
-      CANCELLATION_REASONS.REASON_FUND_RETURNED,
-      CANCELLATION_REASONS.REASON_UNKNOWN
-    ]
+    enum: Object.values(REASONS),
+    default: null
   },
   
-  // Receivers JSON (VARCHAR(500) in PHP)
-  receivers: {
-    type: String, // JSON string, exactly like PHP template
-    default: null,
-    maxlength: 500
-  },
-  
-  // Order ID (INT(11) in PHP) - CRITICAL for PayMe
+  // Order information
   order_id: {
     type: Number,
     required: true,
     index: true
   },
   
-  // ✅ ADDITIONAL FIELDS FOR YOUR BUSINESS LOGIC
-  
-  // User identification
+  // User information
   user_id: {
     type: String,
     required: true,
@@ -128,40 +106,69 @@ const paymeTransactionSchema = new mongoose.Schema({
     required: true
   },
   
-  // Audit fields
-  user_agent: String,
-  ip_address: String
+  // Request metadata
+  user_agent: {
+    type: String,
+    default: null
+  },
   
+  ip_address: {
+    type: String,
+    default: null
+  },
+  
+  // Receivers for chain payments (stored as JSON string)
+  receivers: {
+    type: String,
+    default: null
+  },
+  
+  // ✅ NEW: Fiscal data fields (for SetFiscalData method)
+  fiscal_perform_data: {
+    type: mongoose.Schema.Types.Mixed,
+    default: null
+  },
+  
+  fiscal_cancel_data: {
+    type: mongoose.Schema.Types.Mixed,
+    default: null
+  },
+  
+  // Receipt ID for fiscal operations
+  receipt_id: {
+    type: String,
+    default: null,
+    index: true
+  }
 }, {
-  timestamps: false, // We manage our own timestamps like PHP template
+  timestamps: true,
   collection: 'payme_transactions'
 });
 
-// ✅ INDEXES FOR PERFORMANCE (matching PHP template PRIMARY KEY)
-paymeTransactionSchema.index({ paycom_transaction_id: 1 }, { unique: true });
+// ✅ INDEXES for better performance
+paymeTransactionSchema.index({ paycom_transaction_id: 1 });
 paymeTransactionSchema.index({ order_id: 1 });
 paymeTransactionSchema.index({ user_id: 1 });
+paymeTransactionSchema.index({ create_time: 1 });
 paymeTransactionSchema.index({ state: 1 });
+paymeTransactionSchema.index({ receipt_id: 1 }, { sparse: true });
 
-// ✅ STATIC METHODS (matching PHP template methods)
+// ✅ STATIC METHODS
 
-// Find transaction by PayMe transaction ID (PHP: find by id)
-paymeTransactionSchema.statics.findByPaymeId = function(paycom_transaction_id) {
-  return this.findOne({ paycom_transaction_id });
+// Find transaction by PayMe transaction ID
+paymeTransactionSchema.statics.findByPaymeId = function(paymeId) {
+  return this.findOne({ paycom_transaction_id: paymeId });
 };
 
-// Find transaction by order ID (PHP: find by account.order_id)
-paymeTransactionSchema.statics.findByOrderId = function(order_id) {
-  return this.findOne({ 
-    order_id: parseInt(order_id),
-    state: { $in: [TRANSACTION_STATES.STATE_CREATED, TRANSACTION_STATES.STATE_COMPLETED] }
-  });
+// Find transaction by order ID
+paymeTransactionSchema.statics.findByOrderId = function(orderId) {
+  return this.findOne({ order_id: parseInt(orderId) });
 };
 
-// Get statement report (PHP: report method)
-paymeTransactionSchema.statics.getStatement = function(from_date, to_date) {
-  const fromDate = new Date(parseInt(from_date));
-  const toDate = new Date(parseInt(to_date));
+// Get statement for a time period (for GetStatement method)
+paymeTransactionSchema.statics.getStatement = function(from, to) {
+  const fromDate = new Date(parseInt(from));
+  const toDate = new Date(parseInt(to));
   
   return this.find({
     paycom_time_datetime: {
@@ -171,74 +178,205 @@ paymeTransactionSchema.statics.getStatement = function(from_date, to_date) {
   }).sort({ paycom_time_datetime: 1 });
 };
 
-// ✅ INSTANCE METHODS (matching PHP template methods)
-
-// Check if transaction is expired (PHP: isExpired method)
-paymeTransactionSchema.methods.isExpired = function() {
-  const TIMEOUT = 43200000; // 12 hours in milliseconds (PHP: TIMEOUT constant)
-  if (this.state !== TRANSACTION_STATES.STATE_CREATED) {
-    return false;
-  }
-  const now = Date.now();
-  const createTime = this.create_time.getTime();
-  return Math.abs(now - createTime) > TIMEOUT;
+// Count today's payments for a user (for rate limiting)
+paymeTransactionSchema.statics.countTodayPayments = function(userId) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  
+  return this.countDocuments({
+    user_id: userId,
+    create_time: {
+      $gte: today,
+      $lt: tomorrow
+    },
+    state: { $in: [STATES.STATE_CREATED, STATES.STATE_COMPLETED] }
+  });
 };
 
-// Cancel transaction (PHP: cancel method)
-paymeTransactionSchema.methods.cancel = function(reason) {
+// ✅ INSTANCE METHODS
+
+// Check if transaction is expired
+paymeTransactionSchema.methods.isExpired = function() {
+  const now = Date.now();
+  const createdTime = this.create_time.getTime();
+  return (now - createdTime) >= TIMEOUT;
+};
+
+// Cancel transaction
+paymeTransactionSchema.methods.cancel = async function(reason = REASONS.REASON_UNKNOWN) {
+  if (this.state === STATES.STATE_COMPLETED) {
+    this.state = STATES.STATE_CANCELLED_AFTER_COMPLETE;
+  } else {
+    this.state = STATES.STATE_CANCELLED;
+  }
+  
+  this.reason = reason;
   this.cancel_time = new Date();
   
-  // Set state based on current state (exactly like PHP template)
-  if (this.state === TRANSACTION_STATES.STATE_COMPLETED) {
-    // Scenario: CreateTransaction -> PerformTransaction -> CancelTransaction
-    this.state = TRANSACTION_STATES.STATE_CANCELLED_AFTER_COMPLETE;
-  } else {
-    // Scenario: CreateTransaction -> CancelTransaction
-    this.state = TRANSACTION_STATES.STATE_CANCELLED;
-  }
-  
-  this.reason = reason || CANCELLATION_REASONS.REASON_UNKNOWN;
-  
-  return this.save();
+  return await this.save();
 };
 
-// Convert to PayMe response format (for JSON-RPC responses)
+// Convert to PayMe response format (for CheckTransaction)
 paymeTransactionSchema.methods.toPaymeResponse = function() {
   return {
     create_time: this.create_time.getTime(),
     perform_time: this.perform_time ? this.perform_time.getTime() : 0,
     cancel_time: this.cancel_time ? this.cancel_time.getTime() : 0,
-    transaction: this.id.toString(), // Internal transaction ID
+    transaction: this._id.toString(),
     state: this.state,
     reason: this.reason
   };
 };
 
-// Convert to statement format (for GetStatement method)
+// Convert to statement format (for GetStatement)
 paymeTransactionSchema.methods.toStatementFormat = function() {
-  return {
-    id: this.paycom_transaction_id, // PayMe transaction ID
+  const result = {
+    id: this.paycom_transaction_id,
     time: parseInt(this.paycom_time),
     amount: this.amount,
     account: {
-      order_id: this.order_id,
-      user_id: this.user_id
+      order_id: this.order_id.toString()
     },
     create_time: this.create_time.getTime(),
     perform_time: this.perform_time ? this.perform_time.getTime() : 0,
     cancel_time: this.cancel_time ? this.cancel_time.getTime() : 0,
-    transaction: this.id.toString(),
+    transaction: this._id.toString(),
     state: this.state,
     reason: this.reason,
     receivers: this.receivers ? JSON.parse(this.receivers) : null
   };
+  
+  return result;
 };
 
-// Export constants along with model
+// Get fiscal data for receipt
+paymeTransactionSchema.methods.getFiscalData = function(type) {
+  if (type === 'PERFORM') {
+    return this.fiscal_perform_data;
+  } else if (type === 'CANCEL') {
+    return this.fiscal_cancel_data;
+  }
+  return null;
+};
+
+// Set fiscal data
+paymeTransactionSchema.methods.setFiscalData = async function(type, fiscalData) {
+  if (type === 'PERFORM') {
+    this.fiscal_perform_data = fiscalData;
+  } else if (type === 'CANCEL') {
+    this.fiscal_cancel_data = fiscalData;
+  }
+  
+  // Set receipt ID if provided in fiscal data
+  if (fiscalData && fiscalData.receipt_id) {
+    this.receipt_id = fiscalData.receipt_id;
+  }
+  
+  return await this.save();
+};
+
+// ✅ VIRTUAL FIELDS
+
+// Virtual field for amount in UZS (for display)
+paymeTransactionSchema.virtual('amount_uzs').get(function() {
+  return this.amount / 100;
+});
+
+// Virtual field for formatted state
+paymeTransactionSchema.virtual('state_name').get(function() {
+  switch (this.state) {
+    case STATES.STATE_CREATED:
+      return 'created';
+    case STATES.STATE_COMPLETED:
+      return 'completed';
+    case STATES.STATE_CANCELLED:
+      return 'cancelled';
+    case STATES.STATE_CANCELLED_AFTER_COMPLETE:
+      return 'cancelled_after_complete';
+    default:
+      return 'unknown';
+  }
+});
+
+// Virtual field for formatted reason
+paymeTransactionSchema.virtual('reason_name').get(function() {
+  if (!this.reason) return null;
+  
+  switch (this.reason) {
+    case REASONS.REASON_RECIPIENTS_NOT_FOUND:
+      return 'recipients_not_found';
+    case REASONS.REASON_PROCESSING_EXECUTION_FAILED:
+      return 'processing_execution_failed';
+    case REASONS.REASON_EXECUTION_FAILED:
+      return 'execution_failed';
+    case REASONS.REASON_CANCELLED_BY_TIMEOUT:
+      return 'cancelled_by_timeout';
+    case REASONS.REASON_FUND_RETURNED:
+      return 'fund_returned';
+    case REASONS.REASON_UNKNOWN:
+      return 'unknown';
+    default:
+      return 'unknown';
+  }
+});
+
+// ✅ MIDDLEWARE
+
+// Pre-save middleware for validation
+paymeTransactionSchema.pre('save', function(next) {
+  // Validate state transitions
+  if (this.isModified('state')) {
+    const validTransitions = {
+      [STATES.STATE_CREATED]: [STATES.STATE_COMPLETED, STATES.STATE_CANCELLED],
+      [STATES.STATE_COMPLETED]: [STATES.STATE_CANCELLED_AFTER_COMPLETE],
+      [STATES.STATE_CANCELLED]: [], // No transitions from cancelled
+      [STATES.STATE_CANCELLED_AFTER_COMPLETE]: [] // No transitions from cancelled after complete
+    };
+    
+    if (this.isNew) {
+      // New transaction, must start with STATE_CREATED
+      if (this.state !== STATES.STATE_CREATED) {
+        return next(new Error('New transaction must start with STATE_CREATED'));
+      }
+    } else {
+      // Existing transaction, validate transition
+      const originalState = this.$locals.original_state;
+      if (originalState && !validTransitions[originalState].includes(this.state)) {
+        return next(new Error(`Invalid state transition from ${originalState} to ${this.state}`));
+      }
+    }
+  }
+  
+  // Set timestamps based on state
+  if (this.isModified('state')) {
+    if (this.state === STATES.STATE_COMPLETED && !this.perform_time) {
+      this.perform_time = new Date();
+    }
+    
+    if ((this.state === STATES.STATE_CANCELLED || this.state === STATES.STATE_CANCELLED_AFTER_COMPLETE) && !this.cancel_time) {
+      this.cancel_time = new Date();
+    }
+  }
+  
+  next();
+});
+
+// Pre-findOneAndUpdate middleware to track original state
+paymeTransactionSchema.pre('findOneAndUpdate', async function(next) {
+  const docToUpdate = await this.model.findOne(this.getQuery());
+  if (docToUpdate) {
+    this.set('$locals.original_state', docToUpdate.state);
+  }
+  next();
+});
+
+// ✅ EXPORT WITH CONSTANTS
 const PaymeTransaction = mongoose.model('PaymeTransaction', paymeTransactionSchema);
 
-PaymeTransaction.STATES = TRANSACTION_STATES;
-PaymeTransaction.REASONS = CANCELLATION_REASONS;
-PaymeTransaction.TIMEOUT = 43200000; // 12 hours
+PaymeTransaction.STATES = STATES;
+PaymeTransaction.REASONS = REASONS;
+PaymeTransaction.TIMEOUT = TIMEOUT;
 
 module.exports = PaymeTransaction;
