@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const crypto = require('crypto');
 
 // ✨ Enhanced constants with documentation
 const STATES = {
@@ -35,17 +36,20 @@ const SUBSCRIPTION_PLANS = {
   START: {
     code: 'start',
     displayName: 'Starter Plan',
-    durationDays: 30
+    durationDays: 30,
+    amount: 26000000 // 260,000 UZS in tiyin
   },
   PRO: {
     code: 'pro',
     displayName: 'Pro Plan',
-    durationDays: 30
+    durationDays: 30,
+    amount: 45500000 // 455,000 UZS in tiyin
   },
   PREMIUM: {  // ✨ New plan
     code: 'premium',
     displayName: 'Premium Plan',
-    durationDays: 30
+    durationDays: 30,
+    amount: 65000000 // 650,000 UZS in tiyin
   }
 };
 
@@ -418,6 +422,320 @@ paymeTransactionSchema.pre('save', function(next) {
   
   next();
 });
+
+// =============================================
+// 💰 PAYME API INTEGRATION CLASS - ADDED TO MODEL
+// =============================================
+
+class PaymeAPI {
+  constructor() {
+    // ✅ These should come from environment variables
+    this.merchantId = process.env.PAYME_MERCHANT_ID || 'your_merchant_id';
+    this.secretKey = process.env.PAYME_SECRET_KEY || 'your_secret_key';
+    this.checkoutUrl = process.env.PAYME_CHECKOUT_URL || 'https://checkout.paycom.uz';
+    this.testMode = process.env.PAYME_TEST_MODE === 'true';
+    
+    // Use test URLs if in test mode
+    if (this.testMode) {
+      this.checkoutUrl = 'https://test.paycom.uz';
+    }
+  }
+
+  /**
+   * Generate PayMe checkout URL using GET method
+   */
+  generateGetUrl(userId, plan, options = {}) {
+    try {
+      const amount = this.getPlanAmount(plan);
+      
+      // ✅ FIX: Create proper account object as required by PayMe
+      const accountParams = {
+        user_id: String(userId),
+        plan: plan,
+        email: options.email || '',
+        name: options.name || ''
+      };
+
+      // ✅ FIX: Build parameters according to PayMe documentation
+      const params = {
+        m: this.merchantId,
+        a: amount, // Amount in tiyin
+        l: options.lang || 'ru',
+        c: options.callback || `${process.env.FRONTEND_URL}/payment/success`,
+        ct: options.callback_timeout || 15000,
+        cr: 'UZS' // Currency code
+      };
+
+      // Add account fields with proper prefix
+      Object.keys(accountParams).forEach(key => {
+        if (accountParams[key]) {
+          params[`ac.${key}`] = accountParams[key];
+        }
+      });
+
+      console.log('🔗 GET URL params:', params);
+
+      // Convert params to string format required by PayMe
+      const paramString = Object.keys(params)
+        .map(key => `${key}=${params[key]}`)
+        .join(';');
+
+      // ✅ FIX: Encode parameters in base64 as required by PayMe GET method
+      const encodedParams = Buffer.from(paramString).toString('base64');
+      const fullUrl = `${this.checkoutUrl}/${encodedParams}`;
+
+      console.log('✅ Generated PayMe GET URL:', fullUrl);
+      return fullUrl;
+
+    } catch (error) {
+      console.error('❌ Error generating GET URL:', error);
+      throw new Error('Failed to generate payment URL');
+    }
+  }
+
+  /**
+   * Generate PayMe form HTML for POST method
+   */
+  generatePostForm(userId, plan, options = {}) {
+    try {
+      const amount = this.getPlanAmount(plan);
+      
+      // ✅ FIX: Create proper account object
+      const accountParams = {
+        user_id: String(userId),
+        plan: plan,
+        email: options.email || '',
+        name: options.name || ''
+      };
+
+      const formFields = [
+        { name: 'merchant', value: this.merchantId },
+        { name: 'amount', value: amount },
+        { name: 'lang', value: options.lang || 'ru' },
+        { name: 'callback', value: options.callback || `${process.env.FRONTEND_URL}/payment/success` },
+        { name: 'callback_timeout', value: options.callback_timeout || 15000 },
+        { name: 'description', value: `Payment for ${plan} plan - User ${userId}` }
+      ];
+
+      // Add account fields
+      Object.keys(accountParams).forEach(key => {
+        if (accountParams[key]) {
+          formFields.push({
+            name: `account[${key}]`,
+            value: accountParams[key]
+          });
+        }
+      });
+
+      // ✅ FIX: Generate proper HTML form
+      const formHtml = `
+        <form id="payme-form" method="POST" action="${this.checkoutUrl}" style="display: none;">
+          ${formFields.map(field => 
+            `<input type="hidden" name="${field.name}" value="${field.value}" />`
+          ).join('\n          ')}
+          <button type="submit">Pay with PayMe</button>
+        </form>
+        <script>
+          // Auto-submit form after 2 seconds
+          setTimeout(function() {
+            document.getElementById('payme-form').submit();
+          }, 2000);
+        </script>
+      `;
+
+      console.log('📝 Generated PayMe POST form');
+      return formHtml;
+
+    } catch (error) {
+      console.error('❌ Error generating POST form:', error);
+      throw new Error('Failed to generate payment form');
+    }
+  }
+
+  /**
+   * Generate PayMe button HTML
+   */
+  generateButton(userId, plan, options = {}) {
+    try {
+      const paymentUrl = this.generateGetUrl(userId, plan, options);
+      
+      const buttonHtml = `
+        <div class="payme-button-container">
+          <a href="${paymentUrl}" 
+             class="payme-button ${options.style || 'colored'}"
+             target="_blank"
+             rel="noopener noreferrer">
+            <img src="https://cdn.payme.uz/payme-logos/logo/favicon/favicon-business.svg" 
+                 alt="PayMe" 
+                 width="24" 
+                 height="24">
+            Pay with PayMe
+          </a>
+        </div>
+        <style>
+          .payme-button {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #4A90E2, #357ABD);
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            border: none;
+            cursor: pointer;
+          }
+          .payme-button:hover {
+            background: linear-gradient(135deg, #357ABD, #2E6DA4);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(74, 144, 226, 0.3);
+          }
+          .payme-button.minimal {
+            background: #f5f5f5;
+            color: #333;
+            border: 1px solid #ddd;
+          }
+        </style>
+      `;
+
+      return buttonHtml;
+
+    } catch (error) {
+      console.error('❌ Error generating button:', error);
+      throw new Error('Failed to generate payment button');
+    }
+  }
+
+  /**
+   * Generate QR code HTML for mobile payments
+   */
+  generateQR(userId, plan, options = {}) {
+    try {
+      const paymentUrl = this.generateGetUrl(userId, plan, options);
+      const qrWidth = options.qrWidth || 250;
+      
+      // Using QR code generation service
+      const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${qrWidth}x${qrWidth}&data=${encodeURIComponent(paymentUrl)}`;
+      
+      const qrHtml = `
+        <div class="payme-qr-container">
+          <div class="qr-header">
+            <h3>Scan to Pay with PayMe</h3>
+            <p>Open PayMe app and scan this QR code</p>
+          </div>
+          <div class="qr-code">
+            <img src="${qrCodeUrl}" 
+                 alt="PayMe QR Code" 
+                 width="${qrWidth}" 
+                 height="${qrWidth}">
+          </div>
+          <div class="qr-footer">
+            <p><strong>Amount:</strong> ${this.formatAmount(this.getPlanAmount(plan))}</p>
+            <p><strong>Plan:</strong> ${plan}</p>
+            <a href="${paymentUrl}" class="qr-link">Or pay via web browser</a>
+          </div>
+        </div>
+        <style>
+          .payme-qr-container {
+            text-align: center;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 12px;
+            background: white;
+          }
+          .qr-header h3 {
+            margin: 0 0 8px 0;
+            color: #333;
+          }
+          .qr-header p {
+            margin: 0 0 20px 0;
+            color: #666;
+            font-size: 14px;
+          }
+          .qr-code {
+            margin: 20px 0;
+          }
+          .qr-code img {
+            border: 1px solid #eee;
+            border-radius: 8px;
+          }
+          .qr-footer {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+          }
+          .qr-footer p {
+            margin: 5px 0;
+            color: #666;
+            font-size: 14px;
+          }
+          .qr-link {
+            display: inline-block;
+            margin-top: 15px;
+            padding: 10px 20px;
+            background: #4A90E2;
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-size: 14px;
+          }
+        </style>
+      `;
+
+      return qrHtml;
+
+    } catch (error) {
+      console.error('❌ Error generating QR code:', error);
+      throw new Error('Failed to generate QR code');
+    }
+  }
+
+  /**
+   * Get amount in tiyin for a plan
+   */
+  getPlanAmount(plan) {
+    const planData = Object.values(SUBSCRIPTION_PLANS).find(p => p.code === plan);
+    if (!planData) {
+      throw new Error(`Invalid plan: ${plan}`);
+    }
+    return planData.amount;
+  }
+
+  /**
+   * Format amount for display
+   */
+  formatAmount(amountInTiyin) {
+    const uzs = Math.floor(amountInTiyin / 100);
+    return new Intl.NumberFormat('uz-UZ', {
+      style: 'decimal',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    }).format(uzs) + ' UZS';
+  }
+
+  /**
+   * Validate PayMe callback/webhook
+   */
+  validateCallback(data, signature) {
+    try {
+      const expectedSignature = crypto
+        .createHmac('sha1', this.secretKey)
+        .update(JSON.stringify(data))
+        .digest('hex');
+
+      return signature === expectedSignature;
+    } catch (error) {
+      console.error('❌ Error validating callback:', error);
+      return false;
+    }
+  }
+}
+
+// Add PaymeAPI as a static property to the model
+paymeTransactionSchema.statics.PaymeAPI = PaymeAPI;
 
 // Export model with constants
 const PaymeTransaction = mongoose.model('PaymeTransaction', paymeTransactionSchema);
