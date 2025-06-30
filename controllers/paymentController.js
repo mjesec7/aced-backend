@@ -1,4 +1,4 @@
-// controllers/paymentController.js - COMPLETE FIXED VERSION TO PREVENT LOOPS
+// controllers/paymentController.js - COMPLETE UPDATED VERSION WITH NEW ERROR CODES AND GET URL GENERATION
 
 const User = require('../models/user');
 const axios = require('axios');
@@ -30,23 +30,87 @@ const AccountState = {
   NOT_EXISTS: 'not_exists'
 };
 
-// PayMe Error codes
+// PayMe Error codes - UPDATED with all documentation error codes
 const PaymeErrorCode = {
+  // Transaction errors
   INVALID_AMOUNT: -31001,
   TRANSACTION_NOT_FOUND: -31003,
   UNABLE_TO_PERFORM_OPERATION: -31008,
   ORDER_COMPLETED: -31007,
+  
+  // Account errors
   INVALID_ACCOUNT: -31050,
   ACCOUNT_NOT_FOUND: -31050,
   ACCOUNT_BLOCKED: -31051,
   ACCOUNT_PROCESSING: -31052,
   ACCOUNT_INVALID: -31099,
+  
+  // NEW: Additional error codes from documentation
+  MERCHANT_NOT_FOUND: -31601,
+  INVALID_FIELD_VALUE: -31610,
+  AMOUNT_TOO_SMALL: -31611,
+  AMOUNT_TOO_LARGE: -31612,
+  MERCHANT_SERVICE_UNAVAILABLE: -31622,
+  MERCHANT_SERVICE_INCORRECT: -31623,
+  CARD_ERROR: -31630, // Insufficient funds, invalid card, expired card, etc.
+  
+  // JSON-RPC errors
   INVALID_JSON_RPC: -32700,
   PARSE_ERROR: -32700,
   METHOD_NOT_FOUND: -32601,
   INVALID_PARAMS: -32602,
   INTERNAL_ERROR: -32603,
   INVALID_AUTHORIZATION: -32504
+};
+
+// ================================================
+// NEW: PayMe GET URL Generation Function
+// ================================================
+const generatePaymeGetUrl = (merchantId, account, amount, options = {}) => {
+  try {
+    // Build parameters according to Payme GET documentation
+    const params = {
+      m: merchantId,                    // Merchant ID or alias
+      a: amount,                        // Amount in tiyin
+      l: options.lang || 'ru',          // Language (ru, uz, en)
+      c: options.callback || '',        // Return URL after payment
+      ct: options.callback_timeout || 15, // Timeout in milliseconds
+      cr: options.currency || 'UZS'     // Currency code
+    };
+    
+    // Add account object parameters
+    if (account) {
+      Object.keys(account).forEach(key => {
+        params[`ac.${key}`] = account[key];
+      });
+    }
+    
+    // Convert parameters to string format for base64 encoding
+    const paramString = Object.entries(params)
+      .filter(([key, value]) => value !== '' && value !== null && value !== undefined)
+      .map(([key, value]) => `${key}=${value}`)
+      .join(';');
+    
+    // Base64 encode the parameters
+    const encodedParams = Buffer.from(paramString).toString('base64');
+    
+    // Construct final URL
+    const baseUrl = process.env.PAYME_CHECKOUT_URL || 'https://checkout.paycom.uz';
+    const finalUrl = `${baseUrl}/${encodedParams}`;
+    
+    console.log('📝 Generated Payme GET URL:', {
+      originalParams: params,
+      paramString,
+      encodedParams,
+      finalUrl: finalUrl.substring(0, 100) + '...'
+    });
+    
+    return finalUrl;
+    
+  } catch (error) {
+    console.error('❌ Error generating Payme GET URL:', error);
+    throw new Error('Failed to generate payment URL');
+  }
 };
 
 // ================================================
@@ -242,7 +306,9 @@ const hasExistingUnpaidTransaction = (accountLogin) => {
   return false;
 };
 
-// Create error responses according to PayMe spec
+// ================================================
+// UPDATED: Enhanced error response creation with all new error codes
+// ================================================
 const createErrorResponse = (id, code, messageKey, data = null) => {
   const messages = {
     ru: '',
@@ -251,6 +317,7 @@ const createErrorResponse = (id, code, messageKey, data = null) => {
   };
 
   switch (code) {
+    // Existing cases...
     case PaymeErrorCode.INVALID_AMOUNT:
       messages.ru = 'Неверная сумма';
       messages.en = 'Invalid amount';
@@ -271,6 +338,44 @@ const createErrorResponse = (id, code, messageKey, data = null) => {
       messages.en = 'Order completed. Unable to cancel transaction';
       messages.uz = 'Buyurtma bajarildi. Tranzaksiyani bekor qilib bo\'lmaydi';
       break;
+    
+    // NEW: Add documentation-specific error messages
+    case PaymeErrorCode.MERCHANT_NOT_FOUND:
+      messages.ru = 'Мерчант не найден или заблокирован';
+      messages.en = 'Merchant not found or blocked';
+      messages.uz = 'Merchant topilmadi yoki bloklangan';
+      break;
+    case PaymeErrorCode.INVALID_FIELD_VALUE:
+      messages.ru = 'Введено неверное значение поля';
+      messages.en = 'Invalid field value entered';
+      messages.uz = "Maydon uchun noto'g'ri qiymat kiritilgan";
+      break;
+    case PaymeErrorCode.AMOUNT_TOO_SMALL:
+      messages.ru = 'Сумма платежа меньше допустимой';
+      messages.en = 'Payment amount is less than allowed';
+      messages.uz = "To'lov summasi ruxsat etilgandan kam";
+      break;
+    case PaymeErrorCode.AMOUNT_TOO_LARGE:
+      messages.ru = 'Сумма платежа больше допустимой';
+      messages.en = 'Payment amount is greater than allowed';
+      messages.uz = "To'lov summasi ruxsat etilgandan ko'p";
+      break;
+    case PaymeErrorCode.MERCHANT_SERVICE_UNAVAILABLE:
+      messages.ru = 'Сервис мерчанта недоступен';
+      messages.en = 'Merchant service unavailable';
+      messages.uz = 'Merchant xizmati mavjud emas';
+      break;
+    case PaymeErrorCode.MERCHANT_SERVICE_INCORRECT:
+      messages.ru = 'Сервис мерчанта работает некорректно';
+      messages.en = 'Merchant service works incorrectly';
+      messages.uz = 'Merchant xizmati noto\'g\'ri ishlayapti';
+      break;
+    case PaymeErrorCode.CARD_ERROR:
+      messages.ru = 'Ошибка возникает в случаях: недостаточно средств на карте, введён неверный номер карты, введена неверная дата окончания срока действия карты, карта устарела или заблокирована, платёж производится с корпоративной карты';
+      messages.en = 'Card error: insufficient funds, invalid card number, invalid expiry date, expired or blocked card, corporate card payment';
+      messages.uz = "Karta xatosi: kartada mablag' yetarli emas, karta raqami noto'g'ri, amal qilish muddati noto'g'ri, karta eskirgan yoki bloklangan, korporativ karta to'lovi";
+      break;
+    
     case PaymeErrorCode.METHOD_NOT_FOUND:
       messages.ru = `Метод ${messageKey} не найден`;
       messages.en = `Method ${messageKey} not found`;
@@ -769,53 +874,128 @@ const handleChangePassword = async (req, res, id, params) => {
 };
 
 // ================================================
-// Production / Development Payment URL Generation
+// UPDATED: Production / Development Payment URL Generation with GET method support
 // ================================================
 const initiatePaymePayment = async (req, res) => {
   try {
-    const { userId, plan, additionalData = {} } = req.body;
+    const { userId, plan, additionalData = {}, method: requestMethod } = req.body;
     const amount = PAYMENT_AMOUNTS[plan];
     const transactionId = `aced_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const merchantId = process.env.PAYME_MERCHANT_ID;
+    const isProduction = process.env.NODE_ENV === 'production';
     
-    if (process.env.NODE_ENV === 'production' && merchantId) {
-      const paymeParams = new URLSearchParams({
-        'm': merchantId,
-        'ac.user_id': userId,
-        'a': amount,
-        'c': transactionId,
-        'l': 'uz',
-        'cr': 'UZS'
-      });
-      const baseUrl = process.env.PAYME_API_URL_LIVE || 'https://checkout.paycom.uz';
-      const paymentUrl = `${baseUrl}?${paymeParams.toString()}`;
-      console.log('🔗 Production PayMe URL generated:', paymentUrl);
-      setTransaction(transactionId, {
-        id: transactionId,
-        transaction: transactionId,
-        state: 1,
-        create_time: Date.now(),
-        amount: amount,
-        account: { user_id: userId },
-        plan: plan
-      });
-      return res.json({
-        success: true,
-        paymentUrl: paymentUrl,
-        transaction: {
+    // Find user for production payments
+    let user = null;
+    if (isProduction) {
+      if (userId.length >= 20 && !userId.match(/^[0-9a-fA-F]{24}$/)) {
+        user = await User.findOne({ firebaseId: userId });
+      } else if (userId.match(/^[0-9a-fA-F]{24}$/)) {
+        user = await User.findById(userId);
+      } else {
+        user = await User.findOne({
+          $or: [{ firebaseId: userId }, { email: userId }]
+        });
+      }
+      
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          error: 'User not found for production payment'
+        });
+      }
+    }
+    
+    if (isProduction && merchantId) {
+      // Choose method: POST form or GET URL
+      const useGetMethod = requestMethod === 'get' || req.body.useGetMethod;
+      
+      if (useGetMethod) {
+        // Use GET method with base64 encoded parameters
+        const paymentUrl = generatePaymeGetUrl(merchantId, { login: user.firebaseId }, amount, {
+          lang: 'uz',
+          callback: `https://api.aced.live/api/payments/payme/return/success?transaction=${transactionId}`,
+          callback_timeout: 15000,
+          currency: 'UZS'
+        });
+        
+        console.log('🔗 Production PayMe GET URL generated');
+        
+        setTransaction(transactionId, {
           id: transactionId,
+          transaction: transactionId,
+          state: 1,
+          create_time: Date.now(),
           amount: amount,
-          plan: plan,
-          state: 1
-        },
-        metadata: {
-          userId: userId,
-          plan: plan,
-          amountUzs: amount / 100,
-          environment: 'production'
-        }
-      });
+          account: { user_id: userId },
+          plan: plan
+        });
+        
+        return res.json({
+          success: true,
+          message: '✅ Redirecting to PayMe checkout (GET method)',
+          paymentUrl: paymentUrl,
+          method: 'GET',
+          transaction: {
+            id: transactionId,
+            amount: amount,
+            plan: plan,
+            state: 1
+          },
+          metadata: {
+            userId: userId,
+            plan: plan,
+            amountUzs: amount / 100,
+            environment: 'production',
+            method: 'GET'
+          }
+        });
+      } else {
+        // Use existing POST method
+        const paymeParams = new URLSearchParams({
+          'm': merchantId,
+          'ac.login': user.firebaseId,
+          'a': amount,
+          'c': transactionId,
+          'l': 'uz',
+          'cr': 'UZS'
+        });
+        const baseUrl = process.env.PAYME_API_URL_LIVE || 'https://checkout.paycom.uz';
+        const paymentUrl = `${baseUrl}?${paymeParams.toString()}`;
+        
+        console.log('🔗 Production PayMe POST URL generated:', paymentUrl);
+        
+        setTransaction(transactionId, {
+          id: transactionId,
+          transaction: transactionId,
+          state: 1,
+          create_time: Date.now(),
+          amount: amount,
+          account: { user_id: userId },
+          plan: plan
+        });
+        
+        return res.json({
+          success: true,
+          message: '✅ Redirecting to PayMe checkout (POST method)',
+          paymentUrl: paymentUrl,
+          method: 'POST',
+          transaction: {
+            id: transactionId,
+            amount: amount,
+            plan: plan,
+            state: 1
+          },
+          metadata: {
+            userId: userId,
+            plan: plan,
+            amountUzs: amount / 100,
+            environment: 'production',
+            method: 'POST'
+          }
+        });
+      }
     } else {
+      // Development/Sandbox mode
       const checkoutParams = new URLSearchParams({
         transactionId: transactionId,
         userId: userId,
@@ -826,6 +1006,7 @@ const initiatePaymePayment = async (req, res) => {
         userEmail: additionalData.email || 'user@example.com'
       });
       const paymentUrl = `https://aced.live/payment/checkout?${checkoutParams.toString()}`;
+      
       setTransaction(transactionId, {
         id: transactionId,
         transaction: transactionId,
@@ -835,9 +1016,12 @@ const initiatePaymePayment = async (req, res) => {
         account: { user_id: userId },
         plan: plan
       });
+      
       return res.json({
         success: true,
+        message: '✅ Sandbox payment URL generated',
         paymentUrl: paymentUrl,
+        method: 'SANDBOX',
         transaction: {
           id: transactionId,
           amount: amount,
@@ -848,7 +1032,8 @@ const initiatePaymePayment = async (req, res) => {
           userId: userId,
           plan: plan,
           amountUzs: amount / 100,
-          environment: 'development'
+          environment: 'development',
+          method: 'SANDBOX'
         }
       });
     }
@@ -1579,6 +1764,61 @@ const processPayment = async (userId, amount, plan) => {
 };
 
 // ================================================
+// NEW: PayMe Return URL Handlers
+// ================================================
+const handlePaymeReturnSuccess = async (req, res) => {
+  try {
+    const { transaction: transactionId } = req.query;
+    console.log('✅ PayMe return success for transaction:', transactionId);
+    
+    if (!transactionId) {
+      return res.redirect('https://aced.live/payment/error?message=No transaction ID');
+    }
+    
+    const transaction = findTransactionById(transactionId);
+    if (!transaction) {
+      return res.redirect('https://aced.live/payment/error?message=Transaction not found');
+    }
+    
+    // Mark transaction as completed if not already
+    if (transaction.state === TransactionState.CREATED) {
+      transaction.state = TransactionState.COMPLETED;
+      transaction.perform_time = Date.now();
+    }
+    
+    const successUrl = `https://aced.live/payment/success?transaction=${transactionId}&amount=${transaction.amount}&plan=${transaction.plan || 'unknown'}`;
+    return res.redirect(successUrl);
+    
+  } catch (error) {
+    console.error('❌ PayMe return success error:', error);
+    return res.redirect('https://aced.live/payment/error?message=Processing error');
+  }
+};
+
+const handlePaymeReturnError = async (req, res) => {
+  try {
+    const { transaction: transactionId, error: errorCode } = req.query;
+    console.log('❌ PayMe return error for transaction:', transactionId, 'Error:', errorCode);
+    
+    if (transactionId) {
+      const transaction = findTransactionById(transactionId);
+      if (transaction && transaction.state === TransactionState.CREATED) {
+        transaction.state = TransactionState.CANCELLED_AFTER_CREATE;
+        transaction.cancel_time = Date.now();
+        transaction.reason = 3;
+      }
+    }
+    
+    const errorUrl = `https://aced.live/payment/error?transaction=${transactionId || 'unknown'}&error=${errorCode || 'unknown'}`;
+    return res.redirect(errorUrl);
+    
+  } catch (error) {
+    console.error('❌ PayMe return error handler error:', error);
+    return res.redirect('https://aced.live/payment/error?message=Handler error');
+  }
+};
+
+// ================================================
 // Export all functions
 // ================================================
 module.exports = {
@@ -1587,16 +1827,26 @@ module.exports = {
   initiatePaymePayment,
   handleSandboxPayment,
   handlePaymeWebhook,
+  
+  // NEW: PayMe URL generation
+  generatePaymeGetUrl,
+  
+  // NEW: Return URL handlers
+  handlePaymeReturnSuccess,
+  handlePaymeReturnError,
+  
   // User management functions  
   validateUserRoute,
   getUserInfo,
   getUserStatus,
   saveUser,
   updateUserProfile,
+  
   // Payment status and monitoring
   checkPaymentStatus,
   listTransactions,
   clearSandboxTransactions,
+  
   // Payment configuration and health check
   getPaymentConfig: async (req, res) => {
     try {
@@ -1633,7 +1883,25 @@ module.exports = {
         },
         production: {
           enabled: process.env.NODE_ENV === 'production',
-          merchantId: process.env.PAYME_MERCHANT_ID ? 'configured' : 'not_configured'
+          merchantId: process.env.PAYME_MERCHANT_ID ? 'configured' : 'not_configured',
+          supportedMethods: ['GET', 'POST']
+        },
+        errorCodes: {
+          transaction: Object.fromEntries(
+            Object.entries(PaymeErrorCode).filter(([key, value]) => 
+              value >= -31099 && value <= -31001
+            )
+          ),
+          system: Object.fromEntries(
+            Object.entries(PaymeErrorCode).filter(([key, value]) => 
+              value >= -32700 && value <= -32504
+            )
+          ),
+          merchant: Object.fromEntries(
+            Object.entries(PaymeErrorCode).filter(([key, value]) => 
+              value >= -31630 && value <= -31601
+            )
+          )
         }
       });
     } catch (error) {
@@ -1641,6 +1909,7 @@ module.exports = {
       res.status(500).json({ message: 'Server error', error: error.message });
     }
   },
+  
   getPaymentHealth: async (req, res) => {
     try {
       const health = {
@@ -1653,8 +1922,10 @@ module.exports = {
         },
         configuration: {
           merchantKey: process.env.PAYME_MERCHANT_KEY ? 'configured' : 'missing',
+          merchantId: process.env.PAYME_MERCHANT_ID ? 'configured' : 'missing',
           testMode: process.env.NODE_ENV !== 'production',
-          amounts: PAYMENT_AMOUNTS
+          amounts: PAYMENT_AMOUNTS,
+          errorCodesCount: Object.keys(PaymeErrorCode).length
         },
         database: {
           connected: true
@@ -1678,6 +1949,7 @@ module.exports = {
       });
     }
   },
+  
   getPaymentStats: async (req, res) => {
     try {
       const stats = {
@@ -1695,8 +1967,17 @@ module.exports = {
           total: 0,
           paid: 0,
           free: 0
+        },
+        errorCodes: {
+          total: Object.keys(PaymeErrorCode).length,
+          byCategory: {
+            transaction: Object.values(PaymeErrorCode).filter(code => code >= -31099 && code <= -31001).length,
+            system: Object.values(PaymeErrorCode).filter(code => code >= -32700 && code <= -32504).length,
+            merchant: Object.values(PaymeErrorCode).filter(code => code >= -31630 && code <= -31601).length
+          }
         }
       };
+      
       for (const transaction of sandboxTransactions.values()) {
         switch (transaction.state) {
           case TransactionState.CREATED:
@@ -1713,6 +1994,7 @@ module.exports = {
         }
         stats.sandbox.totalAmount += transaction.amount;
       }
+      
       try {
         const userCounts = await User.aggregate([
           { $group: { _id: '$subscriptionPlan', count: { $sum: 1 } } }
@@ -1723,15 +2005,18 @@ module.exports = {
       } catch (dbError) {
         console.warn('Could not get user stats:', dbError.message);
       }
+      
       res.json(stats);
     } catch (error) {
       console.error('❌ Get payment stats error:', error);
       res.status(500).json({ message: 'Server error', error: error.message });
     }
   },
+  
   // Sandbox utilities
   setAccountState,
   setMerchantKey,
+  
   // Testing functions (development only)
   createTestTransaction: async (req, res) => {
     if (process.env.NODE_ENV === 'production') {
@@ -1763,6 +2048,7 @@ module.exports = {
       res.status(500).json({ message: 'Server error', error: error.message });
     }
   },
+  
   completeTestTransaction: async (req, res) => {
     if (process.env.NODE_ENV === 'production') {
       return res.status(403).json({ message: 'Not available in production' });
@@ -1784,6 +2070,7 @@ module.exports = {
       res.status(500).json({ message: 'Server error', error: error.message });
     }
   },
+  
   // Internal helpers for tests and additional functionality
   setTransaction,
   validateAmount,
@@ -1795,5 +2082,51 @@ module.exports = {
   handlePaymentError,
   processWebhookNotification,
   cleanupOldTransactions,
-  processPayment
+  processPayment,
+  
+  // NEW: Error code utilities
+  getErrorCodeInfo: (req, res) => {
+    const { code } = req.params;
+    const numericCode = parseInt(code);
+    
+    if (isNaN(numericCode)) {
+      return res.status(400).json({ message: 'Invalid error code format' });
+    }
+    
+    const errorName = Object.keys(PaymeErrorCode).find(
+      key => PaymeErrorCode[key] === numericCode
+    );
+    
+    if (!errorName) {
+      return res.status(404).json({ message: 'Error code not found' });
+    }
+    
+    // Create a sample error response
+    const sampleResponse = createErrorResponse(12345, numericCode, 'sample_method');
+    
+    res.json({
+      code: numericCode,
+      name: errorName,
+      category: numericCode >= -31099 && numericCode <= -31001 ? 'transaction' :
+                numericCode >= -32700 && numericCode <= -32504 ? 'system' :
+                numericCode >= -31630 && numericCode <= -31601 ? 'merchant' : 'unknown',
+      sampleResponse: sampleResponse,
+      description: sampleResponse.error.message
+    });
+  },
+  
+  getAllErrorCodes: (req, res) => {
+    const errorCodes = Object.entries(PaymeErrorCode).map(([name, code]) => ({
+      name,
+      code,
+      category: code >= -31099 && code <= -31001 ? 'transaction' :
+                code >= -32700 && code <= -32504 ? 'system' :
+                code >= -31630 && code <= -31601 ? 'merchant' : 'unknown'
+    }));
+    
+    res.json({
+      total: errorCodes.length,
+      errorCodes: errorCodes.sort((a, b) => a.code - b.code)
+    });
+  }
 };

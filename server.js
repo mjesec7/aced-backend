@@ -868,6 +868,223 @@ app.post('/api/payments/promo-code', async (req, res) => {
   }
 });
 
+// ✅ EMERGENCY: Add missing payment form generation route directly
+app.post('/api/payments/generate-form', async (req, res) => {
+  try {
+    const { userId, plan, method = 'post', lang = 'ru', style = 'colored', qrWidth = 250 } = req.body;
+    
+    console.log('🎨 Emergency: Generating payment form:', { userId, plan, method, lang });
+    
+    if (!userId || !plan) {
+      return res.status(400).json({
+        success: false,
+        message: 'userId and plan are required'
+      });
+    }
+
+    const User = require('./models/user');
+    let user = null;
+    
+    try {
+      user = await User.findOne({ firebaseId: userId }) ||
+             await User.findById(userId).catch(() => null) ||
+             await User.findOne({ email: userId }).catch(() => null);
+    } catch (dbError) {
+      console.warn('⚠️ Database error, using fallback user data:', dbError.message);
+      user = { firebaseId: userId, name: 'User', email: 'user@example.com' };
+    }
+    
+    if (!user) {
+      user = { firebaseId: userId, name: 'User', email: 'user@example.com' };
+    }
+
+    const amount = PAYMENT_AMOUNTS[plan];
+    if (!amount) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid plan'
+      });
+    }
+
+    const merchantId = process.env.PAYME_MERCHANT_ID || 'test-merchant-id';
+    const transactionId = `aced_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const isProduction = process.env.NODE_ENV === 'production';
+    const checkoutUrl = isProduction ? 'https://checkout.paycom.uz' : 'https://checkout.test.paycom.uz';
+    
+    if (method === 'post') {
+      // Generate POST form HTML according to documentation
+      const formHtml = `
+        <form method="POST" action="${checkoutUrl}/" id="payme-form" style="display: none;">
+          <!-- Merchant ID -->
+          <input type="hidden" name="merchant" value="${merchantId}" />
+          
+          <!-- Amount in tiyin -->
+          <input type="hidden" name="amount" value="${amount}" />
+          
+          <!-- Account object -->
+          <input type="hidden" name="account[login]" value="${user.firebaseId}" />
+          
+          <!-- Language -->
+          <input type="hidden" name="lang" value="${lang}" />
+          
+          <!-- Return URL -->
+          <input type="hidden" name="callback" value="https://api.aced.live/api/payments/payme/return/success?transaction=${transactionId}&userId=${userId}" />
+          
+          <!-- Timeout -->
+          <input type="hidden" name="callback_timeout" value="15000" />
+          
+          <!-- Description -->
+          <input type="hidden" name="description" value="ACED ${plan.toUpperCase()} Plan Subscription" />
+          
+          <!-- Currency -->
+          <input type="hidden" name="currency" value="UZS" />
+        </form>
+        
+        <script>
+          // Auto-submit form after a short delay
+          setTimeout(function() {
+            document.getElementById('payme-form').submit();
+          }, 1000);
+        </script>
+      `;
+      
+      return res.json({
+        success: true,
+        method: 'POST',
+        formHtml: formHtml,
+        transaction: {
+          id: transactionId,
+          amount: amount,
+          plan: plan
+        }
+      });
+      
+    } else if (method === 'get') {
+      // Generate GET URL according to documentation
+      const params = {
+        m: merchantId,
+        a: amount,
+        l: lang,
+        c: `https://api.aced.live/api/payments/payme/return/success?transaction=${transactionId}&userId=${userId}`,
+        ct: 15000,
+        cr: 'UZS'
+      };
+      
+      // Add account parameters
+      params['ac.login'] = user.firebaseId;
+      
+      // Convert to parameter string
+      const paramString = Object.entries(params)
+        .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
+        .join(';');
+      
+      // Base64 encode
+      const encodedParams = Buffer.from(paramString).toString('base64');
+      const paymentUrl = `${checkoutUrl}/${encodedParams}`;
+      
+      return res.json({
+        success: true,
+        method: 'GET',
+        paymentUrl: paymentUrl,
+        transaction: {
+          id: transactionId,
+          amount: amount,
+          plan: plan
+        }
+      });
+      
+    } else if (method === 'button') {
+      // Generate button HTML according to documentation
+      const buttonHtml = `
+        <div id="button-container-wrapper">
+          <form id="form-payme" method="POST" action="${checkoutUrl}/" style="display: none;">
+            <input type="hidden" name="merchant" value="${merchantId}">
+            <input type="hidden" name="account[login]" value="${user.firebaseId}">
+            <input type="hidden" name="amount" value="${amount}">
+            <input type="hidden" name="lang" value="${lang}">
+            <input type="hidden" name="button" data-type="svg" value="${style}">
+            <div id="button-container"></div>
+          </form>
+          <script src="https://cdn.paycom.uz/integration/js/checkout.min.js"></script>
+          <script>
+            setTimeout(function() {
+              if (typeof Paycom !== 'undefined') {
+                Paycom.Button('#form-payme', '#button-container');
+              } else {
+                console.warn('PayMe checkout script not loaded');
+                document.getElementById('button-container').innerHTML = 
+                  '<button onclick="document.getElementById(\\'form-payme\\').submit();" style="background: #00AAFF; color: white; padding: 12px 24px; border: none; border-radius: 6px; font-size: 16px; cursor: pointer;">Pay with PayMe</button>';
+              }
+            }, 500);
+          </script>
+        </div>
+      `;
+      
+      return res.json({
+        success: true,
+        method: 'BUTTON',
+        buttonHtml: buttonHtml,
+        transaction: {
+          id: transactionId,
+          amount: amount,
+          plan: plan
+        }
+      });
+      
+    } else if (method === 'qr') {
+      // Generate QR HTML according to documentation
+      const qrHtml = `
+        <div id="qr-container-wrapper">
+          <form id="form-payme-qr" method="POST" action="${checkoutUrl}/" style="display: none;">
+            <input type="hidden" name="merchant" value="${merchantId}">
+            <input type="hidden" name="account[login]" value="${user.firebaseId}">
+            <input type="hidden" name="amount" value="${amount}">
+            <input type="hidden" name="lang" value="${lang}">
+            <input type="hidden" name="qr" data-width="${qrWidth}">
+            <div id="qr-container"></div>
+          </form>
+          <script src="https://cdn.paycom.uz/integration/js/checkout.min.js"></script>
+          <script>
+            setTimeout(function() {
+              if (typeof Paycom !== 'undefined') {
+                Paycom.QR('#form-payme-qr', '#qr-container');
+              } else {
+                console.warn('PayMe checkout script not loaded');
+                document.getElementById('qr-container').innerHTML = 
+                  '<div style="text-align: center; padding: 20px;"><p>QR код недоступен</p><button onclick="document.getElementById(\\'form-payme-qr\\').submit();" style="background: #00AAFF; color: white; padding: 12px 24px; border: none; border-radius: 6px;">Перейти к оплате</button></div>';
+              }
+            }, 500);
+          </script>
+        </div>
+      `;
+      
+      return res.json({
+        success: true,
+        method: 'QR',
+        qrHtml: qrHtml,
+        transaction: {
+          id: transactionId,
+          amount: amount,
+          plan: plan
+        }
+      });
+    }
+    
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid method. Supported: post, get, button, qr'
+    });
+    
+  } catch (error) {
+    console.error('❌ Emergency form generation error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to generate payment form',
+      error: error.message
+    });
+  }
+});
+
 console.log('✅ Emergency payment routes added directly to server.js');
 
 // ========================================
@@ -1144,7 +1361,8 @@ app.get('/api/users/test', (req, res) => {
       'GET /api/payments/validate-user/:userId (EMERGENCY)',
       'POST /api/payments/initiate (EMERGENCY)',
       'GET /api/payments/status/:transactionId (EMERGENCY)',
-      'POST /api/payments/promo-code (EMERGENCY)'
+      'POST /api/payments/promo-code (EMERGENCY)',
+      'POST /api/payments/generate-form (EMERGENCY)'
     ]
   });
 });
@@ -1224,7 +1442,8 @@ app.get('/api/status', (req, res) => {
       validateUser: '/api/payments/validate-user/:userId',
       paymentInitiate: '/api/payments/initiate',
       paymentStatus: '/api/payments/status/:transactionId',
-      promoCode: '/api/payments/promo-code'
+      promoCode: '/api/payments/promo-code',
+      generateForm: '/api/payments/generate-form'
     }
   });
 });
@@ -1293,7 +1512,8 @@ app.get('/api/routes', (req, res) => {
       { path: '/api/payments/validate-user/:userId', methods: 'GET', description: 'User validation for payments (EMERGENCY)' },
       { path: '/api/payments/initiate', methods: 'POST', description: 'Payment initiation (EMERGENCY)' },
       { path: '/api/payments/status/:transactionId/:userId?', methods: 'GET', description: 'Payment status check (EMERGENCY)' },
-      { path: '/api/payments/promo-code', methods: 'POST', description: 'Promo code application (EMERGENCY)' }
+      { path: '/api/payments/promo-code', methods: 'POST', description: 'Promo code application (EMERGENCY)' },
+      { path: '/api/payments/generate-form', methods: 'POST', description: 'Payment form generation (EMERGENCY)' }
     ],
     paymeRoutes: [
       { path: '/api/payments/payme', methods: 'POST', description: 'PayMe JSON-RPC webhook endpoint' },
@@ -1363,7 +1583,8 @@ app.use('/api/*', (req, res) => {
       'GET /api/payments/validate-user/:userId',
       'POST /api/payments/initiate',
       'GET /api/payments/status/:transactionId',
-      'POST /api/payments/promo-code'
+      'POST /api/payments/promo-code',
+      'POST /api/payments/generate-form'
     ],
     paymeEndpoints: [
       'POST /api/payments/payme',
@@ -1382,6 +1603,7 @@ app.use('/api/*', (req, res) => {
       'POST /api/payments/initiate (EMERGENCY)',
       'GET /api/payments/status/:transactionId (EMERGENCY)',
       'POST /api/payments/promo-code (EMERGENCY)',
+      'POST /api/payments/generate-form (EMERGENCY)',
       ...mountedRoutes.map(r => `${r.path}/*`)
     ]
   });
@@ -1433,7 +1655,8 @@ app.get('*', (req, res) => {
         paymeTest: 'https://api.aced.live/api/payments/payme/test',
         validateUser: 'https://api.aced.live/api/payments/validate-user/USER_ID',
         paymentInitiate: 'https://api.aced.live/api/payments/initiate',
-        paymentStatus: 'https://api.aced.live/api/payments/status/TRANSACTION_ID'
+        paymentStatus: 'https://api.aced.live/api/payments/status/TRANSACTION_ID',
+        generateForm: 'https://api.aced.live/api/payments/generate-form'
       },
       timestamp: new Date().toISOString()
     });
@@ -1578,6 +1801,7 @@ const startServer = async () => {
       console.log('   POST /api/payments/initiate - Payment initiation');
       console.log('   GET /api/payments/status/:transactionId - Status check');
       console.log('   POST /api/payments/promo-code - Promo code application');
+      console.log('   POST /api/payments/generate-form - Form generation');
       console.log('');
 
       // Show Firebase configuration
@@ -1615,6 +1839,7 @@ const startServer = async () => {
       console.log('   ✅ Payment initiation: /api/payments/initiate');
       console.log('   ✅ Status checking: /api/payments/status/:transactionId');
       console.log('   ✅ Promo codes: /api/payments/promo-code');
+      console.log('   ✅ Form generation: /api/payments/generate-form');
       console.log('   ✅ PayMe webhooks: /api/payments/payme');
       console.log('   ✅ Loop prevention: ACTIVE');
       console.log('   ✅ CORS properly configured');

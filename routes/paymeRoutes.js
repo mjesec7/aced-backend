@@ -1,4 +1,4 @@
-// routes/paymeRoutes.js - COMPLETE UPDATED WITH ALL ENDPOINTS INCLUDING RETURN HANDLERS
+// routes/paymeRoutes.js - COMPLETE UPDATED WITH ALL ENDPOINTS INCLUDING FORM GENERATION
 
 const express = require('express');
 const router = express.Router();
@@ -57,6 +57,199 @@ const logRequests = (req, res, next) => {
 
 // Apply logging middleware
 router.use(logRequests);
+
+// ======================================
+// PAYME FORM GENERATION ENDPOINTS (NEW)
+// ======================================
+
+// Generate payment form (POST method)
+router.post('/generate-form', async (req, res) => {
+  try {
+    const { userId, plan, method = 'post', lang = 'ru' } = req.body;
+    
+    if (!userId || !plan) {
+      return res.status(400).json({
+        success: false,
+        message: 'userId and plan are required'
+      });
+    }
+
+    const User = require('../models/user');
+    const user = await User.findOne({ firebaseId: userId });
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    const amount = PAYMENT_AMOUNTS[plan];
+    const merchantId = process.env.PAYME_MERCHANT_ID;
+    const transactionId = `aced_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    if (method === 'post') {
+      // Generate POST form HTML according to documentation
+      const formHtml = `
+        <form method="POST" action="https://checkout.paycom.uz/" id="payme-form">
+          <!-- Merchant ID -->
+          <input type="hidden" name="merchant" value="${merchantId}" />
+          
+          <!-- Amount in tiyin -->
+          <input type="hidden" name="amount" value="${amount}" />
+          
+          <!-- Account object -->
+          <input type="hidden" name="account[login]" value="${user.firebaseId}" />
+          
+          <!-- Language -->
+          <input type="hidden" name="lang" value="${lang}" />
+          
+          <!-- Return URL -->
+          <input type="hidden" name="callback" value="https://api.aced.live/api/payments/payme/return/success?transaction=${transactionId}" />
+          
+          <!-- Timeout -->
+          <input type="hidden" name="callback_timeout" value="15000" />
+          
+          <!-- Description -->
+          <input type="hidden" name="description" value="ACED ${plan.toUpperCase()} Plan Subscription" />
+          
+          <!-- Currency -->
+          <input type="hidden" name="currency" value="UZS" />
+          
+          <button type="submit">Pay with Payme</button>
+        </form>
+        
+        <script>
+          // Auto-submit form
+          document.getElementById('payme-form').submit();
+        </script>
+      `;
+      
+      return res.json({
+        success: true,
+        method: 'POST',
+        formHtml: formHtml,
+        transaction: {
+          id: transactionId,
+          amount: amount,
+          plan: plan
+        }
+      });
+      
+    } else if (method === 'get') {
+      // Generate GET URL according to documentation
+      const params = {
+        m: merchantId,
+        a: amount,
+        l: lang,
+        c: `https://api.aced.live/api/payments/payme/return/success?transaction=${transactionId}`,
+        ct: 15000,
+        cr: 'UZS'
+      };
+      
+      // Add account parameters
+      params['ac.login'] = user.firebaseId;
+      
+      // Convert to parameter string
+      const paramString = Object.entries(params)
+        .map(([key, value]) => `${key}=${value}`)
+        .join(';');
+      
+      // Base64 encode
+      const encodedParams = Buffer.from(paramString).toString('base64');
+      const paymentUrl = `https://checkout.paycom.uz/${encodedParams}`;
+      
+      return res.json({
+        success: true,
+        method: 'GET',
+        paymentUrl: paymentUrl,
+        transaction: {
+          id: transactionId,
+          amount: amount,
+          plan: plan
+        }
+      });
+    }
+    
+  } catch (error) {
+    console.error('❌ Form generation error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to generate payment form',
+      error: error.message
+    });
+  }
+});
+
+// Generate payment button/QR code (according to documentation)
+router.post('/generate-button', async (req, res) => {
+  try {
+    const { userId, plan, type = 'button', style = 'colored', lang = 'ru' } = req.body;
+    
+    const User = require('../models/user');
+    const user = await User.findOne({ firebaseId: userId });
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    const amount = PAYMENT_AMOUNTS[plan];
+    const merchantId = process.env.PAYME_MERCHANT_ID;
+    const transactionId = `aced_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Generate HTML according to documentation
+    const buttonHtml = `
+      <body onload="Paycom.Button('#form-payme', '#button-container')">
+        <form id="form-payme" method="POST" action="https://checkout.paycom.uz/">
+          <input type="hidden" name="merchant" value="${merchantId}">
+          <input type="hidden" name="account[login]" value="${user.firebaseId}">
+          <input type="hidden" name="amount" value="${amount}">
+          <input type="hidden" name="lang" value="${lang}">
+          <input type="hidden" name="button" data-type="svg" value="${style}">
+          <div id="button-container"></div>
+        </form>
+        <script src="https://cdn.paycom.uz/integration/js/checkout.min.js"></script>
+      </body>
+    `;
+    
+    const qrHtml = `
+      <body onload="Paycom.QR('#form-payme', '#qr-container')">
+        <form id="form-payme" method="POST" action="https://checkout.paycom.uz/">
+          <input type="hidden" name="merchant" value="${merchantId}">
+          <input type="hidden" name="account[login]" value="${user.firebaseId}">
+          <input type="hidden" name="amount" value="${amount}">
+          <input type="hidden" name="lang" value="${lang}">
+          <input type="hidden" name="qr" data-width="250">
+          <div id="qr-container"></div>
+        </form>
+        <script src="https://cdn.paycom.uz/integration/js/checkout.min.js"></script>
+      </body>
+    `;
+    
+    return res.json({
+      success: true,
+      type: type,
+      buttonHtml: type === 'button' ? buttonHtml : null,
+      qrHtml: type === 'qr' ? qrHtml : null,
+      transaction: {
+        id: transactionId,
+        amount: amount,
+        plan: plan
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Button generation error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to generate payment button/QR',
+      error: error.message
+    });
+  }
+});
 
 // ======================================
 // PAYME RETURN HANDLERS (SUCCESS/FAILURE/CANCEL)
@@ -695,7 +888,9 @@ if (process.env.NODE_ENV !== 'production') {
         '-1': 'Cancelled (before payment)',
         '-2': 'Cancelled (refunded)'
       },
-      routes: {
+              routes: {
+        generateForm: 'POST /api/payments/generate-form',
+        generateButton: 'POST /api/payments/generate-button',
         initialize: 'POST /api/payments/initialize',
         verifySms: 'POST /api/payments/verify-sms',
         complete: 'POST /api/payments/complete',
@@ -764,6 +959,8 @@ router.get('/health', (req, res) => {
     endpoints: {
       promo: 'POST /api/payments/promo-code',
       initiate: 'POST /api/payments/initiate-payme',
+      generateForm: 'POST /api/payments/generate-form',
+      generateButton: 'POST /api/payments/generate-button',
       initialize: 'POST /api/payments/initialize',
       verifySms: 'POST /api/payments/verify-sms',
       complete: 'POST /api/payments/complete',
@@ -794,6 +991,8 @@ router.use('*', (req, res) => {
     availableEndpoints: [
       'POST /api/payments/promo-code',
       'POST /api/payments/initiate-payme',
+      'POST /api/payments/generate-form',
+      'POST /api/payments/generate-button',
       'POST /api/payments/initialize',
       'POST /api/payments/verify-sms',
       'POST /api/payments/complete',
