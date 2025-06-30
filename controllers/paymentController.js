@@ -64,7 +64,7 @@ const PaymeErrorCode = {
 };
 
 // ================================================
-// NEW: PayMe GET URL Generation Function
+// NEW: PayMe GET URL Generation Function - FIXED
 // ================================================
 const generatePaymeGetUrl = (merchantId, account, amount, options = {}) => {
   try {
@@ -74,11 +74,11 @@ const generatePaymeGetUrl = (merchantId, account, amount, options = {}) => {
       a: amount,                        // Amount in tiyin
       l: options.lang || 'ru',          // Language (ru, uz, en)
       c: options.callback || '',        // Return URL after payment
-      ct: options.callback_timeout || 15, // Timeout in milliseconds
+      ct: options.callback_timeout || 15000, // Timeout in milliseconds
       cr: options.currency || 'UZS'     // Currency code
     };
     
-    // Add account object parameters
+    // Add account object parameters with proper format
     if (account) {
       Object.keys(account).forEach(key => {
         params[`ac.${key}`] = account[key];
@@ -86,15 +86,18 @@ const generatePaymeGetUrl = (merchantId, account, amount, options = {}) => {
     }
     
     // Convert parameters to string format for base64 encoding
+    // Use semicolon as separator according to PayMe documentation
     const paramString = Object.entries(params)
       .filter(([key, value]) => value !== '' && value !== null && value !== undefined)
-      .map(([key, value]) => `${key}=${value}`)
+      .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
       .join(';');
+    
+    console.log('📝 Parameter string before encoding:', paramString);
     
     // Base64 encode the parameters
     const encodedParams = Buffer.from(paramString).toString('base64');
     
-    // Construct final URL
+    // Construct final URL according to PayMe format: checkout_url/base64(params)
     const baseUrl = process.env.PAYME_CHECKOUT_URL || 'https://checkout.paycom.uz';
     const finalUrl = `${baseUrl}/${encodedParams}`;
     
@@ -102,7 +105,7 @@ const generatePaymeGetUrl = (merchantId, account, amount, options = {}) => {
       originalParams: params,
       paramString,
       encodedParams,
-      finalUrl: finalUrl.substring(0, 100) + '...'
+      finalUrl
     });
     
     return finalUrl;
@@ -907,7 +910,13 @@ const initiatePaymePayment = async (req, res) => {
       
       if (useGetMethod) {
         // Use GET method with base64 encoded parameters
-        const paymentUrl = generatePaymeGetUrl(merchantId, { login: user.firebaseId }, amount, {
+        // Create proper account object based on your system
+        const accountData = {
+          login: user.firebaseId,  // or user._id depending on your setup
+          order_id: `${user._id}_${plan}_${Date.now()}` // unique order identifier
+        };
+        
+        const paymentUrl = generatePaymeGetUrl(merchantId, accountData, amount, {
           lang: 'uz',
           callback: `https://api.aced.live/api/payments/payme/return/success?transaction=${transactionId}`,
           callback_timeout: 15000,
@@ -922,7 +931,7 @@ const initiatePaymePayment = async (req, res) => {
           state: 1,
           create_time: Date.now(),
           amount: amount,
-          account: { user_id: userId },
+          account: accountData,
           plan: plan
         });
         
@@ -946,15 +955,22 @@ const initiatePaymePayment = async (req, res) => {
           }
         });
       } else {
-        // Use existing POST method
+        // Use existing POST method - also fixed
+        const accountData = {
+          login: user.firebaseId,
+          order_id: `${user._id}_${plan}_${Date.now()}`
+        };
+        
         const paymeParams = new URLSearchParams({
-          'm': merchantId,
-          'ac.login': user.firebaseId,
-          'a': amount,
-          'c': transactionId,
-          'l': 'uz',
-          'cr': 'UZS'
+          'merchant': merchantId,
+          'amount': amount,
+          'account[login]': user.firebaseId,
+          'account[order_id]': accountData.order_id,
+          'lang': 'uz',
+          'currency': 'UZS',
+          'callback': `https://api.aced.live/api/payments/payme/return/success?transaction=${transactionId}`
         });
+        
         const baseUrl = process.env.PAYME_API_URL_LIVE || 'https://checkout.paycom.uz';
         const paymentUrl = `${baseUrl}?${paymeParams.toString()}`;
         
@@ -966,7 +982,7 @@ const initiatePaymePayment = async (req, res) => {
           state: 1,
           create_time: Date.now(),
           amount: amount,
-          account: { user_id: userId },
+          account: accountData,
           plan: plan
         });
         
@@ -1043,7 +1059,7 @@ const initiatePaymePayment = async (req, res) => {
 };
 
 // ================================================
-// NEW: PayMe Test Integration Function
+// NEW: PayMe Test Integration Function - UPDATED
 // ================================================
 const testPaymeIntegration = async (req, res) => {
   try {
@@ -1067,32 +1083,48 @@ const testPaymeIntegration = async (req, res) => {
     const orderId = `${userId}_${plan}_${Date.now()}`;
     const merchantId = process.env.PAYME_MERCHANT_ID;
     
-    // Test PayMe URL generation
-    const testParams = [
-      `m=${merchantId}`,
-      `ac.order_id=${orderId}`,
-      `a=${amount}`,
-      `l=ru`
-    ];
-    const paramString = testParams.join(';');
-    const base64Params = Buffer.from(paramString).toString('base64');
-    const paymentUrl = `https://checkout.paycom.uz/${base64Params}`;
+    // Create account data as per PayMe documentation
+    const accountData = {
+      login: userId,
+      order_id: orderId
+    };
+    
+    // Test PayMe GET URL generation with proper format
+    const getUrl = generatePaymeGetUrl(merchantId, accountData, amount, {
+      lang: 'ru',
+      callback: `https://api.aced.live/api/payments/payme/return/success?transaction=${orderId}`,
+      callback_timeout: 15000,
+      currency: 'UZS'
+    });
+    
+    // Test PayMe POST format
+    const postParams = new URLSearchParams({
+      'merchant': merchantId,
+      'amount': amount,
+      'account[login]': userId,
+      'account[order_id]': orderId,
+      'lang': 'ru',
+      'currency': 'UZS',
+      'callback': `https://api.aced.live/api/payments/payme/return/success?transaction=${orderId}`
+    });
+    const postUrl = `https://checkout.paycom.uz?${postParams.toString()}`;
     
     console.log('🧪 PayMe Test Integration:', {
       merchantId,
       orderId,
       amount,
       plan,
-      params: paramString,
-      base64: base64Params
+      accountData,
+      getUrl,
+      postUrl
     });
     
-    // Simulate CheckPerformTransaction
+    // Simulate CheckPerformTransaction for testing
     const checkResult = await handleCheckPerformTransaction(
       { body: { method: 'CheckPerformTransaction' }, headers: {} },
       { status: () => ({ json: (data) => data }) },
       1,
-      { amount: amount, account: { login: userId } }
+      { amount: amount, account: accountData }
     );
     
     res.json({
@@ -1102,11 +1134,27 @@ const testPaymeIntegration = async (req, res) => {
         orderId,
         amount,
         plan,
-        paymentUrl,
-        paramString,
+        accountData,
+        getUrl,
+        postUrl,
+        urlBreakdown: {
+          getMethod: {
+            baseUrl: 'https://checkout.paycom.uz',
+            encodedParams: getUrl.split('/').pop(),
+            decodedParams: Buffer.from(getUrl.split('/').pop(), 'base64').toString()
+          },
+          postMethod: {
+            baseUrl: 'https://checkout.paycom.uz',
+            queryParams: postParams.toString()
+          }
+        },
         checkPerformTransaction: checkResult
       },
-      message: 'PayMe integration test completed successfully'
+      message: 'PayMe integration test completed successfully',
+      instructions: {
+        getMethod: 'Use the getUrl for direct redirect with base64 encoded parameters',
+        postMethod: 'Use postUrl for form submission or redirect with query parameters'
+      }
     });
   } catch (error) {
     console.error('PayMe test error:', error);
