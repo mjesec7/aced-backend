@@ -142,7 +142,7 @@ router.post('/generate-form', async (req, res) => {
       };
 
       // CRITICAL FIX: Use order_id parameter
-      params['ac.order_id'] = user.firebaseId;
+      params['ac.order_id'] = user.firebaseId || `aced_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       
       // Optional callback
       if (req.body.callback) {
@@ -155,8 +155,8 @@ router.post('/generate-form', async (req, res) => {
       
       // CRITICAL FIX: Use semicolon delimiter
       const paramString = Object.entries(params)
-        .map(([key, value]) => `${key}=${value}`)
-        .join(';');
+    .map(([key, value]) => `${key}=${value}`)
+    .join(';');
       
       // Base64 encode the parameters
       const encodedParams = Buffer.from(paramString).toString('base64');
@@ -165,11 +165,11 @@ router.post('/generate-form', async (req, res) => {
       return res.json({
         success: true,
         method: 'GET',
-        paymentUrl: paymentUrl,
+        paymentUrl,
         transaction: {
           id: transactionId,
-          amount: amount,
-          plan: plan
+          amount,
+          plan
         }
       });
     }
