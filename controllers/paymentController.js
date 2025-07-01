@@ -166,8 +166,9 @@ const saveUser = async (req, res) => {
     let userEmail = email;
     if (token && !firebaseId) {
       try {
-        const admin = require('firebase-admin');
-        const decoded = await admin.auth().verifyIdToken(token);
+        // Dynamic import for firebase-admin in ES modules
+        const admin = await import('firebase-admin');
+        const decoded = await admin.default.auth().verifyIdToken(token);
         userFirebaseId = decoded.uid;
         userEmail = decoded.email;
       } catch (tokenError) {
@@ -1034,7 +1035,7 @@ const getAllErrorCodes = (req, res) => {
 // ================================================
 // Export all functions
 // ================================================
-module.exports = {
+export {
   // Main PayMe functions
   applyPromoCode, 
   initiatePaymePayment,
@@ -1117,8 +1118,8 @@ module.exports = {
   handleChangePassword
 };// controllers/paymentController.js - COMPLETE MERGED VERSION WITH ALL FEATURES AND FIXES
 
-const User = require('../models/user');
-const axios = require('axios');
+import User from '../models/user.js';
+import axios from 'axios';
 
 // Payment amounts in tiyin (UZS * 100)
 const PAYMENT_AMOUNTS = {
