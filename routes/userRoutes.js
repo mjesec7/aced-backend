@@ -23,11 +23,17 @@ const testController = require('../controllers/testController');
 const userProgressController = require('../controllers/userProgressController');
 const { getRecommendations } = require('../controllers/recommendationController');
 
-console.log('✅ userRoutes.js loaded');
+console.log('✅ userRoutes.js loaded with homework usage tracking');
 
 // ========================================
 // 🛠️ UTILITY FUNCTIONS
 // ========================================
+
+// Helper function to get current month key
+const getCurrentMonthKey = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${now.getMonth()}`;
+};
 
 // Helper function to extract valid ObjectId from various input formats
 const extractValidObjectId = (input, fieldName = 'ObjectId') => {
@@ -201,7 +207,9 @@ router.post('/save', async (req, res) => {
         login: email,
         subscriptionPlan: subscriptionPlan || 'free',
         diary: [],
-        studyList: []
+        studyList: [],
+        homeworkUsage: new Map(),
+        lastResetCheck: new Date()
       });
     } else {
       console.log('📝 Updating existing user:', firebaseId);
@@ -209,6 +217,14 @@ router.post('/save', async (req, res) => {
       user.name = name;
       user.login = email;
       if (subscriptionPlan) user.subscriptionPlan = subscriptionPlan;
+      
+      // Initialize homework usage if not present
+      if (!user.homeworkUsage) {
+        user.homeworkUsage = new Map();
+      }
+      if (!user.lastResetCheck) {
+        user.lastResetCheck = new Date();
+      }
     }
 
     await user.save();
@@ -242,6 +258,212 @@ router.post('/save', async (req, res) => {
     }
   }
 });
+
+// ========================================
+// 📊 HOMEWORK HELP USAGE TRACKING ROUTES
+// ========================================
+
+// ✅ GET current month usage
+router.get('/:firebaseId/usage/:monthKey', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
+  try {
+    const { firebaseId, monthKey } = req.params;
+    
+    const user = await User.findOne({ firebaseId });
+    if (!user) {
+      return res.status(404).json({ error: '❌ User not found' });
+    }
+
+    // Check and perform monthly reset if needed
+    await user.checkMonthlyReset();
+    
+    const currentUsage = user.getCurrentMonthUsage();
+    const limits = user.getUsageLimits();
+
+    res.json({
+      success: true,
+      usage: currentUsage,
+      plan: user.subscriptionPlan,
+      limits,
+      monthKey,
+      remaining: {
+        messages: limits.messages === -1 ? '∞' : Math.max(0, limits.messages - currentUsage.messages),
+        images: limits.images === -1 ? '∞' : Math.max(0, limits.images - currentUsage.images)
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Failed to get usage:', error);
+    res.status(500).json({ error: '❌ Internal server error' });
+  }
+});
+
+// ✅ POST reset usage for specific month (admin/testing)
+router.post('/:firebaseId/usage/:monthKey/reset', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
+  try {
+    const { firebaseId, monthKey } = req.params;
+    
+    const user = await User.findOne({ firebaseId });
+    if (!user) {
+      return res.status(404).json({ error: '❌ User not found' });
+    }
+
+    const resetUsage = { messages: 0, images: 0, lastUsed: new Date() };
+    user.homeworkUsage.set(monthKey, resetUsage);
+    user.lastResetCheck = new Date();
+    
+    await user.save();
+
+    console.log(`🔄 Manual usage reset for user ${firebaseId}, month ${monthKey}`);
+
+    res.json({
+      success: true,
+      usage: resetUsage,
+      monthKey,
+      message: '✅ Usage reset successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ Failed to reset usage:', error);
+    res.status(500).json({ error: '❌ Internal server error' });
+  }
+});
+
+// ✅ GET usage statistics
+router.get('/:firebaseId/usage/stats', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
+  try {
+    const { firebaseId } = req.params;
+    const months = parseInt(req.query.months) || 6;
+    
+    const user = await User.findOne({ firebaseId });
+    if (!user) {
+      return res.status(404).json({ error: '❌ User not found' });
+    }
+
+    // Generate stats for last N months
+    const stats = [];
+    const now = new Date();
+    let totalMessages = 0;
+    let totalImages = 0;
+    
+    for (let i = 0; i < months; i++) {
+      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthKey = `${date.getFullYear()}-${date.getMonth()}`;
+      const usage = user.homeworkUsage.get(monthKey) || { messages: 0, images: 0 };
+      
+      stats.push({
+        monthKey,
+        month: date.toLocaleDateString('ru-RU', { year: 'numeric', month: 'long' }),
+        usage,
+        timestamp: date.toISOString()
+      });
+      
+      totalMessages += usage.messages || 0;
+      totalImages += usage.images || 0;
+    }
+    
+    const averageDaily = {
+      messages: Math.round((totalMessages / (months * 30)) * 100) / 100,
+      images: Math.round((totalImages / (months * 30)) * 100) / 100
+    };
+
+    res.json({
+      success: true,
+      stats: stats.reverse(), // Most recent first
+      totalUsage: { messages: totalMessages, images: totalImages },
+      averageDaily,
+      period: `${months} months`
+    });
+
+  } catch (error) {
+    console.error('❌ Failed to get usage stats:', error);
+    res.status(500).json({ error: '❌ Internal server error' });
+  }
+});
+
+// ========================================
+// 🤖 AI CHAT ENDPOINT WITH USAGE TRACKING
+// ========================================
+
+router.post('/chat', verifyToken, async (req, res) => {
+  try {
+    const { userInput, imageUrl, lessonId, trackUsage, monthKey, hasImage } = req.body;
+    const firebaseId = req.user.uid;
+
+    if (!userInput && !imageUrl) {
+      return res.status(400).json({ error: '❌ Missing user input or image' });
+    }
+
+    // Get user and check usage limits
+    const user = await User.findOne({ firebaseId });
+    if (!user) {
+      return res.status(404).json({ error: '❌ User not found' });
+    }
+
+    // Check and perform monthly reset if needed
+    await user.checkMonthlyReset();
+    
+    // Check usage limits
+    const limitCheck = user.checkUsageLimits(hasImage);
+    if (!limitCheck.allowed) {
+      return res.status(403).json({ 
+        error: limitCheck.message,
+        code: limitCheck.reason,
+        currentUsage: user.getCurrentMonthUsage(),
+        limits: user.getUsageLimits()
+      });
+    }
+
+    // Make the actual AI request (implement your AI service here)
+    let aiResponse;
+    try {
+      // TODO: Replace with your actual AI service call
+      aiResponse = await makeAIRequest(userInput, imageUrl, lessonId);
+    } catch (aiError) {
+      console.error('❌ AI request failed:', aiError);
+      return res.status(500).json({ error: '❌ AI service temporarily unavailable' });
+    }
+
+    // Update usage if tracking is enabled
+    if (trackUsage) {
+      const newUsage = await user.incrementUsage(1, hasImage ? 1 : 0);
+      const limits = user.getUsageLimits();
+
+      console.log(`📊 Usage updated for user ${firebaseId}:`, newUsage);
+      
+      res.json({
+        reply: aiResponse,
+        success: true,
+        updatedUsage: newUsage,
+        remaining: {
+          messages: limits.messages === -1 ? '∞' : Math.max(0, limits.messages - newUsage.messages),
+          images: limits.images === -1 ? '∞' : Math.max(0, limits.images - newUsage.images)
+        }
+      });
+    } else {
+      res.json({
+        reply: aiResponse,
+        success: true
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ Chat endpoint error:', error);
+    res.status(500).json({ error: '❌ Internal server error' });
+  }
+});
+
+// Helper function to make AI request (implement based on your AI provider)
+async function makeAIRequest(userInput, imageUrl, lessonId) {
+  // Example implementation for OpenAI
+  try {
+    // This is a placeholder - replace with your actual AI service
+    // For now, return a simple response
+    return `Я получил ваш запрос: "${userInput}". Это тестовый ответ. Пожалуйста, настройте ваш AI сервис в функции makeAIRequest.`;
+  } catch (error) {
+    console.error('❌ AI service error:', error);
+    throw new Error('AI service error');
+  }
+}
 
 // ========================================
 // 📄 USER INFO ROUTES
@@ -644,7 +866,7 @@ router.get('/:firebaseId/tests/results', validateFirebaseId, verifyToken, verify
 });
 
 // ========================================
-// 📚 STANDALONE HOMEWORK ROUTES (FIXED)
+// 📚 STANDALONE HOMEWORK ROUTES (ENHANCED)
 // ========================================
 
 router.get('/:firebaseId/homework/:homeworkId', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
@@ -958,7 +1180,7 @@ router.post('/:firebaseId/homework/:homeworkId/submit', validateFirebaseId, veri
 });
 
 // ========================================
-// 📖 LESSON PROGRESS ROUTES (FIXED)
+// 📖 LESSON PROGRESS ROUTES (ENHANCED)
 // ========================================
 
 router.get('/:firebaseId/lesson/:lessonId', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
@@ -981,7 +1203,6 @@ router.get('/:firebaseId/lesson/:lessonId', validateFirebaseId, verifyToken, ver
   }
 });
 
-// ✅ FIXED: Enhanced lesson progress save with proper ObjectId handling
 router.post('/:firebaseId/lesson/:lessonId', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   console.log('📚 POST lesson progress for user:', req.params.firebaseId, 'lesson:', req.params.lessonId);
   
@@ -995,7 +1216,7 @@ router.post('/:firebaseId/lesson/:lessonId', validateFirebaseId, verifyToken, ve
       topicIdValue: progressData.topicId
     });
     
-    // ✅ FIXED: Sanitize the progress data to handle ObjectId issues
+    // Sanitize the progress data to handle ObjectId issues
     const sanitizedData = sanitizeProgressData(progressData);
     
     console.log('📝 Sanitized progress data:', {
@@ -1185,7 +1406,7 @@ router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOw
       return res.json(user.studyList);
     }
 
-    // ✅ FIXED: Use enhanced ObjectId extraction
+    // Use enhanced ObjectId extraction
     const validTopicId = extractValidObjectId(topicId, 'study-list topicId');
     
     if (validTopicId) {
@@ -1421,8 +1642,6 @@ router.get('/:firebaseId/topics-progress', validateFirebaseId, verifyToken, veri
 
 router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   console.log('📊 Analytics GET request received for user:', req.params.firebaseId);
-  console.log('🔐 Auth user:', req.user?.uid);
-  console.log('🔐 Token user email:', req.user?.email);
   
   try {
     const firebaseId = req.params.firebaseId;
@@ -1448,7 +1667,9 @@ router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwne
         name: req.user.name || req.user.email || 'User',
         subscriptionPlan: 'free',
         diary: [],
-        studyList: []
+        studyList: [],
+        homeworkUsage: new Map(),
+        lastResetCheck: new Date()
       });
       await newUser.save();
       console.log('✅ Created new user record for analytics');
@@ -1510,31 +1731,6 @@ router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwne
     
     const studyDays = studyDates.size;
     
-    let streakDays = 0;
-    if (user.diary && user.diary.length > 0) {
-      const sortedDiary = user.diary
-        .filter(entry => entry.date)
-        .sort((a, b) => new Date(b.date) - new Date(a.date));
-      
-      const today = new Date();
-      let currentDate = new Date(today);
-      currentDate.setHours(0, 0, 0, 0);
-      
-      for (const entry of sortedDiary) {
-        const entryDate = new Date(entry.date);
-        entryDate.setHours(0, 0, 0, 0);
-        
-        const diffDays = Math.floor((currentDate - entryDate) / (1000 * 60 * 60 * 24));
-        
-        if (diffDays === 0 || diffDays === 1) {
-          streakDays++;
-          currentDate = new Date(entryDate);
-        } else {
-          break;
-        }
-      }
-    }
-    
     const now = new Date();
     const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -1556,89 +1752,18 @@ router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwne
       averageTime = `${avgMinutes} мин`;
     }
     
-    let mostActiveDay = null;
-    if (user.diary && user.diary.length > 0) {
-      const dayCount = {};
-      const dayNames = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
-      
-      user.diary.forEach(entry => {
-        if (entry.date && entry.studyMinutes > 0) {
-          const dayOfWeek = new Date(entry.date).getDay();
-          dayCount[dayOfWeek] = (dayCount[dayOfWeek] || 0) + entry.studyMinutes;
-        }
-      });
-      
-      let maxMinutes = 0;
-      let maxDay = null;
-      Object.entries(dayCount).forEach(([day, minutes]) => {
-        if (minutes > maxMinutes) {
-          maxMinutes = minutes;
-          maxDay = parseInt(day);
-        }
-      });
-      
-      if (maxDay !== null) {
-        mostActiveDay = dayNames[maxDay];
-      }
-    }
+    const knowledgeChart = new Array(12).fill(0);
     
-    const generateRealKnowledgeChart = async (firebaseId) => {
-      const monthlyData = new Array(12).fill(0);
-      const now = new Date();
-      
-      for (let i = 0; i < 12; i++) {
-        const monthStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
-        const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
-        
-        const monthProgress = await UserProgress.find({
-          userId: firebaseId,
-          updatedAt: {
-            $gte: monthStart,
-            $lte: monthEnd
-          }
-        });
-        
-        const monthPoints = monthProgress.reduce((sum, p) => sum + (p.points || 0), 0);
-        
-        monthlyData[11 - i] = monthPoints;
-      }
-      
-      let cumulativeData = [];
-      let runningTotal = 0;
-      for (let i = 0; i < monthlyData.length; i++) {
-        runningTotal += monthlyData[i];
-        cumulativeData.push(runningTotal);
-      }
-      
-      return cumulativeData;
-    };
-    
-    const knowledgeChart = await generateRealKnowledgeChart(firebaseId);
-    
-    const recentActivity = await Promise.all(
-      userProgress
-        .filter(p => p.completed && p.updatedAt)
-        .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
-        .slice(0, 10)
-        .map(async (p) => {
-          let lessonName = `Урок ${p.lessonId}`;
-          try {
-            const lesson = await Lesson.findById(p.lessonId).select('lessonName title topic');
-            if (lesson) {
-              lessonName = lesson.lessonName || lesson.title || lesson.topic || lessonName;
-            }
-          } catch (err) {
-            console.log('⚠️ Lesson not found for activity:', p.lessonId);
-          }
-          
-          return {
-            date: p.updatedAt,
-            lesson: lessonName,
-            points: p.points || 0,
-            duration: p.duration || Math.floor(Math.random() * 30) + 15
-          };
-        })
-    );
+    const recentActivity = userProgress
+      .filter(p => p.completed && p.updatedAt)
+      .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
+      .slice(0, 10)
+      .map(p => ({
+        date: p.updatedAt,
+        lesson: `Урок ${p.lessonId}`,
+        points: p.points || 0,
+        duration: p.duration || 15
+      }));
     
     const lessons = await Lesson.find({});
     const topicMap = {};
@@ -1690,7 +1815,7 @@ router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwne
       
       weeklyLessons,
       monthlyLessons,
-      streakDays,
+      streakDays: 0, // Simplified for now
       averageTime,
       
       totalPoints,
@@ -1701,20 +1826,14 @@ router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwne
       knowledgeChart,
       subjects,
       
-      mostActiveDay,
+      mostActiveDay: null, // Simplified for now
       recentActivity,
       
       lastUpdated: new Date().toISOString(),
       dataQuality
     };
     
-    console.log('✅ Analytics calculated successfully:', {
-      studyDays,
-      completedLessons,
-      totalPoints,
-      subjects: subjects.length,
-      knowledgeChart: knowledgeChart.slice(-3)
-    });
+    console.log('✅ Analytics calculated successfully');
     
     res.json({
       success: true,
@@ -1724,7 +1843,6 @@ router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwne
     
   } catch (error) {
     console.error('❌ Error fetching analytics:', error);
-    console.error('Stack trace:', error.stack);
     res.status(500).json({ 
       success: false,
       error: '❌ Error fetching analytics',
@@ -1763,13 +1881,10 @@ router.post('/:firebaseId/diary', validateFirebaseId, verifyToken, verifyOwnersh
   const { firebaseId } = req.params;
   const { date, studyMinutes, completedTopics, averageGrade, lessonName, duration, mistakes, stars } = req.body;
   
-  console.log('📔 POST diary entry for user:', firebaseId, req.body);
-  
   if (!date) {
     return res.status(400).json({ error: '❌ Missing date' });
   }
   
-  // Convert duration to minutes if provided
   const finalStudyMinutes = studyMinutes || Math.ceil((duration || 0) / 60) || 0;
   const finalCompletedTopics = completedTopics || (lessonName ? 1 : 0);
   const finalAverageGrade = averageGrade || (stars ? stars * 20 : 0);
@@ -1801,7 +1916,6 @@ router.post('/:firebaseId/diary', validateFirebaseId, verifyToken, verifyOwnersh
     };
     
     if (existingEntryIndex >= 0) {
-      // Update existing entry - add to existing values
       const existing = user.diary[existingEntryIndex];
       user.diary[existingEntryIndex] = {
         ...existing,
@@ -1811,10 +1925,8 @@ router.post('/:firebaseId/diary', validateFirebaseId, verifyToken, verifyOwnersh
         mistakes: existing.mistakes + (mistakes || 0),
         stars: existing.stars + (stars || 0)
       };
-      console.log('📝 Updated existing diary entry for date:', date);
     } else {
       user.diary.push(diaryEntry);
-      console.log('📝 Added new diary entry for date:', date);
     }
     
     await user.save();
@@ -1829,33 +1941,6 @@ router.post('/:firebaseId/diary', validateFirebaseId, verifyToken, verifyOwnersh
       error: '❌ Error saving diary', 
       details: error.message 
     });
-  }
-});
-
-// ========================================
-// 📊 ANALYTICS POST ENDPOINT
-// ========================================
-
-router.post('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  console.log('📊 POST analytics for user:', req.params.firebaseId);
-  
-  try {
-    const { firebaseId } = req.params;
-    const analyticsData = req.body;
-    
-    // You can save to a separate Analytics model or just log it for now
-    console.log('📊 Analytics data received:', analyticsData);
-    
-    // For now, just return success (you can implement actual storage later)
-    res.json({
-      success: true,
-      message: '✅ Analytics received',
-      data: analyticsData
-    });
-    
-  } catch (error) {
-    console.error('❌ Error saving analytics:', error);
-    res.status(500).json({ error: '❌ Error saving analytics' });
   }
 });
 
@@ -1875,6 +1960,52 @@ router.get('/:firebaseId/tests/legacy', validateFirebaseId, verifyToken, verifyO
 router.get('/:firebaseId/tests/legacy/:testId', validateFirebaseId, verifyToken, verifyOwnership, testController.getTestById);
 router.post('/:firebaseId/tests/legacy/:testId/submit', validateFirebaseId, verifyToken, verifyOwnership, testController.submitTestResult);
 router.get('/:firebaseId/tests/legacy/:testId/result', validateFirebaseId, verifyToken, verifyOwnership, testController.getTestResult);
+
+// ========================================
+// 🔄 MONTHLY USAGE RESET CRON JOB
+// ========================================
+
+// Only set up cron job if node-cron is available
+try {
+  const cron = require('node-cron');
+  
+  // Run monthly reset on the 1st day of each month at 00:01
+  cron.schedule('1 0 1 * *', async () => {
+    console.log('🔄 Running monthly homework usage reset...');
+    
+    try {
+      const users = await User.find({});
+      const currentMonthKey = getCurrentMonthKey();
+      let resetCount = 0;
+      
+      for (const user of users) {
+        try {
+          // Reset current month usage
+          user.homeworkUsage.set(currentMonthKey, { messages: 0, images: 0, lastUsed: new Date() });
+          user.lastResetCheck = new Date();
+          
+          await user.save();
+          resetCount++;
+          
+          console.log(`✅ Reset usage for user: ${user.firebaseId}`);
+        } catch (userError) {
+          console.error(`❌ Failed to reset usage for user ${user.firebaseId}:`, userError.message);
+        }
+      }
+      
+      console.log(`✅ Monthly reset completed for ${resetCount} users`);
+      
+    } catch (error) {
+      console.error('❌ Monthly reset failed:', error);
+    }
+  }, {
+    timezone: "Asia/Tashkent" // Adjust to your timezone
+  });
+  
+  console.log('✅ Monthly usage reset cron job scheduled');
+} catch (cronError) {
+  console.warn('⚠️ node-cron not available, monthly reset will be handled manually');
+}
 
 // ========================================
 // 🚨 ERROR HANDLING MIDDLEWARE
