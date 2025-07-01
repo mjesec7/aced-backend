@@ -462,48 +462,45 @@ class PaymeAPI {
       
       // Build parameters according to PayMe documentation
       const params = {
-        m: this.merchantId,
+        m: this.merchantId, // Ensure this is set correctly from your environment variable
         a: amount, // Amount in tiyin
         l: options.lang || 'ru',
-        c: options.callback || `${process.env.FRONTEND_URL}/payment/success`,
+        c: options.callback || `${process.env.FRONTEND_URL}/payment/success`, // Must be a full URL
         ct: options.callback_timeout || 15000,
         cr: 'UZS' // Currency code
       };
-
-      // Build account parameters.
-      // As per the provided documentation, for example the order code should be passed as "ac.login".
+  
+      // Account parameters; for example, order_id is required by PayMe
       const accountParams = {
-        order_id: options.order_id // Expected to be provided in options
-        // You may add more account-related fields if required.
+        order_id: options.order_id // Ensure you are providing this parameter!
       };
-
-      // Append account fields with the "ac." prefix.
+  
+      // Append account fields with the "ac." prefix if provided
       Object.keys(accountParams).forEach(key => {
         if (accountParams[key] || accountParams[key] === 0) {
           params[`ac.${key}`] = accountParams[key];
         }
       });
-
+  
       console.log('🔗 GET URL params:', params);
-
+  
       // Construct parameter string separated by semicolons
       const paramString = Object.keys(params)
         .map(key => `${key}=${params[key]}`)
         .join(';');
-
+  
       // Encode parameters in base64 as required by PayMe GET method
       const encodedParams = Buffer.from(paramString).toString('base64');
       const fullUrl = `${this.checkoutUrl}/${encodedParams}`;
-
+  
       console.log('✅ Generated PayMe GET URL:', fullUrl);
       return fullUrl;
-
+  
     } catch (error) {
       console.error('❌ Error generating GET URL:', error);
       throw new Error('Failed to generate payment URL');
     }
   }
-
   /**
    * Generate PayMe form HTML for POST method
    */
