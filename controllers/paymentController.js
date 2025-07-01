@@ -64,62 +64,48 @@ const PaymeErrorCode = {
 };
 
 // ✅ FIX: Correct PayMe GET URL Generation
+// ✅ CORRECTED PayMe GET URL Generation
 const generatePaymeGetUrl = (merchantId, account, amount, options = {}) => {
   try {
-    // Build parameters according to Payme GET documentation
-    const params = {
-      m: merchantId,                    // Merchant ID or alias
-      a: amount,                        // Amount in tiyin
-      l: options.lang || 'ru',          // Language (ru, uz, en)
-    };
+    // Build parameters EXACTLY as shown in documentation
+    const params = [];
     
-    // ✅ FIX: Add account fields with proper naming
-    // PayMe expects specific field names based on your merchant configuration
-    if (account) {
-      // If your PayMe account expects 'order_id' field
-      if (account.order_id) {
-        params['ac.login'] = account.order_id;
-      }
-      // If your PayMe account expects 'user_id' field  
-      if (account.user_id) {
-        params['ac.user_id'] = account.user_id;
-      }
-      // If your PayMe account expects 'login' field
-      if (account.login) {
-        params['ac.login'] = account.login;
-      }
+    // Merchant ID
+    params.push(`m=${merchantId}`);
+    
+    // Account fields - MUST match your PayMe merchant configuration
+    if (account.order_id) {
+      params.push(`ac.order_id=${account.order_id}`);
+    }
+    if (account.login) {
+      params.push(`ac.login=${account.login}`);
     }
     
-    // Add optional parameters
-    if (options.callback) {
-      params.c = options.callback;
+    // Amount in tiyin
+    params.push(`a=${amount}`);
+    
+    // Optional parameters
+    if (options.lang) {
+      params.push(`l=${options.lang}`);
     }
     
-    if (options.callback_timeout) {
-      params.ct = options.callback_timeout;
-    }
+    // Join with semicolon
+    const paramString = params.join(';');
     
-    // ✅ CRITICAL: Build parameter string with semicolon separator
-    const paramString = Object.entries(params)
-      .filter(([key, value]) => value !== '' && value !== null && value !== undefined)
-      .map(([key, value]) => `${key}=${value}`)  // NO URL encoding for PayMe
-      .join(';');  // Semicolon separator
+    console.log('📝 Raw parameter string:', paramString);
     
-    console.log('📝 Parameter string before encoding:', paramString);
-    
-    // Base64 encode the parameters
+    // Base64 encode
     const encodedParams = Buffer.from(paramString).toString('base64');
     
-    // Construct final URL
-    const baseUrl = process.env.PAYME_CHECKOUT_URL || 'https://checkout.paycom.uz';
+    // Use checkout URL (not transfer URL)
+    const baseUrl = 'https://checkout.paycom.uz';
     const finalUrl = `${baseUrl}/${encodedParams}`;
     
-    console.log('📝 Generated Payme GET URL:', {
-      originalParams: params,
+    console.log('🔗 Generated PayMe URL:', {
       paramString,
       encodedParams,
       finalUrl,
-      decodedCheck: Buffer.from(encodedParams, 'base64').toString()
+      decoded: Buffer.from(encodedParams, 'base64').toString()
     });
     
     return finalUrl;
@@ -446,19 +432,44 @@ const handleCheckPerformTransaction = async (req, res, id, params) => {
     account: params?.account
   });
   
-  // ✅ FIX: Check multiple possible account field names
-  const accountLogin = params?.account?.login || 
-                      params?.account?.Login ||
-                      params?.account?.user_id ||
-                      params?.account?.order_id;
-                      
-  if (!accountLogin) {
-    console.log('❌ No valid account identifier provided');
-    // ✅ FIX: Return the field name that PayMe expects
+  // Check for order_id first (as shown in PayMe docs)
+  const accountIdentifier = params?.account?.order_id || 
+                          params?.account?.login || 
+                          params?.account?.Login;
+                          
+  if (!accountIdentifier) {
+    console.log('❌ No account identifier provided');
+    // Return the field name PayMe expects based on your configuration
     return res.status(200).json(createErrorResponse(id, -31050, null, 'order_id'));
   }
   
-  // ... rest of validation logic
+  // For order_id, we don't need to validate against users
+  // Just check if the amount is valid
+  const validAmounts = Object.values(PAYMENT_AMOUNTS);
+  if (!params?.amount || !validAmounts.includes(params.amount)) {
+    console.log('❌ Invalid amount:', params?.amount);
+    return res.status(200).json(createErrorResponse(id, PaymeErrorCode.INVALID_AMOUNT));
+  }
+  
+  console.log('✅ CheckPerformTransaction successful');
+  return res.status(200).json({
+    jsonrpc: '2.0',
+    id: id,
+    result: {
+      allow: true,
+      detail: { 
+        receipt_type: 0,
+        items: [{
+          title: "ACED Subscription",
+          price: params.amount,
+          count: 1,
+          code: "10899002001000000", // Your IKPU
+          vat_percent: 0,
+          package_code: "1"
+        }]
+      }
+    }
+  });
 };
 
 // ================================================
@@ -771,76 +782,70 @@ const initiatePaymePayment = async (req, res) => {
     const { userId, plan, additionalData = {}, method: requestMethod } = req.body;
     const amount = PAYMENT_AMOUNTS[plan];
     
-    // ✅ FIX: Generate proper order ID that PayMe will accept
-    // PayMe may require specific format for order_id
-    const timestamp = Date.now();
-    const randomPart = Math.random().toString(36).substr(2, 6).toUpperCase();
-    const orderId = `${timestamp}${randomPart}`; // Simpler format
+    // Simple order ID - just incremental number
+    const orderId = Date.now().toString().substr(-9); // Last 9 digits of timestamp
     
     const merchantId = process.env.PAYME_MERCHANT_ID;
     const isProduction = process.env.NODE_ENV === 'production';
-    
-    // Find user for production payments
-    let user = null;
-    if (isProduction) {
-      // ... user finding logic ...
-    }
     
     if (isProduction && merchantId) {
       const useGetMethod = requestMethod === 'get' || req.body.useGetMethod;
       
       if (useGetMethod) {
-        // ✅ FIX: Create account object with correct field names
-        // Check your PayMe merchant settings for required fields
+        // ✅ IMPORTANT: Use the EXACT field names from your PayMe configuration
         const accountData = {
-          order_id: orderId,  // Primary identifier
-          user_id: user ? user._id.toString() : userId,
-          // Add login if required by your PayMe configuration
-          login: user ? (user.firebaseId || user._id.toString()) : userId
+          order_id: orderId,  // If your PayMe expects order_id
+          // OR use login if that's what your merchant is configured for:
+          // login: userId
         };
         
         const paymentUrl = generatePaymeGetUrl(merchantId, accountData, amount, {
-          lang: additionalData.lang || 'ru',
-          callback: `https://api.aced.live/api/payments/payme/return/success?transaction=${orderId}`,
-          callback_timeout: 15000
+          lang: additionalData.lang || 'ru'
         });
         
-        console.log('🔗 Production PayMe GET URL generated');
-        
-        // Store transaction with order_id as primary key
-        setTransaction(orderId, {
-          id: orderId,
-          transaction: orderId,
-          state: 1,
-          create_time: Date.now(),
-          amount: amount,
-          account: accountData,
-          plan: plan,
-          user_id: userId
-        });
+        console.log('🔗 Generated PayMe URL for production');
         
         return res.json({
           success: true,
-          message: '✅ Redirecting to PayMe checkout (GET method)',
+          message: '✅ PayMe checkout URL generated',
           paymentUrl: paymentUrl,
           method: 'GET',
           transaction: {
-            id: orderId,  // Use orderId as transaction ID
+            id: orderId,
             amount: amount,
             plan: plan,
             state: 1
+          }
+        });
+      } else {
+        // POST method with form
+        const baseUrl = 'https://checkout.paycom.uz';
+        
+        return res.json({
+          success: true,
+          message: '✅ Use POST form for PayMe',
+          checkoutUrl: baseUrl,
+          method: 'POST',
+          formData: {
+            merchant: merchantId,
+            amount: amount,
+            'account[order_id]': orderId,
+            lang: additionalData.lang || 'ru',
+            callback: `https://api.aced.live/api/payments/payme/return/success?transaction=${orderId}`,
+            callback_timeout: 15000,
+            // Add detail for IKPU
+            detail: createDetailObject(plan, amount)
           },
-          metadata: {
-            userId: userId,
-            plan: plan,
-            amountUzs: amount / 100,
-            environment: 'production',
-            method: 'GET'
+          transaction: {
+            id: orderId,
+            amount: amount,
+            plan: plan
           }
         });
       }
     }
-    // ... rest of the function
+    
+    // ... development/sandbox code
   } catch (error) {
     console.error('❌ Payment initiation error:', error);
     res.status(500).json({
@@ -848,6 +853,24 @@ const initiatePaymePayment = async (req, res) => {
       error: error.message
     });
   }
+};
+
+// ✅ Helper function to create detail object with IKPU
+const createDetailObject = (plan, amount) => {
+  const detail = {
+    receipt_type: 0,
+    items: [{
+      title: `ACED ${plan.toUpperCase()} Subscription`,
+      price: amount,
+      count: 1,
+      code: "10899002001000000", // Your IKPU code
+      vat_percent: 0, // Adjust based on your tax requirements
+      package_code: "1" // Default package code
+    }]
+  };
+  
+  // Encode to base64
+  return Buffer.from(JSON.stringify(detail)).toString('base64');
 };
 // ================================================
 // NEW: PayMe Test Integration Function - UPDATED
