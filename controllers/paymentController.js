@@ -73,74 +73,95 @@ const generatePaymeGetUrl = (merchantId, account, amount, options = {}) => {
       options
     });
     
-    // ✅ CRITICAL FIX: Validate merchant ID first
+    // ✅ CRITICAL FIX: Validate and clean inputs
     if (!merchantId || merchantId === 'undefined' || merchantId === 'null') {
-      console.error('❌ Merchant ID validation failed:', {
-        received: merchantId,
-        type: typeof merchantId,
-        fromEnv: process.env.PAYME_MERCHANT_ID ? 'Set' : 'Missing'
-      });
-      throw new Error('Invalid merchant ID provided to generatePaymeGetUrl');
+      throw new Error('Invalid merchant ID provided');
     }
     
-    // ✅ VALIDATION: Check account object
     if (!account || !account.order_id) {
       throw new Error('Account object must have order_id');
     }
     
-    // ✅ VALIDATION: Check amount
-    if (!amount || amount <= 0) {
-      throw new Error('Amount must be a positive number');
+    if (!amount || amount <= 0 || !Number.isInteger(Number(amount))) {
+      throw new Error('Amount must be a positive integer');
     }
     
-    // Build parameters EXACTLY as shown in documentation
+    // ✅ SANITIZE: Clean the order ID
+    const cleanOrderId = String(account.order_id).replace(/[^a-zA-Z0-9]/g, '');
+    
+    if (!cleanOrderId || cleanOrderId.length < 3) {
+      throw new Error('Order ID must be at least 3 alphanumeric characters');
+    }
+    
+    // ✅ CRITICAL FIX: Build clean parameters
     const params = [];
     
-    // Merchant ID (CRITICAL)
-    params.push(`m=${merchantId}`);
+    // Merchant ID (validated)
+    params.push(`m=${merchantId.trim()}`);
     
-    // Account parameters
-    if (account.order_id) {
-      params.push(`ac.order_id=${account.order_id}`);
-    }
+    // Clean order ID
+    params.push(`ac.order_id=${cleanOrderId}`);
     
-    // Amount in tiyin
-    params.push(`a=${amount}`);
+    // Clean amount
+    params.push(`a=${Number(amount)}`);
     
-    // Optional parameters
-    if (options.lang) {
+    // Optional clean parameters
+    if (options.lang && /^[a-z]{2}$/.test(options.lang)) {
       params.push(`l=${options.lang}`);
     }
-    if (options.callback) {
-      params.push(`c=${encodeURIComponent(options.callback)}`);
-    }
-    if (options.callback_timeout) {
-      params.push(`ct=${options.callback_timeout}`);
+    
+    if (options.callback && options.callback.startsWith('http')) {
+      // Properly encode callback URL
+      const encodedCallback = encodeURIComponent(options.callback);
+      params.push(`c=${encodedCallback}`);
     }
     
-    // ✅ CRITICAL FIX: Join with semicolon (not &)
+    if (options.callback_timeout && Number.isInteger(Number(options.callback_timeout))) {
+      params.push(`ct=${Number(options.callback_timeout)}`);
+    }
+    
+    // Currency
+    params.push(`cr=UZS`);
+    
+    // ✅ CRITICAL FIX: Safe parameter string
     const paramString = params.join(';');
     
-    console.log('📝 Backend param string:', paramString);
+    console.log('📝 Backend clean param string:', paramString);
     
-    // ✅ VERIFICATION: Check for "undefined" in string
-    if (paramString.includes('undefined')) {
-      console.error('❌ Parameter string contains "undefined":', paramString);
-      throw new Error('Parameter string contains undefined values');
+    // ✅ VALIDATION: Check for problematic content
+    if (paramString.includes('undefined') || 
+        paramString.includes('[object Object]') ||
+        paramString.includes('null')) {
+      console.error('❌ Parameter string contains invalid values:', paramString);
+      throw new Error('Parameter string contains invalid values');
     }
     
-    // Base64 encode
-    const encodedParams = Buffer.from(paramString).toString('base64');
+    // ✅ SAFE ENCODING: Use Buffer with error handling
+    let encodedParams;
+    try {
+      encodedParams = Buffer.from(paramString, 'utf8').toString('base64');
+    } catch (encodingError) {
+      console.error('❌ Buffer encoding failed:', encodingError);
+      throw new Error('Failed to encode payment parameters');
+    }
+    
+    // ✅ VALIDATION: Verify encoding
+    try {
+      const verification = Buffer.from(encodedParams, 'base64').toString('utf8');
+      if (verification !== paramString) {
+        throw new Error('Parameter encoding/decoding mismatch');
+      }
+      console.log('✅ Backend verification - decoded params:', verification);
+    } catch (verificationError) {
+      console.error('❌ Backend verification failed:', verificationError);
+      throw new Error('Generated URL failed verification');
+    }
     
     // Use checkout URL
     const baseUrl = process.env.PAYME_CHECKOUT_URL || 'https://checkout.paycom.uz';
     const finalUrl = `${baseUrl}/${encodedParams}`;
     
-    console.log('🔗 Backend generated PayMe URL:', finalUrl);
-    
-    // ✅ FINAL VERIFICATION
-    const verification = Buffer.from(encodedParams, 'base64').toString();
-    console.log('✅ Backend verification - decoded params:', verification);
+    console.log('🔗 Backend generated clean PayMe URL:', finalUrl);
     
     return finalUrl;
     
@@ -841,24 +862,29 @@ const initiatePaymePayment = async (req, res) => {
     
     console.log('🚀 Backend payment initiation:', { userId, plan, additionalData, requestMethod });
     
-    // ✅ CRITICAL FIX: Get merchant ID with proper validation
+    // ✅ VALIDATION: Clean inputs
+    if (!userId || typeof userId !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Valid userId is required'
+      });
+    }
+    
+    if (!plan || !['start', 'pro'].includes(plan)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Valid plan (start or pro) is required'
+      });
+    }
+    
+    // ✅ ENVIRONMENT VALIDATION
     const merchantId = process.env.PAYME_MERCHANT_ID;
     
-    console.log('🔍 Environment check:', {
-      merchantId: merchantId ? merchantId.substring(0, 10) + '...' : 'MISSING',
-      hasValue: !!merchantId,
-      type: typeof merchantId,
-      isUndefined: merchantId === undefined,
-      isStringUndefined: merchantId === 'undefined'
-    });
-    
-    // ✅ VALIDATION: Check merchant ID
-    if (!merchantId || merchantId === 'undefined' || merchantId === 'null') {
-      console.error('❌ PAYME_MERCHANT_ID not properly set in environment');
+    if (!merchantId || merchantId === 'undefined') {
+      console.error('❌ PAYME_MERCHANT_ID not properly set');
       return res.status(500).json({
         success: false,
-        error: 'PayMe merchant configuration error',
-        message: 'PAYME_MERCHANT_ID environment variable is not set'
+        error: 'PayMe merchant configuration error'
       });
     }
     
@@ -866,12 +892,17 @@ const initiatePaymePayment = async (req, res) => {
     if (!amount) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid plan specified'
+        error: 'Invalid plan amount'
       });
     }
     
-    // ✅ FIXED: Generate order ID
-    const orderId = `aced_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    // ✅ CLEAN ORDER ID GENERATION
+    const timestamp = Date.now();
+    const randomStr = Math.random().toString(36).substr(2, 9);
+    const baseOrderId = `aced${timestamp}${randomStr}`;
+    const cleanOrderId = baseOrderId.replace(/[^a-zA-Z0-9]/g, '');
+    
+    console.log('🧹 Generated clean order ID:', cleanOrderId);
     
     const isProduction = process.env.NODE_ENV === 'production';
     
@@ -879,22 +910,33 @@ const initiatePaymePayment = async (req, res) => {
       const useGetMethod = requestMethod === 'get' || additionalData.useGetMethod;
       
       if (useGetMethod) {
-        // ✅ CRITICAL FIX: Use order_id in account object
+        // ✅ CLEAN ACCOUNT DATA
         const accountData = {
-          order_id: orderId
+          order_id: cleanOrderId
         };
         
-        console.log('🎯 Calling generatePaymeGetUrl with:', {
+        // ✅ CLEAN OPTIONS
+        const urlOptions = {
+          lang: (additionalData.lang === 'ru' || additionalData.lang === 'uz' || additionalData.lang === 'en') 
+                ? additionalData.lang : 'ru',
+          callback: additionalData.callback || 
+                   `https://api.aced.live/api/payments/payme/return/success?transaction=${cleanOrderId}&userId=${userId}`,
+          callback_timeout: Number(additionalData.callback_timeout) || 15000
+        };
+        
+        console.log('🎯 Calling generatePaymeGetUrl with clean data:', {
           merchantId: merchantId.substring(0, 10) + '...',
           accountData,
-          amount
+          amount,
+          urlOptions
         });
         
-        const paymentUrl = generatePaymeGetUrl(merchantId, accountData, amount, {
-          lang: additionalData.lang || 'ru',
-          callback: additionalData.callback || `https://api.aced.live/api/payments/payme/return/success?transaction=${orderId}&userId=${userId}`,
-          callback_timeout: additionalData.callback_timeout || 15000
-        });
+        const paymentUrl = generatePaymeGetUrl(merchantId, accountData, amount, urlOptions);
+        
+        // ✅ FINAL URL VALIDATION
+        if (!paymentUrl || paymentUrl.includes('undefined') || paymentUrl.includes('[object Object]')) {
+          throw new Error('Generated URL contains invalid data');
+        }
         
         console.log('🔗 Production PayMe URL generated successfully');
         
@@ -904,14 +946,14 @@ const initiatePaymePayment = async (req, res) => {
           paymentUrl: paymentUrl,
           method: 'GET',
           transaction: {
-            id: orderId,
+            id: cleanOrderId,
             amount: amount,
             plan: plan,
             state: 1
           }
         });
       } else {
-        // POST method with form
+        // POST method with clean form data
         const baseUrl = process.env.PAYME_CHECKOUT_URL || 'https://checkout.paycom.uz';
         
         return res.json({
@@ -922,22 +964,22 @@ const initiatePaymePayment = async (req, res) => {
           formData: {
             merchant: merchantId,
             amount: amount,
-            'account[order_id]': orderId,
+            'account[order_id]': cleanOrderId,
             lang: additionalData.lang || 'ru',
-            callback: `https://api.aced.live/api/payments/payme/return/success?transaction=${orderId}`,
+            callback: `https://api.aced.live/api/payments/payme/return/success?transaction=${cleanOrderId}`,
             callback_timeout: 15000
           },
           transaction: {
-            id: orderId,
+            id: cleanOrderId,
             amount: amount,
             plan: plan
           }
         });
       }
     } else {
-      // Development fallback
+      // Development fallback with clean parameters
       const checkoutUrl = `https://aced.live/payment/checkout?${new URLSearchParams({
-        transactionId: orderId,
+        transactionId: cleanOrderId,
         userId: userId,
         amount: amount,
         plan: plan,
@@ -949,7 +991,7 @@ const initiatePaymePayment = async (req, res) => {
         message: '✅ Development checkout',
         paymentUrl: checkoutUrl,
         transaction: {
-          id: orderId,
+          id: cleanOrderId,
           amount: amount,
           plan: plan,
           state: 1
@@ -961,7 +1003,7 @@ const initiatePaymePayment = async (req, res) => {
     console.error('❌ Payment initiation error:', error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message || 'Payment initiation failed'
     });
   }
 };
