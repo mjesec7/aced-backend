@@ -145,8 +145,8 @@ router.post('/generate-form', async (req, res) => {
         cr: 'UZS'
       };
 
-      // Add account parameter using 'ac.order_id' as per new updates
-      params['ac.order_id'] = user.firebaseId;
+      // Add account parameter using 'ac.login' as per new updates
+      params['ac.login'] = user.firebaseId;
       
       // Optional callback
       if (req.body.callback) {

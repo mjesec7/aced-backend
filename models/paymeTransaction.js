@@ -446,11 +446,11 @@ class PaymeAPI {
    *
    * This method builds URL parameters by appending individual account fields
    * with an "ac." prefix. For example, if options.order_id is provided, the parameter
-   * "ac.order_id" will be included.
+   * "ac.login" will be included.
    *
    * Example Data:
    * m=587f72c72cac0d162c722ae2
-   * ac.order_id=197
+   * ac.login=197
    * a=500
    *
    * Resulting URL (after base64 encoding):
@@ -471,7 +471,7 @@ class PaymeAPI {
       };
 
       // Build account parameters.
-      // As per the provided documentation, for example the order code should be passed as "ac.order_id".
+      // As per the provided documentation, for example the order code should be passed as "ac.login".
       const accountParams = {
         order_id: options.order_id // Expected to be provided in options
         // You may add more account-related fields if required.

@@ -736,8 +736,8 @@ app.post('/api/payments/initiate', async (req, res) => {
       // PRODUCTION: Direct to PayMe
       const paymeParams = new URLSearchParams({
         m: process.env.PAYME_MERCHANT_ID,
-        // Updated to use 'ac.order_id'
-        'ac.order_id': userId,
+        // Updated to use 'ac.login'
+        'ac.login': userId,
         a: amount,
         c: transactionId,
         ct: Date.now(),
@@ -963,7 +963,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
       
     } else if (method === 'get') {
       // Generate GET URL according to documentation
-      // Updated: Use 'ac.order_id' parameter
+      // Updated: Use 'ac.login' parameter
       const params = {
         m: merchantId,
         a: amount,
@@ -971,7 +971,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
         cr: 'UZS'
       };
       
-      params['ac.order_id'] = user.firebaseId;
+      params['ac.login'] = user.firebaseId;
       
       // Add callback if provided
       if (req.body.callback) {

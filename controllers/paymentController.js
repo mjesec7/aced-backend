@@ -78,7 +78,7 @@ const generatePaymeGetUrl = (merchantId, account, amount, options = {}) => {
     if (account) {
       // If your PayMe account expects 'order_id' field
       if (account.order_id) {
-        params['ac.order_id'] = account.order_id;
+        params['ac.login'] = account.order_id;
       }
       // If your PayMe account expects 'user_id' field  
       if (account.user_id) {
