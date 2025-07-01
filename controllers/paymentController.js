@@ -67,51 +67,57 @@ const PaymeErrorCode = {
 // ✅ CORRECTED PayMe GET URL Generation
 const generatePaymeGetUrl = (merchantId, account, amount, options = {}) => {
   try {
+    console.log('🔗 Generating PayMe GET URL according to documentation');
+    
     // Build parameters EXACTLY as shown in documentation
     const params = [];
     
-    // Merchant ID
+    // 1. Merchant ID (required)
     params.push(`m=${merchantId}`);
     
-    // Account fields - MUST match your PayMe merchant configuration
+    // 2. Account object - CORRECTED to use order_id
     if (account.order_id) {
       params.push(`ac.order_id=${account.order_id}`);
     }
-    if (account.login) {
-      params.push(`ac.login=${account.login}`);
-    }
     
-    // Amount in tiyin
+    // 3. Amount in tiyin (required)
     params.push(`a=${amount}`);
     
-    // Optional parameters
+    // 4. Optional parameters
     if (options.lang) {
       params.push(`l=${options.lang}`);
     }
     
-    // Join with semicolon
+    if (options.callback) {
+      params.push(`c=${encodeURIComponent(options.callback)}`);
+    }
+    
+    if (options.callback_timeout) {
+      params.push(`ct=${options.callback_timeout}`);
+    }
+    
+    if (options.currency) {
+      params.push(`cr=${options.currency}`);
+    }
+    
+    // ✅ CRITICAL FIX: Join with semicolon (as per documentation)
     const paramString = params.join(';');
     
-    console.log('📝 Raw parameter string:', paramString);
+    console.log('📝 Backend parameter string (CORRECTED):', paramString);
     
     // Base64 encode
     const encodedParams = Buffer.from(paramString).toString('base64');
     
-    // Use checkout URL (not transfer URL)
-    const baseUrl = 'https://checkout.paycom.uz';
-    const finalUrl = `${baseUrl}/${encodedParams}`;
+    // Construct final URL
+    const finalUrl = `https://checkout.paycom.uz/${encodedParams}`;
     
-    console.log('🔗 Generated PayMe URL:', {
-      paramString,
-      encodedParams,
-      finalUrl,
-      decoded: Buffer.from(encodedParams, 'base64').toString()
-    });
+    console.log('✅ Generated PayMe URL (CORRECTED):', finalUrl);
+    console.log('🔍 Decode check:', Buffer.from(encodedParams, 'base64').toString());
     
     return finalUrl;
     
   } catch (error) {
-    console.error('❌ Error generating Payme GET URL:', error);
+    console.error('❌ Error generating PayMe GET URL:', error);
     throw new Error('Failed to generate payment URL');
   }
 };
@@ -427,31 +433,47 @@ const handleSandboxPayment = async (req, res) => {
 // CheckPerformTransaction
 // ================================================
 const handleCheckPerformTransaction = async (req, res, id, params) => {
-  console.log('🔍 Processing CheckPerformTransaction with:', {
-    amount: params?.amount,
-    account: params?.account
-  });
+  console.log('🔍 Processing CheckPerformTransaction (CORRECTED)');
   
-  // Check for order_id first (as shown in PayMe docs)
-  const accountIdentifier = params?.account?.order_id || 
-                          params?.account?.login || 
-                          params?.account?.Login;
+  // ✅ CORRECTED: Check for order_id (as per documentation)
+  const orderId = params?.account?.order_id;
                           
-  if (!accountIdentifier) {
-    console.log('❌ No account identifier provided');
-    // Return the field name PayMe expects based on your configuration
-    return res.status(200).json(createErrorResponse(id, -31050, null, 'order_id'));
+  if (!orderId) {
+    console.log('❌ No order_id provided');
+    return res.status(200).json({
+      jsonrpc: '2.0',
+      id: id,
+      error: {
+        code: -31050,
+        message: { 
+          ru: 'Неверный account', 
+          en: 'Invalid account', 
+          uz: 'Noto\'g\'ri account' 
+        },
+        data: 'order_id' // CORRECTED: Return correct field name
+      }
+    });
   }
   
-  // For order_id, we don't need to validate against users
-  // Just check if the amount is valid
+  // Validate amount
   const validAmounts = Object.values(PAYMENT_AMOUNTS);
   if (!params?.amount || !validAmounts.includes(params.amount)) {
     console.log('❌ Invalid amount:', params?.amount);
-    return res.status(200).json(createErrorResponse(id, PaymeErrorCode.INVALID_AMOUNT));
+    return res.status(200).json({
+      jsonrpc: '2.0',
+      id: id,
+      error: {
+        code: -31001,
+        message: { 
+          ru: 'Неверная сумма', 
+          en: 'Invalid amount', 
+          uz: 'Noto\'g\'ri summa' 
+        }
+      }
+    });
   }
   
-  console.log('✅ CheckPerformTransaction successful');
+  console.log('✅ CheckPerformTransaction successful (CORRECTED)');
   return res.status(200).json({
     jsonrpc: '2.0',
     id: id,
@@ -463,7 +485,7 @@ const handleCheckPerformTransaction = async (req, res, id, params) => {
           title: "ACED Subscription",
           price: params.amount,
           count: 1,
-          code: "10899002001000000", // Your IKPU
+          code: "10899002001000000", // YOUR IKPU
           vat_percent: 0,
           package_code: "1"
         }]
@@ -472,46 +494,35 @@ const handleCheckPerformTransaction = async (req, res, id, params) => {
   });
 };
 
+
 // ================================================
 // CreateTransaction
 // ================================================
 const handleCreateTransaction = async (req, res, id, params) => {
-  console.log('🔍 Processing CreateTransaction with:', {
-    id: params?.id,
-    amount: params?.amount,
-    account: params?.account,
-    time: params?.time
-  });
+  console.log('🔍 Processing CreateTransaction (CORRECTED)');
   
-  const createAccountLogin = params?.account?.login || params?.account?.Login;
-  if (!createAccountLogin) {
-    console.log('❌ No account login provided');
-    return res.status(200).json(createErrorResponse(id, -31050, null, 'login'));
-  }
+  // ✅ CORRECTED: Look for order_id
+  const createOrderId = params?.account?.order_id;
   
-  const createAccountInfo = await validateAccountAndState(createAccountLogin);
-  console.log('📊 Create transaction account validation:', createAccountInfo);
-  
-  if (!createAccountInfo.exists) {
-    console.log('❌ Account does not exist');
-    return res.status(200).json(createErrorResponse(id, -31050, null, 'login'));
-  }
-  
-  switch (createAccountInfo.state) {
-    case AccountState.NOT_EXISTS:
-      return res.status(200).json(createErrorResponse(id, -31050, null, 'login'));
-    case AccountState.BLOCKED:
-      return res.status(200).json(createErrorResponse(id, -31051, null, 'login'));
-    case AccountState.PROCESSING:
-      return res.status(200).json(createErrorResponse(id, -31052, null, 'login'));
-    case AccountState.WAITING_PAYMENT:
-      console.log('✅ Account ready for transaction');
-      break;
-    default:
-      if (hasExistingUnpaidTransaction(createAccountLogin)) {
-        return res.status(200).json(createErrorResponse(id, -31052, null, 'login'));
+  if (!createOrderId) {
+    console.log('❌ No order_id provided in CreateTransaction');
+    return res.status(200).json({
+      jsonrpc: '2.0',
+      id: id,
+      error: {
+        code: -31050,
+        message: { 
+          ru: 'Неверный account', 
+          en: 'Invalid account', 
+          uz: 'Noto\'g\'ri account' 
+        },
+        data: 'order_id'
       }
+    });
   }
+  
+  // For order_id based accounts, we don't need extensive user validation
+  // Just validate the transaction parameters
   
   const existingTransaction = sandboxTransactions.get(params?.id);
   if (existingTransaction) {
@@ -530,19 +541,41 @@ const handleCreateTransaction = async (req, res, id, params) => {
   
   if (!params?.id || !params?.time || !params?.amount) {
     console.log('❌ Missing required parameters');
-    return res.status(200).json(createErrorResponse(id, PaymeErrorCode.INVALID_PARAMS));
+    return res.status(200).json({
+      jsonrpc: '2.0',
+      id: id,
+      error: {
+        code: -32602,
+        message: { 
+          ru: 'Неверные параметры', 
+          en: 'Invalid params', 
+          uz: 'Noto\'g\'ri parametrlar' 
+        }
+      }
+    });
   }
   
   const validCreateAmounts = Object.values(PAYMENT_AMOUNTS);
   if (!validCreateAmounts.includes(params.amount)) {
     console.log('❌ Invalid amount:', params?.amount);
-    return res.status(200).json(createErrorResponse(id, PaymeErrorCode.INVALID_AMOUNT, null, false));
+    return res.status(200).json({
+      jsonrpc: '2.0',
+      id: id,
+      error: {
+        code: -31001,
+        message: { 
+          ru: 'Неверная сумма', 
+          en: 'Invalid amount', 
+          uz: 'Noto\'g\'ri summa' 
+        }
+      }
+    });
   }
 
   const newTransaction = {
     id: params.id,
     transaction: params.id.toString(),
-    state: TransactionState.CREATED,
+    state: 1, // CREATED
     create_time: Date.now(),
     amount: params.amount,
     account: params.account,
@@ -555,7 +588,7 @@ const handleCreateTransaction = async (req, res, id, params) => {
   
   sandboxTransactions.set(params.id, newTransaction);
   
-  console.log('✅ CreateTransaction successful - new transaction created');
+  console.log('✅ CreateTransaction successful (CORRECTED)');
   
   return res.status(200).json({
     jsonrpc: '2.0',
@@ -782,8 +815,15 @@ const initiatePaymePayment = async (req, res) => {
     const { userId, plan, additionalData = {}, method: requestMethod } = req.body;
     const amount = PAYMENT_AMOUNTS[plan];
     
-    // Simple order ID - just incremental number
-    const orderId = Date.now().toString().substr(-9); // Last 9 digits of timestamp
+    if (!amount) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid plan'
+      });
+    }
+    
+    // Generate order ID
+    const orderId = Date.now().toString().substr(-9);
     
     const merchantId = process.env.PAYME_MERCHANT_ID;
     const isProduction = process.env.NODE_ENV === 'production';
@@ -792,22 +832,23 @@ const initiatePaymePayment = async (req, res) => {
       const useGetMethod = requestMethod === 'get' || req.body.useGetMethod;
       
       if (useGetMethod) {
-        // ✅ IMPORTANT: Use the EXACT field names from your PayMe configuration
+        // ✅ CORRECTED: Use order_id in account object
         const accountData = {
-          order_id: orderId,  // If your PayMe expects order_id
-          // OR use login if that's what your merchant is configured for:
-          // login: userId
+          order_id: orderId  // CORRECTED according to documentation
         };
         
         const paymentUrl = generatePaymeGetUrl(merchantId, accountData, amount, {
-          lang: additionalData.lang || 'ru'
+          lang: additionalData.lang || 'ru',
+          callback: additionalData.callback,
+          callback_timeout: additionalData.callback_timeout || 15000,
+          currency: 'UZS'
         });
         
-        console.log('🔗 Generated PayMe URL for production');
+        console.log('🔗 Generated PayMe URL for production (CORRECTED)');
         
         return res.json({
           success: true,
-          message: '✅ PayMe checkout URL generated',
+          message: '✅ PayMe checkout URL generated (CORRECTED)',
           paymentUrl: paymentUrl,
           method: 'GET',
           transaction: {
@@ -821,20 +862,35 @@ const initiatePaymePayment = async (req, res) => {
         // POST method with form
         const baseUrl = 'https://checkout.paycom.uz';
         
+        // Create detail object with YOUR IKPU
+        const detail = {
+          receipt_type: 0,
+          items: [{
+            title: `ACED ${plan.toUpperCase()} Subscription`,
+            price: amount,
+            count: 1,
+            code: "10899002001000000", // YOUR IKPU
+            vat_percent: 0,
+            package_code: "1"
+          }]
+        };
+        
+        const detailBase64 = Buffer.from(JSON.stringify(detail)).toString('base64');
+        
         return res.json({
           success: true,
-          message: '✅ Use POST form for PayMe',
+          message: '✅ Use POST form for PayMe (CORRECTED)',
           checkoutUrl: baseUrl,
           method: 'POST',
           formData: {
             merchant: merchantId,
             amount: amount,
-            'account[order_id]': orderId,
+            'account[order_id]': orderId, // CORRECTED: Use order_id
             lang: additionalData.lang || 'ru',
             callback: `https://api.aced.live/api/payments/payme/return/success?transaction=${orderId}`,
             callback_timeout: 15000,
-            // Add detail for IKPU
-            detail: createDetailObject(plan, amount)
+            description: `ACED ${plan.toUpperCase()} Subscription`,
+            detail: detailBase64 // Include detail with IKPU
           },
           transaction: {
             id: orderId,
@@ -843,9 +899,38 @@ const initiatePaymePayment = async (req, res) => {
           }
         });
       }
+    } else {
+      // Development mode - redirect to checkout page
+      const checkoutUrl = `https://aced.live/payment/checkout?${new URLSearchParams({
+        transactionId: orderId,
+        userId: userId,
+        amount: amount,
+        amountUzs: amount / 100,
+        plan: plan,
+        userName: additionalData.name || 'User',
+        userEmail: additionalData.email || '',
+        currentPlan: 'free'
+      }).toString()}`;
+
+      return res.json({
+        success: true,
+        message: '✅ Development checkout (CORRECTED)',
+        paymentUrl: checkoutUrl,
+        transaction: {
+          id: orderId,
+          amount: amount,
+          plan: plan,
+          state: 1
+        },
+        metadata: {
+          userId: userId,
+          plan: plan,
+          amountUzs: amount / 100,
+          environment: 'development'
+        }
+      });
     }
     
-    // ... development/sandbox code
   } catch (error) {
     console.error('❌ Payment initiation error:', error);
     res.status(500).json({
