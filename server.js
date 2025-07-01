@@ -961,36 +961,44 @@ app.post('/api/payments/generate-form', async (req, res) => {
       
     } else if (method === 'get') {
       // Generate GET URL according to documentation
+      // ✅ CRITICAL FIX: Generate GET URL with correct account structure
       const params = {
         m: merchantId,
         a: amount,
         l: lang,
-        c: `https://api.aced.live/api/payments/payme/return/success?transaction=${transactionId}&userId=${userId}`,
-        ct: 15000,
         cr: 'UZS'
       };
       
-      // Add account parameters
+      // ✅ Add account parameters - Using 'login' as per your PayMe config
       params['ac.login'] = user.firebaseId;
       
-      // Convert to parameter string
+      // Add callback if provided
+      if (options.callback) {
+        params.c = options.callback;
+      } else {
+        params.c = `${process.env.PAYME_SUCCESS_URL}?transaction=${transactionId}&userId=${userId}`;
+      }
+      
+      if (options.callback_timeout) {
+        params.ct = options.callback_timeout;
+      }
+      
+      // ✅ CRITICAL FIX: Build parameter string WITHOUT URL encoding
       const paramString = Object.entries(params)
-        .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
+        .map(([key, value]) => `${key}=${value}`)  // NO encodeURIComponent!
         .join(';');
+      
+      console.log('📝 Emergency route parameters:', paramString);
       
       // Base64 encode
       const encodedParams = Buffer.from(paramString).toString('base64');
-      const paymentUrl = `${checkoutUrl}/${encodedParams}`;
+      const paymentUrl = `${process.env.PAYME_CHECKOUT_URL}/${encodedParams}`;
       
-      return res.json({
-        success: true,
-        method: 'GET',
-        paymentUrl: paymentUrl,
-        transaction: {
-          id: transactionId,
-          amount: amount,
-          plan: plan
-        }
+      console.log('🔗 Emergency route URL:', {
+        paramString,
+        encodedParams,
+        paymentUrl,
+        decodedCheck: Buffer.from(encodedParams, 'base64').toString()
       });
       
     } else if (method === 'button') {

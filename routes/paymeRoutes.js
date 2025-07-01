@@ -142,10 +142,20 @@ router.post('/generate-form', async (req, res) => {
         m: merchantId,
         a: amount,
         l: lang,
-        c: `https://api.aced.live/api/payments/payme/return/success?transaction=${transactionId}`,
-        ct: 15000,
         cr: 'UZS'
       };
+      
+      // ✅ Add account parameters - Using 'login' as per your PayMe config
+      params['ac.login'] = user.firebaseId;
+      
+      // Optional callback
+      if (req.body.callback) {
+        params.c = req.body.callback;
+      } else {
+        params.c = `${process.env.PAYME_SUCCESS_URL}?transaction=${transactionId}&userId=${userId}`;
+      }
+      
+      params.ct = 15000;  // Timeout
       
       // Add account parameters
       params['ac.login'] = user.firebaseId;

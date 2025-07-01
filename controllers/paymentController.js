@@ -66,6 +66,9 @@ const PaymeErrorCode = {
 // ================================================
 // NEW: PayMe GET URL Generation Function - FIXED
 // ================================================
+// ================================================
+// NEW: PayMe GET URL Generation Function - FIXED
+// ================================================
 const generatePaymeGetUrl = (merchantId, account, amount, options = {}) => {
   try {
     // Build parameters according to Payme GET documentation
@@ -73,23 +76,32 @@ const generatePaymeGetUrl = (merchantId, account, amount, options = {}) => {
       m: merchantId,                    // Merchant ID or alias
       a: amount,                        // Amount in tiyin
       l: options.lang || 'ru',          // Language (ru, uz, en)
-      c: options.callback || '',        // Return URL after payment
-      ct: options.callback_timeout || 15000, // Timeout in milliseconds
       cr: options.currency || 'UZS'     // Currency code
     };
+    
+    // Add callback only if provided
+    if (options.callback) {
+      params.c = options.callback;
+    }
+    
+    if (options.callback_timeout) {
+      params.ct = options.callback_timeout;
+    }
     
     // Add account object parameters with proper format
     if (account) {
       Object.keys(account).forEach(key => {
-        params[`ac.${key}`] = account[key];
+        if (account[key]) {
+          params[`ac.${key}`] = account[key];
+        }
       });
     }
     
-    // Convert parameters to string format for base64 encoding
-    // Use semicolon as separator according to PayMe documentation
+    // ✅ CRITICAL FIX: NO URL ENCODING for PayMe GET method
+    // PayMe expects plain text values, not URL-encoded ones
     const paramString = Object.entries(params)
       .filter(([key, value]) => value !== '' && value !== null && value !== undefined)
-      .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
+      .map(([key, value]) => `${key}=${value}`)  // ✅ REMOVED encodeURIComponent
       .join(';');
     
     console.log('📝 Parameter string before encoding:', paramString);
@@ -105,7 +117,9 @@ const generatePaymeGetUrl = (merchantId, account, amount, options = {}) => {
       originalParams: params,
       paramString,
       encodedParams,
-      finalUrl
+      finalUrl,
+      // ✅ Debug: Verify decode
+      decodedCheck: Buffer.from(encodedParams, 'base64').toString()
     });
     
     return finalUrl;
