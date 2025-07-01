@@ -460,7 +460,7 @@ class PaymeAPI {
     try {
       const amount = this.getPlanAmount(plan);
       
-      // Build parameters according to PayMe documentation
+      // Build parameters according to PayMe documentation.
       const params = {
         m: this.merchantId, // Ensure this is set correctly from your environment variable
         a: amount, // Amount in tiyin
@@ -470,26 +470,27 @@ class PaymeAPI {
         cr: 'UZS' // Currency code
       };
   
-      // Account parameters; for example, order_id is required by PayMe
+      // Account parameters; for example, order_id is required by PayMe.
       const accountParams = {
-        order_id: options.order_id // Ensure you are providing this parameter!
+        order_id: options.order_id // Ensure that order_id is provided (from frontend accountObject)
       };
   
-      // Append account fields with the "ac." prefix if provided
+      // Append account fields with the "ac." prefix.
       Object.keys(accountParams).forEach(key => {
-        if (accountParams[key] || accountParams[key] === 0) {
+        // Accept values as long as they are not undefined or null.
+        if (accountParams[key] !== undefined && accountParams[key] !== null) {
           params[`ac.${key}`] = accountParams[key];
         }
       });
   
       console.log('🔗 GET URL params:', params);
   
-      // Construct parameter string separated by semicolons
+      // Construct parameter string separated by semicolons.
       const paramString = Object.keys(params)
         .map(key => `${key}=${params[key]}`)
         .join(';');
   
-      // Encode parameters in base64 as required by PayMe GET method
+      // Encode parameters in base64 as required by PayMe GET method.
       const encodedParams = Buffer.from(paramString).toString('base64');
       const fullUrl = `${this.checkoutUrl}/${encodedParams}`;
   
