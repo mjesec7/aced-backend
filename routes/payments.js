@@ -1,4 +1,5 @@
-// routes/payments.js - Complete Payment Routes
+// routes/payments.js - COMPLETE Payment Routes (UPDATED for correct GET URL generation)
+
 const express = require('express');
 const router = express.Router();
 const { 
@@ -206,6 +207,5 @@ router.post('/test-auth', (req, res) => {
     environment: process.env.NODE_ENV || 'development'
   });
 });
-//lets imagien smth is here
 
 module.exports = router;

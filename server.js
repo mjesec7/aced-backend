@@ -736,7 +736,8 @@ app.post('/api/payments/initiate', async (req, res) => {
       // PRODUCTION: Direct to PayMe
       const paymeParams = new URLSearchParams({
         m: process.env.PAYME_MERCHANT_ID,
-        'ac.login': userId,
+        // Updated to use 'ac.order_id'
+        'ac.order_id': userId,
         a: amount,
         c: transactionId,
         ct: Date.now(),
@@ -909,10 +910,11 @@ app.post('/api/payments/generate-form', async (req, res) => {
     const merchantId = process.env.PAYME_MERCHANT_ID || 'test-merchant-id';
     const transactionId = `aced_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const isProduction = process.env.NODE_ENV === 'production';
-    const checkoutUrl = isProduction ? 'https://checkout.paycom.uz' : 'https://checkout.test.paycom.uz';
+    const checkoutUrl = isProduction ? process.env.PAYME_CHECKOUT_URL || 'https://checkout.paycom.uz' : 'https://checkout.test.paycom.uz';
     
     if (method === 'post') {
       // Generate POST form HTML according to documentation
+      // Updated: Use account[order_id] instead of account[login]
       const formHtml = `
         <form method="POST" action="${checkoutUrl}/" id="payme-form" style="display: none;">
           <!-- Merchant ID -->
@@ -922,7 +924,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
           <input type="hidden" name="amount" value="${amount}" />
           
           <!-- Account object -->
-          <input type="hidden" name="account[login]" value="${user.firebaseId}" />
+          <input type="hidden" name="account[order_id]" value="${user.firebaseId}" />
           
           <!-- Language -->
           <input type="hidden" name="lang" value="${lang}" />
@@ -961,7 +963,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
       
     } else if (method === 'get') {
       // Generate GET URL according to documentation
-      // ✅ CRITICAL FIX: Generate GET URL with correct account structure
+      // Updated: Use 'ac.order_id' parameter
       const params = {
         m: merchantId,
         a: amount,
@@ -969,30 +971,31 @@ app.post('/api/payments/generate-form', async (req, res) => {
         cr: 'UZS'
       };
       
-      // ✅ Add account parameters - Using 'login' as per your PayMe config
-      params['ac.login'] = user.firebaseId;
+      params['ac.order_id'] = user.firebaseId;
       
       // Add callback if provided
-      if (options.callback) {
-        params.c = options.callback;
+      if (req.body.callback) {
+        params.c = req.body.callback;
       } else {
         params.c = `${process.env.PAYME_SUCCESS_URL}?transaction=${transactionId}&userId=${userId}`;
       }
       
-      if (options.callback_timeout) {
-        params.ct = options.callback_timeout;
+      if (req.body.callback_timeout) {
+        params.ct = req.body.callback_timeout;
+      } else {
+        params.ct = 15000;
       }
       
-      // ✅ CRITICAL FIX: Build parameter string WITHOUT URL encoding
+      // Build parameter string WITHOUT URL encoding
       const paramString = Object.entries(params)
-        .map(([key, value]) => `${key}=${value}`)  // NO encodeURIComponent!
+        .map(([key, value]) => `${key}=${value}`)
         .join(';');
       
       console.log('📝 Emergency route parameters:', paramString);
       
       // Base64 encode
       const encodedParams = Buffer.from(paramString).toString('base64');
-      const paymentUrl = `${process.env.PAYME_CHECKOUT_URL}/${encodedParams}`;
+      const paymentUrl = `${checkoutUrl}/${encodedParams}`;
       
       console.log('🔗 Emergency route URL:', {
         paramString,
@@ -1001,13 +1004,25 @@ app.post('/api/payments/generate-form', async (req, res) => {
         decodedCheck: Buffer.from(encodedParams, 'base64').toString()
       });
       
+      return res.json({
+        success: true,
+        method: 'GET',
+        paymentUrl: paymentUrl,
+        transaction: {
+          id: transactionId,
+          amount: amount,
+          plan: plan
+        }
+      });
+      
     } else if (method === 'button') {
       // Generate button HTML according to documentation
+      // Updated: Use account[order_id]
       const buttonHtml = `
         <div id="button-container-wrapper">
           <form id="form-payme" method="POST" action="${checkoutUrl}/" style="display: none;">
             <input type="hidden" name="merchant" value="${merchantId}">
-            <input type="hidden" name="account[login]" value="${user.firebaseId}">
+            <input type="hidden" name="account[order_id]" value="${user.firebaseId}">
             <input type="hidden" name="amount" value="${amount}">
             <input type="hidden" name="lang" value="${lang}">
             <input type="hidden" name="button" data-type="svg" value="${style}">
@@ -1021,7 +1036,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
               } else {
                 console.warn('PayMe checkout script not loaded');
                 document.getElementById('button-container').innerHTML = 
-                  '<button onclick="document.getElementById(\\'form-payme\\').submit();" style="background: #00AAFF; color: white; padding: 12px 24px; border: none; border-radius: 6px; font-size: 16px; cursor: pointer;">Pay with PayMe</button>';
+                  '<button onclick="document.getElementById(\\'form-payme\\').submit();" style="background: #00AAFF; color: white; padding: 12px 24px; border: none; border-radius: 6px; font-size: 16px;">Pay with PayMe</button>';
               }
             }, 500);
           </script>
@@ -1041,11 +1056,12 @@ app.post('/api/payments/generate-form', async (req, res) => {
       
     } else if (method === 'qr') {
       // Generate QR HTML according to documentation
+      // Updated: Use account[order_id]
       const qrHtml = `
         <div id="qr-container-wrapper">
           <form id="form-payme-qr" method="POST" action="${checkoutUrl}/" style="display: none;">
             <input type="hidden" name="merchant" value="${merchantId}">
-            <input type="hidden" name="account[login]" value="${user.firebaseId}">
+            <input type="hidden" name="account[order_id]" value="${user.firebaseId}">
             <input type="hidden" name="amount" value="${amount}">
             <input type="hidden" name="lang" value="${lang}">
             <input type="hidden" name="qr" data-width="${qrWidth}">
@@ -1059,7 +1075,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
               } else {
                 console.warn('PayMe checkout script not loaded');
                 document.getElementById('qr-container').innerHTML = 
-                  '<div style="text-align: center; padding: 20px;"><p>QR код недоступен</p><button onclick="document.getElementById(\\'form-payme-qr\\').submit();" style="background: #00AAFF; color: white; padding: 12px 24px; border: none; border-radius: 6px;">Перейти к оплате</button></div>';
+                  '<div style="text-align: center; padding: 20px;"><p>QR код недоступен</p><button onclick="document.getElementById(\\'form-payme-qr\\').submit();" style="background: #00AAFF; color: white; padding: 12px 24px; border: none; border-radius: 6px;">Pay with PayMe</button></div>';
               }
             }, 500);
           </script>

@@ -98,8 +98,8 @@ router.post('/generate-form', async (req, res) => {
           <!-- Amount in tiyin -->
           <input type="hidden" name="amount" value="${amount}" />
           
-          <!-- Account object -->
-          <input type="hidden" name="account[login]" value="${user.firebaseId}" />
+          <!-- Account object using order_id -->
+          <input type="hidden" name="account[order_id]" value="${user.firebaseId}" />
           
           <!-- Language -->
           <input type="hidden" name="lang" value="${lang}" />
@@ -144,9 +144,9 @@ router.post('/generate-form', async (req, res) => {
         l: lang,
         cr: 'UZS'
       };
-      
-      // ✅ Add account parameters - Using 'login' as per your PayMe config
-      params['ac.login'] = user.firebaseId;
+
+      // Add account parameter using 'ac.order_id' as per new updates
+      params['ac.order_id'] = user.firebaseId;
       
       // Optional callback
       if (req.body.callback) {
@@ -157,15 +157,12 @@ router.post('/generate-form', async (req, res) => {
       
       params.ct = 15000;  // Timeout
       
-      // Add account parameters
-      params['ac.login'] = user.firebaseId;
-      
-      // Convert to parameter string
+      // Convert to parameter string (using ';' as delimiter)
       const paramString = Object.entries(params)
         .map(([key, value]) => `${key}=${value}`)
         .join(';');
       
-      // Base64 encode
+      // Base64 encode the parameters
       const encodedParams = Buffer.from(paramString).toString('base64');
       const paymentUrl = `https://checkout.paycom.uz/${encodedParams}`;
       
@@ -210,12 +207,13 @@ router.post('/generate-button', async (req, res) => {
     const merchantId = process.env.PAYME_MERCHANT_ID;
     const transactionId = `aced_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
-    // Generate HTML according to documentation
+    // Generate HTML according to documentation.
+    // Note: For button (and QR) generation, use account[order_id] instead of account[login].
     const buttonHtml = `
       <body onload="Paycom.Button('#form-payme', '#button-container')">
         <form id="form-payme" method="POST" action="https://checkout.paycom.uz/">
           <input type="hidden" name="merchant" value="${merchantId}">
-          <input type="hidden" name="account[login]" value="${user.firebaseId}">
+          <input type="hidden" name="account[order_id]" value="${user.firebaseId}">
           <input type="hidden" name="amount" value="${amount}">
           <input type="hidden" name="lang" value="${lang}">
           <input type="hidden" name="button" data-type="svg" value="${style}">
@@ -229,7 +227,7 @@ router.post('/generate-button', async (req, res) => {
       <body onload="Paycom.QR('#form-payme', '#qr-container')">
         <form id="form-payme" method="POST" action="https://checkout.paycom.uz/">
           <input type="hidden" name="merchant" value="${merchantId}">
-          <input type="hidden" name="account[login]" value="${user.firebaseId}">
+          <input type="hidden" name="account[order_id]" value="${user.firebaseId}">
           <input type="hidden" name="amount" value="${amount}">
           <input type="hidden" name="lang" value="${lang}">
           <input type="hidden" name="qr" data-width="250">
@@ -898,7 +896,7 @@ if (process.env.NODE_ENV !== 'production') {
         '-1': 'Cancelled (before payment)',
         '-2': 'Cancelled (refunded)'
       },
-              routes: {
+      routes: {
         generateForm: 'POST /api/payments/generate-form',
         generateButton: 'POST /api/payments/generate-button',
         initialize: 'POST /api/payments/initialize',
