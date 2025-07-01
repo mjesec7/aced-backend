@@ -442,21 +442,25 @@ class PaymeAPI {
   }
 
   /**
-   * Generate PayMe checkout URL using GET method
+   * Generate PayMe checkout URL using GET method.
+   *
+   * This method builds URL parameters by appending individual account fields
+   * with an "ac." prefix. For example, if options.order_id is provided, the parameter
+   * "ac.order_id" will be included.
+   *
+   * Example Data:
+   * m=587f72c72cac0d162c722ae2
+   * ac.order_id=197
+   * a=500
+   *
+   * Resulting URL (after base64 encoding):
+   * https://checkout.paycom.uz/bT01ODdmNzJjNzJjYWMwZDE2MmM3MjJhZTI7YWMub3JkZXJfaWQ9MTk3O2E9NTAw
    */
   generateGetUrl(userId, plan, options = {}) {
     try {
       const amount = this.getPlanAmount(plan);
       
-      // ✅ FIX: Create proper account object as required by PayMe
-      const accountParams = {
-        user_id: String(userId),
-        plan: plan,
-        email: options.email || '',
-        name: options.name || ''
-      };
-
-      // ✅ FIX: Build parameters according to PayMe documentation
+      // Build parameters according to PayMe documentation
       const params = {
         m: this.merchantId,
         a: amount, // Amount in tiyin
@@ -466,21 +470,28 @@ class PaymeAPI {
         cr: 'UZS' // Currency code
       };
 
-      // Add account fields with proper prefix
+      // Build account parameters.
+      // As per the provided documentation, for example the order code should be passed as "ac.order_id".
+      const accountParams = {
+        order_id: options.order_id // Expected to be provided in options
+        // You may add more account-related fields if required.
+      };
+
+      // Append account fields with the "ac." prefix.
       Object.keys(accountParams).forEach(key => {
-        if (accountParams[key]) {
+        if (accountParams[key] || accountParams[key] === 0) {
           params[`ac.${key}`] = accountParams[key];
         }
       });
 
       console.log('🔗 GET URL params:', params);
 
-      // Convert params to string format required by PayMe
+      // Construct parameter string separated by semicolons
       const paramString = Object.keys(params)
         .map(key => `${key}=${params[key]}`)
         .join(';');
 
-      // ✅ FIX: Encode parameters in base64 as required by PayMe GET method
+      // Encode parameters in base64 as required by PayMe GET method
       const encodedParams = Buffer.from(paramString).toString('base64');
       const fullUrl = `${this.checkoutUrl}/${encodedParams}`;
 
@@ -500,12 +511,9 @@ class PaymeAPI {
     try {
       const amount = this.getPlanAmount(plan);
       
-      // ✅ FIX: Create proper account object
+      // Create proper account object
       const accountParams = {
-        user_id: String(userId),
-        plan: plan,
-        email: options.email || '',
-        name: options.name || ''
+        order_id: options.order_id // We expect order_id as part of the account information
       };
 
       const formFields = [
@@ -517,7 +525,7 @@ class PaymeAPI {
         { name: 'description', value: `Payment for ${plan} plan - User ${userId}` }
       ];
 
-      // Add account fields
+      // Add account fields with the proper format
       Object.keys(accountParams).forEach(key => {
         if (accountParams[key]) {
           formFields.push({
@@ -527,7 +535,7 @@ class PaymeAPI {
         }
       });
 
-      // ✅ FIX: Generate proper HTML form
+      // Generate the HTML form for POST method
       const formHtml = `
         <form id="payme-form" method="POST" action="${this.checkoutUrl}" style="display: none;">
           ${formFields.map(field => 
@@ -600,7 +608,6 @@ class PaymeAPI {
           }
         </style>
       `;
-
       return buttonHtml;
 
     } catch (error) {
@@ -684,7 +691,6 @@ class PaymeAPI {
           }
         </style>
       `;
-
       return qrHtml;
 
     } catch (error) {
