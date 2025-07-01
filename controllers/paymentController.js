@@ -67,57 +67,43 @@ const PaymeErrorCode = {
 // ✅ CORRECTED PayMe GET URL Generation
 const generatePaymeGetUrl = (merchantId, account, amount, options = {}) => {
   try {
-    console.log('🔗 Generating PayMe GET URL according to documentation');
-    
     // Build parameters EXACTLY as shown in documentation
     const params = [];
     
-    // 1. Merchant ID (required)
+    // Merchant ID
     params.push(`m=${merchantId}`);
     
-    // 2. Account object - CORRECTED to use order_id
+    // CRITICAL FIX: Use order_id (matches your merchant config)
     if (account.order_id) {
       params.push(`ac.order_id=${account.order_id}`);
     }
     
-    // 3. Amount in tiyin (required)
+    // Amount in tiyin
     params.push(`a=${amount}`);
     
-    // 4. Optional parameters
+    // Optional parameters
     if (options.lang) {
       params.push(`l=${options.lang}`);
     }
     
-    if (options.callback) {
-      params.push(`c=${encodeURIComponent(options.callback)}`);
-    }
-    
-    if (options.callback_timeout) {
-      params.push(`ct=${options.callback_timeout}`);
-    }
-    
-    if (options.currency) {
-      params.push(`cr=${options.currency}`);
-    }
-    
-    // ✅ CRITICAL FIX: Join with semicolon (as per documentation)
+    // CRITICAL FIX: Join with semicolon (not &)
     const paramString = params.join(';');
     
-    console.log('📝 Backend parameter string (CORRECTED):', paramString);
+    console.log('📝 Backend param string:', paramString);
     
     // Base64 encode
     const encodedParams = Buffer.from(paramString).toString('base64');
     
-    // Construct final URL
-    const finalUrl = `https://checkout.paycom.uz/${encodedParams}`;
+    // Use checkout URL
+    const baseUrl = 'https://checkout.paycom.uz';
+    const finalUrl = `${baseUrl}/${encodedParams}`;
     
-    console.log('✅ Generated PayMe URL (CORRECTED):', finalUrl);
-    console.log('🔍 Decode check:', Buffer.from(encodedParams, 'base64').toString());
+    console.log('🔗 Generated PayMe URL:', finalUrl);
     
     return finalUrl;
     
   } catch (error) {
-    console.error('❌ Error generating PayMe GET URL:', error);
+    console.error('❌ Error generating Payme GET URL:', error);
     throw new Error('Failed to generate payment URL');
   }
 };
@@ -433,9 +419,12 @@ const handleSandboxPayment = async (req, res) => {
 // CheckPerformTransaction
 // ================================================
 const handleCheckPerformTransaction = async (req, res, id, params) => {
-  console.log('🔍 Processing CheckPerformTransaction (CORRECTED)');
+  console.log('🔍 Processing CheckPerformTransaction with:', {
+    amount: params?.amount,
+    account: params?.account
+  });
   
-  // ✅ CORRECTED: Check for order_id (as per documentation)
+  // CRITICAL FIX: Check for order_id (not login)
   const orderId = params?.account?.order_id;
                           
   if (!orderId) {
@@ -445,17 +434,14 @@ const handleCheckPerformTransaction = async (req, res, id, params) => {
       id: id,
       error: {
         code: -31050,
-        message: { 
-          ru: 'Неверный account', 
-          en: 'Invalid account', 
-          uz: 'Noto\'g\'ri account' 
-        },
-        data: 'order_id' // CORRECTED: Return correct field name
+        message: { ru: 'Неверный account', en: 'Invalid account', uz: 'Noto\'g\'ri account' },
+        data: 'order_id' // FIXED: Return correct field name
       }
     });
   }
   
-  // Validate amount
+  // For order_id, we don't need to validate against users
+  // Just check if the amount is valid
   const validAmounts = Object.values(PAYMENT_AMOUNTS);
   if (!params?.amount || !validAmounts.includes(params.amount)) {
     console.log('❌ Invalid amount:', params?.amount);
@@ -464,16 +450,12 @@ const handleCheckPerformTransaction = async (req, res, id, params) => {
       id: id,
       error: {
         code: -31001,
-        message: { 
-          ru: 'Неверная сумма', 
-          en: 'Invalid amount', 
-          uz: 'Noto\'g\'ri summa' 
-        }
+        message: { ru: 'Неверная сумма', en: 'Invalid amount', uz: 'Noto\'g\'ri summa' }
       }
     });
   }
   
-  console.log('✅ CheckPerformTransaction successful (CORRECTED)');
+  console.log('✅ CheckPerformTransaction successful');
   return res.status(200).json({
     jsonrpc: '2.0',
     id: id,
@@ -815,14 +797,7 @@ const initiatePaymePayment = async (req, res) => {
     const { userId, plan, additionalData = {}, method: requestMethod } = req.body;
     const amount = PAYMENT_AMOUNTS[plan];
     
-    if (!amount) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid plan'
-      });
-    }
-    
-    // Generate order ID
+    // FIXED: Simple order ID
     const orderId = Date.now().toString().substr(-9);
     
     const merchantId = process.env.PAYME_MERCHANT_ID;
@@ -832,23 +807,20 @@ const initiatePaymePayment = async (req, res) => {
       const useGetMethod = requestMethod === 'get' || req.body.useGetMethod;
       
       if (useGetMethod) {
-        // ✅ CORRECTED: Use order_id in account object
+        // CRITICAL FIX: Use order_id in account object
         const accountData = {
-          order_id: orderId  // CORRECTED according to documentation
+          order_id: orderId  // FIXED: Use order_id
         };
         
         const paymentUrl = generatePaymeGetUrl(merchantId, accountData, amount, {
-          lang: additionalData.lang || 'ru',
-          callback: additionalData.callback,
-          callback_timeout: additionalData.callback_timeout || 15000,
-          currency: 'UZS'
+          lang: additionalData.lang || 'ru'
         });
         
-        console.log('🔗 Generated PayMe URL for production (CORRECTED)');
+        console.log('🔗 Generated PayMe URL for production');
         
         return res.json({
           success: true,
-          message: '✅ PayMe checkout URL generated (CORRECTED)',
+          message: '✅ PayMe checkout URL generated',
           paymentUrl: paymentUrl,
           method: 'GET',
           transaction: {
@@ -862,35 +834,19 @@ const initiatePaymePayment = async (req, res) => {
         // POST method with form
         const baseUrl = 'https://checkout.paycom.uz';
         
-        // Create detail object with YOUR IKPU
-        const detail = {
-          receipt_type: 0,
-          items: [{
-            title: `ACED ${plan.toUpperCase()} Subscription`,
-            price: amount,
-            count: 1,
-            code: "10899002001000000", // YOUR IKPU
-            vat_percent: 0,
-            package_code: "1"
-          }]
-        };
-        
-        const detailBase64 = Buffer.from(JSON.stringify(detail)).toString('base64');
-        
         return res.json({
           success: true,
-          message: '✅ Use POST form for PayMe (CORRECTED)',
+          message: '✅ Use POST form for PayMe',
           checkoutUrl: baseUrl,
           method: 'POST',
           formData: {
             merchant: merchantId,
             amount: amount,
-            'account[order_id]': orderId, // CORRECTED: Use order_id
+            'account[order_id]': orderId, // FIXED: Use order_id
             lang: additionalData.lang || 'ru',
             callback: `https://api.aced.live/api/payments/payme/return/success?transaction=${orderId}`,
             callback_timeout: 15000,
-            description: `ACED ${plan.toUpperCase()} Subscription`,
-            detail: detailBase64 // Include detail with IKPU
+            detail: createDetailObject(plan, amount) // Include IKPU detail
           },
           transaction: {
             id: orderId,
@@ -899,38 +855,9 @@ const initiatePaymePayment = async (req, res) => {
           }
         });
       }
-    } else {
-      // Development mode - redirect to checkout page
-      const checkoutUrl = `https://aced.live/payment/checkout?${new URLSearchParams({
-        transactionId: orderId,
-        userId: userId,
-        amount: amount,
-        amountUzs: amount / 100,
-        plan: plan,
-        userName: additionalData.name || 'User',
-        userEmail: additionalData.email || '',
-        currentPlan: 'free'
-      }).toString()}`;
-
-      return res.json({
-        success: true,
-        message: '✅ Development checkout (CORRECTED)',
-        paymentUrl: checkoutUrl,
-        transaction: {
-          id: orderId,
-          amount: amount,
-          plan: plan,
-          state: 1
-        },
-        metadata: {
-          userId: userId,
-          plan: plan,
-          amountUzs: amount / 100,
-          environment: 'development'
-        }
-      });
     }
     
+    // Development fallback...
   } catch (error) {
     console.error('❌ Payment initiation error:', error);
     res.status(500).json({
@@ -939,8 +866,6 @@ const initiatePaymePayment = async (req, res) => {
     });
   }
 };
-
-// ✅ Helper function to create detail object with IKPU
 const createDetailObject = (plan, amount) => {
   const detail = {
     receipt_type: 0,
@@ -948,16 +873,15 @@ const createDetailObject = (plan, amount) => {
       title: `ACED ${plan.toUpperCase()} Subscription`,
       price: amount,
       count: 1,
-      code: "10899002001000000", // Your IKPU code
-      vat_percent: 0, // Adjust based on your tax requirements
-      package_code: "1" // Default package code
+      code: "10899002001000000", // YOUR IKPU CODE
+      vat_percent: 0,
+      package_code: "1"
     }]
   };
   
-  // Encode to base64
   return Buffer.from(JSON.stringify(detail)).toString('base64');
 };
-// ================================================
+
 // NEW: PayMe Test Integration Function - UPDATED
 // ================================================
 const testPaymeIntegration = async (req, res) => {

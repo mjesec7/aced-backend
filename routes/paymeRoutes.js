@@ -74,53 +74,22 @@ router.post('/generate-form', async (req, res) => {
       });
     }
 
+    const User = require('../models/user');
+    const user = await User.findOne({ firebaseId: userId });
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
     const amount = PAYMENT_AMOUNTS[plan];
     const merchantId = process.env.PAYME_MERCHANT_ID;
-    const orderId = Date.now().toString().substr(-9); // Generate order ID
+    const transactionId = `aced_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
-    if (method === 'get') {
-      // ✅ CORRECTED: Generate GET URL according to documentation
-      const params = [];
-      
-      params.push(`m=${merchantId}`);
-      params.push(`ac.order_id=${orderId}`); // CORRECTED: Use order_id
-      params.push(`a=${amount}`);
-      params.push(`l=${lang}`);
-      params.push(`cr=UZS`);
-      
-      if (req.body.callback) {
-        params.push(`c=${encodeURIComponent(req.body.callback)}`);
-      }
-      
-      if (req.body.callback_timeout) {
-        params.push(`ct=${req.body.callback_timeout}`);
-      }
-      
-      // ✅ CORRECTED: Use semicolon delimiter
-      const paramString = params.join(';');
-      
-      console.log('📝 Route parameter string (CORRECTED):', paramString);
-      
-      // Base64 encode
-      const encodedParams = Buffer.from(paramString).toString('base64');
-      const paymentUrl = `https://checkout.paycom.uz/${encodedParams}`;
-      
-      console.log('🔗 Route generated URL (CORRECTED):', paymentUrl);
-      console.log('🔍 Decode check:', Buffer.from(encodedParams, 'base64').toString());
-      
-      return res.json({
-        success: true,
-        method: 'GET',
-        paymentUrl: paymentUrl,
-        transaction: {
-          id: orderId,
-          amount: amount,
-          plan: plan
-        }
-      });
-      
-    } else if (method === 'post') {
-      // ✅ CORRECTED: Generate POST form with IKPU
+    if (method === 'post') {
+      // FIXED: Generate POST form with YOUR IKPU
       const detail = {
         receipt_type: 0,
         items: [{
@@ -139,13 +108,13 @@ router.post('/generate-form', async (req, res) => {
         <form method="POST" action="https://checkout.paycom.uz/" id="payme-form">
           <input type="hidden" name="merchant" value="${merchantId}" />
           <input type="hidden" name="amount" value="${amount}" />
-          <input type="hidden" name="account[order_id]" value="${orderId}" />
+          <input type="hidden" name="account[order_id]" value="${user.firebaseId}" />
           <input type="hidden" name="lang" value="${lang}" />
-          <input type="hidden" name="callback" value="https://api.aced.live/api/payments/payme/return/success?transaction=${orderId}" />
+          <input type="hidden" name="callback" value="https://api.aced.live/api/payments/payme/return/success?transaction=${transactionId}" />
           <input type="hidden" name="callback_timeout" value="15000" />
           <input type="hidden" name="description" value="ACED ${plan.toUpperCase()} Plan Subscription" />
           <input type="hidden" name="detail" value="${detailBase64}" />
-          <button type="submit">Pay with PayMe</button>
+          <button type="submit">Pay with Payme</button>
         </form>
         <script>
           document.getElementById('payme-form').submit();
@@ -157,7 +126,48 @@ router.post('/generate-form', async (req, res) => {
         method: 'POST',
         formHtml: formHtml,
         transaction: {
-          id: orderId,
+          id: transactionId,
+          amount: amount,
+          plan: plan
+        }
+      });
+      
+    } else if (method === 'get') {
+      // FIXED: Generate GET URL with order_id
+      const params = {
+        m: merchantId,
+        a: amount,
+        l: lang,
+        cr: 'UZS'
+      };
+
+      // CRITICAL FIX: Use order_id parameter
+      params['ac.order_id'] = user.firebaseId;
+      
+      // Optional callback
+      if (req.body.callback) {
+        params.c = req.body.callback;
+      } else {
+        params.c = `${process.env.PAYME_SUCCESS_URL}?transaction=${transactionId}&userId=${userId}`;
+      }
+      
+      params.ct = 15000;
+      
+      // CRITICAL FIX: Use semicolon delimiter
+      const paramString = Object.entries(params)
+        .map(([key, value]) => `${key}=${value}`)
+        .join(';');
+      
+      // Base64 encode the parameters
+      const encodedParams = Buffer.from(paramString).toString('base64');
+      const paymentUrl = `https://checkout.paycom.uz/${encodedParams}`;
+      
+      return res.json({
+        success: true,
+        method: 'GET',
+        paymentUrl: paymentUrl,
+        transaction: {
+          id: transactionId,
           amount: amount,
           plan: plan
         }
