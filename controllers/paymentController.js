@@ -209,7 +209,7 @@ const createErrorResponse = (id, code, data = null) => {
 
 // ✅ FIXED: Determine account field name based on your business logic
 const getAccountFieldName = () => {
-  // ✅ CRITICAL FIX: Return 'login' instead of 'order_id'
+  // ✅ CRITICAL FIX: Return 'login' instead of 'login'
   return 'login';
 };
 
@@ -226,7 +226,7 @@ const generatePaymeGetUrl = (merchantId, account, amount, options = {}) => {
       throw new Error('Valid merchant ID required');
     }
     
-    if (!account || !account.login) {  // ✅ CHANGED: Check for login instead of order_id
+    if (!account || !account.login) {  // ✅ CHANGED: Check for login instead of login
       throw new Error('Account login required');
     }
     
@@ -240,7 +240,7 @@ const generatePaymeGetUrl = (merchantId, account, amount, options = {}) => {
     params.push(`m=${merchantId}`);
     params.push(`a=${amount}`);
     
-    // ✅ CRITICAL FIX: Use ac.login instead of ac.order_id
+    // ✅ CRITICAL FIX: Use ac.login instead of ac.login
     params.push(`ac.login=${account.login}`);
     
     // Optional parameters
@@ -310,7 +310,7 @@ const generatePaymePostForm = (userId, plan, options = {}) => {
     const baseOrderId = `aced${timestamp}${randomStr}`;
     const orderId = baseOrderId.replace(/[^a-zA-Z0-9]/g, '');
     
-    // ✅ CRITICAL FIX: Use login instead of order_id
+    // ✅ CRITICAL FIX: Use login instead of login
     const accountData = {
       login: options.userId || userId  // Use Firebase ID as login
     };
@@ -406,7 +406,7 @@ const generatePaymePostForm = (userId, plan, options = {}) => {
 
 
 // ================================================
-// FIXED: Account Validation Using order_id
+// FIXED: Account Validation Using login
 // ================================================
 
 const validateAccountAndState = async (account) => {
@@ -417,7 +417,7 @@ const validateAccountAndState = async (account) => {
       return { exists: false, state: 'not_exists' };
     }
     
-    // ✅ CRITICAL FIX: Check for login field instead of order_id
+    // ✅ CRITICAL FIX: Check for login field instead of login
     let accountValue = null;
     let fieldType = null;
     
@@ -987,8 +987,8 @@ const generateDirectPaymeUrl = async (userId, plan, options = {}) => {
       amountUzs: amounts[plan].uzs
     });
     
-    // Create account object with order_id
-    const account = { order_id: orderId };
+    // Create account object with login
+    const account = { login: orderId };
     
     // Use the fixed generatePaymeGetUrl function
     const paymentUrl = generatePaymeGetUrl(merchantId, account, planAmount, options);
@@ -1036,7 +1036,7 @@ const generateDirectPaymeForm = async (userId, plan, options = {}) => {
     // Generate clean order ID
     const timestamp = Date.now();
     const randomStr = Math.random().toString(36).substr(2, 9);
-    const baseOrderId = options.order_id || `aced${timestamp}${randomStr}`;
+    const baseOrderId = options.login || `aced${timestamp}${randomStr}`;
     const orderId = baseOrderId.replace(/[^a-zA-Z0-9]/g, '');
     
     console.log('🧹 Clean order ID generated:', orderId);
@@ -1044,7 +1044,7 @@ const generateDirectPaymeForm = async (userId, plan, options = {}) => {
     // Use the fixed generatePaymePostForm function
     const result = generatePaymePostForm(userId, plan, {
       ...options,
-      order_id: orderId
+      login: orderId
     });
     
     if (result.success) {
@@ -1144,7 +1144,7 @@ const initiatePaymePayment = async (req, res) => {
       } else {
         // POST method with clean form data
         const result = await generateDirectPaymeForm(userId, plan, {
-          order_id: cleanOrderId,
+          login: cleanOrderId,
           lang: additionalData.lang || 'ru',
           callback: additionalData.callback || 
                    `https://api.aced.live/api/payments/payme/return/success?transaction=${cleanOrderId}&userId=${userId}`,
@@ -1698,9 +1698,9 @@ const handlePaymeWebhook = async (req, res) => {
     
     switch (method) {
       case 'PaymentCompleted':
-        if (params?.account?.order_id && params?.state === TransactionState.COMPLETED) {
+        if (params?.account?.login && params?.state === TransactionState.COMPLETED) {
           // Find user by order ID pattern (extract userId from order ID)
-          const orderIdParts = params.account.order_id.match(/^aced(\d+)/);
+          const orderIdParts = params.account.login.match(/^aced(\d+)/);
           if (orderIdParts) {
             const userId = orderIdParts[1];
             const user = await User.findById(userId);
@@ -1724,8 +1724,8 @@ const handlePaymeWebhook = async (req, res) => {
         }
         break;
       case 'PaymentCancelled':
-        if (params?.account?.order_id) {
-          console.log('⚠️ Payment cancelled for order:', params.account.order_id);
+        if (params?.account?.login) {
+          console.log('⚠️ Payment cancelled for order:', params.account.login);
         }
         break;
     }
@@ -1847,9 +1847,9 @@ const testPaymeIntegration = async (req, res) => {
     const orderId = `aced${Date.now()}${Math.random().toString(36).substr(2, 6)}`;
     const merchantId = process.env.PAYME_MERCHANT_ID;
     
-    // Create account data as per PayMe documentation (FIXED: using order_id)
+    // Create account data as per PayMe documentation (FIXED: using login)
     const accountData = {
-      order_id: orderId
+      login: orderId
     };
     
     // Test PayMe GET URL generation with proper format
@@ -1859,11 +1859,11 @@ const testPaymeIntegration = async (req, res) => {
       callback_timeout: 15000
     });
     
-    // Test PayMe POST format (FIXED: using account[order_id])
+    // Test PayMe POST format (FIXED: using account[login])
     const postParams = new URLSearchParams({
       'merchant': merchantId,
       'amount': amount,
-      'account[order_id]': orderId, // FIXED: Correct field name
+      'account[login]': orderId, // FIXED: Correct field name
       'lang': 'ru',
       'callback': `https://api.aced.live/api/payments/payme/return/success?transaction=${orderId}`
     });
@@ -2200,7 +2200,7 @@ const createTestTransaction = async (req, res) => {
       state: TransactionState.CREATED,
       create_time: Date.now(),
       amount: amount || PAYMENT_AMOUNTS[plan] || 26000000,
-      account: { order_id: `${userId}_${plan}_${Date.now()}` }, // FIXED: Use order_id
+      account: { login: `${userId}_${plan}_${Date.now()}` }, // FIXED: Use login
       cancelled: false,
       perform_time: 0,
       cancel_time: 0,
@@ -2261,7 +2261,7 @@ const getErrorCodeInfo = (req, res) => {
   }
   
   // Create a sample error response
-  const sampleResponse = createErrorResponse(12345, numericCode, 'order_id'); // FIXED: Use order_id
+  const sampleResponse = createErrorResponse(12345, numericCode, 'login'); // FIXED: Use login
   
   res.json({
     code: numericCode,

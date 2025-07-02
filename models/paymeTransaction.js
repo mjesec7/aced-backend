@@ -156,7 +156,7 @@ const paymeTransactionSchema = new mongoose.Schema({
   },
   
   // Order and User Info
-  order_id: {
+  login: {
     type: Number,
     required: true,
     index: true
@@ -244,7 +244,7 @@ const paymeTransactionSchema = new mongoose.Schema({
 
 // ✨ Enhanced indexes
 paymeTransactionSchema.index({ paycom_transaction_id: 1 });
-paymeTransactionSchema.index({ order_id: 1 });
+paymeTransactionSchema.index({ login: 1 });
 paymeTransactionSchema.index({ user_id: 1 });
 paymeTransactionSchema.index({ create_time: 1 });
 paymeTransactionSchema.index({ state: 1 });
@@ -281,7 +281,7 @@ paymeTransactionSchema.statics.findByPaymeId = function(paymeId) {
 };
 
 paymeTransactionSchema.statics.findByOrderId = function(orderId) {
-  return this.findOne({ order_id: parseInt(orderId) });
+  return this.findOne({ login: parseInt(orderId) });
 };
 
 paymeTransactionSchema.statics.getStatement = function(from, to) {
@@ -445,7 +445,7 @@ class PaymeAPI {
    * Generate PayMe checkout URL using GET method.
    *
    * This method builds URL parameters by appending individual account fields
-   * with an "ac." prefix. For example, if options.order_id is provided, the parameter
+   * with an "ac." prefix. For example, if options.login is provided, the parameter
    * "ac.login" will be included.
    *
    * Example Data:
@@ -470,9 +470,9 @@ class PaymeAPI {
         cr: 'UZS' // Currency code
       };
   
-      // Account parameters; for example, order_id is required by PayMe.
+      // Account parameters; for example, login is required by PayMe.
       const accountParams = {
-        order_id: options.order_id // Ensure that order_id is provided (from frontend accountObject)
+        login: options.login // Ensure that login is provided (from frontend accountObject)
       };
   
       // Append account fields with the "ac." prefix.
@@ -511,7 +511,7 @@ class PaymeAPI {
       
       // Create proper account object
       const accountParams = {
-        order_id: options.order_id // We expect order_id as part of the account information
+        login: options.login // We expect login as part of the account information
       };
 
       const formFields = [

@@ -89,7 +89,7 @@ router.post('/generate-form', async (req, res) => {
     const transactionId = `aced_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
     if (method === 'post') {
-      // ✅ CRITICAL FIX: Use account[login] instead of account[order_id]
+      // ✅ CRITICAL FIX: Use account[login] instead of account[login]
       const formHtml = `
         <form method="POST" action="https://checkout.paycom.uz/" id="payme-form">
           <input type="hidden" name="merchant" value="${merchantId}" />
@@ -176,12 +176,12 @@ router.post('/generate-button', async (req, res) => {
     const transactionId = `aced_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
     // Generate HTML according to documentation.
-    // Note: For button (and QR) generation, use account[order_id] instead of account[login].
+    // Note: For button (and QR) generation, use account[login] instead of account[login].
     const buttonHtml = `
       <body onload="Paycom.Button('#form-payme', '#button-container')">
         <form id="form-payme" method="POST" action="https://checkout.paycom.uz/">
           <input type="hidden" name="merchant" value="${merchantId}">
-          <input type="hidden" name="account[order_id]" value="${user.firebaseId}">
+          <input type="hidden" name="account[login]" value="${user.firebaseId}">
           <input type="hidden" name="amount" value="${amount}">
           <input type="hidden" name="lang" value="${lang}">
           <input type="hidden" name="button" data-type="svg" value="${style}">
@@ -195,7 +195,7 @@ router.post('/generate-button', async (req, res) => {
       <body onload="Paycom.QR('#form-payme', '#qr-container')">
         <form id="form-payme" method="POST" action="https://checkout.paycom.uz/">
           <input type="hidden" name="merchant" value="${merchantId}">
-          <input type="hidden" name="account[order_id]" value="${user.firebaseId}">
+          <input type="hidden" name="account[login]" value="${user.firebaseId}">
           <input type="hidden" name="amount" value="${amount}">
           <input type="hidden" name="lang" value="${lang}">
           <input type="hidden" name="qr" data-width="250">

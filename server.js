@@ -472,7 +472,7 @@ if (handlePaymeWebhook && initiatePaymePayment) {
     console.log('✅ PayMe success return:', req.query);
     
     const transactionId = req.query.transaction || req.query.id;
-    const orderId = req.query.order_id;
+    const orderId = req.query.login;
     
     // Redirect to frontend success page
     const successParams = new URLSearchParams({
@@ -733,7 +733,7 @@ app.post('/api/payments/initiate', async (req, res) => {
     const isProduction = process.env.NODE_ENV === 'production';
 
     if (isProduction && process.env.PAYME_MERCHANT_ID) {
-      // ✅ CRITICAL FIX: Use ac.login instead of ac.order_id
+      // ✅ CRITICAL FIX: Use ac.login instead of ac.login
       const paymeParams = new URLSearchParams({
         m: process.env.PAYME_MERCHANT_ID,
         'ac.login': userId,  // ✅ FIXED: Use login field
@@ -969,7 +969,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
           <input type="hidden" name="merchant" value="${merchantId}" />
           <input type="hidden" name="amount" value="${amount}" />
           
-          <!-- ✅ CRITICAL FIX: Use login field instead of order_id -->
+          <!-- ✅ CRITICAL FIX: Use login field instead of login -->
           <input type="hidden" name="account[login]" value="${user.firebaseId}" />
           
           <!-- Optional parameters -->
@@ -1038,7 +1038,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
         cr: 'UZS'
       };
       
-      // ✅ CRITICAL FIX: Use login field instead of order_id
+      // ✅ CRITICAL FIX: Use login field instead of login
       params['ac.login'] = user.firebaseId;
       
       // Add callback URL
