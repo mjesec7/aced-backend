@@ -204,7 +204,7 @@ router.post('/save', async (req, res) => {
         firebaseId, 
         email, 
         name, 
-        login: email,
+        Login: email,
         subscriptionPlan: subscriptionPlan || 'free',
         diary: [],
         studyList: [],
@@ -215,7 +215,7 @@ router.post('/save', async (req, res) => {
       console.log('📝 Updating existing user:', firebaseId);
       user.email = email;
       user.name = name;
-      user.login = email;
+      user.Login = email;
       if (subscriptionPlan) user.subscriptionPlan = subscriptionPlan;
       
       // Initialize homework usage if not present

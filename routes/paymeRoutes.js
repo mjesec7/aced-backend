@@ -89,12 +89,12 @@ router.post('/generate-form', async (req, res) => {
     const transactionId = `aced_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
     if (method === 'post') {
-      // ✅ CRITICAL FIX: Use account[login] instead of account[login]
+      // ✅ CRITICAL FIX: Use account[Login] instead of account[Login]
       const formHtml = `
         <form method="POST" action="https://checkout.paycom.uz/" id="payme-form">
           <input type="hidden" name="merchant" value="${merchantId}" />
           <input type="hidden" name="amount" value="${amount}" />
-          <input type="hidden" name="account[login]" value="${user._id}" />
+          <input type="hidden" name="account[Login]" value="${user._id}" />
           <input type="hidden" name="lang" value="${lang}" />
           <input type="hidden" name="callback" value="https://api.aced.live/api/payments/payme/return/success?transaction=${transactionId}" />
           <input type="hidden" name="callback_timeout" value="15000" />
@@ -114,7 +114,7 @@ router.post('/generate-form', async (req, res) => {
       });
       
     } else if (method === 'get') {
-      // ✅ CRITICAL FIX: Use ac.login parameter
+      // ✅ CRITICAL FIX: Use ac.Login parameter
       const params = {
         m: merchantId,
         a: amount,
@@ -122,7 +122,7 @@ router.post('/generate-form', async (req, res) => {
         cr: 'UZS'
       };
 
-      params['ac.login'] = user._id;  // ✅ FIXED
+      params['ac.Login'] = user._id;  // ✅ FIXED
       
       if (req.body.callback) {
         params.c = req.body.callback;
@@ -176,12 +176,12 @@ router.post('/generate-button', async (req, res) => {
     const transactionId = `aced_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
     // Generate HTML according to documentation.
-    // Note: For button (and QR) generation, use account[login] instead of account[login].
+    // Note: For button (and QR) generation, use account[Login] instead of account[Login].
     const buttonHtml = `
       <body onload="Paycom.Button('#form-payme', '#button-container')">
         <form id="form-payme" method="POST" action="https://checkout.paycom.uz/">
           <input type="hidden" name="merchant" value="${merchantId}">
-          <input type="hidden" name="account[login]" value="${user._id}">
+          <input type="hidden" name="account[Login]" value="${user._id}">
           <input type="hidden" name="amount" value="${amount}">
           <input type="hidden" name="lang" value="${lang}">
           <input type="hidden" name="button" data-type="svg" value="${style}">
@@ -195,7 +195,7 @@ router.post('/generate-button', async (req, res) => {
       <body onload="Paycom.QR('#form-payme', '#qr-container')">
         <form id="form-payme" method="POST" action="https://checkout.paycom.uz/">
           <input type="hidden" name="merchant" value="${merchantId}">
-          <input type="hidden" name="account[login]" value="${user._id}">
+          <input type="hidden" name="account[Login]" value="${user._id}">
           <input type="hidden" name="amount" value="${amount}">
           <input type="hidden" name="lang" value="${lang}">
           <input type="hidden" name="qr" data-width="250">
@@ -469,7 +469,7 @@ router.post('/initiate-payme', async (req, res) => {
       create_time: Date.now(),
       perform_time: 0,
       account: { 
-        login: user._id,
+        Login: user._id,
         user_id: user._id 
       }
     };
@@ -479,7 +479,7 @@ router.post('/initiate-payme', async (req, res) => {
       // PRODUCTION: Direct to PayMe
       const paymeParams = {
         m: merchantId,                    // Merchant ID
-        'ac.login': user._id,      // Account ID
+        'ac.Login': user._id,      // Account ID
         a: amount,                        // Amount in tiyin
         c: transactionId,                 // Our transaction ID
         ct: Date.now(),                   // Timestamp

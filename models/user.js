@@ -73,7 +73,7 @@ const monthlyUsageSchema = new mongoose.Schema({
 const userSchema = new mongoose.Schema({
   // 🔐 Firebase Credentials
   firebaseId: { type: String, required: true, unique: true },
-  login: { type: String, required: true, unique: true },
+  Login: { type: String, required: true, unique: true },
   name: String,
   email: { type: String, required: true, unique: true },
   photoURL: String,

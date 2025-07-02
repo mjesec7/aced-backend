@@ -472,7 +472,7 @@ if (handlePaymeWebhook && initiatePaymePayment) {
     console.log('✅ PayMe success return:', req.query);
     
     const transactionId = req.query.transaction || req.query.id;
-    const orderId = req.query.login;
+    const orderId = req.query.Login;
     
     // Redirect to frontend success page
     const successParams = new URLSearchParams({
@@ -733,10 +733,10 @@ app.post('/api/payments/initiate', async (req, res) => {
     const isProduction = process.env.NODE_ENV === 'production';
 
     if (isProduction && process.env.PAYME_MERCHANT_ID) {
-      // ✅ CRITICAL FIX: Use ac.login instead of ac.login
+      // ✅ CRITICAL FIX: Use ac.Login instead of ac.Login
       const paymeParams = new URLSearchParams({
         m: process.env.PAYME_MERCHANT_ID,
-        'ac.login': userId,  // ✅ FIXED: Use login field
+        'ac.Login': userId,  // ✅ FIXED: Use Login field
         a: amount,
         c: transactionId,
         ct: Date.now(),
@@ -869,7 +869,7 @@ app.post('/api/payments/promo-code', async (req, res) => {
 });
 
 // ✅ EMERGENCY: Add missing payment form generation route directly
-// ✅ COMPLETE UPDATED generate-form function with login field fixes
+// ✅ COMPLETE UPDATED generate-form function with Login field fixes
 app.post('/api/payments/generate-form', async (req, res) => {
   try {
     const { userId, plan, method = 'post', lang = 'ru', style = 'colored', qrWidth = 250 } = req.body;
@@ -941,7 +941,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
     });
     
     if (method === 'post') {
-      // ✅ CRITICAL FIX: Use account[login] in POST form
+      // ✅ CRITICAL FIX: Use account[Login] in POST form
       const detail = {
         receipt_type: 0,
         items: [{
@@ -969,8 +969,8 @@ app.post('/api/payments/generate-form', async (req, res) => {
           <input type="hidden" name="merchant" value="${merchantId}" />
           <input type="hidden" name="amount" value="${amount}" />
           
-          <!-- ✅ CRITICAL FIX: Use login field instead of login -->
-          <input type="hidden" name="account[login]" value="${user._id}" />
+          <!-- ✅ CRITICAL FIX: Use Login field instead of Login -->
+          <input type="hidden" name="account[Login]" value="${user._id}" />
           
           <!-- Optional parameters -->
           <input type="hidden" name="lang" value="${lang}" />
@@ -993,7 +993,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
             const form = document.getElementById('payme-form');
             if (form) {
               console.log('✅ Form found, submitting to PayMe...');
-              console.log('🏷️ Account login value:', '${user._id}');
+              console.log('🏷️ Account Login value:', '${user._id}');
               form.submit();
             } else {
               console.error('❌ PayMe form not found in DOM');
@@ -1024,13 +1024,13 @@ app.post('/api/payments/generate-form', async (req, res) => {
         debug: {
           checkoutUrl,
           merchantId: merchantId.substring(0, 10) + '...',
-          accountField: 'login',
+          accountField: 'Login',
           accountValue: user._id
         }
       });
       
     } else if (method === 'get') {
-      // ✅ CRITICAL FIX: Use ac.login in GET URL
+      // ✅ CRITICAL FIX: Use ac.Login in GET URL
       const params = {
         m: merchantId,
         a: amount,
@@ -1038,8 +1038,8 @@ app.post('/api/payments/generate-form', async (req, res) => {
         cr: 'UZS'
       };
       
-      // ✅ CRITICAL FIX: Use login field instead of login
-      params['ac.login'] = user._id;
+      // ✅ CRITICAL FIX: Use Login field instead of Login
+      params['ac.Login'] = user._id;
       
       // Add callback URL
       if (req.body.callback) {
@@ -1084,21 +1084,21 @@ app.post('/api/payments/generate-form', async (req, res) => {
           paramString,
           encodedParams,
           checkoutUrl,
-          accountField: 'ac.login',
+          accountField: 'ac.Login',
           accountValue: user._id
         }
       });
       
     } else if (method === 'button') {
-      // ✅ CRITICAL FIX: Use account[login] in button HTML
+      // ✅ CRITICAL FIX: Use account[Login] in button HTML
       const buttonHtml = `
         <div id="button-container-wrapper">
           <form id="form-payme" method="POST" action="${checkoutUrl}/" style="display: none;">
             <!-- Required fields -->
             <input type="hidden" name="merchant" value="${merchantId}">
             
-            <!-- ✅ CRITICAL FIX: Use login field -->
-            <input type="hidden" name="account[login]" value="${user._id}">
+            <!-- ✅ CRITICAL FIX: Use Login field -->
+            <input type="hidden" name="account[Login]" value="${user._id}">
             
             <input type="hidden" name="amount" value="${amount}">
             <input type="hidden" name="lang" value="${lang}">
@@ -1118,7 +1118,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
             function initPaymeButton() {
               if (typeof Paycom !== 'undefined') {
                 console.log('✅ PayMe SDK loaded, creating button');
-                console.log('🏷️ Account login value:', '${user._id}');
+                console.log('🏷️ Account Login value:', '${user._id}');
                 Paycom.Button('#form-payme', '#button-container');
               } else {
                 console.warn('❌ PayMe SDK not loaded, creating fallback button');
@@ -1146,21 +1146,21 @@ app.post('/api/payments/generate-form', async (req, res) => {
         debug: {
           style,
           checkoutUrl,
-          accountField: 'login',
+          accountField: 'Login',
           accountValue: user._id
         }
       });
       
     } else if (method === 'qr') {
-      // ✅ CRITICAL FIX: Use account[login] in QR HTML
+      // ✅ CRITICAL FIX: Use account[Login] in QR HTML
       const qrHtml = `
         <div id="qr-container-wrapper">
           <form id="form-payme-qr" method="POST" action="${checkoutUrl}/" style="display: none;">
             <!-- Required fields -->
             <input type="hidden" name="merchant" value="${merchantId}">
             
-            <!-- ✅ CRITICAL FIX: Use login field -->
-            <input type="hidden" name="account[login]" value="${user._id}">
+            <!-- ✅ CRITICAL FIX: Use Login field -->
+            <input type="hidden" name="account[Login]" value="${user._id}">
             
             <input type="hidden" name="amount" value="${amount}">
             <input type="hidden" name="lang" value="${lang}">
@@ -1180,7 +1180,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
             function initPaymeQR() {
               if (typeof Paycom !== 'undefined') {
                 console.log('✅ PayMe SDK loaded, creating QR code');
-                console.log('🏷️ Account login value:', '${user._id}');
+                console.log('🏷️ Account Login value:', '${user._id}');
                 console.log('📏 QR width:', ${qrWidth});
                 Paycom.QR('#form-payme-qr', '#qr-container');
               } else {
@@ -1212,7 +1212,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
         debug: {
           qrWidth,
           checkoutUrl,
-          accountField: 'login',
+          accountField: 'Login',
           accountValue: user._id
         }
       });
@@ -1468,14 +1468,14 @@ app.post('/api/users/save', async (req, res) => {
         firebaseId, 
         email, 
         name, 
-        login: email,
+        Login: email,
         subscriptionPlan: subscriptionPlan || 'free' 
       });
     } else {
       console.log('📝 Updating existing user via emergency route');
       user.email = email;
       user.name = name;
-      user.login = email;
+      user.Login = email;
       if (subscriptionPlan) user.subscriptionPlan = subscriptionPlan;
     }
 

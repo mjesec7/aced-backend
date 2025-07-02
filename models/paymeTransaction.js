@@ -156,7 +156,7 @@ const paymeTransactionSchema = new mongoose.Schema({
   },
   
   // Order and User Info
-  login: {
+  Login: {
     type: Number,
     required: true,
     index: true
@@ -244,7 +244,7 @@ const paymeTransactionSchema = new mongoose.Schema({
 
 // ✨ Enhanced indexes
 paymeTransactionSchema.index({ paycom_transaction_id: 1 });
-paymeTransactionSchema.index({ login: 1 });
+paymeTransactionSchema.index({ Login: 1 });
 paymeTransactionSchema.index({ user_id: 1 });
 paymeTransactionSchema.index({ create_time: 1 });
 paymeTransactionSchema.index({ state: 1 });
@@ -281,7 +281,7 @@ paymeTransactionSchema.statics.findByPaymeId = function(paymeId) {
 };
 
 paymeTransactionSchema.statics.findByOrderId = function(orderId) {
-  return this.findOne({ login: parseInt(orderId) });
+  return this.findOne({ Login: parseInt(orderId) });
 };
 
 paymeTransactionSchema.statics.getStatement = function(from, to) {
@@ -445,12 +445,12 @@ class PaymeAPI {
    * Generate PayMe checkout URL using GET method.
    *
    * This method builds URL parameters by appending individual account fields
-   * with an "ac." prefix. For example, if options.login is provided, the parameter
-   * "ac.login" will be included.
+   * with an "ac." prefix. For example, if options.Login is provided, the parameter
+   * "ac.Login" will be included.
    *
    * Example Data:
    * m=587f72c72cac0d162c722ae2
-   * ac.login=197
+   * ac.Login=197
    * a=500
    *
    * Resulting URL (after base64 encoding):
@@ -470,11 +470,11 @@ class PaymeAPI {
         cr: 'UZS'
       };
   
-      // Ensure account login is a string. If it's not provided or not a string, default to userId.
-      const loginValue = (options.login !== undefined && options.login !== null)
-        ? (typeof options.login === 'string' ? options.login : String(options.login))
+      // Ensure account Login is a string. If it's not provided or not a string, default to userId.
+      const LoginValue = (options.Login !== undefined && options.Login !== null)
+        ? (typeof options.Login === 'string' ? options.Login : String(options.Login))
         : String(userId);
-      const accountParams = { login: loginValue };
+      const accountParams = { Login: LoginValue };
   
       // Append account fields with the "ac." prefix.
       Object.keys(accountParams).forEach(key => {
@@ -509,11 +509,11 @@ class PaymeAPI {
     try {
       const amount = this.getPlanAmount(plan);
       
-      // Ensure account login is a string.
-      const loginValue = (options.login !== undefined && options.login !== null)
-        ? (typeof options.login === 'string' ? options.login : String(options.login))
+      // Ensure account Login is a string.
+      const LoginValue = (options.Login !== undefined && options.Login !== null)
+        ? (typeof options.Login === 'string' ? options.Login : String(options.Login))
         : String(userId);
-      const accountParams = { login: loginValue };
+      const accountParams = { Login: LoginValue };
 
       const formFields = [
         { name: 'merchant', value: this.merchantId },
