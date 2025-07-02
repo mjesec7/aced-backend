@@ -733,11 +733,10 @@ app.post('/api/payments/initiate', async (req, res) => {
     const isProduction = process.env.NODE_ENV === 'production';
 
     if (isProduction && process.env.PAYME_MERCHANT_ID) {
-      // PRODUCTION: Direct to PayMe
+      // ✅ CRITICAL FIX: Use ac.login instead of ac.order_id
       const paymeParams = new URLSearchParams({
         m: process.env.PAYME_MERCHANT_ID,
-        // Updated to use 'ac.login'
-        'ac.login': userId,
+        'ac.login': userId,  // ✅ FIXED: Use login field
         a: amount,
         c: transactionId,
         ct: Date.now(),
@@ -765,7 +764,7 @@ app.post('/api/payments/initiate', async (req, res) => {
         }
       });
     } else {
-      // DEVELOPMENT: Our checkout page
+      // Development checkout remains the same
       const checkoutUrl = `https://aced.live/payment/checkout?${new URLSearchParams({
         transactionId: transactionId,
         userId: userId,
@@ -870,6 +869,7 @@ app.post('/api/payments/promo-code', async (req, res) => {
 });
 
 // ✅ EMERGENCY: Add missing payment form generation route directly
+// ✅ COMPLETE UPDATED generate-form function with login field fixes
 app.post('/api/payments/generate-form', async (req, res) => {
   try {
     const { userId, plan, method = 'post', lang = 'ru', style = 'colored', qrWidth = 250 } = req.body;
@@ -883,70 +883,131 @@ app.post('/api/payments/generate-form', async (req, res) => {
       });
     }
 
+    // ✅ IMPROVED: User finding logic with better error handling
     const User = require('./models/user');
     let user = null;
     
     try {
+      // Try multiple search strategies
       user = await User.findOne({ firebaseId: userId }) ||
              await User.findById(userId).catch(() => null) ||
              await User.findOne({ email: userId }).catch(() => null);
     } catch (dbError) {
       console.warn('⚠️ Database error, using fallback user data:', dbError.message);
-      user = { firebaseId: userId, name: 'User', email: 'user@example.com' };
+      // Create fallback user object
+      user = { 
+        firebaseId: userId, 
+        name: 'User', 
+        email: 'user@example.com',
+        _id: userId
+      };
     }
     
+    // If still no user, create fallback
     if (!user) {
-      user = { firebaseId: userId, name: 'User', email: 'user@example.com' };
+      console.log('📝 Creating fallback user object for:', userId);
+      user = { 
+        firebaseId: userId, 
+        name: 'User', 
+        email: 'user@example.com',
+        _id: userId
+      };
     }
 
+    // ✅ Validate plan and get amount
     const amount = PAYMENT_AMOUNTS[plan];
     if (!amount) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid plan'
+        message: `Invalid plan: ${plan}. Allowed: start, pro`
       });
     }
 
+    // ✅ Configuration setup
     const merchantId = process.env.PAYME_MERCHANT_ID || 'test-merchant-id';
     const transactionId = `aced_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const isProduction = process.env.NODE_ENV === 'production';
-    const checkoutUrl = isProduction ? process.env.PAYME_CHECKOUT_URL || 'https://checkout.paycom.uz' : 'https://checkout.test.paycom.uz';
+    const checkoutUrl = isProduction ? 
+      (process.env.PAYME_CHECKOUT_URL || 'https://checkout.paycom.uz') : 
+      'https://checkout.test.paycom.uz';
+    
+    console.log('💰 Payment details:', {
+      plan,
+      amount,
+      amountUzs: amount / 100,
+      merchantId: merchantId.substring(0, 10) + '...',
+      transactionId,
+      userFirebaseId: user.firebaseId
+    });
     
     if (method === 'post') {
-      // Generate POST form HTML according to documentation
-      // Updated: Use account[order_id] instead of account[login]
+      // ✅ CRITICAL FIX: Use account[login] in POST form
+      const detail = {
+        receipt_type: 0,
+        items: [{
+          title: `ACED ${plan.toUpperCase()} Subscription`,
+          price: amount,
+          count: 1,
+          code: "10899002001000000", // Your IKPU code
+          vat_percent: 0,
+          package_code: "1"
+        }]
+      };
+      
+      let detailBase64 = '';
+      try {
+        const detailJson = JSON.stringify(detail);
+        detailBase64 = Buffer.from(detailJson, 'utf8').toString('base64');
+      } catch (encodingError) {
+        console.error('❌ Detail encoding failed:', encodingError);
+        detailBase64 = '';
+      }
+      
       const formHtml = `
         <form method="POST" action="${checkoutUrl}/" id="payme-form" style="display: none;">
-          <!-- Merchant ID -->
+          <!-- Required merchant information -->
           <input type="hidden" name="merchant" value="${merchantId}" />
-          
-          <!-- Amount in tiyin -->
           <input type="hidden" name="amount" value="${amount}" />
           
-          <!-- Account object -->
-          <input type="hidden" name="account[order_id]" value="${user.firebaseId}" />
+          <!-- ✅ CRITICAL FIX: Use login field instead of order_id -->
+          <input type="hidden" name="account[login]" value="${user.firebaseId}" />
           
-          <!-- Language -->
+          <!-- Optional parameters -->
           <input type="hidden" name="lang" value="${lang}" />
-          
-          <!-- Return URL -->
           <input type="hidden" name="callback" value="https://api.aced.live/api/payments/payme/return/success?transaction=${transactionId}&userId=${userId}" />
-          
-          <!-- Timeout -->
           <input type="hidden" name="callback_timeout" value="15000" />
-          
-          <!-- Description -->
           <input type="hidden" name="description" value="ACED ${plan.toUpperCase()} Plan Subscription" />
-          
-          <!-- Currency -->
           <input type="hidden" name="currency" value="UZS" />
+          
+          <!-- Receipt details -->
+          ${detailBase64 ? `<input type="hidden" name="detail" value="${detailBase64}" />` : ''}
+          
+          <!-- Submit button (hidden, auto-submit) -->
+          <button type="submit" style="display: none;">Pay with PayMe</button>
         </form>
         
         <script>
-          // Auto-submit form after a short delay
-          setTimeout(function() {
-            document.getElementById('payme-form').submit();
-          }, 1000);
+          console.log('📝 PayMe POST form auto-submitting...');
+          
+          function submitPaymeForm() {
+            const form = document.getElementById('payme-form');
+            if (form) {
+              console.log('✅ Form found, submitting to PayMe...');
+              console.log('🏷️ Account login value:', '${user.firebaseId}');
+              form.submit();
+            } else {
+              console.error('❌ PayMe form not found in DOM');
+            }
+          }
+          
+          // Auto-submit after page loads
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', function() {
+              setTimeout(submitPaymeForm, 1000);
+            });
+          } else {
+            setTimeout(submitPaymeForm, 1000);
+          }
         </script>
       `;
       
@@ -954,16 +1015,22 @@ app.post('/api/payments/generate-form', async (req, res) => {
         success: true,
         method: 'POST',
         formHtml: formHtml,
-        transaction: {
-          id: transactionId,
-          amount: amount,
-          plan: plan
+        transaction: { 
+          id: transactionId, 
+          amount: amount, 
+          plan: plan,
+          accountLogin: user.firebaseId
+        },
+        debug: {
+          checkoutUrl,
+          merchantId: merchantId.substring(0, 10) + '...',
+          accountField: 'login',
+          accountValue: user.firebaseId
         }
       });
       
     } else if (method === 'get') {
-      // Generate GET URL according to documentation
-      // Updated: Use 'ac.login' parameter
+      // ✅ CRITICAL FIX: Use ac.login in GET URL
       const params = {
         m: merchantId,
         a: amount,
@@ -971,74 +1038,97 @@ app.post('/api/payments/generate-form', async (req, res) => {
         cr: 'UZS'
       };
       
+      // ✅ CRITICAL FIX: Use login field instead of order_id
       params['ac.login'] = user.firebaseId;
       
-      // Add callback if provided
+      // Add callback URL
       if (req.body.callback) {
         params.c = req.body.callback;
       } else {
-        params.c = `${process.env.PAYME_SUCCESS_URL}?transaction=${transactionId}&userId=${userId}`;
+        params.c = `https://api.aced.live/api/payments/payme/return/success?transaction=${transactionId}&userId=${userId}`;
       }
       
-      if (req.body.callback_timeout) {
-        params.ct = req.body.callback_timeout;
-      } else {
-        params.ct = 15000;
-      }
+      params.ct = 15000;
       
-      // Build parameter string WITHOUT URL encoding
+      // ✅ Build parameter string with semicolon separator (PayMe requirement)
       const paramString = Object.entries(params)
         .map(([key, value]) => `${key}=${value}`)
         .join(';');
       
-      console.log('📝 Emergency route parameters:', paramString);
+      console.log('📝 GET URL parameters:', paramString);
       
-      // Base64 encode
-      const encodedParams = Buffer.from(paramString).toString('base64');
+      // Base64 encode the parameters
+      const encodedParams = Buffer.from(paramString, 'utf8').toString('base64');
       const paymentUrl = `${checkoutUrl}/${encodedParams}`;
       
-      console.log('🔗 Emergency route URL:', {
-        paramString,
-        encodedParams,
-        paymentUrl,
-        decodedCheck: Buffer.from(encodedParams, 'base64').toString()
+      // Verify encoding
+      const decodedCheck = Buffer.from(encodedParams, 'base64').toString('utf8');
+      console.log('🔍 URL verification:', {
+        original: paramString,
+        encoded: encodedParams,
+        decoded: decodedCheck,
+        matches: paramString === decodedCheck
       });
       
       return res.json({
         success: true,
         method: 'GET',
         paymentUrl: paymentUrl,
-        transaction: {
-          id: transactionId,
-          amount: amount,
-          plan: plan
+        transaction: { 
+          id: transactionId, 
+          amount: amount, 
+          plan: plan,
+          accountLogin: user.firebaseId
+        },
+        debug: {
+          paramString,
+          encodedParams,
+          checkoutUrl,
+          accountField: 'ac.login',
+          accountValue: user.firebaseId
         }
       });
       
     } else if (method === 'button') {
-      // Generate button HTML according to documentation
-      // Updated: Use account[order_id]
+      // ✅ CRITICAL FIX: Use account[login] in button HTML
       const buttonHtml = `
         <div id="button-container-wrapper">
           <form id="form-payme" method="POST" action="${checkoutUrl}/" style="display: none;">
+            <!-- Required fields -->
             <input type="hidden" name="merchant" value="${merchantId}">
-            <input type="hidden" name="account[order_id]" value="${user.firebaseId}">
+            
+            <!-- ✅ CRITICAL FIX: Use login field -->
+            <input type="hidden" name="account[login]" value="${user.firebaseId}">
+            
             <input type="hidden" name="amount" value="${amount}">
             <input type="hidden" name="lang" value="${lang}">
             <input type="hidden" name="button" data-type="svg" value="${style}">
+            <input type="hidden" name="callback" value="https://api.aced.live/api/payments/payme/return/success?transaction=${transactionId}&userId=${userId}">
+            
+            <!-- Button container -->
             <div id="button-container"></div>
           </form>
+          
+          <!-- PayMe SDK -->
           <script src="https://cdn.paycom.uz/integration/js/checkout.min.js"></script>
+          
           <script>
-            setTimeout(function() {
+            console.log('🔘 Initializing PayMe button...');
+            
+            function initPaymeButton() {
               if (typeof Paycom !== 'undefined') {
+                console.log('✅ PayMe SDK loaded, creating button');
+                console.log('🏷️ Account login value:', '${user.firebaseId}');
                 Paycom.Button('#form-payme', '#button-container');
               } else {
-                console.warn('PayMe checkout script not loaded');
+                console.warn('❌ PayMe SDK not loaded, creating fallback button');
                 document.getElementById('button-container').innerHTML = 
-                  '<button onclick="document.getElementById(\\'form-payme\\').submit();" style="background: #00AAFF; color: white; padding: 12px 24px; border: none; border-radius: 6px; font-size: 16px;">Pay with PayMe</button>';
+                  '<button onclick="document.getElementById(\\'form-payme\\').submit();" style="background: #00AAFF; color: white; padding: 12px 24px; border: none; border-radius: 6px; font-size: 16px; cursor: pointer;">Pay with PayMe</button>';
               }
-            }, 500);
+            }
+            
+            // Initialize after SDK loads
+            setTimeout(initPaymeButton, 500);
           </script>
         </div>
       `;
@@ -1047,37 +1137,64 @@ app.post('/api/payments/generate-form', async (req, res) => {
         success: true,
         method: 'BUTTON',
         buttonHtml: buttonHtml,
-        transaction: {
-          id: transactionId,
-          amount: amount,
-          plan: plan
+        transaction: { 
+          id: transactionId, 
+          amount: amount, 
+          plan: plan,
+          accountLogin: user.firebaseId
+        },
+        debug: {
+          style,
+          checkoutUrl,
+          accountField: 'login',
+          accountValue: user.firebaseId
         }
       });
       
     } else if (method === 'qr') {
-      // Generate QR HTML according to documentation
-      // Updated: Use account[order_id]
+      // ✅ CRITICAL FIX: Use account[login] in QR HTML
       const qrHtml = `
         <div id="qr-container-wrapper">
           <form id="form-payme-qr" method="POST" action="${checkoutUrl}/" style="display: none;">
+            <!-- Required fields -->
             <input type="hidden" name="merchant" value="${merchantId}">
-            <input type="hidden" name="account[order_id]" value="${user.firebaseId}">
+            
+            <!-- ✅ CRITICAL FIX: Use login field -->
+            <input type="hidden" name="account[login]" value="${user.firebaseId}">
+            
             <input type="hidden" name="amount" value="${amount}">
             <input type="hidden" name="lang" value="${lang}">
             <input type="hidden" name="qr" data-width="${qrWidth}">
+            <input type="hidden" name="callback" value="https://api.aced.live/api/payments/payme/return/success?transaction=${transactionId}&userId=${userId}">
+            
+            <!-- QR container -->
             <div id="qr-container"></div>
           </form>
+          
+          <!-- PayMe SDK -->
           <script src="https://cdn.paycom.uz/integration/js/checkout.min.js"></script>
+          
           <script>
-            setTimeout(function() {
+            console.log('📱 Initializing PayMe QR code...');
+            
+            function initPaymeQR() {
               if (typeof Paycom !== 'undefined') {
+                console.log('✅ PayMe SDK loaded, creating QR code');
+                console.log('🏷️ Account login value:', '${user.firebaseId}');
+                console.log('📏 QR width:', ${qrWidth});
                 Paycom.QR('#form-payme-qr', '#qr-container');
               } else {
-                console.warn('PayMe checkout script not loaded');
+                console.warn('❌ PayMe SDK not loaded, creating fallback');
                 document.getElementById('qr-container').innerHTML = 
-                  '<div style="text-align: center; padding: 20px;"><p>QR код недоступен</p><button onclick="document.getElementById(\\'form-payme-qr\\').submit();" style="background: #00AAFF; color: white; padding: 12px 24px; border: none; border-radius: 6px;">Pay with PayMe</button></div>';
+                  '<div style="text-align: center; padding: 20px; border: 2px dashed #ccc; border-radius: 8px;">' +
+                  '<p style="margin: 0 0 15px 0; color: #666;">QR код недоступен</p>' +
+                  '<button onclick="document.getElementById(\\'form-payme-qr\\').submit();" style="background: #00AAFF; color: white; padding: 12px 24px; border: none; border-radius: 6px; cursor: pointer;">Pay with PayMe</button>' +
+                  '</div>';
               }
-            }, 500);
+            }
+            
+            // Initialize after SDK loads
+            setTimeout(initPaymeQR, 500);
           </script>
         </div>
       `;
@@ -1086,17 +1203,27 @@ app.post('/api/payments/generate-form', async (req, res) => {
         success: true,
         method: 'QR',
         qrHtml: qrHtml,
-        transaction: {
-          id: transactionId,
-          amount: amount,
-          plan: plan
+        transaction: { 
+          id: transactionId, 
+          amount: amount, 
+          plan: plan,
+          accountLogin: user.firebaseId
+        },
+        debug: {
+          qrWidth,
+          checkoutUrl,
+          accountField: 'login',
+          accountValue: user.firebaseId
         }
       });
     }
     
+    // Invalid method
     return res.status(400).json({
       success: false,
-      message: 'Invalid method. Supported: post, get, button, qr'
+      message: 'Invalid method. Supported: post, get, button, qr',
+      supportedMethods: ['post', 'get', 'button', 'qr'],
+      received: method
     });
     
   } catch (error) {
@@ -1104,7 +1231,9 @@ app.post('/api/payments/generate-form', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to generate payment form',
-      error: error.message
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+      timestamp: new Date().toISOString()
     });
   }
 });

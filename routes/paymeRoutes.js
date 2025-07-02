@@ -89,31 +89,16 @@ router.post('/generate-form', async (req, res) => {
     const transactionId = `aced_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
     if (method === 'post') {
-      // FIXED: Generate POST form with YOUR IKPU
-      const detail = {
-        receipt_type: 0,
-        items: [{
-          title: `ACED ${plan.toUpperCase()} Subscription`,
-          price: amount,
-          count: 1,
-          code: "10899002001000000", // YOUR IKPU
-          vat_percent: 0,
-          package_code: "1"
-        }]
-      };
-      
-      const detailBase64 = Buffer.from(JSON.stringify(detail)).toString('base64');
-      
+      // ✅ CRITICAL FIX: Use account[login] instead of account[order_id]
       const formHtml = `
         <form method="POST" action="https://checkout.paycom.uz/" id="payme-form">
           <input type="hidden" name="merchant" value="${merchantId}" />
           <input type="hidden" name="amount" value="${amount}" />
-          <input type="hidden" name="account[order_id]" value="${user.firebaseId}" />
+          <input type="hidden" name="account[login]" value="${user.firebaseId}" />
           <input type="hidden" name="lang" value="${lang}" />
           <input type="hidden" name="callback" value="https://api.aced.live/api/payments/payme/return/success?transaction=${transactionId}" />
           <input type="hidden" name="callback_timeout" value="15000" />
           <input type="hidden" name="description" value="ACED ${plan.toUpperCase()} Plan Subscription" />
-          <input type="hidden" name="detail" value="${detailBase64}" />
           <button type="submit">Pay with Payme</button>
         </form>
         <script>
@@ -125,15 +110,11 @@ router.post('/generate-form', async (req, res) => {
         success: true,
         method: 'POST',
         formHtml: formHtml,
-        transaction: {
-          id: transactionId,
-          amount: amount,
-          plan: plan
-        }
+        transaction: { id: transactionId, amount: amount, plan: plan }
       });
       
     } else if (method === 'get') {
-      // FIXED: Generate GET URL with order_id
+      // ✅ CRITICAL FIX: Use ac.login parameter
       const params = {
         m: merchantId,
         a: amount,
@@ -141,24 +122,20 @@ router.post('/generate-form', async (req, res) => {
         cr: 'UZS'
       };
 
-      // CRITICAL FIX: Use order_id parameter
-      params['ac.order_id'] = user.firebaseId || `aced_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      params['ac.login'] = user.firebaseId;  // ✅ FIXED
       
-      // Optional callback
       if (req.body.callback) {
         params.c = req.body.callback;
       } else {
-        params.c = `${process.env.PAYME_SUCCESS_URL}?transaction=${transactionId}&userId=${userId}`;
+        params.c = `https://api.aced.live/api/payments/payme/return/success?transaction=${transactionId}&userId=${userId}`;
       }
       
       params.ct = 15000;
       
-      // CRITICAL FIX: Use semicolon delimiter
       const paramString = Object.entries(params)
-    .map(([key, value]) => `${key}=${value}`)
-    .join(';');
+        .map(([key, value]) => `${key}=${value}`)
+        .join(';');
       
-      // Base64 encode the parameters
       const encodedParams = Buffer.from(paramString).toString('base64');
       const paymentUrl = `https://checkout.paycom.uz/${encodedParams}`;
       
@@ -166,11 +143,7 @@ router.post('/generate-form', async (req, res) => {
         success: true,
         method: 'GET',
         paymentUrl,
-        transaction: {
-          id: transactionId,
-          amount,
-          plan
-        }
+        transaction: { id: transactionId, amount, plan }
       });
     }
     
@@ -183,7 +156,6 @@ router.post('/generate-form', async (req, res) => {
     });
   }
 });
-
 // Generate payment button/QR code (according to documentation)
 router.post('/generate-button', async (req, res) => {
   try {

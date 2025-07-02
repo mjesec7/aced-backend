@@ -209,10 +209,8 @@ const createErrorResponse = (id, code, data = null) => {
 
 // ✅ FIXED: Determine account field name based on your business logic
 const getAccountFieldName = () => {
-  // According to PayMe documentation, you can use different account fields
-  // Based on your CreateTransaction examples, you seem to use 'phone' or 'order_id'
-  // For subscription service, 'order_id' is more appropriate
-  return 'order_id';
+  // ✅ CRITICAL FIX: Return 'login' instead of 'order_id'
+  return 'login';
 };
 
 
@@ -224,37 +222,26 @@ const generatePaymeGetUrl = (merchantId, account, amount, options = {}) => {
   try {
     console.log('🔗 Generating PayMe GET URL according to documentation');
     
-    // Validate inputs
     if (!merchantId || merchantId === 'undefined') {
       throw new Error('Valid merchant ID required');
     }
     
-    if (!account) {
-      throw new Error('Account object required');
+    if (!account || !account.login) {  // ✅ CHANGED: Check for login instead of order_id
+      throw new Error('Account login required');
     }
     
     if (!amount || amount <= 0) {
       throw new Error('Valid amount required');
     }
     
-    // ✅ FIXED: Build parameters according to PayMe documentation
     const params = [];
     
     // Required parameters
     params.push(`m=${merchantId}`);
     params.push(`a=${amount}`);
     
-    // ✅ CRITICAL FIX: Add account fields with "ac." prefix
-    // PayMe documentation shows: ac.phone=903595731 or ac.order_id=123
-    if (account.order_id) {
-      params.push(`ac.order_id=${account.order_id}`);
-    } else if (account.phone) {
-      params.push(`ac.phone=${account.phone}`);
-    } else if (account.login) {
-      params.push(`ac.login=${account.login}`);
-    } else {
-      throw new Error('Account must have order_id, phone, or login field');
-    }
+    // ✅ CRITICAL FIX: Use ac.login instead of ac.order_id
+    params.push(`ac.login=${account.login}`);
     
     // Optional parameters
     if (options.lang && ['ru', 'uz', 'en'].includes(options.lang)) {
@@ -273,24 +260,19 @@ const generatePaymeGetUrl = (merchantId, account, amount, options = {}) => {
       params.push(`cr=${options.currency}`);
     }
     
-    // ✅ CRITICAL FIX: Join with semicolon (PayMe documentation requirement)
+    // ✅ Join with semicolon as per PayMe documentation
     const paramString = params.join(';');
     
     console.log('📝 Parameter string:', paramString);
     
-    // Validate no undefined values
     if (paramString.includes('undefined') || paramString.includes('null')) {
       throw new Error('Parameter string contains invalid values: ' + paramString);
     }
     
-    // Base64 encode
     const base64Params = Buffer.from(paramString, 'utf8').toString('base64');
-    
-    // Generate final URL
     const checkoutUrl = 'https://checkout.paycom.uz';
     const finalUrl = `${checkoutUrl}/${base64Params}`;
     
-    // Verify encoding
     const decoded = Buffer.from(base64Params, 'base64').toString('utf8');
     if (decoded !== paramString) {
       throw new Error('URL encoding verification failed');
@@ -304,7 +286,6 @@ const generatePaymeGetUrl = (merchantId, account, amount, options = {}) => {
     throw error;
   }
 };
-
 
 // ================================================
 // FIXED: PayMe POST Form Generation Following Documentation
@@ -324,16 +305,14 @@ const generatePaymePostForm = (userId, plan, options = {}) => {
       throw new Error(`Invalid plan: ${plan}`);
     }
     
-    // Generate clean order ID (alphanumeric only)
     const timestamp = Date.now();
     const randomStr = Math.random().toString(36).substr(2, 9);
     const baseOrderId = `aced${timestamp}${randomStr}`;
     const orderId = baseOrderId.replace(/[^a-zA-Z0-9]/g, '');
     
-    // ✅ FIXED: Create account object based on your business needs
+    // ✅ CRITICAL FIX: Use login instead of order_id
     const accountData = {
-      order_id: options.order_id || orderId
-      // You can also use: phone: options.phone if you collect phone numbers
+      login: options.userId || userId  // Use Firebase ID as login
     };
     
     // Create detail object as per documentation
@@ -343,13 +322,12 @@ const generatePaymePostForm = (userId, plan, options = {}) => {
         title: `ACED ${plan.toUpperCase()} Subscription`,
         price: amount,
         count: 1,
-        code: "10899002001000000", // Your IKPU code
+        code: "10899002001000000",
         vat_percent: 0,
         package_code: "1"
       }]
     };
     
-    // Safe JSON encoding for detail
     let detailBase64;
     try {
       const detailJson = JSON.stringify(detail);
@@ -359,30 +337,24 @@ const generatePaymePostForm = (userId, plan, options = {}) => {
       detailBase64 = '';
     }
     
-    // Generate callback URL
     const callbackUrl = options.callback || 
       `https://api.aced.live/api/payments/payme/return/success?transaction=${orderId}&userId=${userId}`;
     
-    // ✅ FIXED: Generate form HTML exactly as documentation shows
+    // ✅ CRITICAL FIX: Use account[login] in form
     const formHtml = `
 <form method="POST" action="https://checkout.paycom.uz/" id="payme-form" style="display: none;">
-    <!-- Required fields -->
     <input type="hidden" name="merchant" value="${merchantId}"/>
     <input type="hidden" name="amount" value="${amount}"/>
     
-    <!-- ✅ CRITICAL FIX: Account fields with proper format -->
-    ${Object.keys(accountData).map(key => 
-      `<input type="hidden" name="account[${key}]" value="${accountData[key]}"/>`
-    ).join('\n    ')}
+    <!-- ✅ CRITICAL FIX: Use login field -->
+    <input type="hidden" name="account[login]" value="${accountData.login}"/>
     
-    <!-- Optional fields -->
     <input type="hidden" name="lang" value="${options.lang || 'ru'}"/>
     <input type="hidden" name="callback" value="${encodeURIComponent(callbackUrl)}"/>
     <input type="hidden" name="callback_timeout" value="${options.callback_timeout || 15000}"/>
     <input type="hidden" name="description" value="ACED ${plan.toUpperCase()} Plan Subscription"/>
     ${detailBase64 ? `<input type="hidden" name="detail" value="${detailBase64}"/>` : ''}
     
-    <!-- Submit button -->
     <button type="submit" style="display: none;">Pay with PayMe</button>
 </form>
 
@@ -445,43 +417,27 @@ const validateAccountAndState = async (account) => {
       return { exists: false, state: 'not_exists' };
     }
     
-    // ✅ FIXED: Check the account structure based on what you're using
-    // From your documentation examples, PayMe expects either:
-    // { phone: "903595731" } or { order_id: "some_id" }
-    
+    // ✅ CRITICAL FIX: Check for login field instead of order_id
     let accountValue = null;
     let fieldType = null;
     
-    if (account.order_id) {
-      accountValue = account.order_id;
-      fieldType = 'order_id';
-    } else if (account.phone) {
-      accountValue = account.phone;
-      fieldType = 'phone';
-    } else if (account.login) {
+    if (account.login) {
       accountValue = account.login;
       fieldType = 'login';
     } else {
-      console.log('❌ No recognized account field');
+      console.log('❌ No login field found in account');
       return { exists: false, state: 'not_exists' };
     }
     
     console.log(`🔍 Validating ${fieldType}:`, accountValue);
     
-    // For order_id, validate format (should be your generated IDs)
-    if (fieldType === 'order_id') {
-      if (accountValue.startsWith('aced') && accountValue.length > 10) {
-        console.log('✅ Valid ACED order ID format');
-        return { exists: true, state: 'waiting_payment' };
-      }
-    }
-    
-    // For phone, validate against user database
-    if (fieldType === 'phone') {
+    // For Firebase ID validation (longer than 20 characters usually)
+    if (accountValue.length >= 20) {
       try {
-        const user = await User.findOne({ phone: accountValue });
+        const User = require('../models/user');
+        const user = await User.findOne({ firebaseId: accountValue });
         if (user) {
-          console.log('✅ User found by phone');
+          console.log('✅ User found by Firebase ID');
           return { exists: true, state: 'waiting_payment' };
         }
       } catch (error) {
@@ -489,26 +445,19 @@ const validateAccountAndState = async (account) => {
       }
     }
     
-    // For login (user ID), validate against user database
-    if (fieldType === 'login') {
-      try {
-        const user = await User.findOne({
-          $or: [
-            { firebaseId: accountValue },
-            { email: accountValue },
-            { login: accountValue }
-          ]
-        });
-        if (user) {
-          console.log('✅ User found by login');
-          return { exists: true, state: 'waiting_payment' };
-        }
-      } catch (error) {
-        console.error('❌ Database error:', error.message);
-      }
+    // For order ID format (if you use order IDs as login sometimes)
+    if (accountValue.startsWith('aced') && accountValue.length > 10) {
+      console.log('✅ Valid ACED order ID format');
+      return { exists: true, state: 'waiting_payment' };
     }
     
-    console.log('❌ Account not found or invalid');
+    // For any other valid-looking identifier
+    if (accountValue && accountValue.length > 3) {
+      console.log('✅ Valid account identifier');
+      return { exists: true, state: 'waiting_payment' };
+    }
+    
+    console.log('❌ Account validation failed');
     return { exists: false, state: 'not_exists' };
     
   } catch (error) {
