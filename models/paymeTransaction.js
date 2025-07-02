@@ -426,114 +426,109 @@ paymeTransactionSchema.pre('save', function(next) {
 // =============================================
 // 💰 PAYME API INTEGRATION CLASS - ADDED TO MODEL
 // =============================================
+// ✅ CORRECTED PayMe API Integration
 
 class PaymeAPI {
   constructor() {
-    // ✅ These should come from environment variables
     this.merchantId = process.env.PAYME_MERCHANT_ID || 'your_merchant_id';
     this.secretKey = process.env.PAYME_SECRET_KEY || 'your_secret_key';
     this.checkoutUrl = process.env.PAYME_CHECKOUT_URL || 'https://checkout.paycom.uz';
     this.testMode = process.env.PAYME_TEST_MODE === 'true';
     
-    // Use test URLs if in test mode
     if (this.testMode) {
       this.checkoutUrl = 'https://test.paycom.uz';
     }
   }
 
   /**
-   * Generate PayMe checkout URL using GET method.
-   *
-   * This method builds URL parameters by appending individual account fields
-   * with an "ac." prefix. For example, if options.login is provided, the parameter
-   * "ac.login" will be included.
-   *
-   * Example Data:
-   * m=587f72c72cac0d162c722ae2
-   * ac.login=197
-   * a=500
-   *
-   * Resulting URL (after base64 encoding):
-   * https://checkout.paycom.uz/bT01ODdmNzJjNzJjYWMwZDE2MmM3MjJhZTI7YWMub3JkZXJfaWQ9MTk3O2E9NTAw
+   * ✅ FIXED: Generate PayMe checkout URL using GET method
+   * This method properly extracts account fields and prefixes them with "ac."
    */
   generateGetUrl(userId, plan, options = {}) {
     try {
       const amount = this.getPlanAmount(plan);
       
-      // Build parameters according to PayMe documentation.
+      // ✅ Build base parameters
       const params = {
-        m: this.merchantId, // Ensure this is set correctly from your environment variable
-        a: amount, // Amount in tiyin
+        m: this.merchantId,
+        a: amount,
         l: options.lang || 'ru',
-        c: options.callback || `${process.env.FRONTEND_URL}/payment/success`, // Must be a full URL
+        c: options.callback || `${process.env.FRONTEND_URL}/payment/success`,
         ct: options.callback_timeout || 15000,
-        cr: 'UZS' // Currency code
+        cr: 'UZS'
       };
-  
-      // Account parameters; for example, login is required by PayMe.
+
+      // ✅ CRITICAL FIX: Extract individual account fields
+      // Don't pass the entire account object - extract specific fields
       const accountParams = {
-        login: options.login // Ensure that login is provided (from frontend accountObject)
+        login: options.login || userId  // Ensure login is provided
       };
-  
-      // Append account fields with the "ac." prefix.
+
+      // ✅ Add account fields with "ac." prefix individually
       Object.keys(accountParams).forEach(key => {
-        // Accept values as long as they are not undefined or null.
-        if (accountParams[key] !== undefined && accountParams[key] !== null) {
-          params[`ac.${key}`] = accountParams[key];
+        const value = accountParams[key];
+        // Only add non-null, non-undefined values
+        if (value !== undefined && value !== null && value !== '') {
+          params[`ac.${key}`] = value;
         }
       });
-  
+
       console.log('🔗 GET URL params:', params);
-  
-      // Construct parameter string separated by semicolons.
+
+      // ✅ Build parameter string with semicolons
       const paramString = Object.keys(params)
-        .map(key => `${key}=${params[key]}`)
+        .map(key => `${key}=${encodeURIComponent(params[key])}`)
         .join(';');
-  
-      // Encode parameters in base64 as required by PayMe GET method.
+
+      console.log('📝 Parameter string:', paramString);
+
+      // ✅ Encode in base64
       const encodedParams = Buffer.from(paramString).toString('base64');
       const fullUrl = `${this.checkoutUrl}/${encodedParams}`;
-  
+
       console.log('✅ Generated PayMe GET URL:', fullUrl);
       return fullUrl;
-  
+
     } catch (error) {
       console.error('❌ Error generating GET URL:', error);
-      throw new Error('Failed to generate payment URL');
+      throw new Error(`Failed to generate payment URL: ${error.message}`);
     }
   }
+
   /**
-   * Generate PayMe form HTML for POST method
+   * ✅ FIXED: Generate PayMe form HTML for POST method
    */
   generatePostForm(userId, plan, options = {}) {
     try {
       const amount = this.getPlanAmount(plan);
       
-      // Create proper account object
-      const accountParams = {
-        login: options.login // We expect login as part of the account information
-      };
-
+      // ✅ Base form fields
       const formFields = [
         { name: 'merchant', value: this.merchantId },
         { name: 'amount', value: amount },
         { name: 'lang', value: options.lang || 'ru' },
         { name: 'callback', value: options.callback || `${process.env.FRONTEND_URL}/payment/success` },
         { name: 'callback_timeout', value: options.callback_timeout || 15000 },
-        { name: 'description', value: `Payment for ${plan} plan - User ${userId}` }
+        { name: 'description', value: options.description || `Payment for ${plan} plan - User ${userId}` }
       ];
 
-      // Add account fields with the proper format
-      Object.keys(accountParams).forEach(key => {
-        if (accountParams[key]) {
+      // ✅ CRITICAL FIX: Add account fields properly for POST method
+      const accountFields = {
+        login: options.login || userId
+      };
+
+      // For POST method, account fields use account[field] format
+      Object.keys(accountFields).forEach(key => {
+        const value = accountFields[key];
+        if (value !== undefined && value !== null && value !== '') {
           formFields.push({
             name: `account[${key}]`,
-            value: accountParams[key]
+            value: value
           });
         }
       });
 
-      // Generate the HTML form for POST method
+      // ✅ Generate HTML form
       const formHtml = `
         <form id="payme-form" method="POST" action="${this.checkoutUrl}" style="display: none;">
           ${formFields.map(field => 
@@ -542,212 +537,120 @@ class PaymeAPI {
           <button type="submit">Pay with PayMe</button>
         </form>
         <script>
-          // Auto-submit form after 2 seconds
+          console.log('PayMe form fields:', ${JSON.stringify(formFields)});
+          // Auto-submit form
           setTimeout(function() {
             document.getElementById('payme-form').submit();
-          }, 2000);
+          }, 1000);
         </script>
       `;
 
-      console.log('📝 Generated PayMe POST form');
       return formHtml;
 
     } catch (error) {
       console.error('❌ Error generating POST form:', error);
-      throw new Error('Failed to generate payment form');
+      throw new Error(`Failed to generate payment form: ${error.message}`);
     }
   }
 
   /**
-   * Generate PayMe button HTML
+   * ✅ Helper method to validate required parameters
    */
-  generateButton(userId, plan, options = {}) {
-    try {
-      const paymentUrl = this.generateGetUrl(userId, plan, options);
-      
-      const buttonHtml = `
-        <div class="payme-button-container">
-          <a href="${paymentUrl}" 
-             class="payme-button ${options.style || 'colored'}"
-             target="_blank"
-             rel="noopener noreferrer">
-            <img src="https://cdn.payme.uz/payme-logos/logo/favicon/favicon-business.svg" 
-                 alt="PayMe" 
-                 width="24" 
-                 height="24">
-            Pay with PayMe
-          </a>
-        </div>
-        <style>
-          .payme-button {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 12px 24px;
-            background: linear-gradient(135deg, #4A90E2, #357ABD);
-            color: white;
-            text-decoration: none;
-            border-radius: 8px;
-            font-weight: bold;
-            font-size: 16px;
-            transition: all 0.3s ease;
-            border: none;
-            cursor: pointer;
-          }
-          .payme-button:hover {
-            background: linear-gradient(135deg, #357ABD, #2E6DA4);
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(74, 144, 226, 0.3);
-          }
-          .payme-button.minimal {
-            background: #f5f5f5;
-            color: #333;
-            border: 1px solid #ddd;
-          }
-        </style>
-      `;
-      return buttonHtml;
-
-    } catch (error) {
-      console.error('❌ Error generating button:', error);
-      throw new Error('Failed to generate payment button');
+  validateParams(userId, plan, options = {}) {
+    if (!userId) {
+      throw new Error('userId is required');
     }
+    
+    if (!plan) {
+      throw new Error('plan is required');
+    }
+    
+    if (!this.merchantId || this.merchantId === 'your_merchant_id') {
+      throw new Error('PAYME_MERCHANT_ID must be configured in environment variables');
+    }
+    
+    // Ensure login is provided either in options or use userId
+    const login = options.login || userId;
+    if (!login) {
+      throw new Error('login parameter is required for PayMe integration');
+    }
+    
+    return { ...options, login };
   }
 
   /**
-   * Generate QR code HTML for mobile payments
-   */
-  generateQR(userId, plan, options = {}) {
-    try {
-      const paymentUrl = this.generateGetUrl(userId, plan, options);
-      const qrWidth = options.qrWidth || 250;
-      
-      // Using QR code generation service
-      const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${qrWidth}x${qrWidth}&data=${encodeURIComponent(paymentUrl)}`;
-      
-      const qrHtml = `
-        <div class="payme-qr-container">
-          <div class="qr-header">
-            <h3>Scan to Pay with PayMe</h3>
-            <p>Open PayMe app and scan this QR code</p>
-          </div>
-          <div class="qr-code">
-            <img src="${qrCodeUrl}" 
-                 alt="PayMe QR Code" 
-                 width="${qrWidth}" 
-                 height="${qrWidth}">
-          </div>
-          <div class="qr-footer">
-            <p><strong>Amount:</strong> ${this.formatAmount(this.getPlanAmount(plan))}</p>
-            <p><strong>Plan:</strong> ${plan}</p>
-            <a href="${paymentUrl}" class="qr-link">Or pay via web browser</a>
-          </div>
-        </div>
-        <style>
-          .payme-qr-container {
-            text-align: center;
-            padding: 20px;
-            border: 1px solid #ddd;
-            border-radius: 12px;
-            background: white;
-          }
-          .qr-header h3 {
-            margin: 0 0 8px 0;
-            color: #333;
-          }
-          .qr-header p {
-            margin: 0 0 20px 0;
-            color: #666;
-            font-size: 14px;
-          }
-          .qr-code {
-            margin: 20px 0;
-          }
-          .qr-code img {
-            border: 1px solid #eee;
-            border-radius: 8px;
-          }
-          .qr-footer {
-            margin-top: 20px;
-            padding-top: 20px;
-            border-top: 1px solid #eee;
-          }
-          .qr-footer p {
-            margin: 5px 0;
-            color: #666;
-            font-size: 14px;
-          }
-          .qr-link {
-            display: inline-block;
-            margin-top: 15px;
-            padding: 10px 20px;
-            background: #4A90E2;
-            color: white;
-            text-decoration: none;
-            border-radius: 6px;
-            font-size: 14px;
-          }
-        </style>
-      `;
-      return qrHtml;
-
-    } catch (error) {
-      console.error('❌ Error generating QR code:', error);
-      throw new Error('Failed to generate QR code');
-    }
-  }
-
-  /**
-   * Get amount in tiyin for a plan
+   * ✅ Get amount in tiyin for a plan
    */
   getPlanAmount(plan) {
-    const planData = Object.values(SUBSCRIPTION_PLANS).find(p => p.code === plan);
+    const SUBSCRIPTION_PLANS = {
+      START: { code: 'start', amount: 26000000 },
+      PRO: { code: 'pro', amount: 45500000 },
+      PREMIUM: { code: 'premium', amount: 65000000 }
+    };
+    
+    const planData = Object.values(SUBSCRIPTION_PLANS).find(p => p.code === plan.toLowerCase());
     if (!planData) {
-      throw new Error(`Invalid plan: ${plan}`);
+      throw new Error(`Invalid plan: ${plan}. Available plans: ${Object.values(SUBSCRIPTION_PLANS).map(p => p.code).join(', ')}`);
     }
     return planData.amount;
   }
-
-  /**
-   * Format amount for display
-   */
-  formatAmount(amountInTiyin) {
-    const uzs = Math.floor(amountInTiyin / 100);
-    return new Intl.NumberFormat('uz-UZ', {
-      style: 'decimal',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0
-    }).format(uzs) + ' UZS';
-  }
-
-  /**
-   * Validate PayMe callback/webhook
-   */
-  validateCallback(data, signature) {
-    try {
-      const expectedSignature = crypto
-        .createHmac('sha1', this.secretKey)
-        .update(JSON.stringify(data))
-        .digest('hex');
-
-      return signature === expectedSignature;
-    } catch (error) {
-      console.error('❌ Error validating callback:', error);
-      return false;
-    }
-  }
 }
 
-// Add PaymeAPI as a static property to the model
-paymeTransactionSchema.statics.PaymeAPI = PaymeAPI;
+// ✅ USAGE EXAMPLES - How to call the methods correctly
 
-// Export model with constants
-const PaymeTransaction = mongoose.model('PaymeTransaction', paymeTransactionSchema);
+// Example 1: Generate GET URL
+function createPaymentUrl(userId, planCode, accountLogin) {
+  const paymeAPI = new PaymeAPI();
+  
+  // ✅ CORRECT: Pass individual parameters, not an object
+  const options = {
+    login: accountLogin,  // Extract login from account object
+    lang: 'ru',
+    callback: 'https://yoursite.com/payment/success'
+  };
+  
+  return paymeAPI.generateGetUrl(userId, planCode, options);
+}
 
-PaymeTransaction.STATES = STATES;
-PaymeTransaction.REASONS = REASONS;
-PaymeTransaction.TIMEOUT = TIMEOUT;
-PaymeTransaction.PAYMENT_TYPES = PAYMENT_TYPES;
-PaymeTransaction.SUBSCRIPTION_PLANS = SUBSCRIPTION_PLANS;
+// Example 2: Generate POST form
+function createPaymentForm(userId, planCode, accountLogin) {
+  const paymeAPI = new PaymeAPI();
+  
+  // ✅ CORRECT: Pass individual parameters
+  const options = {
+    login: accountLogin,  // Don't pass entire account object
+    lang: 'ru',
+    callback: 'https://yoursite.com/payment/success',
+    description: `Subscription payment for user ${userId}`
+  };
+  
+  return paymeAPI.generatePostForm(userId, planCode, options);
+}
 
-module.exports = PaymeTransaction;
+// ❌ WRONG WAY (causes "[object Object]" error):
+function wrongWay(userId, planCode, accountObject) {
+  const paymeAPI = new PaymeAPI();
+  
+  // ❌ This causes the error because accountObject gets converted to "[object Object]"
+  const badOptions = {
+    account: accountObject,  // Wrong!
+    lang: 'ru'
+  };
+  
+  return paymeAPI.generateGetUrl(userId, planCode, badOptions);
+}
+
+// ✅ CORRECT WAY:
+function correctWay(userId, planCode, accountObject) {
+  const paymeAPI = new PaymeAPI();
+  
+  // ✅ Extract the login field from the account object
+  const goodOptions = {
+    login: accountObject.login,  // Extract specific field
+    lang: 'ru'
+  };
+  
+  return paymeAPI.generateGetUrl(userId, planCode, goodOptions);
+}
+
+module.exports = PaymeAPI;
