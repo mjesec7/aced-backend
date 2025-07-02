@@ -94,7 +94,7 @@ router.post('/generate-form', async (req, res) => {
         <form method="POST" action="https://checkout.paycom.uz/" id="payme-form">
           <input type="hidden" name="merchant" value="${merchantId}" />
           <input type="hidden" name="amount" value="${amount}" />
-          <input type="hidden" name="account[login]" value="${user.firebaseId}" />
+          <input type="hidden" name="account[login]" value="${user._id}" />
           <input type="hidden" name="lang" value="${lang}" />
           <input type="hidden" name="callback" value="https://api.aced.live/api/payments/payme/return/success?transaction=${transactionId}" />
           <input type="hidden" name="callback_timeout" value="15000" />
@@ -122,7 +122,7 @@ router.post('/generate-form', async (req, res) => {
         cr: 'UZS'
       };
 
-      params['ac.login'] = user.firebaseId;  // ✅ FIXED
+      params['ac.login'] = user._id;  // ✅ FIXED
       
       if (req.body.callback) {
         params.c = req.body.callback;
@@ -181,7 +181,7 @@ router.post('/generate-button', async (req, res) => {
       <body onload="Paycom.Button('#form-payme', '#button-container')">
         <form id="form-payme" method="POST" action="https://checkout.paycom.uz/">
           <input type="hidden" name="merchant" value="${merchantId}">
-          <input type="hidden" name="account[login]" value="${user.firebaseId}">
+          <input type="hidden" name="account[login]" value="${user._id}">
           <input type="hidden" name="amount" value="${amount}">
           <input type="hidden" name="lang" value="${lang}">
           <input type="hidden" name="button" data-type="svg" value="${style}">
@@ -195,7 +195,7 @@ router.post('/generate-button', async (req, res) => {
       <body onload="Paycom.QR('#form-payme', '#qr-container')">
         <form id="form-payme" method="POST" action="https://checkout.paycom.uz/">
           <input type="hidden" name="merchant" value="${merchantId}">
-          <input type="hidden" name="account[login]" value="${user.firebaseId}">
+          <input type="hidden" name="account[login]" value="${user._id}">
           <input type="hidden" name="amount" value="${amount}">
           <input type="hidden" name="lang" value="${lang}">
           <input type="hidden" name="qr" data-width="250">
@@ -264,7 +264,7 @@ router.get('/payme/return/success', async (req, res) => {
             user.paymentStatus = 'paid';
             user.lastPaymentDate = new Date();
             await user.save();
-            console.log(`✅ User ${user.firebaseId} upgraded to ${transaction.plan}`);
+            console.log(`✅ User ${user._id} upgraded to ${transaction.plan}`);
           }
         } catch (userUpdateError) {
           console.warn('⚠️ Failed to update user subscription:', userUpdateError.message);
@@ -462,15 +462,15 @@ router.post('/initiate-payme', async (req, res) => {
     // Store transaction in our system
     const transaction = {
       id: transactionId,
-      userId: user.firebaseId,
+      userId: user._id,
       amount: amount,
       plan: plan,
       state: 1, // Created
       create_time: Date.now(),
       perform_time: 0,
       account: { 
-        login: user.firebaseId,
-        user_id: user.firebaseId 
+        login: user._id,
+        user_id: user._id 
       }
     };
     setTransaction(transactionId, transaction);
@@ -479,7 +479,7 @@ router.post('/initiate-payme', async (req, res) => {
       // PRODUCTION: Direct to PayMe
       const paymeParams = {
         m: merchantId,                    // Merchant ID
-        'ac.login': user.firebaseId,      // Account ID
+        'ac.login': user._id,      // Account ID
         a: amount,                        // Amount in tiyin
         c: transactionId,                 // Our transaction ID
         ct: Date.now(),                   // Timestamp
@@ -512,7 +512,7 @@ router.post('/initiate-payme', async (req, res) => {
       // DEVELOPMENT: Our checkout page
       const checkoutUrl = `https://aced.live/payment/checkout?${new URLSearchParams({
         transactionId: transactionId,
-        userId: user.firebaseId,
+        userId: user._id,
         amount: amount,
         amountUzs: amount / 100,
         plan: plan,
@@ -675,13 +675,13 @@ router.post('/complete', async (req, res) => {
       transaction.perform_time = Date.now();
     }
     
-    console.log('✅ Payment completed for user:', user.firebaseId);
+    console.log('✅ Payment completed for user:', user._id);
     
     return res.json({
       success: true,
       message: 'Payment completed successfully',
       user: {
-        id: user.firebaseId,
+        id: user._id,
         plan: user.subscriptionPlan,
         paymentStatus: user.paymentStatus
       },

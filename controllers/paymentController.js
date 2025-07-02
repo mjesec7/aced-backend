@@ -1251,7 +1251,7 @@ const validateUserRoute = async (req, res) => {
     
     console.log('✅ User found:', {
       id: user._id,
-      firebaseId: user.firebaseId,
+      firebaseId: user._id,
       email: user.email,
       name: user.name
     });
@@ -1262,7 +1262,7 @@ const validateUserRoute = async (req, res) => {
       server: 'api.aced.live',
       user: {
         id: user._id,
-        firebaseId: user.firebaseId,
+        firebaseId: user._id,
         name: user.name || 'Unknown',
         email: user.email || 'Unknown',
         subscriptionPlan: user.subscriptionPlan || 'free',
@@ -1314,7 +1314,7 @@ const getUserInfo = async (req, res) => {
     res.json({
       user: {
         id: user._id,
-        firebaseId: user.firebaseId,
+        firebaseId: user._id,
         name: user.name,
         email: user.email,
         subscriptionPlan: user.subscriptionPlan || 'free',
@@ -1360,7 +1360,7 @@ const updateUserProfile = async (req, res) => {
       message: 'User updated successfully',
       user: {
         id: user._id,
-        firebaseId: user.firebaseId,
+        firebaseId: user._id,
         name: user.name,
         email: user.email,
         subscriptionPlan: user.subscriptionPlan,
@@ -1423,7 +1423,7 @@ const saveUser = async (req, res) => {
       message: 'User saved successfully',
       user: {
         id: user._id,
-        firebaseId: user.firebaseId,
+        firebaseId: user._id,
         name: user.name,
         email: user.email,
         subscriptionPlan: user.subscriptionPlan,

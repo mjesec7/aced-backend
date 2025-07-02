@@ -596,7 +596,7 @@ app.get('/api/payments/validate-user/:userId', async (req, res) => {
         valid: true,
         user: {
           id: user._id,
-          firebaseId: user.firebaseId,
+          firebaseId: user._id,
           name: user.name,
           email: user.email,
           subscriptionPlan: user.subscriptionPlan || 'free'
@@ -831,7 +831,7 @@ app.post('/api/payments/promo-code', async (req, res) => {
             message: 'Промокод применён успешно! Подписка активирована.',
             data: {
               user: {
-                id: user.firebaseId,
+                id: user._id,
                 plan: user.subscriptionPlan,
                 paymentStatus: user.paymentStatus
               }
@@ -937,7 +937,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
       amountUzs: amount / 100,
       merchantId: merchantId.substring(0, 10) + '...',
       transactionId,
-      userFirebaseId: user.firebaseId
+      userFirebaseId: user._id
     });
     
     if (method === 'post') {
@@ -970,7 +970,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
           <input type="hidden" name="amount" value="${amount}" />
           
           <!-- ✅ CRITICAL FIX: Use login field instead of login -->
-          <input type="hidden" name="account[login]" value="${user.firebaseId}" />
+          <input type="hidden" name="account[login]" value="${user._id}" />
           
           <!-- Optional parameters -->
           <input type="hidden" name="lang" value="${lang}" />
@@ -993,7 +993,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
             const form = document.getElementById('payme-form');
             if (form) {
               console.log('✅ Form found, submitting to PayMe...');
-              console.log('🏷️ Account login value:', '${user.firebaseId}');
+              console.log('🏷️ Account login value:', '${user._id}');
               form.submit();
             } else {
               console.error('❌ PayMe form not found in DOM');
@@ -1019,13 +1019,13 @@ app.post('/api/payments/generate-form', async (req, res) => {
           id: transactionId, 
           amount: amount, 
           plan: plan,
-          accountLogin: user.firebaseId
+          accountLogin: user._id
         },
         debug: {
           checkoutUrl,
           merchantId: merchantId.substring(0, 10) + '...',
           accountField: 'login',
-          accountValue: user.firebaseId
+          accountValue: user._id
         }
       });
       
@@ -1039,7 +1039,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
       };
       
       // ✅ CRITICAL FIX: Use login field instead of login
-      params['ac.login'] = user.firebaseId;
+      params['ac.login'] = user._id;
       
       // Add callback URL
       if (req.body.callback) {
@@ -1078,14 +1078,14 @@ app.post('/api/payments/generate-form', async (req, res) => {
           id: transactionId, 
           amount: amount, 
           plan: plan,
-          accountLogin: user.firebaseId
+          accountLogin: user._id
         },
         debug: {
           paramString,
           encodedParams,
           checkoutUrl,
           accountField: 'ac.login',
-          accountValue: user.firebaseId
+          accountValue: user._id
         }
       });
       
@@ -1098,7 +1098,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
             <input type="hidden" name="merchant" value="${merchantId}">
             
             <!-- ✅ CRITICAL FIX: Use login field -->
-            <input type="hidden" name="account[login]" value="${user.firebaseId}">
+            <input type="hidden" name="account[login]" value="${user._id}">
             
             <input type="hidden" name="amount" value="${amount}">
             <input type="hidden" name="lang" value="${lang}">
@@ -1118,7 +1118,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
             function initPaymeButton() {
               if (typeof Paycom !== 'undefined') {
                 console.log('✅ PayMe SDK loaded, creating button');
-                console.log('🏷️ Account login value:', '${user.firebaseId}');
+                console.log('🏷️ Account login value:', '${user._id}');
                 Paycom.Button('#form-payme', '#button-container');
               } else {
                 console.warn('❌ PayMe SDK not loaded, creating fallback button');
@@ -1141,13 +1141,13 @@ app.post('/api/payments/generate-form', async (req, res) => {
           id: transactionId, 
           amount: amount, 
           plan: plan,
-          accountLogin: user.firebaseId
+          accountLogin: user._id
         },
         debug: {
           style,
           checkoutUrl,
           accountField: 'login',
-          accountValue: user.firebaseId
+          accountValue: user._id
         }
       });
       
@@ -1160,7 +1160,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
             <input type="hidden" name="merchant" value="${merchantId}">
             
             <!-- ✅ CRITICAL FIX: Use login field -->
-            <input type="hidden" name="account[login]" value="${user.firebaseId}">
+            <input type="hidden" name="account[login]" value="${user._id}">
             
             <input type="hidden" name="amount" value="${amount}">
             <input type="hidden" name="lang" value="${lang}">
@@ -1180,7 +1180,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
             function initPaymeQR() {
               if (typeof Paycom !== 'undefined') {
                 console.log('✅ PayMe SDK loaded, creating QR code');
-                console.log('🏷️ Account login value:', '${user.firebaseId}');
+                console.log('🏷️ Account login value:', '${user._id}');
                 console.log('📏 QR width:', ${qrWidth});
                 Paycom.QR('#form-payme-qr', '#qr-container');
               } else {
@@ -1207,13 +1207,13 @@ app.post('/api/payments/generate-form', async (req, res) => {
           id: transactionId, 
           amount: amount, 
           plan: plan,
-          accountLogin: user.firebaseId
+          accountLogin: user._id
         },
         debug: {
           qrWidth,
           checkoutUrl,
           accountField: 'login',
-          accountValue: user.firebaseId
+          accountValue: user._id
         }
       });
     }

@@ -43,7 +43,7 @@ router.get('/validate-user/:userId', async (req, res) => {
         valid: true,
         user: {
           id: user._id,
-          firebaseId: user.firebaseId,
+          firebaseId: user._id,
           name: user.name,
           email: user.email,
           subscriptionPlan: user.subscriptionPlan || 'free'

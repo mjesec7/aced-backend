@@ -1987,9 +1987,9 @@ try {
           await user.save();
           resetCount++;
           
-          console.log(`✅ Reset usage for user: ${user.firebaseId}`);
+          console.log(`✅ Reset usage for user: ${user._id}`);
         } catch (userError) {
-          console.error(`❌ Failed to reset usage for user ${user.firebaseId}:`, userError.message);
+          console.error(`❌ Failed to reset usage for user ${user._id}:`, userError.message);
         }
       }
       
