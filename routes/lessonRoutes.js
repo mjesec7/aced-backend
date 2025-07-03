@@ -1,4 +1,3 @@
-// lessonRoutes.js (FIXED version - Topic schema casting issue resolved)
 const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
@@ -6,6 +5,15 @@ const mongoose = require('mongoose');
 const Lesson = require('../models/lesson');
 const Topic = require('../models/topic');
 const verifyToken = require('../middlewares/authMiddleware');
+
+const {
+  addLesson,
+  updateLesson,
+  deleteLesson,
+  getLesson,
+  getLessonsByTopic,
+  bulkCreateLessons
+} = require('../controllers/lessonController');
 
 // ─── Middleware: Logging ─────────────────────────────
 router.use((req, res, next) => {
@@ -25,367 +33,376 @@ function validateObjectId(req, res, next) {
   next();
 }
 
-// ✅ FIXED: Helper function to extract string value from multilingual field
-const extractStringValue = (field, defaultValue = '') => {
-  if (typeof field === 'string') {
-    return field.trim();
-  }
-  if (typeof field === 'object' && field !== null) {
-    // Try to get English first, then Russian, then any available value
-    return field.en || field.ru || Object.values(field)[0] || defaultValue;
-  }
-  return defaultValue;
-};
-
-// ✅ FIXED: Helper function to create multilingual object
-const createMultilingualField = (value) => {
-  if (typeof value === 'string') {
-    return {
-      en: value.trim(),
-      ru: value.trim()
-    };
-  }
-  if (typeof value === 'object' && value !== null) {
-    return {
-      en: value.en || value.ru || '',
-      ru: value.ru || value.en || ''
-    };
-  }
-  return { en: '', ru: '' };
-};
-
 // ─── DELETE: All Lessons (Must come before /:id) ────
 router.delete('/all', verifyToken, async (req, res) => {
   try {
     const result = await Lesson.deleteMany({});
     console.log(`🧹 Deleted ${result.deletedCount} lessons`);
-    res.status(200).json({ message: `✅ Deleted ${result.deletedCount} lessons` });
+    res.status(200).json({ 
+      message: `✅ Deleted ${result.deletedCount} lessons`,
+      deletedCount: result.deletedCount
+    });
   } catch (error) {
     console.error('❌ Error deleting all lessons:', error);
-    res.status(500).json({ message: '❌ Server error clearing lessons', error: error.message });
+    res.status(500).json({ 
+      message: '❌ Server error clearing lessons', 
+      error: error.message 
+    });
   }
 });
 
-// ─── GET: All Lessons ───────────────────────────────
+// ✅ NEW: Bulk Create Lessons
+router.post('/bulk', verifyToken, bulkCreateLessons);
+
+// ✅ NEW: Get Lesson Statistics
+router.get('/stats', async (req, res) => {
+  try {
+    const { subject, level, type } = req.query;
+    
+    // Build match filter
+    const matchFilter = { isActive: true };
+    if (subject) matchFilter.subject = subject;
+    if (level) matchFilter.level = parseInt(level);
+    if (type) matchFilter.type = type;
+
+    const stats = await Lesson.aggregate([
+      { $match: matchFilter },
+      {
+        $group: {
+          _id: null,
+          totalLessons: { $sum: 1 },
+          freeCount: { 
+            $sum: { $cond: [{ $eq: ['$type', 'free'] }, 1, 0] } 
+          },
+          premiumCount: { 
+            $sum: { $cond: [{ $eq: ['$type', 'premium'] }, 1, 0] } 
+          },
+          avgSteps: { $avg: { $size: '$steps' } },
+          totalViews: { $sum: '$stats.viewCount' },
+          avgRating: { $avg: '$stats.averageRating' }
+        }
+      }
+    ]);
+
+    const levelStats = await Lesson.aggregate([
+      { $match: matchFilter },
+      {
+        $group: {
+          _id: '$level',
+          count: { $sum: 1 },
+          avgRating: { $avg: '$stats.averageRating' }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]);
+
+    const subjectStats = await Lesson.aggregate([
+      { $match: matchFilter },
+      {
+        $group: {
+          _id: '$subject',
+          count: { $sum: 1 },
+          avgSteps: { $avg: { $size: '$steps' } }
+        }
+      },
+      { $sort: { count: -1 } }
+    ]);
+
+    res.json({
+      overall: stats[0] || {
+        totalLessons: 0,
+        freeCount: 0,
+        premiumCount: 0,
+        avgSteps: 0,
+        totalViews: 0,
+        avgRating: 0
+      },
+      byLevel: levelStats,
+      bySubject: subjectStats
+    });
+
+  } catch (error) {
+    console.error('❌ Error getting lesson stats:', error);
+    res.status(500).json({ 
+      message: '❌ Error getting statistics', 
+      error: error.message 
+    });
+  }
+});
+
+// ✅ NEW: Search Lessons
+router.get('/search', async (req, res) => {
+  try {
+    const { 
+      q, 
+      subject, 
+      level, 
+      type, 
+      difficulty,
+      hasHomework,
+      stepType,
+      page = 1, 
+      limit = 20 
+    } = req.query;
+
+    // Build search query
+    const query = { isActive: true };
+    
+    if (q) {
+      query.$or = [
+        { lessonName: { $regex: q, $options: 'i' } },
+        { description: { $regex: q, $options: 'i' } },
+        { topic: { $regex: q, $options: 'i' } }
+      ];
+    }
+    
+    if (subject) query.subject = subject;
+    if (level) query.level = parseInt(level);
+    if (type) query.type = type;
+    if (difficulty) query['metadata.difficulty'] = difficulty;
+    
+    if (hasHomework === 'true') {
+      query.$or = [
+        { 'homework.exercises.0': { $exists: true } },
+        { 'homework.quizzes.0': { $exists: true } }
+      ];
+    }
+    
+    if (stepType) {
+      query['steps.type'] = stepType;
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    const [lessons, totalCount] = await Promise.all([
+      Lesson.find(query)
+        .populate('topicId', 'name description')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean(),
+      Lesson.countDocuments(query)
+    ]);
+
+    res.json({
+      lessons,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: totalCount,
+        pages: Math.ceil(totalCount / parseInt(limit))
+      },
+      filters: { q, subject, level, type, difficulty, hasHomework, stepType }
+    });
+
+  } catch (error) {
+    console.error('❌ Error searching lessons:', error);
+    res.status(500).json({ 
+      message: '❌ Search failed', 
+      error: error.message 
+    });
+  }
+});
+
+// ✅ NEW: Duplicate Lesson
+router.post('/:id/duplicate', verifyToken, validateObjectId, async (req, res) => {
+  try {
+    const originalLesson = await Lesson.findById(req.params.id);
+    if (!originalLesson) {
+      return res.status(404).json({ message: '❌ Lesson not found' });
+    }
+
+    const duplicatedLesson = new Lesson({
+      ...originalLesson.toObject(),
+      _id: undefined,
+      lessonName: `${originalLesson.lessonName} (Copy)`,
+      isDraft: true,
+      isActive: false,
+      createdAt: undefined,
+      updatedAt: undefined,
+      stats: {
+        viewCount: 0,
+        completionRate: 0,
+        averageRating: 0,
+        totalRatings: 0
+      }
+    });
+
+    await duplicatedLesson.save();
+    
+    console.log(`📋 Duplicated lesson: ${originalLesson.lessonName}`);
+    res.status(201).json(duplicatedLesson);
+
+  } catch (error) {
+    console.error('❌ Error duplicating lesson:', error);
+    res.status(500).json({ 
+      message: '❌ Failed to duplicate lesson', 
+      error: error.message 
+    });
+  }
+});
+
+// ✅ NEW: Toggle Lesson Status
+router.patch('/:id/status', verifyToken, validateObjectId, async (req, res) => {
+  try {
+    const { isActive, isDraft } = req.body;
+    
+    const updateData = {};
+    if (typeof isActive === 'boolean') updateData.isActive = isActive;
+    if (typeof isDraft === 'boolean') updateData.isDraft = isDraft;
+    
+    // If publishing (not draft and active), set published date
+    if (isDraft === false && isActive !== false) {
+      updateData.publishedAt = new Date();
+    }
+
+    const lesson = await Lesson.findByIdAndUpdate(
+      req.params.id,
+      updateData,
+      { new: true }
+    );
+
+    if (!lesson) {
+      return res.status(404).json({ message: '❌ Lesson not found' });
+    }
+
+    console.log(`🔄 Status updated: ${lesson.lessonName}`);
+    res.json(lesson);
+
+  } catch (error) {
+    console.error('❌ Error updating lesson status:', error);
+    res.status(500).json({ 
+      message: '❌ Failed to update status', 
+      error: error.message 
+    });
+  }
+});
+
+// ─── GET: All Lessons (Enhanced) ────────────────────
 router.get('/', async (req, res) => {
   try {
-    const filter = req.query.type ? { type: req.query.type } : {};
-    const lessons = await Lesson.find(filter).populate('topicId', 'name description');
+    const { 
+      type, 
+      subject, 
+      level, 
+      isActive, 
+      isDraft,
+      populate = 'false',
+      sort = 'createdAt',
+      order = 'desc'
+    } = req.query;
+    
+    // Build filter
+    const filter = {};
+    if (type) filter.type = type;
+    if (subject) filter.subject = subject;
+    if (level) filter.level = parseInt(level);
+    if (isActive !== undefined) filter.isActive = isActive === 'true';
+    if (isDraft !== undefined) filter.isDraft = isDraft === 'true';
+
+    let query = Lesson.find(filter);
+    
+    // Add population if requested
+    if (populate === 'true') {
+      query = query.populate('topicId', 'name description');
+    }
+    
+    // Add sorting
+    const sortOrder = order === 'desc' ? -1 : 1;
+    query = query.sort({ [sort]: sortOrder });
+
+    const lessons = await query.lean();
+    
     console.log(`📄 Returned ${lessons.length} lessons (filter: ${JSON.stringify(filter)})`);
     res.status(200).json(lessons);
+
   } catch (error) {
     console.error('❌ Failed to fetch all lessons:', error);
-    res.status(500).json({ message: '❌ Server error fetching lessons', error: error.message });
-  }
-});
-
-// ─── POST: New Lesson (FIXED VERSION) ───────────────────────────────
-router.post('/', verifyToken, async (req, res) => {
-  try {
-    const {
-      lessonName, subject, level, type, topicId, topic, topicDescription,
-      description, explanations, examples, content, hint,
-      exerciseGroups, quiz, relatedSubjects, translations,
-      explanation, exercises, quizzes, abcExercises,
-      homeworkABC, homeworkQA, steps
-    } = req.body;
-
-    console.log('📝 Creating lesson with data:', {
-      lessonName: typeof lessonName,
-      topic: typeof topic,
-      topicDescription: typeof topicDescription,
-      topicValue: topic,
-      topicDescValue: topicDescription
-    });
-
-    if (!lessonName || !subject || level === undefined || !type || !description) {
-      return res.status(400).json({ message: '❌ Required fields: lessonName, subject, level, type, description' });
-    }
-
-    const normalizedExplanations = Array.isArray(explanations)
-      ? explanations
-      : explanation ? [explanation] : [];
-
-    const normalizedExercises = Array.isArray(exerciseGroups)
-      ? exerciseGroups
-      : Array.isArray(exercises)
-        ? [{ exercises }] : [];
-
-    let normalizedQuiz = [];
-    if (Array.isArray(quiz)) normalizedQuiz = [...quiz];
-    if (Array.isArray(abcExercises)) normalizedQuiz.push(...abcExercises);
-    if (Array.isArray(quizzes)) normalizedQuiz.push(...quizzes);
-
-    const homework = [
-      ...(Array.isArray(homeworkABC) ? homeworkABC : []),
-      ...(Array.isArray(homeworkQA) ? homeworkQA : []),
-      ...(Array.isArray(abcExercises) ? abcExercises : [])
-    ];
-
-    let resolvedTopic = null;
-
-    // ✅ FIXED: First try to find existing topic by topicId
-    if (topicId && mongoose.Types.ObjectId.isValid(topicId)) {
-      try {
-        resolvedTopic = await Topic.findById(topicId);
-        console.log('✅ Found existing topic by ID:', resolvedTopic?.name);
-      } catch (error) {
-        console.warn('⚠️ Could not find topic by ID:', error.message);
-      }
-    }
-
-    // ✅ FIXED: If no topic found by ID, create or find by name
-    if (!resolvedTopic) {
-      // Extract string values from potentially multilingual fields
-      const topicNameString = extractStringValue(topic, '');
-      const topicDescString = extractStringValue(topicDescription, '');
-      
-      console.log('🔍 Topic processing:', {
-        originalTopic: topic,
-        originalTopicDesc: topicDescription,
-        extractedName: topicNameString,
-        extractedDesc: topicDescString
-      });
-
-      if (!topicNameString) {
-        return res.status(400).json({ message: '❌ Topic name is required' });
-      }
-
-      // Try to find existing topic by name and subject/level
-      resolvedTopic = await Topic.findOne({ 
-        subject, 
-        level, 
-        $or: [
-          { name: topicNameString },
-          { 'name.en': topicNameString },
-          { 'name.ru': topicNameString }
-        ]
-      });
-
-      // ✅ FIXED: Create new topic with proper schema format
-      if (!resolvedTopic) {
-        try {
-          // First, let's check what the Topic schema expects
-          console.log('🏗️ Creating new topic...');
-          
-          // Create topic data based on the schema expectations
-          const topicData = {
-            subject,
-            level
-          };
-
-          // ✅ CRITICAL FIX: Check if the schema expects objects or strings
-          // Based on the error, it seems the schema expects strings, not objects
-          // Let's save as strings first
-          topicData.name = topicNameString;
-          topicData.description = topicDescString;
-
-          console.log('📝 Topic data to save:', topicData);
-
-          resolvedTopic = new Topic(topicData);
-          await resolvedTopic.save();
-          
-          console.log(`✅ Created topic "${topicNameString}"`);
-        } catch (topicError) {
-          console.error('❌ Error creating topic:', topicError);
-          
-          // If the above failed, maybe the schema expects multilingual objects
-          // Let's try the object format
-          try {
-            console.log('🔄 Retrying with multilingual format...');
-            
-            const multilingualTopicData = {
-              subject,
-              level,
-              name: createMultilingualField(topic),
-              description: createMultilingualField(topicDescription)
-            };
-
-            console.log('📝 Multilingual topic data:', multilingualTopicData);
-
-            resolvedTopic = new Topic(multilingualTopicData);
-            await resolvedTopic.save();
-            
-            console.log(`✅ Created multilingual topic "${topicNameString}"`);
-          } catch (secondTopicError) {
-            console.error('❌ Failed to create topic (both formats):', secondTopicError);
-            return res.status(500).json({ 
-              message: '❌ Failed to create topic',
-              error: secondTopicError.message,
-              details: 'Topic schema validation failed. Check Topic model schema.'
-            });
-          }
-        }
-      } else {
-        console.log(`ℹ️ Reused existing topic "${topicNameString}"`);
-      }
-    }
-
-    // ✅ FIXED: Extract topic name for lesson
-    const lessonTopicName = extractStringValue(resolvedTopic.name || topic);
-
-    const newLesson = new Lesson({
-      lessonName: extractStringValue(lessonName),
-      subject,
-      level,
-      type,
-      topic: lessonTopicName,
-      topicId: resolvedTopic._id,
-      description: extractStringValue(description),
-      explanations: normalizedExplanations,
-      examples: extractStringValue(examples),
-      content: extractStringValue(content),
-      hint: extractStringValue(hint),
-      exerciseGroups: normalizedExercises,
-      quiz: normalizedQuiz,
-      relatedSubjects: Array.isArray(relatedSubjects) ? relatedSubjects : [],
-      translations: typeof translations === 'object' ? translations : {},
-      steps: Array.isArray(steps) ? steps : [],
-      homework
-    });
-
-    const saved = await newLesson.save();
-    console.log(`✅ Saved lesson "${saved.lessonName}" with ID: ${saved._id}`);
-    res.status(201).json(saved);
-    
-  } catch (error) {
-    console.error('❌ Error saving lesson:', error);
-    console.error('❌ Error details:', {
-      name: error.name,
-      message: error.message,
-      path: error.path,
-      value: error.value
-    });
-    
     res.status(500).json({ 
-      message: '❌ Server error creating lesson', 
-      error: error.message,
-      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      message: '❌ Server error fetching lessons', 
+      error: error.message 
     });
   }
 });
+
+// ─── POST: New Lesson (Enhanced) ────────────────────
+router.post('/', verifyToken, addLesson);
 
 // ─── GET: Lesson by Subject & Name ──────────────────
 router.get('/by-name', async (req, res) => {
   const { subject, name } = req.query;
   if (!subject || !name) {
-    return res.status(400).json({ message: '❌ Missing subject or topic name' });
+    return res.status(400).json({ message: '❌ Missing subject or lesson name' });
   }
 
   try {
-    const lessons = await Lesson.find({ subject, topic: name }).populate('topicId', 'name description');
-    if (!lessons.length) return res.status(404).json({ message: '❌ Lesson not found' });
+    const lessons = await Lesson.find({ 
+      subject, 
+      lessonName: name,
+      isActive: true 
+    }).populate('topicId', 'name description');
+    
+    if (!lessons.length) {
+      return res.status(404).json({ message: '❌ Lesson not found' });
+    }
+    
     res.status(200).json(lessons[0]);
   } catch (error) {
     console.error('❌ Error fetching lesson by name:', error);
-    res.status(500).json({ message: '❌ Server error fetching lesson', error: error.message });
-  }
-});
-
-// ─── GET: Lessons by Topic ID ───────────────────────
-router.get('/topic/:topicId', validateObjectId, async (req, res) => {
-  const { topicId } = req.params;
-  console.log(`📚 Fetching lessons for topic: ${topicId}`);
-
-  try {
-    const topicExists = await Topic.findById(topicId);
-    if (!topicExists) {
-      console.warn(`⚠️ Topic not found: ${topicId}`);
-      return res.status(404).json({ 
-        message: '❌ Topic not found',
-        topicId: topicId 
-      });
-    }
-
-    const lessons = await Lesson.find({ topicId }).sort({ createdAt: 1 });
-    
-    console.log(`✅ Found ${lessons.length} lessons for topic ${topicId}`);
-    res.status(200).json(lessons);
-    
-  } catch (error) {
-    console.error('❌ Error fetching lessons by topic ID:', error);
     res.status(500).json({ 
-      message: '❌ Server error fetching lessons by topic', 
-      error: error.message,
-      topicId: topicId
+      message: '❌ Server error fetching lesson', 
+      error: error.message 
     });
   }
 });
 
-// ─── GET: Lesson by ID ──────────────────────────────
-router.get('/:id', validateObjectId, async (req, res) => {
-  try {
-    const lesson = await Lesson.findById(req.params.id).populate('topicId', 'name description');
-    if (!lesson) {
-      console.warn(`⚠️ Lesson not found: ${req.params.id}`);
-      return res.status(404).json({ message: '❌ Lesson not found' });
-    }
-    console.log(`✅ Found lesson: ${lesson.lessonName}`);
-    res.status(200).json(lesson);
-  } catch (error) {
-    console.error('❌ Error fetching lesson by ID:', error);
-    res.status(500).json({ message: '❌ Server error fetching lesson', error: error.message });
-  }
-});
+// ─── GET: Lessons by Topic ID (Enhanced) ────────────
+router.get('/topic/:topicId', validateObjectId, getLessonsByTopic);
 
-// ─── PUT: Update Lesson ─────────────────────────────
-router.put('/:id', verifyToken, validateObjectId, async (req, res) => {
-  try {
-    const updates = req.body;
-    
-    // Handle homework arrays
-    if (updates.homeworkABC || updates.homeworkQA || updates.abcExercises) {
-      updates.homework = [
-        ...(Array.isArray(updates.homeworkABC) ? updates.homeworkABC : []),
-        ...(Array.isArray(updates.homeworkQA) ? updates.homeworkQA : []),
-        ...(Array.isArray(updates.abcExercises) ? updates.abcExercises : [])
-      ];
-    }
+// ─── GET: Lesson by ID (Enhanced) ───────────────────
+router.get('/:id', validateObjectId, getLesson);
 
-    const updated = await Lesson.findByIdAndUpdate(
-      req.params.id, 
-      updates, 
-      { new: true, runValidators: true }
-    ).populate('topicId', 'name description');
-    
-    if (!updated) {
-      console.warn(`⚠️ Lesson not found for update: ${req.params.id}`);
-      return res.status(404).json({ message: '❌ Lesson not found' });
-    }
-    
-    console.log(`✅ Updated lesson: ${updated.lessonName}`);
-    res.status(200).json(updated);
-  } catch (error) {
-    console.error('❌ Error updating lesson:', error);
-    res.status(500).json({ message: '❌ Server error updating lesson', error: error.message });
-  }
-});
+// ─── PUT: Update Lesson (Enhanced) ──────────────────
+router.put('/:id', verifyToken, validateObjectId, updateLesson);
 
-// ─── DELETE: One Lesson ─────────────────────────────
-router.delete('/:id', verifyToken, validateObjectId, async (req, res) => {
-  try {
-    const deleted = await Lesson.findByIdAndDelete(req.params.id);
-    if (!deleted) {
-      console.warn(`⚠️ Lesson not found for deletion: ${req.params.id}`);
-      return res.status(404).json({ message: '❌ Lesson not found' });
-    }
-    console.log(`✅ Deleted lesson: ${deleted.lessonName}`);
-    res.status(200).json({ message: '✅ Lesson deleted successfully', lesson: deleted });
-  } catch (error) {
-    console.error('❌ Error deleting lesson:', error);
-    res.status(500).json({ message: '❌ Server error deleting lesson', error: error.message });
-  }
-});
+// ─── DELETE: One Lesson (Enhanced) ──────────────────
+router.delete('/:id', verifyToken, validateObjectId, deleteLesson);
 
 // ─── GET: Lessons by Subject ────────────────────────
 router.get('/subject/:subject', async (req, res) => {
   const { subject } = req.params;
+  const { level, type, includeStats } = req.query;
+  
   console.log(`📚 Fetching lessons for subject: ${subject}`);
   
   try {
-    const lessons = await Lesson.find({ subject }).populate('topicId', 'name description');
+    const filter = { subject, isActive: true };
+    if (level) filter.level = parseInt(level);
+    if (type) filter.type = type;
+
+    const lessons = await Lesson.find(filter)
+      .populate('topicId', 'name description')
+      .sort({ level: 1, createdAt: 1 });
+    
     console.log(`✅ Found ${lessons.length} lessons for subject ${subject}`);
-    res.status(200).json(lessons);
+    
+    const response = { lessons };
+    
+    if (includeStats === 'true') {
+      response.stats = {
+        total: lessons.length,
+        byLevel: lessons.reduce((acc, lesson) => {
+          acc[lesson.level] = (acc[lesson.level] || 0) + 1;
+          return acc;
+        }, {}),
+        byType: lessons.reduce((acc, lesson) => {
+          acc[lesson.type] = (acc[lesson.type] || 0) + 1;
+          return acc;
+        }, {})
+      };
+    }
+    
+    res.status(200).json(response);
   } catch (error) {
     console.error('❌ Error fetching lessons by subject:', error);
     res.status(500).json({ 
@@ -399,13 +416,17 @@ router.get('/subject/:subject', async (req, res) => {
 router.get('/count/by-topic', async (req, res) => {
   try {
     const counts = await Lesson.aggregate([
+      { $match: { isActive: true } },
       {
         $group: {
           _id: '$topicId',
           count: { $sum: 1 },
-          topic: { $first: '$topic' }
+          topic: { $first: '$topic' },
+          subject: { $first: '$subject' },
+          level: { $first: '$level' }
         }
-      }
+      },
+      { $sort: { subject: 1, level: 1 } }
     ]);
     
     console.log(`✅ Counted lessons for ${counts.length} topics`);
@@ -414,6 +435,38 @@ router.get('/count/by-topic', async (req, res) => {
     console.error('❌ Error counting lessons by topic:', error);
     res.status(500).json({ 
       message: '❌ Server error counting lessons', 
+      error: error.message 
+    });
+  }
+});
+
+// ✅ NEW: Export Lessons (for backup/migration)
+router.get('/export/json', verifyToken, async (req, res) => {
+  try {
+    const { subject, level, type } = req.query;
+    
+    const filter = {};
+    if (subject) filter.subject = subject;
+    if (level) filter.level = parseInt(level);
+    if (type) filter.type = type;
+
+    const lessons = await Lesson.find(filter)
+      .populate('topicId', 'name description')
+      .lean();
+
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', 'attachment; filename=lessons-export.json');
+    res.json({
+      exportDate: new Date().toISOString(),
+      totalLessons: lessons.length,
+      filters: filter,
+      lessons
+    });
+
+  } catch (error) {
+    console.error('❌ Error exporting lessons:', error);
+    res.status(500).json({ 
+      message: '❌ Export failed', 
       error: error.message 
     });
   }
