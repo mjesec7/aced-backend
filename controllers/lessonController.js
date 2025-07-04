@@ -1,98 +1,95 @@
+// Enhanced lesson controller for step-by-step methodology
+// Replace or update your existing lessonController.js
+
 const Lesson = require('../models/lesson');
 const Topic = require('../models/topic');
 const mongoose = require('mongoose');
 
-// ✅ Enhanced lesson creation with new step types
+// ✅ Enhanced lesson creation with topic-centric approach
 exports.addLesson = async (req, res) => {
   try {
-    console.log('📥 [Добавление урока] Получены данные:', req.body);
+    console.log('📥 [Enhanced Lesson] Received data:', {
+      subject: req.body.subject,
+      level: req.body.level,
+      topic: req.body.topic,
+      lessonName: req.body.lessonName,
+      stepsCount: req.body.steps?.length || 0
+    });
 
     let {
       subject,
       level,
-      topicId,
       topic,
       topicDescription,
       lessonName,
-      explanation,
-      explanations,
-      examples,
-      content,
-      hint,
-      steps,
-      quizzes,
-      abcExercises,
-      homeworkABC,
-      homeworkQA,
-      relatedSubjects,
-      type,
       description,
+      type,
+      steps,
+      createHomework,
+      homeworkTitle,
+      homeworkInstructions,
+      homeworkDueDate,
+      relatedSubjects,
       translations,
       metadata,
       isDraft
     } = req.body;
 
     // ✅ Enhanced validation
-    if (!subject || !level || !lessonName || !description) {
+    if (!subject || !level || !topic || !lessonName || !description) {
       return res.status(400).json({ 
-        error: '❌ Required fields missing: subject, level, lessonName, description' 
+        error: '❌ Required fields missing: subject, level, topic, lessonName, description' 
       });
     }
 
-    // ✅ Enhanced topic resolution
-    let resolvedTopic = null;
-    if (topicId && mongoose.Types.ObjectId.isValid(topicId)) {
-      resolvedTopic = await Topic.findById(topicId);
-      if (!resolvedTopic) {
-        return res.status(404).json({ error: '❌ Topic not found with provided ID' });
-      }
-    } else {
-      const topicName = typeof topic === 'string' ? topic.trim() : '';
-      const topicDesc = typeof topicDescription === 'string' ? topicDescription.trim() : '';
-
-      if (!topicName) {
-        return res.status(400).json({ error: '❌ Topic name is required' });
-      }
-
-      resolvedTopic = await Topic.findOne({ subject, level, name: topicName });
-      if (!resolvedTopic) {
-        resolvedTopic = new Topic({ 
-          name: topicName, 
-          subject, 
-          level, 
-          description: topicDesc 
-        });
-        await resolvedTopic.save();
-        console.log(`✅ [Topic Created] "${resolvedTopic.name}" (ID: ${resolvedTopic._id})`);
-      } else {
-        console.log(`ℹ️ [Existing Topic] ${resolvedTopic.name} (ID: ${resolvedTopic._id})`);
-      }
+    if (!steps || !Array.isArray(steps) || steps.length === 0) {
+      return res.status(400).json({ 
+        error: '❌ At least one lesson step is required' 
+      });
     }
 
-    // ✅ Process enhanced steps
-    const processedSteps = processLessonSteps(steps || []);
-    
-    // ✅ Legacy support: convert old explanations to new step format
-    const legacyExplanations = explanations || (explanation ? [explanation] : []);
-    legacyExplanations.forEach(exp => {
-      if (exp && exp.trim()) {
-        processedSteps.unshift({
-          type: 'explanation',
-          data: { content: exp.trim() }
-        });
-      }
+    // ✅ Enhanced topic resolution with better handling
+    let resolvedTopic = null;
+    const topicName = typeof topic === 'string' ? topic.trim() : '';
+    const topicDesc = typeof topicDescription === 'string' ? topicDescription.trim() : '';
+
+    if (!topicName) {
+      return res.status(400).json({ error: '❌ Topic name is required' });
+    }
+
+    // Find existing topic or create new one
+    resolvedTopic = await Topic.findOne({ 
+      subject: subject.trim(), 
+      level: parseInt(level), 
+      name: topicName 
     });
 
-    // ✅ Ensure at least one step exists
-    if (processedSteps.length === 0) {
-      processedSteps.push({
-        type: 'explanation',
-        data: { content: description }
+    if (!resolvedTopic) {
+      resolvedTopic = new Topic({ 
+        name: topicName, 
+        subject: subject.trim(), 
+        level: parseInt(level), 
+        description: topicDesc 
       });
+      await resolvedTopic.save();
+      console.log(`✅ [Topic Created] "${resolvedTopic.name}" (ID: ${resolvedTopic._id})`);
+    } else {
+      // Update description if provided and different
+      if (topicDesc && topicDesc !== resolvedTopic.description) {
+        resolvedTopic.description = topicDesc;
+        await resolvedTopic.save();
+        console.log(`🔄 [Topic Updated] Description for "${resolvedTopic.name}"`);
+      }
+      console.log(`ℹ️ [Existing Topic] ${resolvedTopic.name} (ID: ${resolvedTopic._id})`);
     }
 
-    // ✅ Process homework
-    const homework = processHomework(homeworkABC, homeworkQA, abcExercises);
+    // ✅ Process enhanced steps with validation
+    const processedSteps = await processLessonSteps(steps);
+    console.log(`📝 [Steps Processed] ${processedSteps.length} steps validated and processed`);
+
+    // ✅ Extract homework exercises if homework creation is enabled
+    const homeworkData = processHomeworkFromSteps(steps, createHomework);
+    console.log(`📝 [Homework] ${homeworkData.exercises.length} exercises extracted for homework`);
 
     // ✅ Create enhanced lesson object
     const lessonData = {
@@ -104,43 +101,77 @@ exports.addLesson = async (req, res) => {
       description: String(description).trim(),
       type: type || 'free',
       
-      // Content fields
-      explanations: legacyExplanations,
-      examples: String(examples || '').trim(),
-      content: String(content || '').trim(),
-      hint: String(hint || '').trim(),
-      
-      // Enhanced features
+      // Enhanced step structure
       steps: processedSteps,
-      homework: homework,
+      
+      // Legacy support for explanations
+      explanations: extractExplanationsFromSteps(processedSteps),
+      
+      // Homework configuration
+      homework: {
+        exercises: homeworkData.exercises,
+        quizzes: homeworkData.quizzes,
+        totalExercises: homeworkData.exercises.length + homeworkData.quizzes.length
+      },
+      
+      // Additional fields
       relatedSubjects: Array.isArray(relatedSubjects) ? relatedSubjects : [],
       translations: typeof translations === 'object' ? translations : {},
       metadata: processMetadata(metadata),
+      
+      // Status
       isDraft: Boolean(isDraft),
-      isActive: !Boolean(isDraft)
+      isActive: !Boolean(isDraft),
+      
+      // Stats initialization
+      stats: {
+        viewCount: 0,
+        completionRate: 0,
+        averageRating: 0,
+        totalRatings: 0
+      }
     };
 
-    console.log('📦 [Processing] Creating lesson with', processedSteps.length, 'steps');
+    console.log('📦 [Creating Lesson] Processing lesson with enhanced structure');
 
     const newLesson = new Lesson(lessonData);
     await newLesson.save();
 
-    console.log(`✅ [Success] Lesson created: "${newLesson.lessonName}" (ID: ${newLesson._id})`);
+    console.log(`✅ [Success] Enhanced lesson created: "${newLesson.lessonName}" (ID: ${newLesson._id})`);
     
-    // ✅ Return enhanced response
+    // ✅ Return enhanced response with homework info
     const response = {
+      success: true,
       lesson: newLesson,
-      homework: newLesson.extractHomework(),
+      homework: {
+        exercises: homeworkData.exercises,
+        quizzes: homeworkData.quizzes,
+        total: homeworkData.exercises.length + homeworkData.quizzes.length,
+        createSeparate: createHomework && (homeworkData.exercises.length > 0 || homeworkData.quizzes.length > 0),
+        title: homeworkTitle || `Homework: ${newLesson.lessonName}`,
+        instructions: homeworkInstructions || `Complete exercises based on: ${newLesson.topic}`
+      },
+      topic: {
+        id: resolvedTopic._id,
+        name: resolvedTopic.name,
+        description: resolvedTopic.description,
+        isNew: resolvedTopic.isNew || false
+      },
       stats: {
         totalSteps: newLesson.steps.length,
-        homeworkExercises: newLesson.homeworkCount
+        stepTypes: getStepTypesCount(newLesson.steps),
+        homeworkExercises: homeworkData.exercises.length + homeworkData.quizzes.length,
+        explanationSteps: newLesson.steps.filter(s => s.type === 'explanation').length,
+        exerciseSteps: newLesson.steps.filter(s => s.type === 'exercise').length,
+        vocabularySteps: newLesson.steps.filter(s => s.type === 'vocabulary').length,
+        quizSteps: newLesson.steps.filter(s => s.type === 'quiz').length
       }
     };
 
     res.status(201).json(response);
 
   } catch (error) {
-    console.error('❌ Error creating lesson:', error);
+    console.error('❌ Enhanced lesson creation error:', error);
     
     if (error.name === 'ValidationError') {
       return res.status(400).json({ 
@@ -162,7 +193,7 @@ exports.addLesson = async (req, res) => {
   }
 };
 
-// ✅ Enhanced lesson update
+// ✅ Enhanced lesson update with step validation
 exports.updateLesson = async (req, res) => {
   try {
     const lessonId = req.params.id;
@@ -172,24 +203,54 @@ exports.updateLesson = async (req, res) => {
 
     const updates = req.body;
     
+    console.log('🔄 [Update] Processing lesson update for ID:', lessonId);
+    
     // ✅ Process steps if provided
     if (updates.steps) {
-      updates.steps = processLessonSteps(updates.steps);
+      updates.steps = await processLessonSteps(updates.steps);
+      console.log(`📝 [Steps Updated] ${updates.steps.length} steps processed`);
     }
     
     // ✅ Process homework if provided
-    if (updates.homeworkABC || updates.homeworkQA || updates.abcExercises) {
-      updates.homework = processHomework(
-        updates.homeworkABC, 
-        updates.homeworkQA, 
-        updates.abcExercises
-      );
+    if (updates.steps) {
+      const homeworkData = processHomeworkFromSteps(updates.steps, updates.createHomework);
+      updates.homework = {
+        exercises: homeworkData.exercises,
+        quizzes: homeworkData.quizzes,
+        totalExercises: homeworkData.exercises.length + homeworkData.quizzes.length
+      };
+      console.log(`📝 [Homework Updated] ${updates.homework.totalExercises} exercises processed`);
     }
 
     // ✅ Process metadata
     if (updates.metadata) {
       updates.metadata = processMetadata(updates.metadata);
     }
+
+    // ✅ Update topic if needed
+    if (updates.topic && updates.subject && updates.level) {
+      let resolvedTopic = await Topic.findOne({ 
+        subject: updates.subject, 
+        level: updates.level, 
+        name: updates.topic 
+      });
+      
+      if (!resolvedTopic) {
+        resolvedTopic = new Topic({ 
+          name: updates.topic, 
+          subject: updates.subject, 
+          level: updates.level, 
+          description: updates.topicDescription || '' 
+        });
+        await resolvedTopic.save();
+        console.log(`✅ [Topic Created] "${resolvedTopic.name}" during lesson update`);
+      }
+      
+      updates.topicId = resolvedTopic._id;
+    }
+
+    // ✅ Update timestamps
+    updates.updatedAt = new Date();
 
     const updatedLesson = await Lesson.findByIdAndUpdate(
       lessonId, 
@@ -205,18 +266,23 @@ exports.updateLesson = async (req, res) => {
       return res.status(404).json({ error: '❌ Lesson not found' });
     }
 
-    console.log(`✅ [Update] "${updatedLesson.lessonName}" (ID: ${updatedLesson._id})`);
-    res.json({
+    console.log(`✅ [Update Success] "${updatedLesson.lessonName}" (ID: ${updatedLesson._id})`);
+    
+    const response = {
+      success: true,
       lesson: updatedLesson,
-      homework: updatedLesson.extractHomework(),
+      homework: updatedLesson.homework,
       stats: {
         totalSteps: updatedLesson.steps.length,
-        homeworkExercises: updatedLesson.homeworkCount
+        stepTypes: getStepTypesCount(updatedLesson.steps),
+        homeworkExercises: updatedLesson.homework?.totalExercises || 0
       }
-    });
+    };
+
+    res.json(response);
 
   } catch (error) {
-    console.error('❌ Error updating lesson:', error);
+    console.error('❌ Error updating enhanced lesson:', error);
     
     if (error.name === 'ValidationError') {
       return res.status(400).json({ 
@@ -232,7 +298,7 @@ exports.updateLesson = async (req, res) => {
   }
 };
 
-// ✅ Enhanced lesson retrieval with population
+// ✅ Enhanced lesson retrieval with detailed stats
 exports.getLesson = async (req, res) => {
   try {
     const lessonId = req.params.id;
@@ -255,17 +321,24 @@ exports.getLesson = async (req, res) => {
 
     console.log(`📘 [Retrieved] "${lesson.lessonName}" (ID: ${lesson._id})`);
     
-    res.json({
+    const response = {
+      success: true,
       lesson,
+      topic: lesson.topicId,
       stats: {
         totalSteps: lesson.steps?.length || 0,
-        homeworkExercises: (lesson.homework?.exercises?.length || 0) + 
-                          (lesson.homework?.quizzes?.length || 0)
+        stepTypes: getStepTypesCount(lesson.steps || []),
+        homeworkExercises: lesson.homework?.totalExercises || 0,
+        viewCount: lesson.stats?.viewCount || 0,
+        completionRate: lesson.stats?.completionRate || 0,
+        averageRating: lesson.stats?.averageRating || 0
       }
-    });
+    };
+
+    res.json(response);
 
   } catch (error) {
-    console.error('❌ Error retrieving lesson:', error);
+    console.error('❌ Error retrieving enhanced lesson:', error);
     res.status(500).json({ 
       error: '❌ Failed to retrieve lesson',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Please try again'
@@ -273,11 +346,11 @@ exports.getLesson = async (req, res) => {
   }
 };
 
-// ✅ Enhanced lessons by topic with filtering
+// ✅ Enhanced lessons by topic with detailed filtering
 exports.getLessonsByTopic = async (req, res) => {
   try {
     const { topicId } = req.params;
-    const { type, level, includeStats } = req.query;
+    const { type, level, includeStats, sortBy, order } = req.query;
 
     if (!topicId || !mongoose.Types.ObjectId.isValid(topicId)) {
       return res.status(400).json({ error: '❌ Invalid topic ID' });
@@ -288,25 +361,54 @@ exports.getLessonsByTopic = async (req, res) => {
     if (type) filter.type = type;
     if (level) filter.level = parseInt(level);
 
+    // ✅ Build sort options
+    let sortOptions = { createdAt: 1 };
+    if (sortBy) {
+      const sortOrder = order === 'desc' ? -1 : 1;
+      sortOptions = { [sortBy]: sortOrder };
+    }
+
     const lessons = await Lesson.find(filter)
       .populate('topicId', 'name description')
-      .sort({ createdAt: 1 })
+      .sort(sortOptions)
       .lean();
 
     console.log(`📚 [Topic Query] Found ${lessons.length} lessons for topic: ${topicId}`);
 
-    // ✅ Include stats if requested
+    // ✅ Calculate detailed stats if requested
     const response = {
+      success: true,
       lessons,
-      total: lessons.length
+      total: lessons.length,
+      filter: { topicId, type, level }
     };
 
     if (includeStats === 'true') {
       response.stats = {
         totalLessons: lessons.length,
-        freeCount: lessons.filter(l => l.type === 'free').length,
-        premiumCount: lessons.filter(l => l.type === 'premium').length,
-        avgSteps: lessons.reduce((acc, l) => acc + (l.steps?.length || 0), 0) / lessons.length || 0
+        byType: {
+          free: lessons.filter(l => l.type === 'free').length,
+          premium: lessons.filter(l => l.type === 'premium').length
+        },
+        byLevel: lessons.reduce((acc, lesson) => {
+          acc[lesson.level] = (acc[lesson.level] || 0) + 1;
+          return acc;
+        }, {}),
+        steps: {
+          avgStepsPerLesson: lessons.reduce((acc, l) => acc + (l.steps?.length || 0), 0) / lessons.length || 0,
+          totalSteps: lessons.reduce((acc, l) => acc + (l.steps?.length || 0), 0),
+          stepTypes: lessons.reduce((acc, lesson) => {
+            const stepCounts = getStepTypesCount(lesson.steps || []);
+            Object.keys(stepCounts).forEach(type => {
+              acc[type] = (acc[type] || 0) + stepCounts[type];
+            });
+            return acc;
+          }, {})
+        },
+        homework: {
+          lessonsWithHomework: lessons.filter(l => l.homework?.totalExercises > 0).length,
+          totalHomeworkExercises: lessons.reduce((acc, l) => acc + (l.homework?.totalExercises || 0), 0)
+        }
       };
     }
 
@@ -321,67 +423,7 @@ exports.getLessonsByTopic = async (req, res) => {
   }
 };
 
-// ✅ Bulk lesson operations
-exports.bulkCreateLessons = async (req, res) => {
-  try {
-    const { lessons } = req.body;
-    
-    if (!Array.isArray(lessons) || lessons.length === 0) {
-      return res.status(400).json({ error: '❌ Lessons array is required' });
-    }
-
-    console.log(`📦 [Bulk Create] Processing ${lessons.length} lessons`);
-
-    const results = [];
-    const errors = [];
-
-    for (let i = 0; i < lessons.length; i++) {
-      try {
-        const lessonData = lessons[i];
-        
-        // Process each lesson using the same logic as addLesson
-        const processed = await processLessonForBulk(lessonData);
-        const lesson = new Lesson(processed);
-        await lesson.save();
-        
-        results.push({
-          index: i,
-          success: true,
-          lesson: lesson._id,
-          name: lesson.lessonName
-        });
-        
-      } catch (error) {
-        errors.push({
-          index: i,
-          success: false,
-          error: error.message,
-          lesson: lessons[i].lessonName || `Lesson ${i + 1}`
-        });
-      }
-    }
-
-    console.log(`✅ [Bulk Complete] ${results.length} successful, ${errors.length} failed`);
-
-    res.status(201).json({
-      success: true,
-      total: lessons.length,
-      successful: results.length,
-      failed: errors.length,
-      results,
-      errors
-    });
-
-  } catch (error) {
-    console.error('❌ Bulk create error:', error);
-    res.status(500).json({ 
-      error: '❌ Bulk creation failed',
-      message: error.message 
-    });
-  }
-};
-
-// ✅ Delete lesson (keep existing)
+// ✅ Keep existing delete function
 exports.deleteLesson = async (req, res) => {
   try {
     const lessonId = req.params.id;
@@ -396,10 +438,12 @@ exports.deleteLesson = async (req, res) => {
 
     console.log(`🗑️ [Delete] "${deletedLesson.lessonName}" (ID: ${deletedLesson._id})`);
     res.json({ 
+      success: true,
       message: '✅ Lesson deleted successfully',
       deletedLesson: {
         id: deletedLesson._id,
-        name: deletedLesson.lessonName
+        name: deletedLesson.lessonName,
+        topic: deletedLesson.topic
       }
     });
 
@@ -415,17 +459,23 @@ exports.deleteLesson = async (req, res) => {
 // ✅ Helper Functions
 
 /**
- * Process lesson steps with validation
+ * Process lesson steps with enhanced validation and structure
  */
-function processLessonSteps(steps) {
+async function processLessonSteps(steps) {
   if (!Array.isArray(steps)) return [];
   
-  return steps.map(step => {
-    const { type, data } = step;
+  const validStepTypes = [
+    'explanation', 'example', 'practice', 'exercise', 
+    'vocabulary', 'quiz', 'video', 'audio', 
+    'reading', 'writing'
+  ];
+  
+  return steps.map((step, index) => {
+    const { type, ...stepData } = step;
     
     // Validate step structure
-    if (!type || !data) {
-      throw new Error(`Invalid step structure: missing type or data`);
+    if (!type || !validStepTypes.includes(type)) {
+      throw new Error(`Invalid step type at position ${index + 1}: ${type}`);
     }
     
     // Process data based on step type
@@ -436,47 +486,96 @@ function processLessonSteps(steps) {
       case 'example':
       case 'reading':
         processedData = {
-          content: typeof data === 'string' ? data : data.content || '',
-          questions: data.questions || []
+          content: stepData.content || '',
+          questions: stepData.questions || []
         };
+        if (!processedData.content.trim()) {
+          throw new Error(`${type} step at position ${index + 1} requires content`);
+        }
         break;
         
       case 'exercise':
-        processedData = Array.isArray(data) ? data : [];
+        processedData = (stepData.exercises || []).filter(ex => 
+          ex.question && ex.question.trim() && 
+          (ex.answer || ex.correctAnswer) && (ex.answer || ex.correctAnswer).trim()
+        ).map(ex => ({
+          question: ex.question.trim(),
+          answer: ex.answer || ex.correctAnswer,
+          correctAnswer: ex.correctAnswer || ex.answer,
+          points: ex.points || 1,
+          includeInHomework: Boolean(ex.includeInHomework)
+        }));
+        
+        if (processedData.length === 0) {
+          throw new Error(`Exercise step at position ${index + 1} requires at least one valid exercise`);
+        }
         break;
         
       case 'vocabulary':
-        processedData = Array.isArray(data) ? data : [];
+        processedData = (stepData.vocabulary || []).filter(vocab => 
+          vocab.term && vocab.term.trim() && 
+          vocab.definition && vocab.definition.trim()
+        ).map(vocab => ({
+          term: vocab.term.trim(),
+          definition: vocab.definition.trim(),
+          example: vocab.example?.trim() || ''
+        }));
+        
+        if (processedData.length === 0) {
+          throw new Error(`Vocabulary step at position ${index + 1} requires at least one vocabulary item`);
+        }
         break;
         
       case 'quiz':
-        processedData = Array.isArray(data) ? data : [];
+        processedData = (stepData.quizzes || []).filter(quiz => 
+          quiz.question && quiz.question.trim() && 
+          quiz.correctAnswer !== undefined && quiz.correctAnswer !== null
+        ).map(quiz => ({
+          question: quiz.question.trim(),
+          type: quiz.type || 'multiple-choice',
+          options: quiz.options || [],
+          correctAnswer: quiz.correctAnswer,
+          explanation: quiz.explanation || ''
+        }));
+        
+        if (processedData.length === 0) {
+          throw new Error(`Quiz step at position ${index + 1} requires at least one valid question`);
+        }
         break;
         
       case 'video':
       case 'audio':
         processedData = {
-          url: data.url || '',
-          description: data.description || ''
+          url: stepData.url || '',
+          description: stepData.description || ''
         };
+        if (!processedData.url.trim()) {
+          throw new Error(`${type} step at position ${index + 1} requires a URL`);
+        }
         break;
         
       case 'practice':
         processedData = {
-          instructions: data.instructions || '',
-          type: data.type || 'guided'
+          instructions: stepData.instructions || '',
+          type: stepData.practiceType || 'guided'
         };
+        if (!processedData.instructions.trim()) {
+          throw new Error(`Practice step at position ${index + 1} requires instructions`);
+        }
         break;
         
       case 'writing':
         processedData = {
-          prompt: data.prompt || '',
-          wordLimit: data.wordLimit || 100
+          prompt: stepData.prompt || '',
+          wordLimit: stepData.wordLimit || 100
         };
+        if (!processedData.prompt.trim()) {
+          throw new Error(`Writing step at position ${index + 1} requires a prompt`);
+        }
         break;
         
       default:
-        processedData = data;
+        processedData = stepData;
     }
     
     return { type, data: processedData };
@@ -484,30 +583,54 @@ function processLessonSteps(steps) {
 }
 
 /**
- * Process homework from various sources
+ * Process homework from lesson steps
  */
-function processHomework(homeworkABC, homeworkQA, abcExercises) {
+function processHomeworkFromSteps(steps, createHomework) {
   const exercises = [];
   const quizzes = [];
   
-  // Process ABC exercises
-  if (Array.isArray(homeworkABC)) {
-    exercises.push(...homeworkABC);
-  }
-  if (Array.isArray(abcExercises)) {
-    exercises.push(...abcExercises);
+  if (!createHomework || !Array.isArray(steps)) {
+    return { exercises, quizzes };
   }
   
-  // Process QA exercises
-  if (Array.isArray(homeworkQA)) {
-    exercises.push(...homeworkQA);
-  }
+  steps.forEach(step => {
+    if (step.type === 'exercise' && step.exercises) {
+      step.exercises.forEach(exercise => {
+        if (exercise.includeInHomework && exercise.question && (exercise.answer || exercise.correctAnswer)) {
+          exercises.push({
+            question: exercise.question,
+            correctAnswer: exercise.answer || exercise.correctAnswer,
+            points: exercise.points || 1,
+            type: 'short-answer'
+          });
+        }
+      });
+    }
+    
+    if (step.type === 'quiz' && step.quizzes) {
+      step.quizzes.forEach(quiz => {
+        quizzes.push({
+          question: quiz.question,
+          type: quiz.type || 'multiple-choice',
+          options: quiz.options || [],
+          correctAnswer: quiz.correctAnswer,
+          points: 1
+        });
+      });
+    }
+  });
   
-  return {
-    exercises,
-    quizzes,
-    totalExercises: exercises.length + quizzes.length
-  };
+  return { exercises, quizzes };
+}
+
+/**
+ * Extract explanations for legacy support
+ */
+function extractExplanationsFromSteps(steps) {
+  return steps
+    .filter(step => step.type === 'explanation')
+    .map(step => step.data.content || '')
+    .filter(content => content.trim() !== '');
 }
 
 /**
@@ -532,41 +655,14 @@ function processMetadata(metadata) {
 }
 
 /**
- * Process lesson for bulk creation
+ * Get count of each step type
  */
-async function processLessonForBulk(lessonData) {
-  // Similar processing to addLesson but streamlined for bulk operations
-  const {
-    subject, level, topic, topicDescription, lessonName, description,
-    steps, type, metadata, ...rest
-  } = lessonData;
-  
-  // Find or create topic
-  let resolvedTopic = await Topic.findOne({ subject, level, name: topic });
-  if (!resolvedTopic) {
-    resolvedTopic = new Topic({ 
-      name: topic, 
-      subject, 
-      level, 
-      description: topicDescription || '' 
-    });
-    await resolvedTopic.save();
-  }
-  
-  return {
-    subject,
-    level: Number(level),
-    topic: resolvedTopic.name,
-    topicId: resolvedTopic._id,
-    lessonName,
-    description,
-    type: type || 'free',
-    steps: processLessonSteps(steps || []),
-    metadata: processMetadata(metadata),
-    isActive: true,
-    isDraft: false,
-    ...rest
-  };
+function getStepTypesCount(steps) {
+  const counts = {};
+  steps.forEach(step => {
+    counts[step.type] = (counts[step.type] || 0) + 1;
+  });
+  return counts;
 }
 
 module.exports = {
@@ -574,6 +670,5 @@ module.exports = {
   updateLesson: exports.updateLesson,
   deleteLesson: exports.deleteLesson,
   getLesson: exports.getLesson,
-  getLessonsByTopic: exports.getLessonsByTopic,
-  bulkCreateLessons: exports.bulkCreateLessons
+  getLessonsByTopic: exports.getLessonsByTopic
 };
