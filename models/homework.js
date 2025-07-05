@@ -74,7 +74,8 @@ const HomeworkSchema = new mongoose.Schema({
   subject: {
     type: String,
     required: [true, 'Subject is required'],
-    enum: ['English', 'Math', 'Science', 'History', 'Geography', 'Literature', 'Physics', 'Chemistry', 'Biology', 'Other'],
+    // Updated to include "Английский" so that homework created with that subject passes validation.
+    enum: ['English', 'Math', 'Science', 'History', 'Geography', 'Literature', 'Physics', 'Chemistry', 'Biology', 'Other', 'Английский'],
     default: 'Other'
   },
   level: {
@@ -161,6 +162,7 @@ const HomeworkSchema = new mongoose.Schema({
     type: Number,
     min: 1,
     max: 5,
+    // Fallback if difficulty isn't a valid number will be handled when creating homework.
     default: 3
   },
   estimatedDuration: {
