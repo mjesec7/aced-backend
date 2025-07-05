@@ -459,7 +459,7 @@ exports.deleteLesson = async (req, res) => {
 // ✅ Helper Functions
 
 /**
- * Process lesson steps with enhanced validation and structure
+ * Process lesson steps with enhanced validation and structure.
  */
 async function processLessonSteps(steps) {
   if (!Array.isArray(steps)) return [];
@@ -485,8 +485,10 @@ async function processLessonSteps(steps) {
       case 'explanation':
       case 'example':
       case 'reading':
+        // Ensure content is a string before trimming so valid content doesn't get misinterpreted.
+        const content = stepData.content != null ? String(stepData.content) : '';
         processedData = {
-          content: stepData.content || '',
+          content: content,
           questions: stepData.questions || []
         };
         if (!processedData.content.trim()) {
@@ -497,7 +499,7 @@ async function processLessonSteps(steps) {
       case 'exercise':
         processedData = (stepData.exercises || []).filter(ex => 
           ex.question && ex.question.trim() && 
-          (ex.answer || ex.correctAnswer) && (ex.answer || ex.correctAnswer).trim()
+          (ex.answer || ex.correctAnswer) && (ex.answer || ex.correctAnswer).toString().trim()
         ).map(ex => ({
           question: ex.question.trim(),
           answer: ex.answer || ex.correctAnswer,
