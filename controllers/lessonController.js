@@ -485,8 +485,8 @@ async function processLessonSteps(steps) {
       case 'explanation':
       case 'example':
       case 'reading': {
-        // Check for content under "content" or "explanation"
-        const rawContent = stepData.content || stepData.explanation || '';
+        // Check for content under "content", "explanation", or "text"
+        const rawContent = stepData.content || stepData.explanation || stepData.text || '';
         const content = rawContent != null ? String(rawContent) : '';
         processedData = {
           content: content,
