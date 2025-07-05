@@ -484,9 +484,10 @@ async function processLessonSteps(steps) {
     switch (type) {
       case 'explanation':
       case 'example':
-      case 'reading':
-        // Ensure content is a string before trimming so valid content doesn't get misinterpreted.
-        const content = stepData.content != null ? String(stepData.content) : '';
+      case 'reading': {
+        // Check for content under "content" or "explanation"
+        const rawContent = stepData.content || stepData.explanation || '';
+        const content = rawContent != null ? String(rawContent) : '';
         processedData = {
           content: content,
           questions: stepData.questions || []
@@ -495,6 +496,7 @@ async function processLessonSteps(steps) {
           throw new Error(`${type} step at position ${index + 1} requires content`);
         }
         break;
+      }
         
       case 'exercise':
         processedData = (stepData.exercises || []).filter(ex => 
