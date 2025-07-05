@@ -471,9 +471,9 @@ async function processLessonSteps(steps) {
   ];
   
   return steps.map((step, index) => {
-    // If step.data exists, use it as the payload; otherwise use step directly.
+    // Use step.data if exists; otherwise use step.
     const stepPayload = step.data ? step.data : step;
-    const { type, ...rest } = step;
+    const { type } = step;
     
     if (!type || !validStepTypes.includes(type)) {
       throw new Error(`Invalid step type at position ${index + 1}: ${type}`);
@@ -485,7 +485,6 @@ async function processLessonSteps(steps) {
       case 'explanation':
       case 'example':
       case 'reading': {
-        // Check for content under "content", "explanation", or "text" from the payload.
         const rawContent = stepPayload.content || stepPayload.explanation || stepPayload.text || '';
         const content = rawContent != null ? String(rawContent) : '';
         processedData = {
@@ -515,20 +514,28 @@ async function processLessonSteps(steps) {
         }
         break;
         
-      case 'vocabulary':
-        processedData = (stepPayload.vocabulary || []).filter(vocab => 
+      case 'vocabulary': {
+        let vocabularyItems = [];
+        // Handle both: vocabulary data as an array itself or as a property.
+        if (Array.isArray(stepPayload)) {
+          vocabularyItems = stepPayload;
+        } else {
+          vocabularyItems = stepPayload.vocabulary || [];
+        }
+        processedData = vocabularyItems.filter(vocab => 
           vocab.term && vocab.term.trim() && 
           vocab.definition && vocab.definition.trim()
         ).map(vocab => ({
           term: vocab.term.trim(),
           definition: vocab.definition.trim(),
-          example: vocab.example?.trim() || ''
+          example: vocab.example ? String(vocab.example).trim() : ''
         }));
         
         if (processedData.length === 0) {
           throw new Error(`Vocabulary step at position ${index + 1} requires at least one vocabulary item`);
         }
         break;
+      }
         
       case 'quiz':
         processedData = (stepPayload.quizzes || []).filter(quiz => 
