@@ -471,26 +471,26 @@ async function processLessonSteps(steps) {
   ];
   
   return steps.map((step, index) => {
-    const { type, ...stepData } = step;
+    // If step.data exists, use it as the payload; otherwise use step directly.
+    const stepPayload = step.data ? step.data : step;
+    const { type, ...rest } = step;
     
-    // Validate step structure
     if (!type || !validStepTypes.includes(type)) {
       throw new Error(`Invalid step type at position ${index + 1}: ${type}`);
     }
     
-    // Process data based on step type
     let processedData;
     
     switch (type) {
       case 'explanation':
       case 'example':
       case 'reading': {
-        // Check for content under "content", "explanation", or "text"
-        const rawContent = stepData.content || stepData.explanation || stepData.text || '';
+        // Check for content under "content", "explanation", or "text" from the payload.
+        const rawContent = stepPayload.content || stepPayload.explanation || stepPayload.text || '';
         const content = rawContent != null ? String(rawContent) : '';
         processedData = {
           content: content,
-          questions: stepData.questions || []
+          questions: stepPayload.questions || []
         };
         if (!processedData.content.trim()) {
           throw new Error(`${type} step at position ${index + 1} requires content`);
@@ -499,7 +499,7 @@ async function processLessonSteps(steps) {
       }
         
       case 'exercise':
-        processedData = (stepData.exercises || []).filter(ex => 
+        processedData = (stepPayload.exercises || []).filter(ex => 
           ex.question && ex.question.trim() && 
           (ex.answer || ex.correctAnswer) && (ex.answer || ex.correctAnswer).toString().trim()
         ).map(ex => ({
@@ -516,7 +516,7 @@ async function processLessonSteps(steps) {
         break;
         
       case 'vocabulary':
-        processedData = (stepData.vocabulary || []).filter(vocab => 
+        processedData = (stepPayload.vocabulary || []).filter(vocab => 
           vocab.term && vocab.term.trim() && 
           vocab.definition && vocab.definition.trim()
         ).map(vocab => ({
@@ -531,7 +531,7 @@ async function processLessonSteps(steps) {
         break;
         
       case 'quiz':
-        processedData = (stepData.quizzes || []).filter(quiz => 
+        processedData = (stepPayload.quizzes || []).filter(quiz => 
           quiz.question && quiz.question.trim() && 
           quiz.correctAnswer !== undefined && quiz.correctAnswer !== null
         ).map(quiz => ({
@@ -550,8 +550,8 @@ async function processLessonSteps(steps) {
       case 'video':
       case 'audio':
         processedData = {
-          url: stepData.url || '',
-          description: stepData.description || ''
+          url: stepPayload.url || '',
+          description: stepPayload.description || ''
         };
         if (!processedData.url.trim()) {
           throw new Error(`${type} step at position ${index + 1} requires a URL`);
@@ -560,8 +560,8 @@ async function processLessonSteps(steps) {
         
       case 'practice':
         processedData = {
-          instructions: stepData.instructions || '',
-          type: stepData.practiceType || 'guided'
+          instructions: stepPayload.instructions || '',
+          type: stepPayload.practiceType || 'guided'
         };
         if (!processedData.instructions.trim()) {
           throw new Error(`Practice step at position ${index + 1} requires instructions`);
@@ -570,8 +570,8 @@ async function processLessonSteps(steps) {
         
       case 'writing':
         processedData = {
-          prompt: stepData.prompt || '',
-          wordLimit: stepData.wordLimit || 100
+          prompt: stepPayload.prompt || '',
+          wordLimit: stepPayload.wordLimit || 100
         };
         if (!processedData.prompt.trim()) {
           throw new Error(`Writing step at position ${index + 1} requires a prompt`);
@@ -579,7 +579,7 @@ async function processLessonSteps(steps) {
         break;
         
       default:
-        processedData = stepData;
+        processedData = stepPayload;
     }
     
     return { type, data: processedData };
