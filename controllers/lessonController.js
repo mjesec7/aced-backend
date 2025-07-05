@@ -83,7 +83,7 @@ exports.addLesson = async (req, res) => {
       console.log(`ℹ️ [Existing Topic] ${resolvedTopic.name} (ID: ${resolvedTopic._id})`);
     }
 
-    // ✅ Process enhanced steps with validation
+    // ✅ Process enhanced steps with validation and defaults
     const processedSteps = await processLessonSteps(steps);
     console.log(`📝 [Steps Processed] ${processedSteps.length} steps validated and processed`);
 
@@ -459,7 +459,7 @@ exports.deleteLesson = async (req, res) => {
 // ✅ Helper Functions
 
 /**
- * Process lesson steps with enhanced validation and structure.
+ * Process lesson steps with enhanced validation and default values.
  */
 async function processLessonSteps(steps) {
   if (!Array.isArray(steps)) return [];
@@ -476,7 +476,9 @@ async function processLessonSteps(steps) {
     const { type } = step;
     
     if (!type || !validStepTypes.includes(type)) {
-      throw new Error(`Invalid step type at position ${index + 1}: ${type}`);
+      // Instead of throwing an error, we default to a generic type with a warning.
+      console.warn(`Warning: Invalid or missing step type at position ${index + 1}. Defaulting to 'explanation'.`);
+      type = 'explanation';
     }
     
     let processedData;
@@ -486,104 +488,141 @@ async function processLessonSteps(steps) {
       case 'example':
       case 'reading': {
         const rawContent = stepPayload.content || stepPayload.explanation || stepPayload.text || '';
-        const content = rawContent != null ? String(rawContent) : '';
+        let content = rawContent != null ? String(rawContent) : '';
+        if (!content.trim()) {
+          content = `No content provided for ${type} step at position ${index + 1}.`;
+          console.warn(content);
+        }
         processedData = {
           content: content,
           questions: stepPayload.questions || []
         };
-        if (!processedData.content.trim()) {
-          throw new Error(`${type} step at position ${index + 1} requires content`);
-        }
         break;
       }
         
-      case 'exercise':
-        processedData = (stepPayload.exercises || []).filter(ex => 
+      case 'exercise': {
+        let exercises = (stepPayload.exercises || []).filter(ex => 
           ex.question && ex.question.trim() && 
           (ex.answer || ex.correctAnswer) && (ex.answer || ex.correctAnswer).toString().trim()
-        ).map(ex => ({
-          question: ex.question.trim(),
-          answer: ex.answer || ex.correctAnswer,
-          correctAnswer: ex.correctAnswer || ex.answer,
-          points: ex.points || 1,
-          includeInHomework: Boolean(ex.includeInHomework)
-        }));
-        
-        if (processedData.length === 0) {
-          throw new Error(`Exercise step at position ${index + 1} requires at least one valid exercise`);
+        );
+        if (exercises.length === 0) {
+          console.warn(`No valid exercises provided for exercise step at position ${index + 1}. Using default exercise.`);
+          exercises = [{
+            question: "Default exercise question",
+            answer: "Default answer",
+            correctAnswer: "Default answer",
+            points: 1,
+            includeInHomework: false
+          }];
+        } else {
+          exercises = exercises.map(ex => ({
+            question: ex.question.trim(),
+            answer: ex.answer || ex.correctAnswer,
+            correctAnswer: ex.correctAnswer || ex.answer,
+            points: ex.points || 1,
+            includeInHomework: Boolean(ex.includeInHomework)
+          }));
         }
+        processedData = exercises;
         break;
+      }
         
       case 'vocabulary': {
         let vocabularyItems = [];
-        // Handle both: vocabulary data as an array itself or as a property.
+        // Handle both: if stepPayload itself is an array or if it has a vocabulary property.
         if (Array.isArray(stepPayload)) {
           vocabularyItems = stepPayload;
         } else {
           vocabularyItems = stepPayload.vocabulary || [];
         }
-        processedData = vocabularyItems.filter(vocab => 
+        vocabularyItems = vocabularyItems.filter(vocab => 
           vocab.term && vocab.term.trim() && 
           vocab.definition && vocab.definition.trim()
-        ).map(vocab => ({
-          term: vocab.term.trim(),
-          definition: vocab.definition.trim(),
-          example: vocab.example ? String(vocab.example).trim() : ''
-        }));
-        
-        if (processedData.length === 0) {
-          throw new Error(`Vocabulary step at position ${index + 1} requires at least one vocabulary item`);
+        );
+        if (vocabularyItems.length === 0) {
+          console.warn(`No vocabulary items provided for vocabulary step at position ${index + 1}. Using default vocabulary item.`);
+          vocabularyItems = [{
+            term: "Default Term",
+            definition: "Default Definition",
+            example: ""
+          }];
+        } else {
+          vocabularyItems = vocabularyItems.map(vocab => ({
+            term: vocab.term.trim(),
+            definition: vocab.definition.trim(),
+            example: vocab.example ? String(vocab.example).trim() : ''
+          }));
         }
+        processedData = vocabularyItems;
         break;
       }
         
-      case 'quiz':
-        processedData = (stepPayload.quizzes || []).filter(quiz => 
+      case 'quiz': {
+        let quizzes = (stepPayload.quizzes || []).filter(quiz => 
           quiz.question && quiz.question.trim() && 
           quiz.correctAnswer !== undefined && quiz.correctAnswer !== null
-        ).map(quiz => ({
-          question: quiz.question.trim(),
-          type: quiz.type || 'multiple-choice',
-          options: quiz.options || [],
-          correctAnswer: quiz.correctAnswer,
-          explanation: quiz.explanation || ''
-        }));
-        
-        if (processedData.length === 0) {
-          throw new Error(`Quiz step at position ${index + 1} requires at least one valid question`);
+        );
+        if (quizzes.length === 0) {
+          console.warn(`No valid quiz questions provided for quiz step at position ${index + 1}. Using default quiz question.`);
+          quizzes = [{
+            question: "Default quiz question",
+            type: "multiple-choice",
+            options: ["Option 1", "Option 2"],
+            correctAnswer: "Option 1",
+            explanation: "Default explanation"
+          }];
+        } else {
+          quizzes = quizzes.map(quiz => ({
+            question: quiz.question.trim(),
+            type: quiz.type || 'multiple-choice',
+            options: quiz.options || [],
+            correctAnswer: quiz.correctAnswer,
+            explanation: quiz.explanation || ''
+          }));
         }
+        processedData = quizzes;
         break;
+      }
         
       case 'video':
-      case 'audio':
+      case 'audio': {
+        let url = stepPayload.url || '';
+        if (!url.trim()) {
+          console.warn(`${type} step at position ${index + 1} missing URL. Using default URL.`);
+          url = "https://example.com/default-media";
+        }
         processedData = {
-          url: stepPayload.url || '',
+          url: url,
           description: stepPayload.description || ''
         };
-        if (!processedData.url.trim()) {
-          throw new Error(`${type} step at position ${index + 1} requires a URL`);
-        }
         break;
+      }
         
-      case 'practice':
+      case 'practice': {
+        let instructions = stepPayload.instructions || '';
+        if (!instructions.trim()) {
+          console.warn(`Practice step at position ${index + 1} missing instructions. Using default instructions.`);
+          instructions = "No instructions provided.";
+        }
         processedData = {
-          instructions: stepPayload.instructions || '',
+          instructions: instructions,
           type: stepPayload.practiceType || 'guided'
         };
-        if (!processedData.instructions.trim()) {
-          throw new Error(`Practice step at position ${index + 1} requires instructions`);
-        }
         break;
+      }
         
-      case 'writing':
+      case 'writing': {
+        let prompt = stepPayload.prompt || '';
+        if (!prompt.trim()) {
+          console.warn(`Writing step at position ${index + 1} missing prompt. Using default prompt.`);
+          prompt = "No writing prompt provided.";
+        }
         processedData = {
-          prompt: stepPayload.prompt || '',
+          prompt: prompt,
           wordLimit: stepPayload.wordLimit || 100
         };
-        if (!processedData.prompt.trim()) {
-          throw new Error(`Writing step at position ${index + 1} requires a prompt`);
-        }
         break;
+      }
         
       default:
         processedData = stepPayload;
