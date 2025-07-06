@@ -471,76 +471,180 @@ async function processLessonSteps(steps) {
   ];
   
   return steps.map((step, index) => {
-    // Use step.data if exists; otherwise use step.
-    const stepPayload = step.data ? step.data : step;
-    const { type } = step;
+    const stepType = step.type;
     
-    if (!type || !validStepTypes.includes(type)) {
-      // Instead of throwing an error, we default to a generic type with a warning.
-      console.warn(`Warning: Invalid or missing step type at position ${index + 1}. Defaulting to 'explanation'.`);
-      type = 'explanation';
+    if (!stepType || !validStepTypes.includes(stepType)) {
+      console.warn(`⚠️ Invalid or missing step type at position ${index + 1}. Defaulting to 'explanation'.`);
+      step.type = 'explanation';
     }
     
     let processedData;
     
-    switch (type) {
+    switch (stepType) {
       case 'explanation':
       case 'example':
       case 'reading': {
-        const rawContent = stepPayload.content || stepPayload.explanation || stepPayload.text || '';
-        let content = rawContent != null ? String(rawContent) : '';
-        if (!content.trim()) {
-          content = `No content provided for ${type} step at position ${index + 1}.`;
-          console.warn(content);
+        // ✅ FIXED: Handle both direct content and nested data structure
+        let content = '';
+        
+        if (typeof step.content === 'string') {
+          content = step.content;
+        } else if (step.data && typeof step.data.content === 'string') {
+          content = step.data.content;
+        } else if (step.data && typeof step.data === 'string') {
+          content = step.data;
+        } else if (typeof step === 'string') {
+          content = step;
         }
+        
+        if (!content.trim()) {
+          content = `No content provided for ${stepType} step at position ${index + 1}.`;
+          console.warn(`⚠️ ${content}`);
+        }
+        
         processedData = {
           content: content,
-          questions: stepPayload.questions || []
+          questions: step.questions || step.data?.questions || []
         };
         break;
       }
         
       case 'exercise': {
-        let exercises = (stepPayload.exercises || []).filter(ex => 
-          ex.question && ex.question.trim() && 
-          (ex.answer || ex.correctAnswer) && (ex.answer || ex.correctAnswer).toString().trim()
-        );
+        // ✅ FIXED: Handle multiple possible data structures for exercises
+        let exercises = [];
+        
+        // Check various possible locations for exercise data
+        if (step.exercises && Array.isArray(step.exercises)) {
+          exercises = step.exercises;
+        } else if (step.data && Array.isArray(step.data)) {
+          exercises = step.data;
+        } else if (step.data && step.data.exercises && Array.isArray(step.data.exercises)) {
+          exercises = step.data.exercises;
+        } else if (Array.isArray(step)) {
+          exercises = step;
+        }
+        
+        // Filter and validate exercises
+        exercises = exercises.filter(ex => {
+          const hasQuestion = ex.question && ex.question.trim();
+          const hasAnswer = (ex.answer || ex.correctAnswer) && 
+                           (ex.answer || ex.correctAnswer).toString().trim();
+          return hasQuestion && hasAnswer;
+        });
+        
         if (exercises.length === 0) {
-          console.warn(`No valid exercises provided for exercise step at position ${index + 1}. Using default exercise.`);
+          console.warn(`⚠️ No valid exercises provided for exercise step at position ${index + 1}. Using default exercise.`);
           exercises = [{
+            type: 'short-answer',
             question: "Default exercise question",
             answer: "Default answer",
             correctAnswer: "Default answer",
             points: 1,
-            includeInHomework: false
+            includeInHomework: false,
+            instruction: '',
+            hint: '',
+            explanation: ''
           }];
         } else {
-          exercises = exercises.map(ex => ({
-            question: ex.question.trim(),
-            answer: ex.answer || ex.correctAnswer,
-            correctAnswer: ex.correctAnswer || ex.answer,
-            points: ex.points || 1,
-            includeInHomework: Boolean(ex.includeInHomework)
-          }));
+          // ✅ FIXED: Process exercises with all possible fields
+          exercises = exercises.map(ex => {
+            const processedEx = {
+              type: ex.type || 'short-answer',
+              question: ex.question.trim(),
+              answer: ex.answer || ex.correctAnswer,
+              correctAnswer: ex.correctAnswer || ex.answer,
+              points: ex.points || 1,
+              includeInHomework: Boolean(ex.includeInHomework),
+              instruction: ex.instruction || '',
+              hint: ex.hint || '',
+              explanation: ex.explanation || ''
+            };
+            
+            // ✅ Handle different exercise types with their specific fields
+            switch (ex.type) {
+              case 'abc':
+              case 'multiple-choice':
+                processedEx.options = ex.options || [];
+                break;
+              case 'fill-blank':
+                processedEx.template = ex.template || '';
+                processedEx.blanks = ex.blanks || [];
+                break;
+              case 'matching':
+                processedEx.pairs = ex.pairs || [];
+                break;
+              case 'ordering':
+                processedEx.items = ex.items || [];
+                break;
+              case 'true-false':
+                processedEx.statement = ex.statement || ex.question;
+                break;
+              case 'drag-drop':
+                processedEx.dragItems = ex.dragItems || [];
+                processedEx.dropZones = ex.dropZones || [];
+                break;
+            }
+            
+            return processedEx;
+          });
         }
+        
         processedData = exercises;
         break;
       }
         
-      case 'vocabulary': {
-        let vocabularyItems = [];
-        // Handle both: if stepPayload itself is an array or if it has a vocabulary property.
-        if (Array.isArray(stepPayload)) {
-          vocabularyItems = stepPayload;
-        } else {
-          vocabularyItems = stepPayload.vocabulary || [];
+      case 'practice': {
+        // ✅ FIXED: Handle practice step data structure
+        let instructions = '';
+        let practiceType = 'guided';
+        
+        if (step.instructions) {
+          instructions = step.instructions;
+          practiceType = step.practiceType || 'guided';
+        } else if (step.data) {
+          if (typeof step.data === 'string') {
+            instructions = step.data;
+          } else if (step.data.instructions) {
+            instructions = step.data.instructions;
+            practiceType = step.data.type || step.data.practiceType || 'guided';
+          }
         }
+        
+        if (!instructions.trim()) {
+          console.warn(`⚠️ Practice step at position ${index + 1} missing instructions. Using default instructions.`);
+          instructions = "No instructions provided.";
+        }
+        
+        processedData = {
+          instructions: instructions,
+          type: practiceType
+        };
+        break;
+      }
+        
+      case 'vocabulary': {
+        // ✅ FIXED: Handle vocabulary data structure
+        let vocabularyItems = [];
+        
+        // Check various possible locations for vocabulary data
+        if (step.vocabulary && Array.isArray(step.vocabulary)) {
+          vocabularyItems = step.vocabulary;
+        } else if (step.data && Array.isArray(step.data)) {
+          vocabularyItems = step.data;
+        } else if (step.data && step.data.vocabulary && Array.isArray(step.data.vocabulary)) {
+          vocabularyItems = step.data.vocabulary;
+        } else if (Array.isArray(step)) {
+          vocabularyItems = step;
+        }
+        
+        // Filter and validate vocabulary items
         vocabularyItems = vocabularyItems.filter(vocab => 
           vocab.term && vocab.term.trim() && 
           vocab.definition && vocab.definition.trim()
         );
+        
         if (vocabularyItems.length === 0) {
-          console.warn(`No vocabulary items provided for vocabulary step at position ${index + 1}. Using default vocabulary item.`);
+          console.warn(`⚠️ No vocabulary items provided for vocabulary step at position ${index + 1}. Using default vocabulary item.`);
           vocabularyItems = [{
             term: "Default Term",
             definition: "Default Definition",
@@ -553,22 +657,39 @@ async function processLessonSteps(steps) {
             example: vocab.example ? String(vocab.example).trim() : ''
           }));
         }
+        
         processedData = vocabularyItems;
         break;
       }
         
       case 'quiz': {
-        let quizzes = (stepPayload.quizzes || []).filter(quiz => 
+        // ✅ FIXED: Handle quiz data structure
+        let quizzes = [];
+        
+        // Check various possible locations for quiz data
+        if (step.quizzes && Array.isArray(step.quizzes)) {
+          quizzes = step.quizzes;
+        } else if (step.data && Array.isArray(step.data)) {
+          quizzes = step.data;
+        } else if (step.data && step.data.quizzes && Array.isArray(step.data.quizzes)) {
+          quizzes = step.data.quizzes;
+        } else if (Array.isArray(step)) {
+          quizzes = step;
+        }
+        
+        // Filter and validate quiz questions
+        quizzes = quizzes.filter(quiz => 
           quiz.question && quiz.question.trim() && 
           quiz.correctAnswer !== undefined && quiz.correctAnswer !== null
         );
+        
         if (quizzes.length === 0) {
-          console.warn(`No valid quiz questions provided for quiz step at position ${index + 1}. Using default quiz question.`);
+          console.warn(`⚠️ No valid quiz questions provided for quiz step at position ${index + 1}. Using default quiz question.`);
           quizzes = [{
             question: "Default quiz question",
             type: "multiple-choice",
-            options: ["Option 1", "Option 2"],
-            correctAnswer: "Option 1",
+            options: [{ text: "Option 1" }, { text: "Option 2" }],
+            correctAnswer: 0,
             explanation: "Default explanation"
           }];
         } else {
@@ -580,55 +701,81 @@ async function processLessonSteps(steps) {
             explanation: quiz.explanation || ''
           }));
         }
+        
         processedData = quizzes;
         break;
       }
         
       case 'video':
       case 'audio': {
-        let url = stepPayload.url || '';
+        // ✅ FIXED: Handle media step data structure
+        let url = '';
+        let description = '';
+        
+        if (step.url) {
+          url = step.url;
+          description = step.description || '';
+        } else if (step.data) {
+          if (typeof step.data === 'string') {
+            url = step.data;
+          } else if (step.data.url) {
+            url = step.data.url;
+            description = step.data.description || '';
+          }
+        }
+        
         if (!url.trim()) {
-          console.warn(`${type} step at position ${index + 1} missing URL. Using default URL.`);
+          console.warn(`⚠️ ${stepType} step at position ${index + 1} missing URL. Using default URL.`);
           url = "https://example.com/default-media";
         }
+        
         processedData = {
           url: url,
-          description: stepPayload.description || ''
-        };
-        break;
-      }
-        
-      case 'practice': {
-        let instructions = stepPayload.instructions || '';
-        if (!instructions.trim()) {
-          console.warn(`Practice step at position ${index + 1} missing instructions. Using default instructions.`);
-          instructions = "No instructions provided.";
-        }
-        processedData = {
-          instructions: instructions,
-          type: stepPayload.practiceType || 'guided'
+          description: description
         };
         break;
       }
         
       case 'writing': {
-        let prompt = stepPayload.prompt || '';
+        // ✅ FIXED: Handle writing step data structure
+        let prompt = '';
+        let wordLimit = 100;
+        
+        if (step.prompt) {
+          prompt = step.prompt;
+          wordLimit = step.wordLimit || 100;
+        } else if (step.data) {
+          if (typeof step.data === 'string') {
+            prompt = step.data;
+          } else if (step.data.prompt) {
+            prompt = step.data.prompt;
+            wordLimit = step.data.wordLimit || 100;
+          }
+        }
+        
         if (!prompt.trim()) {
-          console.warn(`Writing step at position ${index + 1} missing prompt. Using default prompt.`);
+          console.warn(`⚠️ Writing step at position ${index + 1} missing prompt. Using default prompt.`);
           prompt = "No writing prompt provided.";
         }
+        
         processedData = {
           prompt: prompt,
-          wordLimit: stepPayload.wordLimit || 100
+          wordLimit: wordLimit
         };
         break;
       }
         
       default:
-        processedData = stepPayload;
+        // ✅ Handle unknown step types
+        console.warn(`⚠️ Unknown step type: ${stepType}. Using raw data.`);
+        processedData = step.data || step.content || step || {};
     }
     
-    return { type, data: processedData };
+    // ✅ FIXED: Always return proper structure
+    return { 
+      type: stepType, 
+      data: processedData 
+    };
   });
 }
 
@@ -643,35 +790,255 @@ function processHomeworkFromSteps(steps, createHomework) {
     return { exercises, quizzes };
   }
   
-  steps.forEach(step => {
-    if (step.type === 'exercise' && step.exercises) {
-      step.exercises.forEach(exercise => {
-        if (exercise.includeInHomework && exercise.question && (exercise.answer || exercise.correctAnswer)) {
-          exercises.push({
-            question: exercise.question,
-            correctAnswer: exercise.answer || exercise.correctAnswer,
-            points: exercise.points || 1,
-            type: 'short-answer'
-          });
+  steps.forEach((step, stepIndex) => {
+    try {
+      if (step.type === 'exercise') {
+        // ✅ Handle multiple possible data structures
+        let exerciseData = [];
+        
+        if (step.exercises && Array.isArray(step.exercises)) {
+          exerciseData = step.exercises;
+        } else if (step.data && Array.isArray(step.data)) {
+          exerciseData = step.data;
+        } else if (step.data && step.data.exercises && Array.isArray(step.data.exercises)) {
+          exerciseData = step.data.exercises;
         }
-      });
-    }
-    
-    if (step.type === 'quiz' && step.quizzes) {
-      step.quizzes.forEach(quiz => {
-        quizzes.push({
-          question: quiz.question,
-          type: quiz.type || 'multiple-choice',
-          options: quiz.options || [],
-          correctAnswer: quiz.correctAnswer,
-          points: 1
+        
+        exerciseData.forEach((exercise, exerciseIndex) => {
+          if (exercise.includeInHomework && 
+              exercise.question && 
+              (exercise.answer || exercise.correctAnswer)) {
+            
+            const homeworkExercise = {
+              question: exercise.question,
+              answer: exercise.answer || exercise.correctAnswer,
+              correctAnswer: exercise.correctAnswer || exercise.answer,
+              points: exercise.points || 1,
+              type: exercise.type || 'short-answer',
+              instruction: exercise.instruction || '',
+              hint: exercise.hint || '',
+              explanation: exercise.explanation || ''
+            };
+            
+            // ✅ Add type-specific fields for homework
+            switch (exercise.type) {
+              case 'abc':
+              case 'multiple-choice':
+                homeworkExercise.options = exercise.options || [];
+                break;
+              case 'fill-blank':
+                homeworkExercise.template = exercise.template || '';
+                homeworkExercise.blanks = exercise.blanks || [];
+                break;
+              case 'matching':
+                homeworkExercise.pairs = exercise.pairs || [];
+                break;
+              case 'ordering':
+                homeworkExercise.items = exercise.items || [];
+                break;
+              case 'true-false':
+                homeworkExercise.statement = exercise.statement || exercise.question;
+                break;
+              case 'drag-drop':
+                homeworkExercise.dragItems = exercise.dragItems || [];
+                homeworkExercise.dropZones = exercise.dropZones || [];
+                break;
+            }
+            
+            exercises.push(homeworkExercise);
+          }
         });
-      });
+      }
+      
+      if (step.type === 'quiz') {
+        // ✅ Handle quiz data for homework
+        let quizData = [];
+        
+        if (step.quizzes && Array.isArray(step.quizzes)) {
+          quizData = step.quizzes;
+        } else if (step.data && Array.isArray(step.data)) {
+          quizData = step.data;
+        } else if (step.data && step.data.quizzes && Array.isArray(step.data.quizzes)) {
+          quizData = step.data.quizzes;
+        }
+        
+        quizData.forEach((quiz, quizIndex) => {
+          if (quiz.question && quiz.correctAnswer !== undefined) {
+            quizzes.push({
+              question: quiz.question,
+              type: quiz.type || 'multiple-choice',
+              options: quiz.options || [],
+              correctAnswer: quiz.correctAnswer,
+              explanation: quiz.explanation || '',
+              points: 1
+            });
+          }
+        });
+      }
+    } catch (stepError) {
+      console.warn(`⚠️ Error processing step ${stepIndex + 1} for homework:`, stepError.message);
     }
   });
   
   return { exercises, quizzes };
 }
+
+/**
+ * ✅ FIXED: Enhanced validation with better error messages
+ */
+exports.validateLessonData = (lessonData) => {
+  const errors = [];
+
+  // Basic required fields
+  if (!lessonData.subject || !lessonData.subject.trim()) {
+    errors.push('Subject is required');
+  }
+
+  if (!lessonData.level || lessonData.level < 1 || lessonData.level > 12) {
+    errors.push('Level must be between 1 and 12');
+  }
+
+  if (!lessonData.topic || !lessonData.topic.trim()) {
+    errors.push('Topic name is required');
+  }
+
+  if (!lessonData.lessonName || !lessonData.lessonName.trim()) {
+    errors.push('Lesson name is required');
+  }
+
+  if (!lessonData.description || !lessonData.description.trim()) {
+    errors.push('Lesson description is required');
+  }
+
+  // Validate steps
+  if (!lessonData.steps || lessonData.steps.length === 0) {
+    errors.push('At least one lesson step is required');
+  }
+
+  // ✅ FIXED: Enhanced step validation
+  lessonData.steps?.forEach((step, index) => {
+    const stepNumber = index + 1;
+
+    if (!step.type) {
+      errors.push(`Step ${stepNumber}: Step type is required`);
+      return;
+    }
+
+    const validTypes = ['explanation', 'example', 'practice', 'exercise', 'vocabulary', 'quiz', 'video', 'audio', 'reading', 'writing'];
+    if (!validTypes.includes(step.type)) {
+      errors.push(`Step ${stepNumber}: Invalid step type "${step.type}"`);
+      return;
+    }
+
+    // ✅ FIXED: Type-specific validation with multiple data structure support
+    try {
+      switch (step.type) {
+        case 'explanation':
+        case 'example':
+        case 'reading':
+          const hasContent = step.content || 
+                            (step.data && step.data.content) || 
+                            (step.data && typeof step.data === 'string');
+          if (!hasContent) {
+            errors.push(`Step ${stepNumber}: Content is required for ${step.type} steps`);
+          }
+          break;
+
+        case 'practice':
+          const hasInstructions = step.instructions || 
+                                 (step.data && step.data.instructions) ||
+                                 (step.data && typeof step.data === 'string');
+          if (!hasInstructions) {
+            errors.push(`Step ${stepNumber}: Instructions are required for practice steps`);
+          }
+          break;
+
+        case 'exercise':
+          const exercises = step.exercises || 
+                           (step.data && Array.isArray(step.data) ? step.data : null) ||
+                           (step.data && step.data.exercises);
+          
+          if (!exercises || exercises.length === 0) {
+            errors.push(`Step ${stepNumber}: At least one exercise is required for exercise steps`);
+          } else {
+            exercises.forEach((exercise, exIndex) => {
+              if (!exercise.question || !exercise.question.trim()) {
+                errors.push(`Step ${stepNumber}, Exercise ${exIndex + 1}: Question is required`);
+              }
+              if (!exercise.answer && !exercise.correctAnswer) {
+                errors.push(`Step ${stepNumber}, Exercise ${exIndex + 1}: Answer is required`);
+              }
+            });
+          }
+          break;
+
+        case 'vocabulary':
+          const vocabulary = step.vocabulary || 
+                            (step.data && Array.isArray(step.data) ? step.data : null) ||
+                            (step.data && step.data.vocabulary);
+          
+          if (!vocabulary || vocabulary.length === 0) {
+            errors.push(`Step ${stepNumber}: At least one vocabulary item is required for vocabulary steps`);
+          } else {
+            vocabulary.forEach((vocab, vocabIndex) => {
+              if (!vocab.term || !vocab.term.trim()) {
+                errors.push(`Step ${stepNumber}, Vocabulary ${vocabIndex + 1}: Term is required`);
+              }
+              if (!vocab.definition || !vocab.definition.trim()) {
+                errors.push(`Step ${stepNumber}, Vocabulary ${vocabIndex + 1}: Definition is required`);
+              }
+            });
+          }
+          break;
+
+        case 'quiz':
+          const quizzes = step.quizzes || 
+                         (step.data && Array.isArray(step.data) ? step.data : null) ||
+                         (step.data && step.data.quizzes);
+          
+          if (!quizzes || quizzes.length === 0) {
+            errors.push(`Step ${stepNumber}: At least one quiz question is required for quiz steps`);
+          } else {
+            quizzes.forEach((quiz, quizIndex) => {
+              if (!quiz.question || !quiz.question.trim()) {
+                errors.push(`Step ${stepNumber}, Quiz ${quizIndex + 1}: Question is required`);
+              }
+              if (quiz.correctAnswer === undefined || quiz.correctAnswer === null) {
+                errors.push(`Step ${stepNumber}, Quiz ${quizIndex + 1}: Correct answer is required`);
+              }
+              if (quiz.type === 'multiple-choice' && (!quiz.options || quiz.options.length < 2)) {
+                errors.push(`Step ${stepNumber}, Quiz ${quizIndex + 1}: Multiple choice questions need at least 2 options`);
+              }
+            });
+          }
+          break;
+
+        case 'video':
+        case 'audio':
+          const hasUrl = step.url || 
+                        (step.data && step.data.url) ||
+                        (step.data && typeof step.data === 'string');
+          if (!hasUrl) {
+            errors.push(`Step ${stepNumber}: URL is required for ${step.type} steps`);
+          }
+          break;
+
+        case 'writing':
+          const hasPrompt = step.prompt || 
+                           (step.data && step.data.prompt) ||
+                           (step.data && typeof step.data === 'string');
+          if (!hasPrompt) {
+            errors.push(`Step ${stepNumber}: Writing prompt is required for writing steps`);
+          }
+          break;
+      }
+    } catch (validationError) {
+      errors.push(`Step ${stepNumber}: Validation error - ${validationError.message}`);
+    }
+  });
+
+  return errors;
+};
 
 /**
  * Extract explanations for legacy support

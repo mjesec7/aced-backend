@@ -69,8 +69,10 @@ function validateObjectId(req, res, next) {
 }
 
 // ✅ ENHANCED: Fallback lesson creation with detailed error handling
+// ✅ REPLACE the enhancedFallbackAddLesson function in server.js with this improved version
+
 const enhancedFallbackAddLesson = async (req, res) => {
-  console.log('\n🚀 ENHANCED: Starting lesson creation process...');
+  console.log('\n🚀 ENHANCED FALLBACK: Starting lesson creation process...');
   
   try {
     // Step 1: Check database connection
@@ -116,7 +118,8 @@ const enhancedFallbackAddLesson = async (req, res) => {
       level,
       topic,
       lessonName,
-      stepsCount: steps?.length || 0
+      stepsCount: steps?.length || 0,
+      stepsTypes: steps?.map(s => s.type) || []
     });
 
     // Enhanced validation
@@ -176,9 +179,11 @@ const enhancedFallbackAddLesson = async (req, res) => {
       });
     }
 
-    // Step 5: Process steps
+    // Step 5: Process steps with enhanced data handling
     console.log('🔍 ENHANCED: Processing lesson steps...');
     const processedSteps = steps.map((step, index) => {
+      console.log(`📝 Processing step ${index + 1}: ${step.type}`);
+      
       const validTypes = [
         'explanation', 'example', 'practice', 'exercise', 
         'vocabulary', 'quiz', 'video', 'audio', 
@@ -187,15 +192,201 @@ const enhancedFallbackAddLesson = async (req, res) => {
       
       const stepType = step.type || 'explanation';
       
-      return {
-        type: validTypes.includes(stepType) ? stepType : 'explanation',
-        data: step.data || step.content || step || {}
+      if (!validTypes.includes(stepType)) {
+        console.warn(`⚠️ Invalid step type: ${stepType}, defaulting to explanation`);
+        step.type = 'explanation';
+      }
+      
+      let processedData;
+      
+      try {
+        switch (stepType) {
+          case 'explanation':
+          case 'example':
+          case 'reading':
+            processedData = {
+              content: step.content || '',
+              questions: step.questions || []
+            };
+            console.log(`   Content length: ${processedData.content.length}`);
+            break;
+            
+          case 'practice':
+            processedData = {
+              instructions: step.instructions || '',
+              type: step.practiceType || 'guided'
+            };
+            console.log(`   Instructions length: ${processedData.instructions.length}`);
+            break;
+            
+          case 'exercise':
+            // ✅ FIXED: Handle exercises from multiple possible sources
+            let exercises = [];
+            if (Array.isArray(step.exercises)) {
+              exercises = step.exercises;
+            } else if (Array.isArray(step.data)) {
+              exercises = step.data;
+            } else if (step.data && Array.isArray(step.data.exercises)) {
+              exercises = step.data.exercises;
+            }
+            
+            // Filter valid exercises
+            const validExercises = exercises.filter(ex => 
+              ex.question && ex.question.trim() && 
+              (ex.answer || ex.correctAnswer)
+            );
+            
+            processedData = validExercises.map(ex => ({
+              type: ex.type || 'short-answer',
+              question: ex.question.trim(),
+              answer: ex.answer || ex.correctAnswer,
+              correctAnswer: ex.correctAnswer || ex.answer,
+              points: ex.points || 1,
+              includeInHomework: Boolean(ex.includeInHomework),
+              instruction: ex.instruction || '',
+              hint: ex.hint || '',
+              explanation: ex.explanation || '',
+              // Type-specific fields
+              options: ex.options || [],
+              template: ex.template || '',
+              blanks: ex.blanks || [],
+              pairs: ex.pairs || [],
+              items: ex.items || [],
+              statement: ex.statement || '',
+              dragItems: ex.dragItems || [],
+              dropZones: ex.dropZones || []
+            }));
+            
+            console.log(`   Processed ${processedData.length} exercises`);
+            break;
+            
+          case 'vocabulary':
+            let vocabulary = [];
+            if (Array.isArray(step.vocabulary)) {
+              vocabulary = step.vocabulary;
+            } else if (Array.isArray(step.data)) {
+              vocabulary = step.data;
+            } else if (step.data && Array.isArray(step.data.vocabulary)) {
+              vocabulary = step.data.vocabulary;
+            }
+            
+            processedData = vocabulary.filter(vocab => 
+              vocab.term && vocab.term.trim() && 
+              vocab.definition && vocab.definition.trim()
+            ).map(vocab => ({
+              term: vocab.term.trim(),
+              definition: vocab.definition.trim(),
+              example: vocab.example?.trim() || ''
+            }));
+            
+            console.log(`   Processed ${processedData.length} vocabulary items`);
+            break;
+            
+          case 'quiz':
+            let quizzes = [];
+            if (Array.isArray(step.quizzes)) {
+              quizzes = step.quizzes;
+            } else if (Array.isArray(step.data)) {
+              quizzes = step.data;
+            } else if (step.data && Array.isArray(step.data.quizzes)) {
+              quizzes = step.data.quizzes;
+            }
+            
+            processedData = quizzes.filter(quiz => 
+              quiz.question && quiz.question.trim() && 
+              quiz.correctAnswer !== undefined
+            ).map(quiz => ({
+              question: quiz.question.trim(),
+              type: quiz.type || 'multiple-choice',
+              options: quiz.options || [],
+              correctAnswer: quiz.correctAnswer,
+              explanation: quiz.explanation || ''
+            }));
+            
+            console.log(`   Processed ${processedData.length} quiz questions`);
+            break;
+            
+          case 'video':
+          case 'audio':
+            processedData = {
+              url: step.url || '',
+              description: step.description || ''
+            };
+            console.log(`   Media URL: ${processedData.url.substring(0, 50)}...`);
+            break;
+            
+          case 'writing':
+            processedData = {
+              prompt: step.prompt || '',
+              wordLimit: step.wordLimit || 100
+            };
+            console.log(`   Prompt length: ${processedData.prompt.length}`);
+            break;
+            
+          default:
+            processedData = step.content || step.data || {};
+            console.log(`   Default processing for type: ${stepType}`);
+        }
+      } catch (stepError) {
+        console.error(`❌ Error processing step ${index + 1}:`, stepError);
+        // Fallback to basic structure
+        processedData = step.content || step.data || {};
+      }
+      
+      return { 
+        type: stepType, 
+        data: processedData 
       };
     });
 
     console.log(`✅ ENHANCED: Processed ${processedSteps.length} steps`);
 
-    // Step 6: Create lesson object
+    // Step 6: Process homework if enabled
+    const homeworkData = { exercises: [], quizzes: [] };
+    
+    if (createHomework) {
+      console.log('📝 ENHANCED: Processing homework...');
+      
+      processedSteps.forEach((step, stepIndex) => {
+        try {
+          if (step.type === 'exercise' && Array.isArray(step.data)) {
+            step.data.forEach(exercise => {
+              if (exercise.includeInHomework) {
+                homeworkData.exercises.push({
+                  question: exercise.question,
+                  correctAnswer: exercise.correctAnswer || exercise.answer,
+                  points: exercise.points || 1,
+                  type: exercise.type || 'short-answer',
+                  instruction: exercise.instruction || '',
+                  options: exercise.options || [],
+                  hint: exercise.hint || '',
+                  explanation: exercise.explanation || ''
+                });
+              }
+            });
+          }
+          
+          if (step.type === 'quiz' && Array.isArray(step.data)) {
+            step.data.forEach(quiz => {
+              homeworkData.quizzes.push({
+                question: quiz.question,
+                type: quiz.type || 'multiple-choice',
+                options: quiz.options || [],
+                correctAnswer: quiz.correctAnswer,
+                explanation: quiz.explanation || '',
+                points: 1
+              });
+            });
+          }
+        } catch (homeworkError) {
+          console.warn(`⚠️ Error processing homework for step ${stepIndex + 1}:`, homeworkError.message);
+        }
+      });
+      
+      console.log(`📝 ENHANCED: Extracted ${homeworkData.exercises.length} exercises and ${homeworkData.quizzes.length} quizzes for homework`);
+    }
+
+    // Step 7: Create lesson object
     const lessonData = {
       subject: String(subject).trim(),
       level: Number(level),
@@ -217,9 +408,9 @@ const enhancedFallbackAddLesson = async (req, res) => {
         .filter(content => content.trim() !== ''),
       
       homework: {
-        exercises: [],
-        quizzes: [],
-        totalExercises: 0
+        exercises: homeworkData.exercises,
+        quizzes: homeworkData.quizzes,
+        totalExercises: homeworkData.exercises.length + homeworkData.quizzes.length
       },
       
       relatedSubjects: Array.isArray(relatedSubjects) ? relatedSubjects : [],
@@ -236,7 +427,7 @@ const enhancedFallbackAddLesson = async (req, res) => {
       }
     };
 
-    // Step 7: Save lesson
+    // Step 8: Save lesson
     console.log('💾 ENHANCED: Saving lesson to database...');
     let newLesson;
     try {
@@ -268,11 +459,18 @@ const enhancedFallbackAddLesson = async (req, res) => {
       });
     }
 
-    // Step 8: Build response
+    // Step 9: Build comprehensive response
     const response = {
       success: true,
       lesson: newLesson,
-      homework: lessonData.homework,
+      homework: {
+        exercises: homeworkData.exercises,
+        quizzes: homeworkData.quizzes,
+        total: homeworkData.exercises.length + homeworkData.quizzes.length,
+        createSeparate: createHomework && (homeworkData.exercises.length > 0 || homeworkData.quizzes.length > 0),
+        title: homeworkTitle || `Homework: ${newLesson.lessonName}`,
+        instructions: homeworkInstructions || `Complete exercises based on: ${newLesson.topic}`
+      },
       topic: {
         id: resolvedTopic._id,
         name: resolvedTopic.name,
@@ -280,16 +478,23 @@ const enhancedFallbackAddLesson = async (req, res) => {
       },
       stats: {
         totalSteps: newLesson.steps.length,
-        homeworkExercises: 0,
+        stepTypes: newLesson.steps.reduce((acc, step) => {
+          acc[step.type] = (acc[step.type] || 0) + 1;
+          return acc;
+        }, {}),
+        homeworkExercises: homeworkData.exercises.length + homeworkData.quizzes.length,
         explanationSteps: newLesson.steps.filter(s => s.type === 'explanation').length,
         exerciseSteps: newLesson.steps.filter(s => s.type === 'exercise').length,
+        practiceSteps: newLesson.steps.filter(s => s.type === 'practice').length,
         vocabularySteps: newLesson.steps.filter(s => s.type === 'vocabulary').length,
         quizSteps: newLesson.steps.filter(s => s.type === 'quiz').length
       },
-      source: 'enhanced_fallback'
+      source: 'enhanced_fallback_v2'
     };
 
-    console.log(`🎉 ENHANCED: Lesson creation completed for "${newLesson.lessonName}"`);
+    console.log(`🎉 ENHANCED: Lesson creation completed successfully for "${newLesson.lessonName}"`);
+    console.log('📊 ENHANCED: Final stats:', response.stats);
+    
     res.status(201).json(response);
 
   } catch (error) {
