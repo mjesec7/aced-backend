@@ -461,8 +461,18 @@ exports.deleteLesson = async (req, res) => {
 /**
  * Process lesson steps with enhanced validation and default values.
  */
+// ✅ CRITICAL FIXES for lessonController.js - Replace the processLessonSteps function
+
+/**
+ * ✅ ENHANCED: Process lesson steps with comprehensive validation and debugging
+ */
 async function processLessonSteps(steps) {
-  if (!Array.isArray(steps)) return [];
+  if (!Array.isArray(steps)) {
+    console.warn('⚠️ processLessonSteps: Steps is not an array:', typeof steps);
+    return [];
+  }
+  
+  console.log(`🔍 Processing ${steps.length} lesson steps...`);
   
   const validStepTypes = [
     'explanation', 'example', 'practice', 'exercise', 
@@ -470,314 +480,567 @@ async function processLessonSteps(steps) {
     'reading', 'writing'
   ];
   
-  return steps.map((step, index) => {
-    const stepType = step.type;
+  const processedSteps = [];
+  
+  for (let index = 0; index < steps.length; index++) {
+    const step = steps[index];
     
-    if (!stepType || !validStepTypes.includes(stepType)) {
-      console.warn(`⚠️ Invalid or missing step type at position ${index + 1}. Defaulting to 'explanation'.`);
-      step.type = 'explanation';
+    console.log(`\n📝 Processing step ${index + 1}/${steps.length}:`, {
+      type: step.type,
+      hasData: !!step.data,
+      dataType: typeof step.data,
+      isDataArray: Array.isArray(step.data),
+      dataKeys: step.data ? Object.keys(step.data) : []
+    });
+    
+    try {
+      const stepType = step.type || 'explanation';
+      
+      if (!validStepTypes.includes(stepType)) {
+        console.warn(`⚠️ Invalid step type: ${stepType}, defaulting to explanation`);
+        step.type = 'explanation';
+      }
+      
+      let processedData;
+      
+      switch (stepType) {
+        case 'explanation':
+        case 'example':
+        case 'reading': {
+          processedData = await processContentStep(step, index);
+          break;
+        }
+          
+        case 'exercise': {
+          processedData = await processExerciseStep(step, index);
+          break;
+        }
+          
+        case 'practice': {
+          processedData = await processPracticeStep(step, index);
+          break;
+        }
+          
+        case 'vocabulary': {
+          processedData = await processVocabularyStep(step, index);
+          break;
+        }
+          
+        case 'quiz': {
+          processedData = await processQuizStep(step, index);
+          break;
+        }
+          
+        case 'video':
+        case 'audio': {
+          processedData = await processMediaStep(step, index);
+          break;
+        }
+          
+        case 'writing': {
+          processedData = await processWritingStep(step, index);
+          break;
+        }
+          
+        default:
+          console.warn(`⚠️ Unknown step type: ${stepType}, using raw data`);
+          processedData = step.data || step.content || {};
+      }
+      
+      const finalStep = { 
+        type: stepType, 
+        data: processedData 
+      };
+      
+      processedSteps.push(finalStep);
+      
+      console.log(`✅ Step ${index + 1} processed successfully:`, {
+        type: finalStep.type,
+        dataType: typeof finalStep.data,
+        isArray: Array.isArray(finalStep.data),
+        arrayLength: Array.isArray(finalStep.data) ? finalStep.data.length : 'N/A',
+        hasRequiredFields: validateStepOutput(finalStep)
+      });
+      
+    } catch (stepError) {
+      console.error(`❌ Error processing step ${index + 1}:`, stepError);
+      
+      // Add error step instead of failing
+      processedSteps.push({
+        type: 'explanation',
+        data: {
+          content: `Error processing step ${index + 1}: ${stepError.message}`,
+          error: true,
+          originalType: step.type
+        }
+      });
     }
-    
-    let processedData;
-    
-    switch (stepType) {
-      case 'explanation':
-      case 'example':
-      case 'reading': {
-        // ✅ FIXED: Handle both direct content and nested data structure
-        let content = '';
-        
-        if (typeof step.content === 'string') {
-          content = step.content;
-        } else if (step.data && typeof step.data.content === 'string') {
-          content = step.data.content;
-        } else if (step.data && typeof step.data === 'string') {
-          content = step.data;
-        } else if (typeof step === 'string') {
-          content = step;
-        }
-        
-        if (!content.trim()) {
-          content = `No content provided for ${stepType} step at position ${index + 1}.`;
-          console.warn(`⚠️ ${content}`);
-        }
-        
-        processedData = {
-          content: content,
-          questions: step.questions || step.data?.questions || []
-        };
-        break;
-      }
-        
-      case 'exercise': {
-        // ✅ FIXED: Handle multiple possible data structures for exercises
-        let exercises = [];
-        
-        // Check various possible locations for exercise data
-        if (step.exercises && Array.isArray(step.exercises)) {
-          exercises = step.exercises;
-        } else if (step.data && Array.isArray(step.data)) {
-          exercises = step.data;
-        } else if (step.data && step.data.exercises && Array.isArray(step.data.exercises)) {
-          exercises = step.data.exercises;
-        } else if (Array.isArray(step)) {
-          exercises = step;
-        }
-        
-        // Filter and validate exercises
-        exercises = exercises.filter(ex => {
-          const hasQuestion = ex.question && ex.question.trim();
-          const hasAnswer = (ex.answer || ex.correctAnswer) && 
-                           (ex.answer || ex.correctAnswer).toString().trim();
-          return hasQuestion && hasAnswer;
-        });
-        
-        if (exercises.length === 0) {
-          console.warn(`⚠️ No valid exercises provided for exercise step at position ${index + 1}. Using default exercise.`);
-          exercises = [{
-            type: 'short-answer',
-            question: "Default exercise question",
-            answer: "Default answer",
-            correctAnswer: "Default answer",
-            points: 1,
-            includeInHomework: false,
-            instruction: '',
-            hint: '',
-            explanation: ''
-          }];
-        } else {
-          // ✅ FIXED: Process exercises with all possible fields
-          exercises = exercises.map(ex => {
-            const processedEx = {
-              type: ex.type || 'short-answer',
-              question: ex.question.trim(),
-              answer: ex.answer || ex.correctAnswer,
-              correctAnswer: ex.correctAnswer || ex.answer,
-              points: ex.points || 1,
-              includeInHomework: Boolean(ex.includeInHomework),
-              instruction: ex.instruction || '',
-              hint: ex.hint || '',
-              explanation: ex.explanation || ''
-            };
-            
-            // ✅ Handle different exercise types with their specific fields
-            switch (ex.type) {
-              case 'abc':
-              case 'multiple-choice':
-                processedEx.options = ex.options || [];
-                break;
-              case 'fill-blank':
-                processedEx.template = ex.template || '';
-                processedEx.blanks = ex.blanks || [];
-                break;
-              case 'matching':
-                processedEx.pairs = ex.pairs || [];
-                break;
-              case 'ordering':
-                processedEx.items = ex.items || [];
-                break;
-              case 'true-false':
-                processedEx.statement = ex.statement || ex.question;
-                break;
-              case 'drag-drop':
-                processedEx.dragItems = ex.dragItems || [];
-                processedEx.dropZones = ex.dropZones || [];
-                break;
-            }
-            
-            return processedEx;
-          });
-        }
-        
-        processedData = exercises;
-        break;
-      }
-        
-      case 'practice': {
-        // ✅ FIXED: Handle practice step data structure
-        let instructions = '';
-        let practiceType = 'guided';
-        
-        if (step.instructions) {
-          instructions = step.instructions;
-          practiceType = step.practiceType || 'guided';
-        } else if (step.data) {
-          if (typeof step.data === 'string') {
-            instructions = step.data;
-          } else if (step.data.instructions) {
-            instructions = step.data.instructions;
-            practiceType = step.data.type || step.data.practiceType || 'guided';
-          }
-        }
-        
-        if (!instructions.trim()) {
-          console.warn(`⚠️ Practice step at position ${index + 1} missing instructions. Using default instructions.`);
-          instructions = "No instructions provided.";
-        }
-        
-        processedData = {
-          instructions: instructions,
-          type: practiceType
-        };
-        break;
-      }
-        
-      case 'vocabulary': {
-        // ✅ FIXED: Handle vocabulary data structure
-        let vocabularyItems = [];
-        
-        // Check various possible locations for vocabulary data
-        if (step.vocabulary && Array.isArray(step.vocabulary)) {
-          vocabularyItems = step.vocabulary;
-        } else if (step.data && Array.isArray(step.data)) {
-          vocabularyItems = step.data;
-        } else if (step.data && step.data.vocabulary && Array.isArray(step.data.vocabulary)) {
-          vocabularyItems = step.data.vocabulary;
-        } else if (Array.isArray(step)) {
-          vocabularyItems = step;
-        }
-        
-        // Filter and validate vocabulary items
-        vocabularyItems = vocabularyItems.filter(vocab => 
-          vocab.term && vocab.term.trim() && 
-          vocab.definition && vocab.definition.trim()
-        );
-        
-        if (vocabularyItems.length === 0) {
-          console.warn(`⚠️ No vocabulary items provided for vocabulary step at position ${index + 1}. Using default vocabulary item.`);
-          vocabularyItems = [{
-            term: "Default Term",
-            definition: "Default Definition",
-            example: ""
-          }];
-        } else {
-          vocabularyItems = vocabularyItems.map(vocab => ({
-            term: vocab.term.trim(),
-            definition: vocab.definition.trim(),
-            example: vocab.example ? String(vocab.example).trim() : ''
-          }));
-        }
-        
-        processedData = vocabularyItems;
-        break;
-      }
-        
-      case 'quiz': {
-        // ✅ FIXED: Handle quiz data structure
-        let quizzes = [];
-        
-        // Check various possible locations for quiz data
-        if (step.quizzes && Array.isArray(step.quizzes)) {
-          quizzes = step.quizzes;
-        } else if (step.data && Array.isArray(step.data)) {
-          quizzes = step.data;
-        } else if (step.data && step.data.quizzes && Array.isArray(step.data.quizzes)) {
-          quizzes = step.data.quizzes;
-        } else if (Array.isArray(step)) {
-          quizzes = step;
-        }
-        
-        // Filter and validate quiz questions
-        quizzes = quizzes.filter(quiz => 
-          quiz.question && quiz.question.trim() && 
-          quiz.correctAnswer !== undefined && quiz.correctAnswer !== null
-        );
-        
-        if (quizzes.length === 0) {
-          console.warn(`⚠️ No valid quiz questions provided for quiz step at position ${index + 1}. Using default quiz question.`);
-          quizzes = [{
-            question: "Default quiz question",
-            type: "multiple-choice",
-            options: [{ text: "Option 1" }, { text: "Option 2" }],
-            correctAnswer: 0,
-            explanation: "Default explanation"
-          }];
-        } else {
-          quizzes = quizzes.map(quiz => ({
-            question: quiz.question.trim(),
-            type: quiz.type || 'multiple-choice',
-            options: quiz.options || [],
-            correctAnswer: quiz.correctAnswer,
-            explanation: quiz.explanation || ''
-          }));
-        }
-        
-        processedData = quizzes;
-        break;
-      }
-        
-      case 'video':
-      case 'audio': {
-        // ✅ FIXED: Handle media step data structure
-        let url = '';
-        let description = '';
-        
-        if (step.url) {
-          url = step.url;
-          description = step.description || '';
-        } else if (step.data) {
-          if (typeof step.data === 'string') {
-            url = step.data;
-          } else if (step.data.url) {
-            url = step.data.url;
-            description = step.data.description || '';
-          }
-        }
-        
-        if (!url.trim()) {
-          console.warn(`⚠️ ${stepType} step at position ${index + 1} missing URL. Using default URL.`);
-          url = "https://example.com/default-media";
-        }
-        
-        processedData = {
-          url: url,
-          description: description
-        };
-        break;
-      }
-        
-      case 'writing': {
-        // ✅ FIXED: Handle writing step data structure
-        let prompt = '';
-        let wordLimit = 100;
-        
-        if (step.prompt) {
-          prompt = step.prompt;
-          wordLimit = step.wordLimit || 100;
-        } else if (step.data) {
-          if (typeof step.data === 'string') {
-            prompt = step.data;
-          } else if (step.data.prompt) {
-            prompt = step.data.prompt;
-            wordLimit = step.data.wordLimit || 100;
-          }
-        }
-        
-        if (!prompt.trim()) {
-          console.warn(`⚠️ Writing step at position ${index + 1} missing prompt. Using default prompt.`);
-          prompt = "No writing prompt provided.";
-        }
-        
-        processedData = {
-          prompt: prompt,
-          wordLimit: wordLimit
-        };
-        break;
-      }
-        
-      default:
-        // ✅ Handle unknown step types
-        console.warn(`⚠️ Unknown step type: ${stepType}. Using raw data.`);
-        processedData = step.data || step.content || step || {};
-    }
-    
-    // ✅ FIXED: Always return proper structure
-    return { 
-      type: stepType, 
-      data: processedData 
-    };
-  });
+  }
+  
+  console.log(`✅ Completed processing ${processedSteps.length} steps`);
+  return processedSteps;
 }
+
+/**
+ * ✅ Process content steps (explanation, example, reading)
+ */
+async function processContentStep(step, index) {
+  let content = '';
+  
+  if (typeof step.content === 'string') {
+    content = step.content;
+  } else if (step.data && typeof step.data.content === 'string') {
+    content = step.data.content;
+  } else if (step.data && typeof step.data === 'string') {
+    content = step.data;
+  } else if (typeof step === 'string') {
+    content = step;
+  }
+  
+  if (!content.trim()) {
+    content = `Content for ${step.type} step ${index + 1} is not available.`;
+    console.warn(`⚠️ Step ${index + 1}: No content found, using default`);
+  }
+  
+  return {
+    content: content.trim(),
+    questions: step.questions || step.data?.questions || []
+  };
+}
+
+/**
+ * ✅ CRITICAL: Process exercise steps with comprehensive validation
+ */
+async function processExerciseStep(step, index) {
+  console.log(`📝 Processing exercise step ${index + 1}...`);
+  
+  let exercises = [];
+  
+  // ✅ Handle all possible data structures
+  if (step.exercises && Array.isArray(step.exercises)) {
+    exercises = step.exercises;
+    console.log(`  Found exercises in step.exercises: ${exercises.length}`);
+  } else if (Array.isArray(step.data)) {
+    exercises = step.data;
+    console.log(`  Found exercises in step.data array: ${exercises.length}`);
+  } else if (step.data && Array.isArray(step.data.exercises)) {
+    exercises = step.data.exercises;
+    console.log(`  Found exercises in step.data.exercises: ${exercises.length}`);
+  } else if (step.data && step.data.question) {
+    // Single exercise object
+    exercises = [step.data];
+    console.log(`  Found single exercise in step.data`);
+  } else if (step.question) {
+    // Exercise directly on step
+    exercises = [step];
+    console.log(`  Found single exercise directly on step`);
+  } else {
+    console.warn(`⚠️ No exercise data found in step ${index + 1}`);
+  }
+  
+  // ✅ Validate and process each exercise
+  const validatedExercises = [];
+  
+  for (let exIndex = 0; exIndex < exercises.length; exIndex++) {
+    const exercise = exercises[exIndex];
+    
+    console.log(`  🔍 Validating exercise ${exIndex + 1}:`, {
+      hasQuestion: !!exercise.question,
+      hasAnswer: !!(exercise.answer || exercise.correctAnswer),
+      type: exercise.type || 'short-answer'
+    });
+    
+    // Validate required fields
+    if (!exercise.question || !String(exercise.question).trim()) {
+      console.warn(`⚠️ Exercise ${exIndex + 1} in step ${index + 1}: Missing or empty question`);
+      continue;
+    }
+    
+    if (!exercise.answer && !exercise.correctAnswer) {
+      console.warn(`⚠️ Exercise ${exIndex + 1} in step ${index + 1}: Missing answer`);
+      continue;
+    }
+    
+    // ✅ Create validated exercise object
+    const validatedExercise = {
+      id: exercise.id || `ex_${index}_${exIndex}`,
+      type: exercise.type || 'short-answer',
+      question: String(exercise.question).trim(),
+      answer: String(exercise.answer || exercise.correctAnswer || '').trim(),
+      correctAnswer: String(exercise.correctAnswer || exercise.answer || '').trim(),
+      points: Number(exercise.points) || 1,
+      includeInHomework: Boolean(exercise.includeInHomework),
+      instruction: String(exercise.instruction || '').trim(),
+      hint: String(exercise.hint || '').trim(),
+      explanation: String(exercise.explanation || '').trim()
+    };
+    
+    // ✅ Add type-specific fields with validation
+    switch (validatedExercise.type) {
+      case 'abc':
+      case 'multiple-choice':
+        validatedExercise.options = Array.isArray(exercise.options) 
+          ? exercise.options.filter(opt => opt && String(opt).trim())
+          : [];
+        
+        if (validatedExercise.options.length === 0) {
+          console.warn(`⚠️ Multiple choice exercise missing options, adding defaults`);
+          validatedExercise.options = ['Option A', 'Option B', 'Option C'];
+        }
+        
+        // Validate correct answer index
+        if (typeof exercise.correctAnswer === 'number') {
+          if (exercise.correctAnswer >= validatedExercise.options.length) {
+            console.warn(`⚠️ Correct answer index out of bounds, defaulting to 0`);
+            validatedExercise.correctAnswer = 0;
+          }
+        }
+        break;
+        
+      case 'fill-blank':
+        validatedExercise.template = exercise.template || validatedExercise.question;
+        validatedExercise.blanks = Array.isArray(exercise.blanks) ? exercise.blanks : [];
+        break;
+        
+      case 'matching':
+        validatedExercise.pairs = Array.isArray(exercise.pairs) ? exercise.pairs : [];
+        break;
+        
+      case 'ordering':
+        validatedExercise.items = Array.isArray(exercise.items) ? exercise.items : [];
+        break;
+        
+      case 'true-false':
+        validatedExercise.statement = exercise.statement || validatedExercise.question;
+        validatedExercise.options = ['True', 'False'];
+        break;
+        
+      case 'drag-drop':
+        validatedExercise.dragItems = Array.isArray(exercise.dragItems) ? exercise.dragItems : [];
+        validatedExercise.dropZones = Array.isArray(exercise.dropZones) ? exercise.dropZones : [];
+        break;
+    }
+    
+    validatedExercises.push(validatedExercise);
+    console.log(`  ✅ Exercise ${exIndex + 1} validated successfully`);
+  }
+  
+  // ✅ Ensure we have at least one exercise
+  if (validatedExercises.length === 0) {
+    console.warn(`⚠️ No valid exercises in step ${index + 1}, creating default exercise`);
+    validatedExercises.push({
+      id: `default_ex_${index}`,
+      type: 'short-answer',
+      question: "Sample exercise question - please update this content",
+      answer: "Sample answer",
+      correctAnswer: "Sample answer",
+      points: 1,
+      includeInHomework: false,
+      instruction: '',
+      hint: 'Think about the concept we just learned',
+      explanation: 'This is a placeholder exercise. Please update with actual content.'
+    });
+  }
+  
+  console.log(`✅ Exercise step ${index + 1} processed: ${validatedExercises.length} exercises`);
+  return validatedExercises;
+}
+
+/**
+ * ✅ CRITICAL: Process quiz steps with comprehensive validation
+ */
+async function processQuizStep(step, index) {
+  console.log(`🧩 Processing quiz step ${index + 1}...`);
+  
+  let quizzes = [];
+  
+  // Handle multiple data structures
+  if (step.quizzes && Array.isArray(step.quizzes)) {
+    quizzes = step.quizzes;
+    console.log(`  Found quizzes in step.quizzes: ${quizzes.length}`);
+  } else if (Array.isArray(step.data)) {
+    quizzes = step.data;
+    console.log(`  Found quizzes in step.data array: ${quizzes.length}`);
+  } else if (step.data && Array.isArray(step.data.quizzes)) {
+    quizzes = step.data.quizzes;
+    console.log(`  Found quizzes in step.data.quizzes: ${quizzes.length}`);
+  } else if (step.data && step.data.question) {
+    // Single quiz object
+    quizzes = [step.data];
+    console.log(`  Found single quiz in step.data`);
+  } else if (step.question) {
+    // Quiz directly on step
+    quizzes = [step];
+    console.log(`  Found single quiz directly on step`);
+  }
+  
+  // ✅ Validate and process each quiz
+  const validatedQuizzes = [];
+  
+  for (let qIndex = 0; qIndex < quizzes.length; qIndex++) {
+    const quiz = quizzes[qIndex];
+    
+    console.log(`  🔍 Validating quiz ${qIndex + 1}:`, {
+      hasQuestion: !!quiz.question,
+      hasCorrectAnswer: quiz.correctAnswer !== undefined,
+      type: quiz.type || 'multiple-choice',
+      optionsCount: Array.isArray(quiz.options) ? quiz.options.length : 0
+    });
+    
+    // Validate required fields
+    if (!quiz.question || !String(quiz.question).trim()) {
+      console.warn(`⚠️ Quiz ${qIndex + 1} in step ${index + 1}: Missing question`);
+      continue;
+    }
+    
+    if (quiz.correctAnswer === undefined || quiz.correctAnswer === null) {
+      console.warn(`⚠️ Quiz ${qIndex + 1} in step ${index + 1}: Missing correct answer`);
+      continue;
+    }
+    
+    // ✅ Create validated quiz object
+    const validatedQuiz = {
+      id: quiz.id || `quiz_${index}_${qIndex}`,
+      question: String(quiz.question).trim(),
+      type: quiz.type || 'multiple-choice',
+      correctAnswer: quiz.correctAnswer,
+      explanation: String(quiz.explanation || '').trim(),
+      points: Number(quiz.points) || 1
+    };
+    
+    // ✅ Process options based on quiz type
+    if (validatedQuiz.type === 'multiple-choice') {
+      if (Array.isArray(quiz.options) && quiz.options.length > 0) {
+        validatedQuiz.options = quiz.options.map(opt => {
+          if (typeof opt === 'string') {
+            return { text: opt, value: opt };
+          } else if (opt && opt.text) {
+            return { text: opt.text, value: opt.value || opt.text };
+          } else {
+            return { text: String(opt), value: String(opt) };
+          }
+        }).filter(opt => opt.text && opt.text.trim());
+        
+        if (validatedQuiz.options.length === 0) {
+          console.warn(`⚠️ Multiple choice quiz has no valid options, adding defaults`);
+          validatedQuiz.options = [
+            { text: 'Option A', value: 'A' },
+            { text: 'Option B', value: 'B' },
+            { text: 'Option C', value: 'C' }
+          ];
+        }
+      } else {
+        console.warn(`⚠️ Multiple choice quiz missing options, adding defaults`);
+        validatedQuiz.options = [
+          { text: 'Option A', value: 'A' },
+          { text: 'Option B', value: 'B' },
+          { text: 'Option C', value: 'C' }
+        ];
+      }
+      
+      // Validate correct answer index
+      if (typeof validatedQuiz.correctAnswer === 'number') {
+        if (validatedQuiz.correctAnswer >= validatedQuiz.options.length || validatedQuiz.correctAnswer < 0) {
+          console.warn(`⚠️ Correct answer index ${validatedQuiz.correctAnswer} out of bounds, defaulting to 0`);
+          validatedQuiz.correctAnswer = 0;
+        }
+      }
+    } else if (validatedQuiz.type === 'true-false') {
+      validatedQuiz.options = [
+        { text: 'True', value: true },
+        { text: 'False', value: false }
+      ];
+      
+      // Ensure correct answer is boolean or 0/1
+      if (typeof validatedQuiz.correctAnswer === 'string') {
+        validatedQuiz.correctAnswer = validatedQuiz.correctAnswer.toLowerCase() === 'true' ? 0 : 1;
+      } else if (typeof validatedQuiz.correctAnswer === 'boolean') {
+        validatedQuiz.correctAnswer = validatedQuiz.correctAnswer ? 0 : 1;
+      }
+    }
+    
+    validatedQuizzes.push(validatedQuiz);
+    console.log(`  ✅ Quiz ${qIndex + 1} validated successfully`);
+  }
+  
+  // ✅ Ensure we have at least one quiz
+  if (validatedQuizzes.length === 0) {
+    console.warn(`⚠️ No valid quiz questions in step ${index + 1}, creating default quiz`);
+    validatedQuizzes.push({
+      id: `default_quiz_${index}`,
+      question: "Sample quiz question - please update this content?",
+      type: 'multiple-choice',
+      options: [
+        { text: 'Option A', value: 'A' },
+        { text: 'Option B', value: 'B' },
+        { text: 'Option C', value: 'C' }
+      ],
+      correctAnswer: 0,
+      explanation: 'This is a placeholder quiz question. Please update with actual content.',
+      points: 1
+    });
+  }
+  
+  console.log(`✅ Quiz step ${index + 1} processed: ${validatedQuizzes.length} quiz questions`);
+  return validatedQuizzes;
+}
+
+/**
+ * ✅ Process vocabulary steps
+ */
+async function processVocabularyStep(step, index) {
+  console.log(`📚 Processing vocabulary step ${index + 1}...`);
+  
+  let vocabularyItems = [];
+  
+  if (step.vocabulary && Array.isArray(step.vocabulary)) {
+    vocabularyItems = step.vocabulary;
+  } else if (Array.isArray(step.data)) {
+    vocabularyItems = step.data;
+  } else if (step.data && Array.isArray(step.data.vocabulary)) {
+    vocabularyItems = step.data.vocabulary;
+  }
+  
+  const validatedVocabulary = vocabularyItems.filter(vocab => 
+    vocab.term && vocab.term.trim() && 
+    vocab.definition && vocab.definition.trim()
+  ).map(vocab => ({
+    term: String(vocab.term).trim(),
+    definition: String(vocab.definition).trim(),
+    example: vocab.example ? String(vocab.example).trim() : '',
+    pronunciation: vocab.pronunciation || ''
+  }));
+  
+  if (validatedVocabulary.length === 0) {
+    console.warn(`⚠️ No vocabulary items in step ${index + 1}, creating default`);
+    validatedVocabulary.push({
+      term: "Sample Term",
+      definition: "Sample definition for this term",
+      example: "Example usage of the term in context",
+      pronunciation: ""
+    });
+  }
+  
+  console.log(`✅ Vocabulary step ${index + 1} processed: ${validatedVocabulary.length} items`);
+  return validatedVocabulary;
+}
+
+/**
+ * ✅ Process practice steps
+ */
+async function processPracticeStep(step, index) {
+  let instructions = '';
+  let practiceType = 'guided';
+  
+  if (step.instructions) {
+    instructions = step.instructions;
+    practiceType = step.practiceType || 'guided';
+  } else if (step.data) {
+    if (typeof step.data === 'string') {
+      instructions = step.data;
+    } else if (step.data.instructions) {
+      instructions = step.data.instructions;
+      practiceType = step.data.type || step.data.practiceType || 'guided';
+    }
+  }
+  
+  if (!instructions.trim()) {
+    console.warn(`⚠️ Practice step ${index + 1} missing instructions, using default`);
+    instructions = "Practice instructions not provided.";
+  }
+  
+  return {
+    instructions: instructions.trim(),
+    type: practiceType
+  };
+}
+
+/**
+ * ✅ Process media steps (video, audio)
+ */
+async function processMediaStep(step, index) {
+  let url = '';
+  let description = '';
+  
+  if (step.url) {
+    url = step.url;
+    description = step.description || '';
+  } else if (step.data) {
+    if (typeof step.data === 'string') {
+      url = step.data;
+    } else if (step.data.url) {
+      url = step.data.url;
+      description = step.data.description || '';
+    }
+  }
+  
+  if (!url.trim()) {
+    console.warn(`⚠️ ${step.type} step ${index + 1} missing URL, using placeholder`);
+    url = "https://example.com/media-placeholder";
+  }
+  
+  return {
+    url: url.trim(),
+    description: description.trim()
+  };
+}
+
+/**
+ * ✅ Process writing steps
+ */
+async function processWritingStep(step, index) {
+  let prompt = '';
+  let wordLimit = 100;
+  
+  if (step.prompt) {
+    prompt = step.prompt;
+    wordLimit = step.wordLimit || 100;
+  } else if (step.data) {
+    if (typeof step.data === 'string') {
+      prompt = step.data;
+    } else if (step.data.prompt) {
+      prompt = step.data.prompt;
+      wordLimit = step.data.wordLimit || 100;
+    }
+  }
+  
+  if (!prompt.trim()) {
+    console.warn(`⚠️ Writing step ${index + 1} missing prompt, using default`);
+    prompt = "Writing prompt not provided.";
+  }
+  
+  return {
+    prompt: prompt.trim(),
+    wordLimit: Number(wordLimit) || 100
+  };
+}
+
+/**
+ * ✅ Validate step output
+ */
+function validateStepOutput(step) {
+  if (!step || !step.type || !step.data) {
+    return false;
+  }
+  
+  switch (step.type) {
+    case 'exercise':
+      return Array.isArray(step.data) && step.data.length > 0 && 
+             step.data.every(ex => ex.question && ex.correctAnswer);
+             
+    case 'quiz':
+      return Array.isArray(step.data) && step.data.length > 0 && 
+             step.data.every(quiz => quiz.question && quiz.correctAnswer !== undefined);
+             
+    case 'vocabulary':
+      return Array.isArray(step.data) && step.data.length > 0 && 
+             step.data.every(vocab => vocab.term && vocab.definition);
+             
+    default:
+      return true;
+  }
+}
+
 
 /**
  * Process homework from lesson steps
@@ -1087,5 +1350,14 @@ module.exports = {
   updateLesson: exports.updateLesson,
   deleteLesson: exports.deleteLesson,
   getLesson: exports.getLesson,
-  getLessonsByTopic: exports.getLessonsByTopic
+  getLessonsByTopic: exports.getLessonsByTopic,
+  processLessonSteps,
+  processContentStep,
+  processExerciseStep,
+  processQuizStep,
+  processVocabularyStep,
+  processPracticeStep,
+  processMediaStep,
+  processWritingStep,
+  validateStepOutput
 };
