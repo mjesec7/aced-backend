@@ -1,5 +1,5 @@
-// Enhanced lesson controller for step-by-step methodology
-// Replace or update your existing lessonController.js
+// lessonController.js - COMPLETE FIXED VERSION
+// =============================================
 
 const Lesson = require('../models/lesson');
 const Topic = require('../models/topic');
@@ -456,12 +456,7 @@ exports.deleteLesson = async (req, res) => {
   }
 };
 
-// ✅ Helper Functions
-
-/**
- * Process lesson steps with enhanced validation and default values.
- */
-// ✅ CRITICAL FIXES for lessonController.js - Replace the processLessonSteps function
+// ✅ CRITICAL FIXES for processLessonSteps - COMPLETE REWRITE
 
 /**
  * ✅ ENHANCED: Process lesson steps with comprehensive validation and debugging
@@ -613,10 +608,18 @@ async function processContentStep(step, index) {
  */
 async function processExerciseStep(step, index) {
   console.log(`📝 Processing exercise step ${index + 1}...`);
+  console.log(`📊 Step data structure:`, {
+    hasData: !!step.data,
+    dataType: typeof step.data,
+    isArray: Array.isArray(step.data),
+    dataKeys: step.data ? Object.keys(step.data) : [],
+    hasExercises: !!(step.exercises),
+    hasQuestion: !!(step.question)
+  });
   
   let exercises = [];
   
-  // ✅ Handle all possible data structures
+  // ✅ CRITICAL: Handle all possible data structures
   if (step.exercises && Array.isArray(step.exercises)) {
     exercises = step.exercises;
     console.log(`  Found exercises in step.exercises: ${exercises.length}`);
@@ -638,7 +641,7 @@ async function processExerciseStep(step, index) {
     console.warn(`⚠️ No exercise data found in step ${index + 1}`);
   }
   
-  // ✅ Validate and process each exercise
+  // ✅ CRITICAL: Validate and process each exercise
   const validatedExercises = [];
   
   for (let exIndex = 0; exIndex < exercises.length; exIndex++) {
@@ -646,22 +649,28 @@ async function processExerciseStep(step, index) {
     
     console.log(`  🔍 Validating exercise ${exIndex + 1}:`, {
       hasQuestion: !!exercise.question,
+      questionType: typeof exercise.question,
       hasAnswer: !!(exercise.answer || exercise.correctAnswer),
-      type: exercise.type || 'short-answer'
+      answerType: typeof (exercise.answer || exercise.correctAnswer),
+      type: exercise.type || 'short-answer',
+      hasOptions: !!(exercise.options),
+      optionsLength: exercise.options ? exercise.options.length : 0
     });
     
-    // Validate required fields
+    // ✅ CRITICAL: Validate required fields
     if (!exercise.question || !String(exercise.question).trim()) {
-      console.warn(`⚠️ Exercise ${exIndex + 1} in step ${index + 1}: Missing or empty question`);
+      console.error(`❌ Exercise ${exIndex + 1} in step ${index + 1}: Missing or empty question`);
+      console.error(`   Exercise object:`, exercise);
       continue;
     }
     
     if (!exercise.answer && !exercise.correctAnswer) {
-      console.warn(`⚠️ Exercise ${exIndex + 1} in step ${index + 1}: Missing answer`);
+      console.error(`❌ Exercise ${exIndex + 1} in step ${index + 1}: Missing answer`);
+      console.error(`   Exercise object:`, exercise);
       continue;
     }
     
-    // ✅ Create validated exercise object
+    // ✅ Create validated exercise object with all required fields
     const validatedExercise = {
       id: exercise.id || `ex_${index}_${exIndex}`,
       type: exercise.type || 'short-answer',
@@ -675,7 +684,7 @@ async function processExerciseStep(step, index) {
       explanation: String(exercise.explanation || '').trim()
     };
     
-    // ✅ Add type-specific fields with validation
+    // ✅ CRITICAL: Add type-specific fields with validation
     switch (validatedExercise.type) {
       case 'abc':
       case 'multiple-choice':
@@ -688,10 +697,23 @@ async function processExerciseStep(step, index) {
           validatedExercise.options = ['Option A', 'Option B', 'Option C'];
         }
         
-        // Validate correct answer index
+        // ✅ CRITICAL: Validate correct answer index for multiple choice
         if (typeof exercise.correctAnswer === 'number') {
-          if (exercise.correctAnswer >= validatedExercise.options.length) {
-            console.warn(`⚠️ Correct answer index out of bounds, defaulting to 0`);
+          if (exercise.correctAnswer >= validatedExercise.options.length || exercise.correctAnswer < 0) {
+            console.warn(`⚠️ Correct answer index ${exercise.correctAnswer} out of bounds, defaulting to 0`);
+            validatedExercise.correctAnswer = 0;
+          } else {
+            validatedExercise.correctAnswer = exercise.correctAnswer;
+          }
+        } else if (typeof exercise.correctAnswer === 'string') {
+          // Find the index of the correct answer in options
+          const answerIndex = validatedExercise.options.findIndex(opt => 
+            opt.toLowerCase().trim() === exercise.correctAnswer.toLowerCase().trim()
+          );
+          if (answerIndex >= 0) {
+            validatedExercise.correctAnswer = answerIndex;
+          } else {
+            console.warn(`⚠️ Correct answer "${exercise.correctAnswer}" not found in options`);
             validatedExercise.correctAnswer = 0;
           }
         }
@@ -713,6 +735,16 @@ async function processExerciseStep(step, index) {
       case 'true-false':
         validatedExercise.statement = exercise.statement || validatedExercise.question;
         validatedExercise.options = ['True', 'False'];
+        // Ensure correct answer is 0 or 1 for true/false
+        if (typeof exercise.correctAnswer === 'boolean') {
+          validatedExercise.correctAnswer = exercise.correctAnswer ? 0 : 1;
+        } else if (typeof exercise.correctAnswer === 'string') {
+          validatedExercise.correctAnswer = exercise.correctAnswer.toLowerCase() === 'true' ? 0 : 1;
+        } else if (typeof exercise.correctAnswer === 'number') {
+          validatedExercise.correctAnswer = exercise.correctAnswer;
+        } else {
+          validatedExercise.correctAnswer = 0; // default to true
+        }
         break;
         
       case 'drag-drop':
@@ -725,9 +757,9 @@ async function processExerciseStep(step, index) {
     console.log(`  ✅ Exercise ${exIndex + 1} validated successfully`);
   }
   
-  // ✅ Ensure we have at least one exercise
+  // ✅ CRITICAL: Ensure we have at least one exercise
   if (validatedExercises.length === 0) {
-    console.warn(`⚠️ No valid exercises in step ${index + 1}, creating default exercise`);
+    console.error(`❌ No valid exercises in step ${index + 1}, creating default exercise`);
     validatedExercises.push({
       id: `default_ex_${index}`,
       type: 'short-answer',
@@ -743,6 +775,13 @@ async function processExerciseStep(step, index) {
   }
   
   console.log(`✅ Exercise step ${index + 1} processed: ${validatedExercises.length} exercises`);
+  console.log(`📋 Final exercise structure:`, validatedExercises.map(ex => ({
+    question: ex.question.substring(0, 50) + '...',
+    answer: ex.correctAnswer.substring(0, 30) + '...',
+    type: ex.type,
+    hasOptions: !!ex.options
+  })));
+  
   return validatedExercises;
 }
 
@@ -751,10 +790,18 @@ async function processExerciseStep(step, index) {
  */
 async function processQuizStep(step, index) {
   console.log(`🧩 Processing quiz step ${index + 1}...`);
+  console.log(`📊 Step data structure:`, {
+    hasData: !!step.data,
+    dataType: typeof step.data,
+    isArray: Array.isArray(step.data),
+    dataKeys: step.data ? Object.keys(step.data) : [],
+    hasQuizzes: !!(step.quizzes),
+    hasQuestion: !!(step.question)
+  });
   
   let quizzes = [];
   
-  // Handle multiple data structures
+  // ✅ CRITICAL: Handle multiple data structures
   if (step.quizzes && Array.isArray(step.quizzes)) {
     quizzes = step.quizzes;
     console.log(`  Found quizzes in step.quizzes: ${quizzes.length}`);
@@ -772,9 +819,11 @@ async function processQuizStep(step, index) {
     // Quiz directly on step
     quizzes = [step];
     console.log(`  Found single quiz directly on step`);
+  } else {
+    console.warn(`⚠️ No quiz data found in step ${index + 1}`);
   }
   
-  // ✅ Validate and process each quiz
+  // ✅ CRITICAL: Validate and process each quiz
   const validatedQuizzes = [];
   
   for (let qIndex = 0; qIndex < quizzes.length; qIndex++) {
@@ -782,23 +831,28 @@ async function processQuizStep(step, index) {
     
     console.log(`  🔍 Validating quiz ${qIndex + 1}:`, {
       hasQuestion: !!quiz.question,
+      questionType: typeof quiz.question,
       hasCorrectAnswer: quiz.correctAnswer !== undefined,
+      correctAnswerType: typeof quiz.correctAnswer,
       type: quiz.type || 'multiple-choice',
+      hasOptions: !!(quiz.options),
       optionsCount: Array.isArray(quiz.options) ? quiz.options.length : 0
     });
     
-    // Validate required fields
+    // ✅ CRITICAL: Validate required fields
     if (!quiz.question || !String(quiz.question).trim()) {
-      console.warn(`⚠️ Quiz ${qIndex + 1} in step ${index + 1}: Missing question`);
+      console.error(`❌ Quiz ${qIndex + 1} in step ${index + 1}: Missing or empty question`);
+      console.error(`   Quiz object:`, quiz);
       continue;
     }
     
     if (quiz.correctAnswer === undefined || quiz.correctAnswer === null) {
-      console.warn(`⚠️ Quiz ${qIndex + 1} in step ${index + 1}: Missing correct answer`);
+      console.error(`❌ Quiz ${qIndex + 1} in step ${index + 1}: Missing correct answer`);
+      console.error(`   Quiz object:`, quiz);
       continue;
     }
     
-    // ✅ Create validated quiz object
+    // ✅ Create validated quiz object with all required fields
     const validatedQuiz = {
       id: quiz.id || `quiz_${index}_${qIndex}`,
       question: String(quiz.question).trim(),
@@ -808,7 +862,7 @@ async function processQuizStep(step, index) {
       points: Number(quiz.points) || 1
     };
     
-    // ✅ Process options based on quiz type
+    // ✅ CRITICAL: Process options based on quiz type
     if (validatedQuiz.type === 'multiple-choice') {
       if (Array.isArray(quiz.options) && quiz.options.length > 0) {
         validatedQuiz.options = quiz.options.map(opt => {
@@ -838,10 +892,22 @@ async function processQuizStep(step, index) {
         ];
       }
       
-      // Validate correct answer index
+      // ✅ CRITICAL: Validate correct answer index
       if (typeof validatedQuiz.correctAnswer === 'number') {
         if (validatedQuiz.correctAnswer >= validatedQuiz.options.length || validatedQuiz.correctAnswer < 0) {
           console.warn(`⚠️ Correct answer index ${validatedQuiz.correctAnswer} out of bounds, defaulting to 0`);
+          validatedQuiz.correctAnswer = 0;
+        }
+      } else if (typeof validatedQuiz.correctAnswer === 'string') {
+        // Find the index of the correct answer in options
+        const answerIndex = validatedQuiz.options.findIndex(opt => 
+          opt.text.toLowerCase().trim() === validatedQuiz.correctAnswer.toLowerCase().trim() ||
+          opt.value.toLowerCase().trim() === validatedQuiz.correctAnswer.toLowerCase().trim()
+        );
+        if (answerIndex >= 0) {
+          validatedQuiz.correctAnswer = answerIndex;
+        } else {
+          console.warn(`⚠️ Correct answer "${validatedQuiz.correctAnswer}" not found in options`);
           validatedQuiz.correctAnswer = 0;
         }
       }
@@ -851,10 +917,13 @@ async function processQuizStep(step, index) {
         { text: 'False', value: false }
       ];
       
-      // Ensure correct answer is boolean or 0/1
+      // ✅ CRITICAL: Ensure correct answer is boolean or 0/1
       if (typeof validatedQuiz.correctAnswer === 'string') {
         validatedQuiz.correctAnswer = validatedQuiz.correctAnswer.toLowerCase() === 'true' ? 0 : 1;
       } else if (typeof validatedQuiz.correctAnswer === 'boolean') {
+        validatedQuiz.correctAnswer = validatedQuiz.correctAnswer ? 0 : 1;
+      } else if (typeof validatedQuiz.correctAnswer === 'number') {
+        // Keep as is but ensure it's 0 or 1
         validatedQuiz.correctAnswer = validatedQuiz.correctAnswer ? 0 : 1;
       }
     }
@@ -863,9 +932,9 @@ async function processQuizStep(step, index) {
     console.log(`  ✅ Quiz ${qIndex + 1} validated successfully`);
   }
   
-  // ✅ Ensure we have at least one quiz
+  // ✅ CRITICAL: Ensure we have at least one quiz
   if (validatedQuizzes.length === 0) {
-    console.warn(`⚠️ No valid quiz questions in step ${index + 1}, creating default quiz`);
+    console.error(`❌ No valid quiz questions in step ${index + 1}, creating default quiz`);
     validatedQuizzes.push({
       id: `default_quiz_${index}`,
       question: "Sample quiz question - please update this content?",
@@ -882,6 +951,13 @@ async function processQuizStep(step, index) {
   }
   
   console.log(`✅ Quiz step ${index + 1} processed: ${validatedQuizzes.length} quiz questions`);
+  console.log(`📋 Final quiz structure:`, validatedQuizzes.map(quiz => ({
+    question: quiz.question.substring(0, 50) + '...',
+    type: quiz.type,
+    correctAnswer: quiz.correctAnswer,
+    optionsCount: quiz.options ? quiz.options.length : 0
+  })));
+  
   return validatedQuizzes;
 }
 
@@ -922,6 +998,7 @@ async function processVocabularyStep(step, index) {
   }
   
   console.log(`✅ Vocabulary step ${index + 1} processed: ${validatedVocabulary.length} items`);
+  
   return validatedVocabulary;
 }
 
@@ -1041,7 +1118,6 @@ function validateStepOutput(step) {
   }
 }
 
-
 /**
  * Process homework from lesson steps
  */
@@ -1147,7 +1223,7 @@ function processHomeworkFromSteps(steps, createHomework) {
 }
 
 /**
- * ✅ FIXED: Enhanced validation with better error messages
+ * ✅ ENHANCED: Enhanced validation with better error messages
  */
 exports.validateLessonData = (lessonData) => {
   const errors = [];
@@ -1178,7 +1254,7 @@ exports.validateLessonData = (lessonData) => {
     errors.push('At least one lesson step is required');
   }
 
-  // ✅ FIXED: Enhanced step validation
+  // ✅ ENHANCED: Enhanced step validation
   lessonData.steps?.forEach((step, index) => {
     const stepNumber = index + 1;
 
@@ -1193,7 +1269,7 @@ exports.validateLessonData = (lessonData) => {
       return;
     }
 
-    // ✅ FIXED: Type-specific validation with multiple data structure support
+    // ✅ ENHANCED: Type-specific validation with multiple data structure support
     try {
       switch (step.type) {
         case 'explanation':
