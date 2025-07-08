@@ -606,20 +606,14 @@ async function processContentStep(step, index) {
 /**
  * ✅ CRITICAL: Process exercise steps with comprehensive validation
  */
+/**
+ * ✅ CRITICAL: Process exercise steps with flexible, type-aware validation
+ */
 async function processExerciseStep(step, index) {
   console.log(`📝 Processing exercise step ${index + 1}...`);
-  console.log(`📊 Step data structure:`, {
-    hasData: !!step.data,
-    dataType: typeof step.data,
-    isArray: Array.isArray(step.data),
-    dataKeys: step.data ? Object.keys(step.data) : [],
-    hasExercises: !!(step.exercises),
-    hasQuestion: !!(step.question)
-  });
-  
+
   let exercises = [];
-  
-  // ✅ CRITICAL: Handle all possible data structures
+
   if (step.exercises && Array.isArray(step.exercises)) {
     exercises = step.exercises;
     console.log(`  Found exercises in step.exercises: ${exercises.length}`);
@@ -630,50 +624,52 @@ async function processExerciseStep(step, index) {
     exercises = step.data.exercises;
     console.log(`  Found exercises in step.data.exercises: ${exercises.length}`);
   } else if (step.data && step.data.question) {
-    // Single exercise object
     exercises = [step.data];
     console.log(`  Found single exercise in step.data`);
   } else if (step.question) {
-    // Exercise directly on step
     exercises = [step];
     console.log(`  Found single exercise directly on step`);
   } else {
     console.warn(`⚠️ No exercise data found in step ${index + 1}`);
   }
-  
-  // ✅ CRITICAL: Validate and process each exercise
+
   const validatedExercises = [];
-  
+
   for (let exIndex = 0; exIndex < exercises.length; exIndex++) {
     const exercise = exercises[exIndex];
-    
-    console.log(`  🔍 Validating exercise ${exIndex + 1}:`, {
-      hasQuestion: !!exercise.question,
-      questionType: typeof exercise.question,
-      hasAnswer: !!(exercise.answer || exercise.correctAnswer),
-      answerType: typeof (exercise.answer || exercise.correctAnswer),
-      type: exercise.type || 'short-answer',
-      hasOptions: !!(exercise.options),
-      optionsLength: exercise.options ? exercise.options.length : 0
-    });
-    
-    // ✅ CRITICAL: Validate required fields
-    if (!exercise.question || !String(exercise.question).trim()) {
-      console.error(`❌ Exercise ${exIndex + 1} in step ${index + 1}: Missing or empty question`);
-      console.error(`   Exercise object:`, exercise);
+    const exType = exercise.type || 'short-answer';
+    const hasQuestion = exercise.question && String(exercise.question).trim();
+    const hasAnswer = exercise.answer || exercise.correctAnswer;
+
+    // ✅ Type-aware field validation
+    const validByType = (() => {
+      switch (exType) {
+        case 'drag-drop':
+          return Array.isArray(exercise.dragItems) && exercise.dragItems.length > 0 &&
+                 Array.isArray(exercise.dropZones) && exercise.dropZones.length > 0;
+        case 'matching':
+          return Array.isArray(exercise.pairs) && exercise.pairs.length >= 2;
+        case 'abc':
+        case 'multiple-choice':
+          return Array.isArray(exercise.options) && exercise.options.length >= 2 && hasAnswer;
+        default:
+          return hasAnswer;
+      }
+    })();
+
+    if (!hasQuestion) {
+      console.error(`❌ Exercise ${exIndex + 1} in step ${index + 1}: Missing question`);
       continue;
     }
-    
-    if (!exercise.answer && !exercise.correctAnswer) {
-      console.error(`❌ Exercise ${exIndex + 1} in step ${index + 1}: Missing answer`);
-      console.error(`   Exercise object:`, exercise);
+
+    if (!validByType) {
+      console.error(`❌ Exercise ${exIndex + 1} in step ${index + 1}: Required fields missing for type "${exType}"`);
       continue;
     }
-    
-    // ✅ Create validated exercise object with all required fields
+
     const validatedExercise = {
       id: exercise.id || `ex_${index}_${exIndex}`,
-      type: exercise.type || 'short-answer',
+      type: exType,
       question: String(exercise.question).trim(),
       answer: String(exercise.answer || exercise.correctAnswer || '').trim(),
       correctAnswer: String(exercise.correctAnswer || exercise.answer || '').trim(),
@@ -683,107 +679,68 @@ async function processExerciseStep(step, index) {
       hint: String(exercise.hint || '').trim(),
       explanation: String(exercise.explanation || '').trim()
     };
-    
-    // ✅ CRITICAL: Add type-specific fields with validation
-    switch (validatedExercise.type) {
+
+    // ✅ Add type-specific fields
+    switch (exType) {
       case 'abc':
       case 'multiple-choice':
-        validatedExercise.options = Array.isArray(exercise.options) 
+        validatedExercise.options = Array.isArray(exercise.options)
           ? exercise.options.filter(opt => opt && String(opt).trim())
           : [];
-        
-        if (validatedExercise.options.length === 0) {
-          console.warn(`⚠️ Multiple choice exercise missing options, adding defaults`);
-          validatedExercise.options = ['Option A', 'Option B', 'Option C'];
-        }
-        
-        // ✅ CRITICAL: Validate correct answer index for multiple choice
-        if (typeof exercise.correctAnswer === 'number') {
-          if (exercise.correctAnswer >= validatedExercise.options.length || exercise.correctAnswer < 0) {
-            console.warn(`⚠️ Correct answer index ${exercise.correctAnswer} out of bounds, defaulting to 0`);
-            validatedExercise.correctAnswer = 0;
-          } else {
-            validatedExercise.correctAnswer = exercise.correctAnswer;
-          }
-        } else if (typeof exercise.correctAnswer === 'string') {
-          // Find the index of the correct answer in options
-          const answerIndex = validatedExercise.options.findIndex(opt => 
-            opt.toLowerCase().trim() === exercise.correctAnswer.toLowerCase().trim()
-          );
-          if (answerIndex >= 0) {
-            validatedExercise.correctAnswer = answerIndex;
-          } else {
-            console.warn(`⚠️ Correct answer "${exercise.correctAnswer}" not found in options`);
-            validatedExercise.correctAnswer = 0;
-          }
-        }
         break;
-        
+
       case 'fill-blank':
         validatedExercise.template = exercise.template || validatedExercise.question;
         validatedExercise.blanks = Array.isArray(exercise.blanks) ? exercise.blanks : [];
         break;
-        
+
       case 'matching':
         validatedExercise.pairs = Array.isArray(exercise.pairs) ? exercise.pairs : [];
         break;
-        
+
       case 'ordering':
         validatedExercise.items = Array.isArray(exercise.items) ? exercise.items : [];
         break;
-        
+
       case 'true-false':
         validatedExercise.statement = exercise.statement || validatedExercise.question;
         validatedExercise.options = ['True', 'False'];
-        // Ensure correct answer is 0 or 1 for true/false
-        if (typeof exercise.correctAnswer === 'boolean') {
-          validatedExercise.correctAnswer = exercise.correctAnswer ? 0 : 1;
-        } else if (typeof exercise.correctAnswer === 'string') {
-          validatedExercise.correctAnswer = exercise.correctAnswer.toLowerCase() === 'true' ? 0 : 1;
-        } else if (typeof exercise.correctAnswer === 'number') {
-          validatedExercise.correctAnswer = exercise.correctAnswer;
-        } else {
-          validatedExercise.correctAnswer = 0; // default to true
-        }
+        validatedExercise.correctAnswer = typeof exercise.correctAnswer === 'boolean'
+          ? (exercise.correctAnswer ? 0 : 1)
+          : (String(exercise.correctAnswer).toLowerCase() === 'true' ? 0 : 1);
         break;
-        
+
       case 'drag-drop':
         validatedExercise.dragItems = Array.isArray(exercise.dragItems) ? exercise.dragItems : [];
         validatedExercise.dropZones = Array.isArray(exercise.dropZones) ? exercise.dropZones : [];
         break;
     }
-    
+
     validatedExercises.push(validatedExercise);
     console.log(`  ✅ Exercise ${exIndex + 1} validated successfully`);
   }
-  
-  // ✅ CRITICAL: Ensure we have at least one exercise
+
+  // Fallback default if no valid exercises
   if (validatedExercises.length === 0) {
-    console.error(`❌ No valid exercises in step ${index + 1}, creating default exercise`);
+    console.warn(`⚠️ No valid exercises found in step ${index + 1}, adding default placeholder`);
     validatedExercises.push({
       id: `default_ex_${index}`,
       type: 'short-answer',
-      question: "Sample exercise question - please update this content",
-      answer: "Sample answer",
-      correctAnswer: "Sample answer",
+      question: "Placeholder question",
+      answer: "Placeholder answer",
+      correctAnswer: "Placeholder answer",
       points: 1,
       includeInHomework: false,
       instruction: '',
-      hint: 'Think about the concept we just learned',
-      explanation: 'This is a placeholder exercise. Please update with actual content.'
+      hint: '',
+      explanation: ''
     });
   }
-  
+
   console.log(`✅ Exercise step ${index + 1} processed: ${validatedExercises.length} exercises`);
-  console.log(`📋 Final exercise structure:`, validatedExercises.map(ex => ({
-    question: ex.question.substring(0, 50) + '...',
-    answer: ex.correctAnswer.substring(0, 30) + '...',
-    type: ex.type,
-    hasOptions: !!ex.options
-  })));
-  
   return validatedExercises;
 }
+
 
 /**
  * ✅ CRITICAL: Process quiz steps with comprehensive validation
