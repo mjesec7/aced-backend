@@ -104,79 +104,166 @@ router.post('/', logRequest, async (req, res) => {
 });
 
 // ─── [GET] Single Topic + Lessons ────────────────────
+// ✅ IMPROVED: Topic route handler in topicRoutes.js
+// This addresses the 404 issue and ensures consistent response structure
+
+// ─── [GET] Single Topic + Lessons ────────────────────
 router.get('/:id', logRequest, validateObjectId, async (req, res) => {
   const id = req.params.id;
   
   try {
     console.log(`🔍 Searching for topic with ID: ${id}`);
     
-    // First check if the topic exists
-    const topic = await Topic.findById(id);
+    // ✅ ENHANCED: Better topic finding with multiple fallback strategies
+    let topic = null;
+    
+    // Strategy 1: Find by MongoDB ObjectId
+    if (mongoose.Types.ObjectId.isValid(id)) {
+      topic = await Topic.findById(id);
+      if (topic) {
+        console.log(`📘 Found topic by ObjectId: "${topic.name || topic.topicName}"`);
+      }
+    }
+    
+    // Strategy 2: If not found and ID looks like a name, search by name
+    if (!topic && isNaN(id) && id.length > 2) {
+      topic = await Topic.findOne({ 
+        $or: [
+          { name: id },
+          { 'name.en': id },
+          { 'name.ru': id },
+          { 'name.uz': id },
+          { topicName: id }
+        ]
+      });
+      if (topic) {
+        console.log(`📘 Found topic by name: "${topic.name || topic.topicName}"`);
+      }
+    }
+    
+    // Strategy 3: If still not found, try case-insensitive search
+    if (!topic && typeof id === 'string') {
+      topic = await Topic.findOne({ 
+        $or: [
+          { name: { $regex: new RegExp(`^${id}$`, 'i') } },
+          { 'name.en': { $regex: new RegExp(`^${id}$`, 'i') } },
+          { topicName: { $regex: new RegExp(`^${id}$`, 'i') } }
+        ]
+      });
+      if (topic) {
+        console.log(`📘 Found topic by case-insensitive search: "${topic.name || topic.topicName}"`);
+      }
+    }
+    
+    // ✅ FIXED: Return consistent 404 response if topic not found
     if (!topic) {
       console.warn(`⚠️ Topic not found in database: ${id}`);
       
-      // Return a more detailed 404 response that matches what your frontend expects
       return res.status(404).json({ 
         success: false,
+        exists: false,
         message: '❌ Topic not found',
         error: 'TOPIC_NOT_FOUND',
         requestedId: id,
-        exists: false, // Add this flag for frontend
-        suggestion: 'Please verify the topic ID is correct and the topic exists'
+        suggestion: 'Please verify the topic ID is correct and the topic exists',
+        searchStrategies: [
+          'MongoDB ObjectId lookup',
+          'Name-based search',
+          'Case-insensitive search'
+        ]
       });
     }
 
-    console.log(`📘 Found topic: "${topic.name.en}"`);
+    console.log(`📘 Topic found successfully: "${topic.name || topic.topicName}"`);
     
-    // Fetch associated lessons - handle case where no lessons exist
+    // ✅ ENHANCED: Fetch associated lessons with better error handling
     let lessons = [];
+    let lessonError = null;
+    
     try {
       lessons = await Lesson.find({ topicId: id }).sort({ order: 1, createdAt: 1 });
-      console.log(`📚 Found ${lessons.length} lessons for topic "${topic.name.en}"`);
-    } catch (lessonError) {
-      console.error(`⚠️ Error fetching lessons for topic ${id}:`, lessonError.message);
+      console.log(`📚 Found ${lessons.length} lessons for topic "${topic.name || topic.topicName}"`);
+    } catch (lessonErr) {
+      console.error(`⚠️ Error fetching lessons for topic ${id}:`, lessonErr.message);
+      lessonError = lessonErr.message;
       // Continue without lessons rather than failing completely
       lessons = [];
     }
 
-    // Inject topicId into each lesson for frontend use
+    // ✅ ENHANCED: Inject topicId into each lesson for frontend use
     const lessonsWithTopicId = lessons.map(lesson => ({
       ...lesson.toObject(),
       topicId: id
     }));
 
+    // ✅ CONSISTENT: Return standardized response structure
     const response = {
       success: true,
-      exists: true, // Add this flag for frontend
+      exists: true,
+      message: '✅ Topic loaded successfully',
       data: {
-        ...topic.toObject(),
+        // ✅ FIXED: Ensure topic has all necessary fields
+        _id: topic._id,
+        id: topic._id, // Legacy support
+        name: topic.name || topic.topicName,
+        topicName: topic.name || topic.topicName, // Legacy support
+        subject: topic.subject,
+        level: topic.level,
+        description: topic.description || '',
+        createdAt: topic.createdAt,
+        updatedAt: topic.updatedAt,
+        
+        // Lesson information
         lessons: lessonsWithTopicId,
-        lessonsCount: lessons.length
+        lessonsCount: lessons.length,
+        lessonError: lessonError
+      },
+      meta: {
+        topicId: id,
+        lessonsFound: lessons.length,
+        hasLessonError: !!lessonError,
+        searchMethod: 'database_lookup'
       }
     };
 
-    console.log(`✅ Successfully returned topic "${topic.name.en}" with ${lessons.length} lessons`);
+    console.log(`✅ Successfully returning topic "${topic.name || topic.topicName}" with ${lessons.length} lessons`);
     res.json(response);
     
   } catch (err) {
     console.error(`❌ Error fetching topic ${id}:`, err.message);
     console.error('📍 Stack trace:', err.stack);
     
-    // Handle specific MongoDB errors
+    // ✅ ENHANCED: Handle specific error types
     if (err.name === 'CastError') {
       return res.status(400).json({ 
         success: false,
+        exists: false,
         message: '❌ Invalid topic ID format',
         error: 'INVALID_OBJECT_ID',
-        requestedId: id
+        requestedId: id,
+        details: 'The provided ID is not a valid MongoDB ObjectId format'
       });
     }
     
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({ 
+        success: false,
+        exists: false,
+        message: '❌ Topic validation error',
+        error: 'VALIDATION_ERROR',
+        requestedId: id,
+        details: err.message
+      });
+    }
+    
+    // Generic server error
     res.status(500).json({ 
       success: false,
+      exists: false,
       message: '❌ Server error while fetching topic data',
       error: 'DATABASE_ERROR',
-      requestedId: id
+      requestedId: id,
+      details: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
     });
   }
 });
