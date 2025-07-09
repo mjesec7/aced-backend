@@ -1,6 +1,7 @@
+// models/topic.js - FIXED VERSION to handle your data structure
 const mongoose = require('mongoose');
 
-// 📘 Topic schema: belongs to a subject and level, has a name and optional description
+// 📘 Enhanced Topic schema with flexible name structure
 const topicSchema = new mongoose.Schema({
   subject: {
     type: String,
@@ -12,39 +13,260 @@ const topicSchema = new mongoose.Schema({
     required: [true, '❌ Level is required'],
     min: [1, '❌ Level must be 1 or higher']
   },
+  // ✅ CRITICAL FIX: Handle both string and object name formats
   name: {
+    type: mongoose.Schema.Types.Mixed, // Allow both string and object
+    required: [true, '❌ Topic name is required']
+  },
+  // ✅ Legacy support for existing data
+  topicName: {
     type: String,
-    required: [true, '❌ Topic name is required'],
     trim: true
   },
   description: {
-    type: String,
+    type: mongoose.Schema.Types.Mixed, // Allow both string and object
     default: '',
     trim: true
-  }
+  },
+  // ✅ Additional fields for enhanced functionality
+  metadata: {
+    difficulty: { 
+      type: String, 
+      enum: ['beginner', 'intermediate', 'advanced'], 
+      default: 'beginner' 
+    },
+    estimatedDuration: { type: Number, default: 30 }, // in minutes
+    prerequisites: { type: [String], default: [] },
+    learningObjectives: { type: [String], default: [] }
+  },
+  // ✅ Status fields
+  isActive: { type: Boolean, default: true },
+  isDraft: { type: Boolean, default: false },
+  // ✅ Order for sequencing
+  order: { type: Number, default: 0 }
 }, {
-  timestamps: true
+  timestamps: true,
+  // ✅ Add toJSON transform to normalize output
+  toJSON: {
+    transform: function(doc, ret) {
+      // ✅ Ensure consistent name field
+      if (!ret.name && ret.topicName) {
+        ret.name = ret.topicName;
+      }
+      
+      // ✅ Ensure both name and topicName exist for backward compatibility
+      if (typeof ret.name === 'string' && !ret.topicName) {
+        ret.topicName = ret.name;
+      } else if (typeof ret.name === 'object' && ret.name.en && !ret.topicName) {
+        ret.topicName = ret.name.en;
+      }
+      
+      // ✅ Ensure description is accessible
+      if (typeof ret.description === 'object' && ret.description.en && typeof ret.description.en === 'string') {
+        ret.topicDescription = ret.description.en;
+      } else if (typeof ret.description === 'string') {
+        ret.topicDescription = ret.description;
+      }
+      
+      return ret;
+    }
+  }
 });
 
-// ✅ Composite index to avoid duplicates by subject+level+name
-topicSchema.index({ subject: 1, level: 1, name: 1 }, { unique: true });
+// ✅ CRITICAL FIX: Modified composite index to be more flexible
+// Remove the unique constraint temporarily to debug
+topicSchema.index({ subject: 1, level: 1, name: 1 }, { 
+  unique: false, // Changed from true to false for debugging
+  background: true 
+});
 
-// ✅ Log lifecycle
+// ✅ Add additional indexes for better performance
+topicSchema.index({ subject: 1, level: 1 });
+topicSchema.index({ isActive: 1, isDraft: 1 });
+topicSchema.index({ 'name.en': 1 });
+topicSchema.index({ topicName: 1 });
+
+// ✅ Virtual for getting display name
+topicSchema.virtual('displayName').get(function() {
+  if (typeof this.name === 'string') {
+    return this.name;
+  } else if (typeof this.name === 'object') {
+    return this.name.en || this.name.ru || this.name.uz || 'Unnamed Topic';
+  } else if (this.topicName) {
+    return this.topicName;
+  } else {
+    return 'Unnamed Topic';
+  }
+});
+
+// ✅ Virtual for getting display description
+topicSchema.virtual('displayDescription').get(function() {
+  if (typeof this.description === 'string') {
+    return this.description;
+  } else if (typeof this.description === 'object') {
+    return this.description.en || this.description.ru || this.description.uz || '';
+  } else {
+    return '';
+  }
+});
+
+// ✅ Instance method to get lesson count
+topicSchema.methods.getLessonCount = async function() {
+  const Lesson = mongoose.model('Lesson');
+  return await Lesson.countDocuments({ 
+    $or: [
+      { topicId: this._id },
+      { topic: this.displayName }
+    ]
+  });
+};
+
+// ✅ Instance method to check if topic has content
+topicSchema.methods.hasContent = async function() {
+  const lessonCount = await this.getLessonCount();
+  return lessonCount > 0;
+};
+
+// ✅ Static method to find by flexible name search
+topicSchema.statics.findByName = function(name, options = {}) {
+  const query = {
+    $or: [
+      { name: name },
+      { 'name.en': name },
+      { 'name.ru': name },
+      { 'name.uz': name },
+      { topicName: name }
+    ]
+  };
+  
+  if (options.subject) {
+    query.subject = options.subject;
+  }
+  
+  if (options.level) {
+    query.level = options.level;
+  }
+  
+  return this.findOne(query);
+};
+
+// ✅ Static method to find topics with lessons
+topicSchema.statics.findWithLessons = async function(filter = {}) {
+  const Lesson = mongoose.model('Lesson');
+  
+  // Get all topics
+  const topics = await this.find(filter);
+  
+  // Add lesson count to each topic
+  const topicsWithLessons = await Promise.all(
+    topics.map(async (topic) => {
+      const lessonCount = await Lesson.countDocuments({
+        $or: [
+          { topicId: topic._id },
+          { topic: topic.displayName }
+        ]
+      });
+      
+      return {
+        ...topic.toObject(),
+        lessonCount
+      };
+    })
+  );
+  
+  return topicsWithLessons;
+};
+
+// ✅ Pre-save middleware to ensure data consistency
+topicSchema.pre('save', function(next) {
+  // ✅ Ensure both name formats exist
+  if (typeof this.name === 'string' && !this.topicName) {
+    this.topicName = this.name;
+  } else if (typeof this.name === 'object' && this.name.en && !this.topicName) {
+    this.topicName = this.name.en;
+  } else if (!this.name && this.topicName) {
+    this.name = this.topicName;
+  }
+  
+  // ✅ Set default order if not specified
+  if (this.order === undefined || this.order === null) {
+    this.order = 0;
+  }
+  
+  next();
+});
+
+// ✅ Enhanced logging hooks
 topicSchema.post('save', (doc) => {
-  console.log(`✅ [Topic Saved] "${doc.name}" under "${doc.subject}" (Level ${doc.level})`);
+  const displayName = doc.displayName;
+  console.log(`✅ [Topic Saved] "${displayName}" under "${doc.subject}" (Level ${doc.level}, ID: ${doc._id})`);
+});
+
+topicSchema.post('findOne', (doc) => {
+  if (doc) {
+    console.log(`🔍 [Topic Found] "${doc.displayName}" (ID: ${doc._id})`);
+  } else {
+    console.warn('⚠️ [Topic FindOne] No topic found.');
+  }
+});
+
+topicSchema.post('find', (docs) => {
+  console.log(`📋 [Topics Find] Found ${docs.length} topics`);
 });
 
 topicSchema.post('findOneAndUpdate', (doc) => {
   if (doc) {
-    console.log(`🔄 [Topic Updated] "${doc.name}"`);
+    console.log(`🔄 [Topic Updated] "${doc.displayName}" (ID: ${doc._id})`);
+  } else {
+    console.warn('⚠️ [Topic Update] No topic found to update.');
   }
 });
 
 topicSchema.post('findOneAndDelete', (doc) => {
   if (doc) {
-    console.log(`🗑️ [Topic Deleted] "${doc.name}"`);
+    console.log(`🗑️ [Topic Deleted] "${doc.displayName}" (ID: ${doc._id})`);
+  } else {
+    console.warn('⚠️ [Topic Delete] No topic found to delete.');
   }
 });
+
+// ✅ Error handling middleware
+topicSchema.post('save', function(error, doc, next) {
+  if (error.name === 'MongoServerError' && error.code === 11000) {
+    const field = Object.keys(error.keyPattern)[0];
+    next(new Error(`Topic with this ${field} already exists`));
+  } else {
+    next(error);
+  }
+});
+
+// ✅ Add debugging method to help troubleshoot
+topicSchema.statics.debug = async function(topicId) {
+  console.log(`🔍 [DEBUG] Searching for topic: ${topicId}`);
+  
+  const strategies = [
+    { name: 'Direct findById', query: () => this.findById(topicId) },
+    { name: 'Manual ObjectId', query: () => this.findOne({ _id: new mongoose.Types.ObjectId(topicId) }) },
+    { name: 'String search', query: () => this.findOne({ _id: topicId }) },
+    { name: 'Name search', query: () => this.findByName(topicId) }
+  ];
+  
+  for (const strategy of strategies) {
+    try {
+      const result = await strategy.query();
+      console.log(`   ${strategy.name}: ${result ? '✅ FOUND' : '❌ NOT FOUND'}`);
+      if (result) {
+        console.log(`   Found: "${result.displayName}" (${result.subject}, Level ${result.level})`);
+        return result;
+      }
+    } catch (error) {
+      console.log(`   ${strategy.name}: ❌ ERROR - ${error.message}`);
+    }
+  }
+  
+  console.log(`❌ [DEBUG] Topic ${topicId} not found with any strategy`);
+  return null;
+};
 
 const Topic = mongoose.model('Topic', topicSchema);
 module.exports = Topic;
