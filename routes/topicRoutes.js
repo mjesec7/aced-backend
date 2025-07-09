@@ -181,7 +181,7 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
     let lessonError = null;
     
     try {
-      lessons = await Lesson.find({ topicId: id }).sort({ order: 1, createdAt: 1 });
+      lessons = await Lesson.find({ topicId: new mongoose.Types.ObjectId(id) }).sort({ order: 1, createdAt: 1 });
       console.log(`📚 Found ${lessons.length} lessons for topic "${topic.name || topic.topicName}"`);
     } catch (lessonErr) {
       console.error(`⚠️ Error fetching lessons for topic ${id}:`, lessonErr.message);
