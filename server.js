@@ -1932,7 +1932,689 @@ app.get('/api/routes', (req, res) => {
     }
   });
 });
+// ADD THESE ROUTES TO YOUR server.js FILE
+// Place these AFTER your existing emergency routes and BEFORE the route mounting section
 
+console.log('🚨 Adding missing user-progress routes that frontend expects...');
+
+// ========================================
+// 📊 MISSING USER-PROGRESS ROUTES
+// ========================================
+
+// ✅ GET /api/user-progress/user/:userId/lesson/:lessonId
+app.get('/api/user-progress/user/:userId/lesson/:lessonId', async (req, res) => {
+  console.log('📥 GET user-progress lesson route hit:', req.params);
+  
+  try {
+    const { userId, lessonId } = req.params;
+    
+    // Basic validation
+    if (!userId || !lessonId) {
+      return res.status(400).json({
+        success: false,
+        error: 'userId and lessonId are required'
+      });
+    }
+    
+    // Import models
+    const UserProgress = require('./models/userProgress');
+    
+    // Find progress
+    const progress = await UserProgress.findOne({ 
+      userId: userId, 
+      lessonId: lessonId 
+    }).populate('lessonId', 'title description order')
+      .populate('topicId', 'title description order');
+    
+    console.log('📊 User-progress result:', progress ? 'Found' : 'Not found');
+    
+    res.json({
+      success: true,
+      data: progress || null,
+      message: progress ? '✅ Progress found' : '⚠️ No progress found for this lesson'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error in user-progress lesson route:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error fetching lesson progress',
+      details: error.message
+    });
+  }
+});
+
+// ✅ POST /api/user-progress/user/:userId/lesson/:lessonId
+app.post('/api/user-progress/user/:userId/lesson/:lessonId', async (req, res) => {
+  console.log('📤 POST user-progress lesson route hit:', req.params);
+  
+  try {
+    const { userId, lessonId } = req.params;
+    const progressData = req.body;
+    
+    // Basic validation
+    if (!userId || !lessonId) {
+      return res.status(400).json({
+        success: false,
+        error: 'userId and lessonId are required'
+      });
+    }
+    
+    // Import models
+    const UserProgress = require('./models/userProgress');
+    const Lesson = require('./models/lesson');
+    
+    // Get topicId from lesson if not provided
+    let finalTopicId = progressData.topicId;
+    if (!finalTopicId) {
+      try {
+        const lesson = await Lesson.findById(lessonId);
+        if (lesson && lesson.topicId) {
+          finalTopicId = lesson.topicId;
+        }
+      } catch (lessonError) {
+        console.warn('⚠️ Could not fetch lesson for topicId:', lessonError.message);
+      }
+    }
+    
+    const updateData = {
+      userId: userId,
+      lessonId: lessonId,
+      topicId: finalTopicId,
+      completedSteps: progressData.completedSteps || [],
+      progressPercent: Math.min(100, Math.max(0, Number(progressData.progressPercent) || 0)),
+      completed: Boolean(progressData.completed),
+      mistakes: Math.max(0, Number(progressData.mistakes) || 0),
+      medal: String(progressData.medal || 'none'),
+      duration: Math.max(0, Number(progressData.duration) || 0),
+      stars: Math.min(5, Math.max(0, Number(progressData.stars) || 0)),
+      points: Math.max(0, Number(progressData.points) || 0),
+      hintsUsed: Math.max(0, Number(progressData.hintsUsed) || 0),
+      submittedHomework: Boolean(progressData.submittedHomework),
+      updatedAt: new Date()
+    };
+    
+    // Remove null/undefined fields
+    Object.keys(updateData).forEach(key => {
+      if (updateData[key] === null || updateData[key] === undefined) {
+        delete updateData[key];
+      }
+    });
+    
+    const updated = await UserProgress.findOneAndUpdate(
+      { userId: userId, lessonId: lessonId },
+      updateData,
+      { upsert: true, new: true, runValidators: true }
+    );
+    
+    console.log('✅ User-progress lesson saved successfully');
+    
+    res.json({
+      success: true,
+      data: updated,
+      message: '✅ Progress saved successfully'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error saving user-progress lesson:', error);
+    
+    if (error.name === 'CastError') {
+      res.status(400).json({ 
+        success: false,
+        error: 'Invalid data format',
+        field: error.path,
+        value: error.value
+      });
+    } else if (error.name === 'ValidationError') {
+      res.status(400).json({ 
+        success: false,
+        error: 'Validation error',
+        details: Object.values(error.errors).map(e => e.message)
+      });
+    } else {
+      res.status(500).json({ 
+        success: false,
+        error: 'Error saving progress',
+        details: error.message
+      });
+    }
+  }
+});
+
+// ✅ GET /api/user-progress (for general user progress queries)
+app.get('/api/user-progress', async (req, res) => {
+  console.log('📥 GET user-progress general route hit:', req.query);
+  
+  try {
+    const { userId, lessonId } = req.query;
+    
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'userId is required as query parameter'
+      });
+    }
+    
+    const UserProgress = require('./models/userProgress');
+    
+    if (lessonId) {
+      // Get specific lesson progress
+      const progress = await UserProgress.findOne({ userId, lessonId })
+        .populate('lessonId', 'title description order')
+        .populate('topicId', 'title description order');
+      
+      return res.json({
+        success: true,
+        data: progress || null,
+        message: progress ? '✅ Progress found' : '⚠️ No progress found'
+      });
+    } else {
+      // Get all progress for user
+      const progressRecords = await UserProgress.find({ userId })
+        .populate('lessonId', 'title description order')
+        .populate('topicId', 'title description order')
+        .sort({ updatedAt: -1 });
+
+      return res.json({
+        success: true,
+        data: progressRecords,
+        message: '✅ All progress loaded'
+      });
+    }
+    
+  } catch (error) {
+    console.error('❌ Error in user-progress general route:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error fetching progress',
+      details: error.message
+    });
+  }
+});
+
+// ========================================
+// 📚 MISSING HOMEWORK ROUTES
+// ========================================
+
+// ✅ GET /api/homeworks/user/:userId
+app.get('/api/homeworks/user/:userId', async (req, res) => {
+  console.log('📥 GET homeworks for user route hit:', req.params.userId);
+  
+  try {
+    const { userId } = req.params;
+    
+    // Try to import models
+    let HomeworkProgress, Homework, Lesson;
+    try {
+      HomeworkProgress = require('./models/homeworkProgress');
+      Homework = require('./models/homework');
+      Lesson = require('./models/lesson');
+    } catch (modelError) {
+      console.warn('⚠️ Some homework models not available:', modelError.message);
+      return res.json({
+        success: true,
+        data: [],
+        message: 'Homework models not available'
+      });
+    }
+    
+    // Get user progress
+    const userProgress = await HomeworkProgress.find({ userId })
+      .populate('lessonId', 'title lessonName subject homework')
+      .sort({ updatedAt: -1 });
+    
+    // Get standalone homework
+    const standaloneHomework = await Homework.find({ isActive: true });
+    
+    // Get lessons with homework
+    const lessonsWithHomework = await Lesson.find({ 
+      homework: { $exists: true, $ne: [], $not: { $size: 0 } } 
+    });
+    
+    const allHomeworks = [];
+    
+    // Add standalone homework
+    for (const hw of standaloneHomework) {
+      const userHwProgress = userProgress.find(up => 
+        up.homeworkId?.toString() === hw._id.toString() ||
+        up.metadata?.standaloneHomeworkId === hw._id.toString()
+      );
+      
+      allHomeworks.push({
+        _id: hw._id,
+        title: hw.title,
+        subject: hw.subject,
+        level: hw.level,
+        instructions: hw.instructions,
+        dueDate: hw.dueDate,
+        difficulty: hw.difficulty,
+        exercises: hw.exercises || [],
+        type: 'standalone',
+        completed: userHwProgress?.completed || false,
+        score: userHwProgress?.score || 0,
+        updatedAt: userHwProgress?.updatedAt || hw.updatedAt,
+        hasProgress: !!userHwProgress
+      });
+    }
+    
+    // Add lesson-based homework
+    for (const lesson of lessonsWithHomework) {
+      const userHwProgress = userProgress.find(up => up.lessonId?.toString() === lesson._id.toString());
+      
+      allHomeworks.push({
+        lessonId: lesson._id,
+        title: `Домашнее задание: ${lesson.lessonName || lesson.title}`,
+        lessonName: lesson.lessonName || lesson.title,
+        subject: lesson.subject,
+        level: lesson.level,
+        instructions: lesson.homeworkInstructions || '',
+        exercises: lesson.homework || [],
+        type: 'lesson',
+        completed: userHwProgress?.completed || false,
+        score: userHwProgress?.score || 0,
+        updatedAt: userHwProgress?.updatedAt || lesson.updatedAt,
+        hasProgress: !!userHwProgress
+      });
+    }
+    
+    // Sort by priority
+    allHomeworks.sort((a, b) => {
+      const getStatus = (hw) => {
+        if (!hw.hasProgress) return 'pending';
+        if (!hw.completed) return 'in-progress';
+        return 'completed';
+      };
+      
+      const statusPriority = { 'in-progress': 0, 'pending': 1, 'completed': 2 };
+      const aStatus = getStatus(a);
+      const bStatus = getStatus(b);
+      
+      if (statusPriority[aStatus] !== statusPriority[bStatus]) {
+        return statusPriority[aStatus] - statusPriority[bStatus];
+      }
+      
+      return new Date(b.updatedAt) - new Date(a.updatedAt);
+    });
+    
+    console.log(`✅ Returning ${allHomeworks.length} homework items`);
+    res.json({
+      success: true,
+      data: allHomeworks,
+      message: '✅ Homework list retrieved successfully'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error fetching user homeworks:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error fetching homework list',
+      details: error.message
+    });
+  }
+});
+
+// ✅ GET /api/homeworks/user/:userId/lesson/:lessonId
+app.get('/api/homeworks/user/:userId/lesson/:lessonId', async (req, res) => {
+  console.log('📥 GET homework by lesson route hit:', req.params);
+  
+  try {
+    const { userId, lessonId } = req.params;
+    
+    const Lesson = require('./models/lesson');
+    let HomeworkProgress;
+    try {
+      HomeworkProgress = require('./models/homeworkProgress');
+    } catch (modelError) {
+      console.warn('⚠️ HomeworkProgress model not available');
+    }
+    
+    // Get lesson
+    const lesson = await Lesson.findById(lessonId);
+    if (!lesson) {
+      return res.status(404).json({
+        success: false,
+        error: 'Lesson not found'
+      });
+    }
+    
+    if (!lesson.homework || !Array.isArray(lesson.homework) || lesson.homework.length === 0) {
+      return res.json({
+        success: false,
+        error: 'В этом уроке нет домашнего задания'
+      });
+    }
+    
+    // Try to get user progress
+    let userProgress = null;
+    if (HomeworkProgress) {
+      try {
+        userProgress = await HomeworkProgress.findOne({
+          userId: userId,
+          lessonId: lessonId
+        });
+      } catch (progressError) {
+        console.warn('⚠️ Could not fetch homework progress:', progressError.message);
+      }
+    }
+    
+    res.json({
+      success: true,
+      data: {
+        homework: userProgress,
+        questions: lesson.homework,
+        lessonInfo: {
+          id: lesson._id,
+          name: lesson.lessonName || lesson.title,
+          subject: lesson.subject,
+          instructions: lesson.homeworkInstructions || ''
+        }
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Error fetching homework by lesson:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error fetching lesson homework',
+      details: error.message
+    });
+  }
+});
+
+// ✅ GET /api/homeworks/user/:userId/homework/:homeworkId
+app.get('/api/homeworks/user/:userId/homework/:homeworkId', async (req, res) => {
+  console.log('📥 GET standalone homework route hit:', req.params);
+  
+  try {
+    const { userId, homeworkId } = req.params;
+    
+    let Homework, HomeworkProgress;
+    try {
+      Homework = require('./models/homework');
+      HomeworkProgress = require('./models/homeworkProgress');
+    } catch (modelError) {
+      console.warn('⚠️ Homework models not available:', modelError.message);
+      return res.status(404).json({
+        success: false,
+        error: 'Homework system not available'
+      });
+    }
+    
+    // Get homework
+    const homework = await Homework.findById(homeworkId);
+    if (!homework) {
+      return res.status(404).json({
+        success: false,
+        error: 'Homework not found'
+      });
+    }
+    
+    if (!homework.isActive) {
+      return res.status(403).json({
+        success: false,
+        error: 'Homework is not active'
+      });
+    }
+    
+    // Get user progress
+    let userProgress = null;
+    try {
+      userProgress = await HomeworkProgress.findOne({
+        userId: userId,
+        $or: [
+          { homeworkId: homeworkId },
+          { lessonId: homeworkId },
+          { 'metadata.standaloneHomeworkId': homeworkId }
+        ]
+      });
+    } catch (progressError) {
+      console.warn('⚠️ Could not fetch homework progress:', progressError.message);
+    }
+    
+    res.json({
+      success: true,
+      data: {
+        homework: homework,
+        userProgress: userProgress,
+        questions: homework.exercises || []
+      },
+      message: '✅ Homework retrieved successfully'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error fetching standalone homework:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error fetching homework',
+      details: error.message
+    });
+  }
+});
+
+// ========================================
+// 📝 MISSING TEST ROUTES
+// ========================================
+
+// ✅ GET /api/users/:userId/tests
+app.get('/api/users/:userId/tests', async (req, res) => {
+  console.log('📥 GET tests for user route hit:', req.params.userId);
+  
+  try {
+    const { userId } = req.params;
+    
+    let Test, TestResult;
+    try {
+      Test = require('./models/Test');
+      TestResult = require('./models/TestResult');
+    } catch (modelError) {
+      console.warn('⚠️ Test models not available:', modelError.message);
+      return res.json({
+        success: true,
+        tests: [],
+        message: 'Test models not available'
+      });
+    }
+    
+    const tests = await Test.find({ isActive: true }).select('-questions.correctAnswer -questions.explanation');
+    const userResults = await TestResult.find({ userId });
+    
+    const testsWithProgress = tests.map(test => {
+      const userResult = userResults.find(result => result.testId.toString() === test._id.toString());
+      
+      return {
+        ...test.toObject(),
+        userProgress: userResult ? {
+          completed: true,
+          score: userResult.score,
+          submittedAt: userResult.submittedAt,
+          canRetake: test.allowRetakes
+        } : {
+          completed: false,
+          canRetake: true
+        }
+      };
+    });
+    
+    console.log(`✅ Returning ${testsWithProgress.length} tests`);
+    res.json({
+      success: true,
+      tests: testsWithProgress,
+      message: '✅ Tests retrieved successfully'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error fetching user tests:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error fetching tests',
+      details: error.message
+    });
+  }
+});
+
+// ✅ GET /api/users/:userId/tests/:testId
+app.get('/api/users/:userId/tests/:testId', async (req, res) => {
+  console.log('📥 GET test by ID route hit:', req.params);
+  
+  try {
+    const { testId } = req.params;
+    
+    let Test;
+    try {
+      Test = require('./models/Test');
+    } catch (modelError) {
+      console.warn('⚠️ Test model not available:', modelError.message);
+      return res.status(404).json({
+        success: false,
+        error: 'Test system not available'
+      });
+    }
+    
+    const test = await Test.findById(testId).select('-questions.correctAnswer -questions.explanation');
+    
+    if (!test) {
+      return res.status(404).json({
+        success: false,
+        error: 'Test not found'
+      });
+    }
+    
+    if (!test.isActive) {
+      return res.status(403).json({
+        success: false,
+        error: 'Test is not active'
+      });
+    }
+    
+    // Randomize questions if enabled
+    if (test.randomizeQuestions && test.questions.length > 0) {
+      test.questions = test.questions.sort(() => Math.random() - 0.5);
+    }
+    
+    // Randomize options if enabled
+    if (test.randomizeOptions) {
+      test.questions.forEach(question => {
+        if (question.options && question.options.length > 0) {
+          question.options = question.options.sort(() => Math.random() - 0.5);
+        }
+      });
+    }
+    
+    console.log(`✅ Test ${testId} retrieved successfully`);
+    res.json({
+      success: true,
+      test: test,
+      message: '✅ Test retrieved successfully'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error fetching test:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error fetching test',
+      details: error.message
+    });
+  }
+});
+
+console.log('✅ Added missing user-progress and related routes:');
+console.log('   GET /api/user-progress/user/:userId/lesson/:lessonId');
+console.log('   POST /api/user-progress/user/:userId/lesson/:lessonId');
+console.log('   GET /api/user-progress');
+console.log('   GET /api/homeworks/user/:userId');
+console.log('   GET /api/homeworks/user/:userId/lesson/:lessonId');
+console.log('   GET /api/homeworks/user/:userId/homework/:homeworkId');
+console.log('   GET /api/users/:userId/tests');
+console.log('   GET /api/users/:userId/tests/:testId');
+console.log('   These routes should fix the 404 errors your frontend is experiencing.');
+
+// ========================================
+// 📊 ADD ROUTE DEBUGGING ENDPOINT
+// ========================================
+
+// ✅ Enhanced route debugging endpoint
+app.get('/api/debug/routes', (req, res) => {
+  const routes = [];
+  
+  function extractRoutes(stack, basePath = '') {
+    stack.forEach(layer => {
+      if (layer.route) {
+        const methods = Object.keys(layer.route.methods).join(', ').toUpperCase();
+        routes.push({
+          path: basePath + layer.route.path,
+          methods: methods,
+          source: 'direct'
+        });
+      } else if (layer.name === 'router' && layer.handle.stack) {
+        const newBasePath = basePath + (layer.regexp.source.replace(/\\/g, '').replace(/\^/g, '').replace(/\$/g, '').replace(/\?(?=\?)/g, '') || '');
+        extractRoutes(layer.handle.stack, newBasePath);
+      }
+    });
+  }
+  
+  // Extract all routes
+  app._router.stack.forEach(layer => {
+    if (layer.route) {
+      const methods = Object.keys(layer.route.methods).join(', ').toUpperCase();
+      routes.push({
+        path: layer.route.path,
+        methods: methods,
+        source: 'app'
+      });
+    } else if (layer.name === 'router' && layer.handle.stack) {
+      let basePath = '';
+      if (layer.regexp && layer.regexp.source) {
+        const regexSource = layer.regexp.source;
+        const match = regexSource.match(/\\\/([^\\]+)/);
+        if (match) {
+          basePath = '/' + match[1];
+        }
+      }
+      extractRoutes(layer.handle.stack, basePath);
+    }
+  });
+  
+  routes.sort((a, b) => a.path.localeCompare(b.path));
+  
+  // Group routes by prefix
+  const groupedRoutes = {};
+  routes.forEach(route => {
+    const prefix = route.path.split('/')[1] || 'root';
+    if (!groupedRoutes[prefix]) {
+      groupedRoutes[prefix] = [];
+    }
+    groupedRoutes[prefix].push(route);
+  });
+  
+  res.json({
+    server: 'api.aced.live',
+    timestamp: new Date().toISOString(),
+    totalRoutes: routes.length,
+    routeGroups: groupedRoutes,
+    allRoutes: routes,
+    
+    // Specifically check for the routes that were causing 404s
+    criticalRoutes: {
+      userProgressUserLesson: routes.find(r => r.path.includes('user-progress/user') && r.path.includes('lesson')),
+      userProgressMain: routes.find(r => r.path === '/api/user-progress'),
+      progressMain: routes.find(r => r.path === '/api/progress'),
+      homeworksUser: routes.find(r => r.path.includes('homeworks/user')),
+      usersTests: routes.find(r => r.path.includes('users') && r.path.includes('tests'))
+    },
+    
+    missingRoutes: {
+      'GET /api/user-progress/user/:userId/lesson/:lessonId': !routes.find(r => 
+        r.path.includes('user-progress/user') && r.path.includes('lesson') && r.methods.includes('GET')
+      ),
+      'POST /api/user-progress/user/:userId/lesson/:lessonId': !routes.find(r => 
+        r.path.includes('user-progress/user') && r.path.includes('lesson') && r.methods.includes('POST')
+      ),
+      'GET /api/homeworks/user/:userId': !routes.find(r => 
+        r.path.includes('homeworks/user') && r.methods.includes('GET')
+      )
+    }
+  });
+});
 // ========================================
 // 🚫 API ERROR HANDLERS
 // ========================================
