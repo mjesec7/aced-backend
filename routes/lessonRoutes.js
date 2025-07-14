@@ -3,10 +3,14 @@ const router = express.Router();
 const mongoose = require('mongoose');
 
 // Models with error handling
-let Lesson, Topic;
+let Lesson, Topic, UserProgress, Homework, HomeworkProgress, VocabularyProgress;
 try {
   Lesson = require('../models/lesson');
   Topic = require('../models/topic');
+  UserProgress = require('../models/userProgress');
+  Homework = require('../models/homework');
+  HomeworkProgress = require('../models/homeworkProgress');
+  VocabularyProgress = require('../models/vocabularyProgress');
   console.log('✅ Lesson models loaded successfully');
 } catch (modelError) {
   console.error('❌ Failed to load lesson models:', modelError.message);
@@ -28,6 +32,17 @@ try {
       res.status(500).json({ error: 'Auth middleware not available' });
     }
   };
+}
+
+// Import services with error handling
+let handleLessonCompletion, extractContentFromCompletedLessons;
+try {
+  const lessonCompletionService = require('../services/lessonCompletionService');
+  handleLessonCompletion = lessonCompletionService.handleLessonCompletion;
+  extractContentFromCompletedLessons = lessonCompletionService.extractContentFromCompletedLessons;
+  console.log('✅ Lesson completion service loaded successfully');
+} catch (serviceError) {
+  console.error('❌ Failed to load lesson completion service:', serviceError.message);
 }
 
 // Import controller functions with error handling
@@ -68,9 +83,153 @@ function validateObjectId(req, res, next) {
   next();
 }
 
-// ✅ ENHANCED: Fallback lesson creation with detailed error handling
-// ✅ REPLACE the enhancedFallbackAddLesson function in server.js with this improved version
+// ==========================================
+// 📚 LESSON COMPLETION ROUTES 
+// ==========================================
 
+// POST /api/lessons/:id/complete - Complete lesson and extract content
+router.post('/:id/complete', verifyToken, validateObjectId, async (req, res) => {
+  try {
+    const lessonId = req.params.id;
+    const { userId, progress, stars, score } = req.body;
+    
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'User ID is required'
+      });
+    }
+    
+    console.log(`🎓 Processing lesson completion: ${lessonId} for user ${userId}`);
+    
+    // Check if lesson completion service is available
+    if (!handleLessonCompletion) {
+      console.warn('⚠️ Lesson completion service not available, saving basic progress only');
+      
+      // Fallback: just save basic user progress
+      if (UserProgress) {
+        await UserProgress.findOneAndUpdate(
+          { userId, lessonId },
+          {
+            completed: true,
+            completedAt: new Date(),
+            stars: stars || 0,
+            score: score || 0,
+            finalProgress: progress
+          },
+          { upsert: true, new: true }
+        );
+      }
+      
+      return res.json({
+        success: true,
+        message: '🎉 Lesson completed successfully! (Basic mode)',
+        data: {
+          lessonCompleted: true,
+          userProgress: {
+            completed: true,
+            stars: stars || 0,
+            score: score || 0
+          },
+          extraction: {
+            vocabularyAdded: 0,
+            homeworkCreated: false,
+            message: 'Content extraction service not available'
+          }
+        }
+      });
+    }
+    
+    // Process lesson completion and extract content
+    const extractionResult = await handleLessonCompletion(userId, lessonId, progress);
+    
+    // Update user progress
+    if (UserProgress) {
+      await UserProgress.findOneAndUpdate(
+        { userId, lessonId },
+        {
+          completed: true,
+          completedAt: new Date(),
+          stars: stars || 0,
+          score: score || 0,
+          finalProgress: progress,
+          homeworkGenerated: extractionResult.homeworkCreated,
+          vocabularyExtracted: extractionResult.vocabularyAdded
+        },
+        { upsert: true, new: true }
+      );
+    }
+    
+    res.json({
+      success: true,
+      message: '🎉 Lesson completed successfully!',
+      data: {
+        lessonCompleted: true,
+        userProgress: {
+          completed: true,
+          stars: stars || 0,
+          score: score || 0
+        },
+        extraction: extractionResult
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Error completing lesson:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to complete lesson',
+      details: error.message
+    });
+  }
+});
+
+// POST /api/lessons/migrate-content/:userId - Migrate content from completed lessons
+router.post('/migrate-content/:userId', verifyToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { lessonIds } = req.body; // Optional: specific lessons
+    
+    // Verify user access
+    if (req.user?.uid !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied: user mismatch'
+      });
+    }
+    
+    console.log(`🔄 Migrating content for user ${userId}`);
+    
+    // Check if extraction service is available
+    if (!extractContentFromCompletedLessons) {
+      return res.status(503).json({
+        success: false,
+        error: 'Content extraction service not available'
+      });
+    }
+    
+    // Call the extraction service
+    const mockReq = { params: { userId }, body: { lessonIds } };
+    const mockRes = {
+      json: (data) => data,
+      status: (code) => ({ json: (data) => ({ ...data, statusCode: code }) })
+    };
+    
+    const result = await extractContentFromCompletedLessons(mockReq, mockRes);
+    
+    res.json(result);
+    
+  } catch (error) {
+    console.error('❌ Error migrating lesson content:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to migrate lesson content',
+      details: error.message
+    });
+  }
+});
+
+// ✅ ENHANCED: Fallback lesson creation with detailed error handling
 const enhancedFallbackAddLesson = async (req, res) => {
   console.log('\n🚀 ENHANCED FALLBACK: Starting lesson creation process...');
   
@@ -561,6 +720,8 @@ router.get('/test', (req, res) => {
       'POST /api/lessons/debug - Debug endpoint', 
       'GET /api/lessons - Get all lessons',
       'POST /api/lessons - Create lesson',
+      'POST /api/lessons/:id/complete - Complete lesson and extract content',
+      'POST /api/lessons/migrate-content/:userId - Migrate content from completed lessons',
       'GET /api/lessons/:id - Get specific lesson',
       'PUT /api/lessons/:id - Update lesson',
       'DELETE /api/lessons/:id - Delete lesson'

@@ -1,8 +1,13 @@
-// lessonController.js - COMPLETE FIXED VERSION
+// controllers/lessonController.js - COMPLETE ENHANCED VERSION WITH AUTO-EXTRACTION
 // =============================================
 
 const Lesson = require('../models/lesson');
 const Topic = require('../models/topic');
+const Homework = require('../models/homework');
+const Vocabulary = require('../models/vocabulary');
+const HomeworkProgress = require('../models/homeworkProgress');
+const VocabularyProgress = require('../models/vocabularyProgress');
+const UserProgress = require('../models/userProgress');
 const mongoose = require('mongoose');
 
 // ✅ Enhanced lesson creation with topic-centric approach
@@ -189,6 +194,527 @@ exports.addLesson = async (req, res) => {
     res.status(500).json({ 
       error: '❌ Internal server error',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Please try again'
+    });
+  }
+};
+
+// ✅ NEW: Complete lesson and extract content
+exports.completeLesson = async (req, res) => {
+  try {
+    const lessonId = req.params.id;
+    const { userId, progress, stars, score, timeSpent } = req.body;
+    
+    if (!lessonId || !mongoose.Types.ObjectId.isValid(lessonId)) {
+      return res.status(400).json({ 
+        success: false,
+        error: '❌ Invalid lesson ID' 
+      });
+    }
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: '❌ User ID is required'
+      });
+    }
+
+    console.log(`🎓 Processing lesson completion: ${lessonId} for user ${userId}`);
+    
+    // Get the lesson
+    const lesson = await Lesson.findById(lessonId);
+    if (!lesson) {
+      return res.status(404).json({
+        success: false,
+        error: '❌ Lesson not found'
+      });
+    }
+
+    // Check if lesson was actually completed (not just partial progress)
+    const completionThreshold = 80; // 80% completion required
+    const currentStep = progress?.currentStep || 0;
+    const totalSteps = lesson.steps.length;
+    const completionPercentage = totalSteps > 0 ? (currentStep / totalSteps) * 100 : 0;
+    
+    if (completionPercentage < completionThreshold) {
+      console.log(`⚠️ Lesson completion insufficient: ${completionPercentage}%`);
+      return res.status(400).json({
+        success: false,
+        error: `❌ Lesson not sufficiently completed (${Math.round(completionPercentage)}%). Minimum 80% required.`
+      });
+    }
+
+    // Process lesson completion and extract content
+    const extractionResult = await handleLessonCompletion(userId, lessonId, progress, lesson);
+    
+    // Update user progress
+    const userProgress = await UserProgress.findOneAndUpdate(
+      { userId, lessonId },
+      {
+        completed: true,
+        completedAt: new Date(),
+        stars: stars || 0,
+        score: score || 0,
+        timeSpent: timeSpent || 0,
+        finalProgress: progress,
+        homeworkGenerated: extractionResult.homeworkCreated,
+        vocabularyExtracted: extractionResult.vocabularyAdded,
+        extractionResults: extractionResult
+      },
+      { upsert: true, new: true }
+    );
+
+    // Update lesson completion stats
+    await Lesson.findByIdAndUpdate(lessonId, {
+      $inc: { 
+        'stats.viewCount': 1,
+        'stats.totalRatings': 1 
+      },
+      $set: {
+        'stats.averageRating': stars || 0 // Simplified - you can make this more sophisticated
+      }
+    });
+    
+    console.log(`🎉 Lesson completion processed successfully for user ${userId}`);
+    
+    res.json({
+      success: true,
+      message: '🎉 Lesson completed successfully!',
+      data: {
+        lessonCompleted: true,
+        userProgress: {
+          completed: true,
+          stars: stars || 0,
+          score: score || 0,
+          completedAt: userProgress.completedAt
+        },
+        extraction: extractionResult,
+        lesson: {
+          id: lesson._id,
+          name: lesson.lessonName,
+          subject: lesson.subject,
+          topic: lesson.topic
+        }
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Error completing lesson:', error);
+    res.status(500).json({
+      success: false,
+      error: '❌ Failed to complete lesson',
+      details: process.env.NODE_ENV === 'development' ? error.message : 'Please try again'
+    });
+  }
+};
+
+// ✅ NEW: Handle lesson completion and extract content
+const handleLessonCompletion = async (userId, lessonId, lessonProgress, lesson = null) => {
+  try {
+    console.log(`🎓 Processing lesson completion for user ${userId}, lesson ${lessonId}`);
+    
+    // Get the completed lesson if not provided
+    if (!lesson) {
+      lesson = await Lesson.findById(lessonId);
+      if (!lesson) {
+        throw new Error('Lesson not found');
+      }
+    }
+
+    const results = {
+      homeworkCreated: false,
+      vocabularyAdded: false,
+      homeworkId: null,
+      vocabularyCount: 0,
+      message: ''
+    };
+
+    // 🔥 EXTRACT AND CREATE HOMEWORK
+    const homeworkExercises = await extractHomeworkFromLesson(lesson);
+    
+    if (homeworkExercises.length > 0) {
+      console.log(`📝 Found ${homeworkExercises.length} homework exercises in lesson`);
+      
+      // Check if homework already exists for this lesson
+      const existingHomework = await Homework.findOne({
+        linkedLessonIds: lessonId,
+        title: `Homework: ${lesson.lessonName}`
+      });
+
+      let homeworkId;
+      
+      if (!existingHomework) {
+        // Create new standalone homework
+        const homework = new Homework({
+          title: `Homework: ${lesson.lessonName}`,
+          subject: lesson.subject || 'General',
+          level: getDifficultyFromLevel(lesson.level),
+          description: `Homework exercises extracted from lesson: ${lesson.lessonName}`,
+          instructions: `Complete these exercises based on what you learned in "${lesson.lessonName}"`,
+          
+          // Map lesson exercises to homework format
+          exercises: homeworkExercises,
+          
+          linkedLessonIds: [lessonId],
+          
+          // Settings
+          isActive: true,
+          allowRetakes: true,
+          showResults: true,
+          showCorrectAnswers: true,
+          
+          // Auto-calculated
+          totalPoints: homeworkExercises.reduce((sum, ex) => sum + (ex.points || 1), 0),
+          estimatedDuration: Math.max(10, homeworkExercises.length * 2), // 2 min per exercise
+          difficulty: lesson.metadata?.difficulty === 'advanced' ? 5 : 
+                     lesson.metadata?.difficulty === 'intermediate' ? 3 : 1,
+          
+          category: lesson.topic || 'General',
+          tags: [lesson.subject, lesson.topic, 'auto-generated'].filter(Boolean),
+          
+          createdBy: 'system',
+          createdAt: new Date(),
+          updatedAt: new Date()
+        });
+
+        await homework.save();
+        homeworkId = homework._id;
+        results.homeworkCreated = true;
+        results.homeworkId = homeworkId;
+        
+        console.log(`✅ Created homework: "${homework.title}" with ${homeworkExercises.length} exercises`);
+      } else {
+        homeworkId = existingHomework._id;
+        console.log(`ℹ️ Using existing homework: "${existingHomework.title}"`);
+      }
+
+      // Create user's homework progress entry (empty, ready to start)
+      await HomeworkProgress.findOneAndUpdate(
+        { userId, homeworkId },
+        {
+          userId,
+          homeworkId,
+          lessonId: null, // This is a standalone homework, not lesson-based
+          answers: [], // Empty - user hasn't started yet
+          completed: false,
+          metadata: {
+            type: 'standalone',
+            autoGenerated: true,
+            sourceLesson: {
+              id: lessonId,
+              name: lesson.lessonName,
+              completedAt: new Date()
+            }
+          },
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        { upsert: true, new: true }
+      );
+    }
+
+    // 🔥 EXTRACT AND ADD VOCABULARY
+    const vocabularyWords = await extractVocabularyFromLesson(lesson, userId);
+    
+    if (vocabularyWords.length > 0) {
+      console.log(`📚 Found ${vocabularyWords.length} vocabulary words in lesson`);
+      
+      // Add to user's vocabulary collection
+      for (const vocabData of vocabularyWords) {
+        // Check if word already exists
+        const existingVocab = await Vocabulary.findOne({
+          word: vocabData.word.toLowerCase(),
+          language: vocabData.language,
+          translationLanguage: 'russian'
+        });
+
+        let vocabularyId;
+        
+        if (!existingVocab) {
+          // Create new vocabulary word
+          const vocabulary = new Vocabulary(vocabData);
+          await vocabulary.save();
+          vocabularyId = vocabulary._id;
+          console.log(`✅ Added vocabulary word: "${vocabulary.word}"`);
+        } else {
+          vocabularyId = existingVocab._id;
+          console.log(`ℹ️ Using existing vocabulary word: "${existingVocab.word}"`);
+        }
+
+        // Create/update user's vocabulary progress
+        await VocabularyProgress.findOneAndUpdate(
+          { userId, vocabularyId },
+          {
+            userId,
+            vocabularyId,
+            status: 'new', // User just learned this word
+            firstSeen: new Date(),
+            metadata: {
+              sourceLesson: {
+                id: lessonId,
+                name: lesson.lessonName,
+                completedAt: new Date()
+              }
+            },
+            createdAt: new Date(),
+            updatedAt: new Date()
+          },
+          { upsert: true, new: true }
+        );
+
+        results.vocabularyCount++;
+      }
+      
+      results.vocabularyAdded = true;
+    }
+
+    // Create success message
+    let message = 'Lesson completed successfully!';
+    if (results.homeworkCreated) {
+      message += ' Homework assignment created.';
+    }
+    if (results.vocabularyAdded) {
+      message += ` ${results.vocabularyCount} words added to vocabulary.`;
+    }
+    results.message = message;
+
+    console.log(`🎉 Lesson completion processed successfully:`, results);
+    
+    return results;
+
+  } catch (error) {
+    console.error('❌ Error processing lesson completion:', error);
+    return {
+      success: false,
+      error: error.message,
+      homeworkCreated: false,
+      vocabularyAdded: false,
+      homeworkId: null,
+      vocabularyCount: 0
+    };
+  }
+};
+
+// ✅ Extract homework exercises from lesson steps
+const extractHomeworkFromLesson = async (lesson) => {
+  const homeworkExercises = [];
+  
+  lesson.steps.forEach((step, stepIndex) => {
+    if (step.type === 'exercise' && Array.isArray(step.data)) {
+      step.data.forEach((exercise, exerciseIndex) => {
+        // Only include exercises marked for homework
+        if (exercise.includeInHomework) {
+          const homeworkExercise = {
+            _id: `ex_${lesson._id}_${stepIndex}_${exerciseIndex}_${Date.now()}`,
+            type: exercise.type || 'multiple-choice',
+            question: exercise.question,
+            instruction: exercise.instruction || `From lesson: ${lesson.lessonName}`,
+            correctAnswer: exercise.correctAnswer || exercise.answer,
+            points: exercise.points || 1,
+            difficulty: lesson.metadata?.difficulty === 'advanced' ? 5 : 
+                       lesson.metadata?.difficulty === 'intermediate' ? 3 : 1,
+            category: lesson.topic || 'General',
+            tags: ['auto-generated', lesson.subject, lesson.topic].filter(Boolean),
+            explanation: exercise.explanation || `This exercise is from the lesson: ${lesson.lessonName}`,
+            
+            // Type-specific fields
+            options: exercise.options || [],
+            template: exercise.template || '',
+            blanks: exercise.blanks || [],
+            pairs: exercise.pairs || [],
+            items: exercise.items || [],
+            statement: exercise.statement || exercise.question,
+            dragItems: exercise.dragItems || [],
+            dropZones: exercise.dropZones || []
+          };
+          
+          homeworkExercises.push(homeworkExercise);
+        }
+      });
+    }
+    
+    // Also include quiz questions as homework exercises
+    if (step.type === 'quiz' && Array.isArray(step.data)) {
+      step.data.forEach((quiz, quizIndex) => {
+        const homeworkExercise = {
+          _id: `quiz_${lesson._id}_${stepIndex}_${quizIndex}_${Date.now()}`,
+          type: quiz.type || 'multiple-choice',
+          question: quiz.question,
+          instruction: `Quiz question from lesson: ${lesson.lessonName}`,
+          correctAnswer: quiz.correctAnswer,
+          points: 1,
+          difficulty: lesson.metadata?.difficulty === 'advanced' ? 5 : 
+                     lesson.metadata?.difficulty === 'intermediate' ? 3 : 1,
+          category: lesson.topic || 'General',
+          tags: ['auto-generated', 'quiz', lesson.subject].filter(Boolean),
+          explanation: quiz.explanation || `This quiz question is from: ${lesson.lessonName}`,
+          
+          options: quiz.options || []
+        };
+        
+        homeworkExercises.push(homeworkExercise);
+      });
+    }
+  });
+  
+  return homeworkExercises;
+};
+
+// ✅ Extract vocabulary words from lesson steps
+const extractVocabularyFromLesson = async (lesson, userId) => {
+  const vocabularyWords = [];
+  
+  lesson.steps.forEach((step, stepIndex) => {
+    if (step.type === 'vocabulary' && Array.isArray(step.data)) {
+      step.data.forEach((vocabItem, vocabIndex) => {
+        if (vocabItem.term && vocabItem.definition) {
+          const vocabularyWord = {
+            word: vocabItem.term.trim(),
+            translation: vocabItem.definition.trim(),
+            pronunciation: vocabItem.pronunciation || '',
+            
+            // Language detection (you can enhance this)
+            language: detectLanguage(lesson.subject) || 'english',
+            translationLanguage: 'russian',
+            
+            // Organization
+            subject: lesson.subject,
+            topic: lesson.topic || 'General',
+            subtopic: lesson.lessonName,
+            
+            // Word details
+            partOfSpeech: detectPartOfSpeech(vocabItem.term) || 'noun',
+            difficulty: lesson.metadata?.difficulty || 'beginner',
+            
+            // Additional info
+            definition: vocabItem.definition,
+            examples: vocabItem.example ? [{
+              sentence: vocabItem.example,
+              translation: `Пример использования: ${vocabItem.term}`
+            }] : [],
+            
+            // Metadata
+            frequency: 1,
+            importance: lesson.metadata?.difficulty === 'advanced' ? 5 : 
+                       lesson.metadata?.difficulty === 'intermediate' ? 3 : 1,
+            
+            isActive: true,
+            createdBy: userId,
+            tags: ['auto-generated', lesson.subject, lesson.topic].filter(Boolean),
+            
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+          
+          vocabularyWords.push(vocabularyWord);
+        }
+      });
+    }
+  });
+  
+  return vocabularyWords;
+};
+
+// ✅ NEW: Migrate content from completed lessons
+exports.migrateContentFromCompletedLessons = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { lessonIds } = req.body; // Optional: specific lessons
+    
+    // Verify user access
+    if (req.user?.uid !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied: user mismatch'
+      });
+    }
+    
+    let completedLessons;
+    
+    if (lessonIds && Array.isArray(lessonIds)) {
+      // Extract from specific lessons
+      completedLessons = await UserProgress.find({
+        userId,
+        lessonId: { $in: lessonIds },
+        completed: true
+      }).populate('lessonId');
+    } else {
+      // Extract from all completed lessons that haven't been processed
+      completedLessons = await UserProgress.find({
+        userId,
+        completed: true,
+        $or: [
+          { homeworkGenerated: { $ne: true } },
+          { vocabularyExtracted: { $ne: true } },
+          { extractionResults: { $exists: false } }
+        ]
+      }).populate('lessonId');
+    }
+    
+    console.log(`🔄 Processing ${completedLessons.length} completed lessons for content extraction`);
+    
+    const results = {
+      processedLessons: 0,
+      homeworkCreated: 0,
+      vocabularyAdded: 0,
+      totalVocabularyWords: 0,
+      errors: [],
+      processedLessonDetails: []
+    };
+    
+    for (const progress of completedLessons) {
+      if (!progress.lessonId) continue;
+      
+      try {
+        const extractionResult = await handleLessonCompletion(
+          userId, 
+          progress.lessonId._id, 
+          progress,
+          progress.lessonId
+        );
+        
+        if (extractionResult.homeworkCreated || extractionResult.vocabularyAdded) {
+          results.processedLessons++;
+          if (extractionResult.homeworkCreated) results.homeworkCreated++;
+          if (extractionResult.vocabularyAdded) {
+            results.vocabularyAdded++;
+            results.totalVocabularyWords += extractionResult.vocabularyCount;
+          }
+          
+          results.processedLessonDetails.push({
+            lessonId: progress.lessonId._id,
+            lessonName: progress.lessonId.lessonName,
+            homeworkCreated: extractionResult.homeworkCreated,
+            vocabularyWords: extractionResult.vocabularyCount
+          });
+
+          // Update the user progress to mark as processed
+          await UserProgress.findByIdAndUpdate(progress._id, {
+            homeworkGenerated: extractionResult.homeworkCreated,
+            vocabularyExtracted: extractionResult.vocabularyAdded,
+            extractionResults: extractionResult
+          });
+        }
+      } catch (error) {
+        results.errors.push({
+          lessonId: progress.lessonId._id,
+          lessonName: progress.lessonId.lessonName,
+          error: error.message
+        });
+      }
+    }
+    
+    res.json({
+      success: true,
+      data: results,
+      message: `✅ Processed ${results.processedLessons} lessons. Created ${results.homeworkCreated} homework assignments and added ${results.totalVocabularyWords} vocabulary words.`
+    });
+    
+  } catch (error) {
+    console.error('❌ Error migrating content from completed lessons:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to migrate content from completed lessons',
+      details: error.message
     });
   }
 };
@@ -456,11 +982,7 @@ exports.deleteLesson = async (req, res) => {
   }
 };
 
-// ✅ CRITICAL FIXES for processLessonSteps - COMPLETE REWRITE
-
-/**
- * ✅ ENHANCED: Process lesson steps with comprehensive validation and debugging
- */
+// ✅ HELPER FUNCTIONS
 async function processLessonSteps(steps) {
   if (!Array.isArray(steps)) {
     console.warn('⚠️ processLessonSteps: Steps is not an array:', typeof steps);
@@ -479,14 +1001,6 @@ async function processLessonSteps(steps) {
   
   for (let index = 0; index < steps.length; index++) {
     const step = steps[index];
-    
-    console.log(`\n📝 Processing step ${index + 1}/${steps.length}:`, {
-      type: step.type,
-      hasData: !!step.data,
-      dataType: typeof step.data,
-      isDataArray: Array.isArray(step.data),
-      dataKeys: step.data ? Object.keys(step.data) : []
-    });
     
     try {
       const stepType = step.type || 'explanation';
@@ -549,14 +1063,6 @@ async function processLessonSteps(steps) {
       
       processedSteps.push(finalStep);
       
-      console.log(`✅ Step ${index + 1} processed successfully:`, {
-        type: finalStep.type,
-        dataType: typeof finalStep.data,
-        isArray: Array.isArray(finalStep.data),
-        arrayLength: Array.isArray(finalStep.data) ? finalStep.data.length : 'N/A',
-        hasRequiredFields: validateStepOutput(finalStep)
-      });
-      
     } catch (stepError) {
       console.error(`❌ Error processing step ${index + 1}:`, stepError);
       
@@ -576,9 +1082,6 @@ async function processLessonSteps(steps) {
   return processedSteps;
 }
 
-/**
- * ✅ Process content steps (explanation, example, reading)
- */
 async function processContentStep(step, index) {
   let content = '';
   
@@ -603,12 +1106,6 @@ async function processContentStep(step, index) {
   };
 }
 
-/**
- * ✅ CRITICAL: Process exercise steps with comprehensive validation
- */
-/**
- * ✅ CRITICAL: Process exercise steps with flexible, type-aware validation
- */
 async function processExerciseStep(step, index) {
   console.log(`📝 Processing exercise step ${index + 1}...`);
 
@@ -616,21 +1113,14 @@ async function processExerciseStep(step, index) {
 
   if (step.exercises && Array.isArray(step.exercises)) {
     exercises = step.exercises;
-    console.log(`  Found exercises in step.exercises: ${exercises.length}`);
   } else if (Array.isArray(step.data)) {
     exercises = step.data;
-    console.log(`  Found exercises in step.data array: ${exercises.length}`);
   } else if (step.data && Array.isArray(step.data.exercises)) {
     exercises = step.data.exercises;
-    console.log(`  Found exercises in step.data.exercises: ${exercises.length}`);
   } else if (step.data && step.data.question) {
     exercises = [step.data];
-    console.log(`  Found single exercise in step.data`);
   } else if (step.question) {
     exercises = [step];
-    console.log(`  Found single exercise directly on step`);
-  } else {
-    console.warn(`⚠️ No exercise data found in step ${index + 1}`);
   }
 
   const validatedExercises = [];
@@ -641,7 +1131,7 @@ async function processExerciseStep(step, index) {
     const hasQuestion = exercise.question && String(exercise.question).trim();
     const hasAnswer = exercise.answer || exercise.correctAnswer;
 
-    // ✅ Type-aware field validation
+    // Type-aware field validation
     const validByType = (() => {
       switch (exType) {
         case 'drag-drop':
@@ -657,13 +1147,7 @@ async function processExerciseStep(step, index) {
       }
     })();
 
-    if (!hasQuestion) {
-      console.error(`❌ Exercise ${exIndex + 1} in step ${index + 1}: Missing question`);
-      continue;
-    }
-
-    if (!validByType) {
-      console.error(`❌ Exercise ${exIndex + 1} in step ${index + 1}: Required fields missing for type "${exType}"`);
+    if (!hasQuestion || !validByType) {
       continue;
     }
 
@@ -680,7 +1164,7 @@ async function processExerciseStep(step, index) {
       explanation: String(exercise.explanation || '').trim()
     };
 
-    // ✅ Add type-specific fields
+    // Add type-specific fields
     switch (exType) {
       case 'abc':
       case 'multiple-choice':
@@ -717,10 +1201,8 @@ async function processExerciseStep(step, index) {
     }
 
     validatedExercises.push(validatedExercise);
-    console.log(`  ✅ Exercise ${exIndex + 1} validated successfully`);
   }
 
-  // Fallback default if no valid exercises
   if (validatedExercises.length === 0) {
     console.warn(`⚠️ No valid exercises found in step ${index + 1}, adding default placeholder`);
     validatedExercises.push({
@@ -737,79 +1219,39 @@ async function processExerciseStep(step, index) {
     });
   }
 
-  console.log(`✅ Exercise step ${index + 1} processed: ${validatedExercises.length} exercises`);
   return validatedExercises;
 }
 
-
-/**
- * ✅ CRITICAL: Process quiz steps with comprehensive validation
- */
 async function processQuizStep(step, index) {
   console.log(`🧩 Processing quiz step ${index + 1}...`);
-  console.log(`📊 Step data structure:`, {
-    hasData: !!step.data,
-    dataType: typeof step.data,
-    isArray: Array.isArray(step.data),
-    dataKeys: step.data ? Object.keys(step.data) : [],
-    hasQuizzes: !!(step.quizzes),
-    hasQuestion: !!(step.question)
-  });
   
   let quizzes = [];
   
-  // ✅ CRITICAL: Handle multiple data structures
   if (step.quizzes && Array.isArray(step.quizzes)) {
     quizzes = step.quizzes;
-    console.log(`  Found quizzes in step.quizzes: ${quizzes.length}`);
   } else if (Array.isArray(step.data)) {
     quizzes = step.data;
-    console.log(`  Found quizzes in step.data array: ${quizzes.length}`);
   } else if (step.data && Array.isArray(step.data.quizzes)) {
     quizzes = step.data.quizzes;
-    console.log(`  Found quizzes in step.data.quizzes: ${quizzes.length}`);
   } else if (step.data && step.data.question) {
-    // Single quiz object
     quizzes = [step.data];
-    console.log(`  Found single quiz in step.data`);
   } else if (step.question) {
-    // Quiz directly on step
     quizzes = [step];
-    console.log(`  Found single quiz directly on step`);
-  } else {
-    console.warn(`⚠️ No quiz data found in step ${index + 1}`);
   }
   
-  // ✅ CRITICAL: Validate and process each quiz
   const validatedQuizzes = [];
   
   for (let qIndex = 0; qIndex < quizzes.length; qIndex++) {
     const quiz = quizzes[qIndex];
     
-    console.log(`  🔍 Validating quiz ${qIndex + 1}:`, {
-      hasQuestion: !!quiz.question,
-      questionType: typeof quiz.question,
-      hasCorrectAnswer: quiz.correctAnswer !== undefined,
-      correctAnswerType: typeof quiz.correctAnswer,
-      type: quiz.type || 'multiple-choice',
-      hasOptions: !!(quiz.options),
-      optionsCount: Array.isArray(quiz.options) ? quiz.options.length : 0
-    });
-    
-    // ✅ CRITICAL: Validate required fields
     if (!quiz.question || !String(quiz.question).trim()) {
-      console.error(`❌ Quiz ${qIndex + 1} in step ${index + 1}: Missing or empty question`);
-      console.error(`   Quiz object:`, quiz);
       continue;
     }
     
     if (quiz.correctAnswer === undefined || quiz.correctAnswer === null) {
-      console.error(`❌ Quiz ${qIndex + 1} in step ${index + 1}: Missing correct answer`);
-      console.error(`   Quiz object:`, quiz);
       continue;
     }
     
-    // ✅ Create validated quiz object with all required fields
     const validatedQuiz = {
       id: quiz.id || `quiz_${index}_${qIndex}`,
       question: String(quiz.question).trim(),
@@ -819,7 +1261,6 @@ async function processQuizStep(step, index) {
       points: Number(quiz.points) || 1
     };
     
-    // ✅ CRITICAL: Process options based on quiz type
     if (validatedQuiz.type === 'multiple-choice') {
       if (Array.isArray(quiz.options) && quiz.options.length > 0) {
         validatedQuiz.options = quiz.options.map(opt => {
@@ -833,7 +1274,6 @@ async function processQuizStep(step, index) {
         }).filter(opt => opt.text && opt.text.trim());
         
         if (validatedQuiz.options.length === 0) {
-          console.warn(`⚠️ Multiple choice quiz has no valid options, adding defaults`);
           validatedQuiz.options = [
             { text: 'Option A', value: 'A' },
             { text: 'Option B', value: 'B' },
@@ -841,7 +1281,6 @@ async function processQuizStep(step, index) {
           ];
         }
       } else {
-        console.warn(`⚠️ Multiple choice quiz missing options, adding defaults`);
         validatedQuiz.options = [
           { text: 'Option A', value: 'A' },
           { text: 'Option B', value: 'B' },
@@ -849,14 +1288,11 @@ async function processQuizStep(step, index) {
         ];
       }
       
-      // ✅ CRITICAL: Validate correct answer index
       if (typeof validatedQuiz.correctAnswer === 'number') {
         if (validatedQuiz.correctAnswer >= validatedQuiz.options.length || validatedQuiz.correctAnswer < 0) {
-          console.warn(`⚠️ Correct answer index ${validatedQuiz.correctAnswer} out of bounds, defaulting to 0`);
           validatedQuiz.correctAnswer = 0;
         }
       } else if (typeof validatedQuiz.correctAnswer === 'string') {
-        // Find the index of the correct answer in options
         const answerIndex = validatedQuiz.options.findIndex(opt => 
           opt.text.toLowerCase().trim() === validatedQuiz.correctAnswer.toLowerCase().trim() ||
           opt.value.toLowerCase().trim() === validatedQuiz.correctAnswer.toLowerCase().trim()
@@ -864,7 +1300,6 @@ async function processQuizStep(step, index) {
         if (answerIndex >= 0) {
           validatedQuiz.correctAnswer = answerIndex;
         } else {
-          console.warn(`⚠️ Correct answer "${validatedQuiz.correctAnswer}" not found in options`);
           validatedQuiz.correctAnswer = 0;
         }
       }
@@ -874,24 +1309,19 @@ async function processQuizStep(step, index) {
         { text: 'False', value: false }
       ];
       
-      // ✅ CRITICAL: Ensure correct answer is boolean or 0/1
       if (typeof validatedQuiz.correctAnswer === 'string') {
         validatedQuiz.correctAnswer = validatedQuiz.correctAnswer.toLowerCase() === 'true' ? 0 : 1;
       } else if (typeof validatedQuiz.correctAnswer === 'boolean') {
         validatedQuiz.correctAnswer = validatedQuiz.correctAnswer ? 0 : 1;
       } else if (typeof validatedQuiz.correctAnswer === 'number') {
-        // Keep as is but ensure it's 0 or 1
         validatedQuiz.correctAnswer = validatedQuiz.correctAnswer ? 0 : 1;
       }
     }
     
     validatedQuizzes.push(validatedQuiz);
-    console.log(`  ✅ Quiz ${qIndex + 1} validated successfully`);
   }
   
-  // ✅ CRITICAL: Ensure we have at least one quiz
   if (validatedQuizzes.length === 0) {
-    console.error(`❌ No valid quiz questions in step ${index + 1}, creating default quiz`);
     validatedQuizzes.push({
       id: `default_quiz_${index}`,
       question: "Sample quiz question - please update this content?",
@@ -907,20 +1337,9 @@ async function processQuizStep(step, index) {
     });
   }
   
-  console.log(`✅ Quiz step ${index + 1} processed: ${validatedQuizzes.length} quiz questions`);
-  console.log(`📋 Final quiz structure:`, validatedQuizzes.map(quiz => ({
-    question: quiz.question.substring(0, 50) + '...',
-    type: quiz.type,
-    correctAnswer: quiz.correctAnswer,
-    optionsCount: quiz.options ? quiz.options.length : 0
-  })));
-  
   return validatedQuizzes;
 }
 
-/**
- * ✅ Process vocabulary steps
- */
 async function processVocabularyStep(step, index) {
   console.log(`📚 Processing vocabulary step ${index + 1}...`);
   
@@ -954,14 +1373,9 @@ async function processVocabularyStep(step, index) {
     });
   }
   
-  console.log(`✅ Vocabulary step ${index + 1} processed: ${validatedVocabulary.length} items`);
-  
   return validatedVocabulary;
 }
 
-/**
- * ✅ Process practice steps
- */
 async function processPracticeStep(step, index) {
   let instructions = '';
   let practiceType = 'guided';
@@ -979,7 +1393,6 @@ async function processPracticeStep(step, index) {
   }
   
   if (!instructions.trim()) {
-    console.warn(`⚠️ Practice step ${index + 1} missing instructions, using default`);
     instructions = "Practice instructions not provided.";
   }
   
@@ -989,9 +1402,6 @@ async function processPracticeStep(step, index) {
   };
 }
 
-/**
- * ✅ Process media steps (video, audio)
- */
 async function processMediaStep(step, index) {
   let url = '';
   let description = '';
@@ -1009,7 +1419,6 @@ async function processMediaStep(step, index) {
   }
   
   if (!url.trim()) {
-    console.warn(`⚠️ ${step.type} step ${index + 1} missing URL, using placeholder`);
     url = "https://example.com/media-placeholder";
   }
   
@@ -1019,9 +1428,6 @@ async function processMediaStep(step, index) {
   };
 }
 
-/**
- * ✅ Process writing steps
- */
 async function processWritingStep(step, index) {
   let prompt = '';
   let wordLimit = 100;
@@ -1039,7 +1445,6 @@ async function processWritingStep(step, index) {
   }
   
   if (!prompt.trim()) {
-    console.warn(`⚠️ Writing step ${index + 1} missing prompt, using default`);
     prompt = "Writing prompt not provided.";
   }
   
@@ -1049,35 +1454,6 @@ async function processWritingStep(step, index) {
   };
 }
 
-/**
- * ✅ Validate step output
- */
-function validateStepOutput(step) {
-  if (!step || !step.type || !step.data) {
-    return false;
-  }
-  
-  switch (step.type) {
-    case 'exercise':
-      return Array.isArray(step.data) && step.data.length > 0 && 
-             step.data.every(ex => ex.question && ex.correctAnswer);
-             
-    case 'quiz':
-      return Array.isArray(step.data) && step.data.length > 0 && 
-             step.data.every(quiz => quiz.question && quiz.correctAnswer !== undefined);
-             
-    case 'vocabulary':
-      return Array.isArray(step.data) && step.data.length > 0 && 
-             step.data.every(vocab => vocab.term && vocab.definition);
-             
-    default:
-      return true;
-  }
-}
-
-/**
- * Process homework from lesson steps
- */
 function processHomeworkFromSteps(steps, createHomework) {
   const exercises = [];
   const quizzes = [];
@@ -1089,7 +1465,6 @@ function processHomeworkFromSteps(steps, createHomework) {
   steps.forEach((step, stepIndex) => {
     try {
       if (step.type === 'exercise') {
-        // ✅ Handle multiple possible data structures
         let exerciseData = [];
         
         if (step.exercises && Array.isArray(step.exercises)) {
@@ -1116,7 +1491,6 @@ function processHomeworkFromSteps(steps, createHomework) {
               explanation: exercise.explanation || ''
             };
             
-            // ✅ Add type-specific fields for homework
             switch (exercise.type) {
               case 'abc':
               case 'multiple-choice':
@@ -1147,7 +1521,6 @@ function processHomeworkFromSteps(steps, createHomework) {
       }
       
       if (step.type === 'quiz') {
-        // ✅ Handle quiz data for homework
         let quizData = [];
         
         if (step.quizzes && Array.isArray(step.quizzes)) {
@@ -1179,166 +1552,6 @@ function processHomeworkFromSteps(steps, createHomework) {
   return { exercises, quizzes };
 }
 
-/**
- * ✅ ENHANCED: Enhanced validation with better error messages
- */
-exports.validateLessonData = (lessonData) => {
-  const errors = [];
-
-  // Basic required fields
-  if (!lessonData.subject || !lessonData.subject.trim()) {
-    errors.push('Subject is required');
-  }
-
-  if (!lessonData.level || lessonData.level < 1 || lessonData.level > 12) {
-    errors.push('Level must be between 1 and 12');
-  }
-
-  if (!lessonData.topic || !lessonData.topic.trim()) {
-    errors.push('Topic name is required');
-  }
-
-  if (!lessonData.lessonName || !lessonData.lessonName.trim()) {
-    errors.push('Lesson name is required');
-  }
-
-  if (!lessonData.description || !lessonData.description.trim()) {
-    errors.push('Lesson description is required');
-  }
-
-  // Validate steps
-  if (!lessonData.steps || lessonData.steps.length === 0) {
-    errors.push('At least one lesson step is required');
-  }
-
-  // ✅ ENHANCED: Enhanced step validation
-  lessonData.steps?.forEach((step, index) => {
-    const stepNumber = index + 1;
-
-    if (!step.type) {
-      errors.push(`Step ${stepNumber}: Step type is required`);
-      return;
-    }
-
-    const validTypes = ['explanation', 'example', 'practice', 'exercise', 'vocabulary', 'quiz', 'video', 'audio', 'reading', 'writing'];
-    if (!validTypes.includes(step.type)) {
-      errors.push(`Step ${stepNumber}: Invalid step type "${step.type}"`);
-      return;
-    }
-
-    // ✅ ENHANCED: Type-specific validation with multiple data structure support
-    try {
-      switch (step.type) {
-        case 'explanation':
-        case 'example':
-        case 'reading':
-          const hasContent = step.content || 
-                            (step.data && step.data.content) || 
-                            (step.data && typeof step.data === 'string');
-          if (!hasContent) {
-            errors.push(`Step ${stepNumber}: Content is required for ${step.type} steps`);
-          }
-          break;
-
-        case 'practice':
-          const hasInstructions = step.instructions || 
-                                 (step.data && step.data.instructions) ||
-                                 (step.data && typeof step.data === 'string');
-          if (!hasInstructions) {
-            errors.push(`Step ${stepNumber}: Instructions are required for practice steps`);
-          }
-          break;
-
-        case 'exercise':
-          const exercises = step.exercises || 
-                           (step.data && Array.isArray(step.data) ? step.data : null) ||
-                           (step.data && step.data.exercises);
-          
-          if (!exercises || exercises.length === 0) {
-            errors.push(`Step ${stepNumber}: At least one exercise is required for exercise steps`);
-          } else {
-            exercises.forEach((exercise, exIndex) => {
-              if (!exercise.question || !exercise.question.trim()) {
-                errors.push(`Step ${stepNumber}, Exercise ${exIndex + 1}: Question is required`);
-              }
-              if (!exercise.answer && !exercise.correctAnswer) {
-                errors.push(`Step ${stepNumber}, Exercise ${exIndex + 1}: Answer is required`);
-              }
-            });
-          }
-          break;
-
-        case 'vocabulary':
-          const vocabulary = step.vocabulary || 
-                            (step.data && Array.isArray(step.data) ? step.data : null) ||
-                            (step.data && step.data.vocabulary);
-          
-          if (!vocabulary || vocabulary.length === 0) {
-            errors.push(`Step ${stepNumber}: At least one vocabulary item is required for vocabulary steps`);
-          } else {
-            vocabulary.forEach((vocab, vocabIndex) => {
-              if (!vocab.term || !vocab.term.trim()) {
-                errors.push(`Step ${stepNumber}, Vocabulary ${vocabIndex + 1}: Term is required`);
-              }
-              if (!vocab.definition || !vocab.definition.trim()) {
-                errors.push(`Step ${stepNumber}, Vocabulary ${vocabIndex + 1}: Definition is required`);
-              }
-            });
-          }
-          break;
-
-        case 'quiz':
-          const quizzes = step.quizzes || 
-                         (step.data && Array.isArray(step.data) ? step.data : null) ||
-                         (step.data && step.data.quizzes);
-          
-          if (!quizzes || quizzes.length === 0) {
-            errors.push(`Step ${stepNumber}: At least one quiz question is required for quiz steps`);
-          } else {
-            quizzes.forEach((quiz, quizIndex) => {
-              if (!quiz.question || !quiz.question.trim()) {
-                errors.push(`Step ${stepNumber}, Quiz ${quizIndex + 1}: Question is required`);
-              }
-              if (quiz.correctAnswer === undefined || quiz.correctAnswer === null) {
-                errors.push(`Step ${stepNumber}, Quiz ${quizIndex + 1}: Correct answer is required`);
-              }
-              if (quiz.type === 'multiple-choice' && (!quiz.options || quiz.options.length < 2)) {
-                errors.push(`Step ${stepNumber}, Quiz ${quizIndex + 1}: Multiple choice questions need at least 2 options`);
-              }
-            });
-          }
-          break;
-
-        case 'video':
-        case 'audio':
-          const hasUrl = step.url || 
-                        (step.data && step.data.url) ||
-                        (step.data && typeof step.data === 'string');
-          if (!hasUrl) {
-            errors.push(`Step ${stepNumber}: URL is required for ${step.type} steps`);
-          }
-          break;
-
-        case 'writing':
-          const hasPrompt = step.prompt || 
-                           (step.data && step.data.prompt) ||
-                           (step.data && typeof step.data === 'string');
-          if (!hasPrompt) {
-            errors.push(`Step ${stepNumber}: Writing prompt is required for writing steps`);
-          }
-          break;
-      }
-    } catch (validationError) {
-      errors.push(`Step ${stepNumber}: Validation error - ${validationError.message}`);
-    }
-  });
-
-  return errors;
-};
-
-/**
- * Extract explanations for legacy support
- */
 function extractExplanationsFromSteps(steps) {
   return steps
     .filter(step => step.type === 'explanation')
@@ -1346,9 +1559,6 @@ function extractExplanationsFromSteps(steps) {
     .filter(content => content.trim() !== '');
 }
 
-/**
- * Process metadata with defaults
- */
 function processMetadata(metadata) {
   if (!metadata || typeof metadata !== 'object') {
     return {
@@ -1367,9 +1577,6 @@ function processMetadata(metadata) {
   };
 }
 
-/**
- * Get count of each step type
- */
 function getStepTypesCount(steps) {
   const counts = {};
   steps.forEach(step => {
@@ -1378,19 +1585,46 @@ function getStepTypesCount(steps) {
   return counts;
 }
 
+// Helper functions for content extraction
+const getDifficultyFromLevel = (level) => {
+  if (level <= 4) return 'Beginner';
+  if (level <= 8) return 'Intermediate'; 
+  return 'Advanced';
+};
+
+const detectLanguage = (subject) => {
+  const languageMap = {
+    'English': 'english',
+    'Английский': 'english',
+    'Spanish': 'spanish',
+    'Испанский': 'spanish',
+    'French': 'french',
+    'Французский': 'french',
+    'German': 'german',
+    'Немецкий': 'german'
+  };
+  
+  return languageMap[subject] || 'english';
+};
+
+const detectPartOfSpeech = (word) => {
+  if (word.endsWith('ing')) return 'verb';
+  if (word.endsWith('ly')) return 'adverb';
+  if (word.endsWith('tion') || word.endsWith('sion')) return 'noun';
+  if (word.endsWith('ed')) return 'verb';
+  
+  return 'noun';
+};
+
 module.exports = {
   addLesson: exports.addLesson,
   updateLesson: exports.updateLesson,
   deleteLesson: exports.deleteLesson,
   getLesson: exports.getLesson,
   getLessonsByTopic: exports.getLessonsByTopic,
-  processLessonSteps,
-  processContentStep,
-  processExerciseStep,
-  processQuizStep,
-  processVocabularyStep,
-  processPracticeStep,
-  processMediaStep,
-  processWritingStep,
-  validateStepOutput
+  completeLesson: exports.completeLesson,
+  migrateContentFromCompletedLessons: exports.migrateContentFromCompletedLessons,
+  handleLessonCompletion,
+  extractHomeworkFromLesson,
+  extractVocabularyFromLesson
 };
