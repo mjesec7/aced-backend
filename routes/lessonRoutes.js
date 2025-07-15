@@ -83,151 +83,18 @@ function validateObjectId(req, res, next) {
   next();
 }
 
-// ==========================================
-// 📚 LESSON COMPLETION ROUTES 
-// ==========================================
-
-// POST /api/lessons/:id/complete - Complete lesson and extract content
-router.post('/:id/complete', verifyToken, validateObjectId, async (req, res) => {
-  try {
-    const lessonId = req.params.id;
-    const { userId, progress, stars, score } = req.body;
-    
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        error: 'User ID is required'
-      });
-    }
-    
-    console.log(`🎓 Processing lesson completion: ${lessonId} for user ${userId}`);
-    
-    // Check if lesson completion service is available
-    if (!handleLessonCompletion) {
-      console.warn('⚠️ Lesson completion service not available, saving basic progress only');
-      
-      // Fallback: just save basic user progress
-      if (UserProgress) {
-        await UserProgress.findOneAndUpdate(
-          { userId, lessonId },
-          {
-            completed: true,
-            completedAt: new Date(),
-            stars: stars || 0,
-            score: score || 0,
-            finalProgress: progress
-          },
-          { upsert: true, new: true }
-        );
-      }
-      
-      return res.json({
-        success: true,
-        message: '🎉 Lesson completed successfully! (Basic mode)',
-        data: {
-          lessonCompleted: true,
-          userProgress: {
-            completed: true,
-            stars: stars || 0,
-            score: score || 0
-          },
-          extraction: {
-            vocabularyAdded: 0,
-            homeworkCreated: false,
-            message: 'Content extraction service not available'
-          }
-        }
-      });
-    }
-    
-    // Process lesson completion and extract content
-    const extractionResult = await handleLessonCompletion(userId, lessonId, progress);
-    
-    // Update user progress
-    if (UserProgress) {
-      await UserProgress.findOneAndUpdate(
-        { userId, lessonId },
-        {
-          completed: true,
-          completedAt: new Date(),
-          stars: stars || 0,
-          score: score || 0,
-          finalProgress: progress,
-          homeworkGenerated: extractionResult.homeworkCreated,
-          vocabularyExtracted: extractionResult.vocabularyAdded
-        },
-        { upsert: true, new: true }
-      );
-    }
-    
-    res.json({
-      success: true,
-      message: '🎉 Lesson completed successfully!',
-      data: {
-        lessonCompleted: true,
-        userProgress: {
-          completed: true,
-          stars: stars || 0,
-          score: score || 0
-        },
-        extraction: extractionResult
+// ─── Helper Functions ────────────────────────────────
+function getStepTypesCount(steps) {
+  const counts = {};
+  if (Array.isArray(steps)) {
+    steps.forEach(step => {
+      if (step && step.type) {
+        counts[step.type] = (counts[step.type] || 0) + 1;
       }
     });
-    
-  } catch (error) {
-    console.error('❌ Error completing lesson:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to complete lesson',
-      details: error.message
-    });
   }
-});
-
-// POST /api/lessons/migrate-content/:userId - Migrate content from completed lessons
-router.post('/migrate-content/:userId', verifyToken, async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const { lessonIds } = req.body; // Optional: specific lessons
-    
-    // Verify user access
-    if (req.user?.uid !== userId) {
-      return res.status(403).json({
-        success: false,
-        error: 'Access denied: user mismatch'
-      });
-    }
-    
-    console.log(`🔄 Migrating content for user ${userId}`);
-    
-    // Check if extraction service is available
-    if (!extractContentFromCompletedLessons) {
-      return res.status(503).json({
-        success: false,
-        error: 'Content extraction service not available'
-      });
-    }
-    
-    // Call the extraction service
-    const mockReq = { params: { userId }, body: { lessonIds } };
-    const mockRes = {
-      json: (data) => data,
-      status: (code) => ({ json: (data) => ({ ...data, statusCode: code }) })
-    };
-    
-    const result = await extractContentFromCompletedLessons(mockReq, mockRes);
-    
-    res.json(result);
-    
-  } catch (error) {
-    console.error('❌ Error migrating lesson content:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to migrate lesson content',
-      details: error.message
-    });
-  }
-});
+  return counts;
+}
 
 // ✅ ENHANCED: Fallback lesson creation with detailed error handling
 const enhancedFallbackAddLesson = async (req, res) => {
@@ -673,7 +540,125 @@ const enhancedFallbackAddLesson = async (req, res) => {
   }
 };
 
-// ✅ CRITICAL: Add debug endpoint to test before main endpoint
+// ✅ CRITICAL FIX: Fallback function for topic lessons
+const fallbackGetLessonsByTopic = async (req, res) => {
+  try {
+    const { topicId } = req.params;
+    const { type, level, includeStats, sortBy, order } = req.query;
+    
+    console.log(`📚 [FALLBACK] Fetching lessons for topic: ${topicId}`);
+    
+    if (!topicId || !mongoose.Types.ObjectId.isValid(topicId)) {
+      return res.status(400).json({ 
+        success: false,
+        error: '❌ Invalid topic ID format' 
+      });
+    }
+    
+    if (!Lesson) {
+      return res.status(500).json({
+        success: false,
+        error: 'Lesson model not available'
+      });
+    }
+    
+    // Build filter
+    const filter = { topicId, isActive: true };
+    if (type) filter.type = type;
+    if (level) filter.level = parseInt(level);
+    
+    // Build sort options
+    let sortOptions = { createdAt: 1 };
+    if (sortBy) {
+      const sortOrder = order === 'desc' ? -1 : 1;
+      sortOptions = { [sortBy]: sortOrder };
+    }
+    
+    // Find lessons with population
+    const lessons = await Lesson.find(filter)
+      .populate('topicId', 'name description')
+      .sort(sortOptions)
+      .lean();
+    
+    console.log(`📚 [FALLBACK] Found ${lessons.length} lessons for topic: ${topicId}`);
+    
+    // Calculate detailed stats if requested
+    const response = {
+      success: true,
+      lessons,
+      total: lessons.length,
+      filter: { topicId, type, level }
+    };
+    
+    if (includeStats === 'true') {
+      response.stats = {
+        totalLessons: lessons.length,
+        byType: {
+          free: lessons.filter(l => l.type === 'free').length,
+          premium: lessons.filter(l => l.type === 'premium').length
+        },
+        byLevel: lessons.reduce((acc, lesson) => {
+          acc[lesson.level] = (acc[lesson.level] || 0) + 1;
+          return acc;
+        }, {}),
+        steps: {
+          avgStepsPerLesson: lessons.reduce((acc, l) => acc + (l.steps?.length || 0), 0) / lessons.length || 0,
+          totalSteps: lessons.reduce((acc, l) => acc + (l.steps?.length || 0), 0),
+          stepTypes: lessons.reduce((acc, lesson) => {
+            const stepCounts = getStepTypesCount(lesson.steps || []);
+            Object.keys(stepCounts).forEach(type => {
+              acc[type] = (acc[type] || 0) + stepCounts[type];
+            });
+            return acc;
+          }, {})
+        },
+        homework: {
+          lessonsWithHomework: lessons.filter(l => l.homework?.totalExercises > 0).length,
+          totalHomeworkExercises: lessons.reduce((acc, l) => acc + (l.homework?.totalExercises || 0), 0)
+        }
+      };
+    }
+    
+    res.json(response);
+    
+  } catch (error) {
+    console.error('❌ [FALLBACK] Error fetching lessons by topic:', error);
+    res.status(500).json({ 
+      success: false,
+      error: '❌ Failed to fetch lessons',
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Please try again'
+    });
+  }
+};
+
+// ==========================================
+// 🧪 TEST & DEBUG ROUTES (FIRST)
+// ==========================================
+
+// ✅ Test endpoint (must be first)
+router.get('/test', (req, res) => {
+  res.json({
+    success: true,
+    message: '✅ Lesson routes are working!',
+    timestamp: new Date().toISOString(),
+    dbState: mongoose.connection.readyState,
+    modelsAvailable: { Lesson: !!Lesson, Topic: !!Topic },
+    controllerAvailable: !!addLesson,
+    endpoints: [
+      'GET /api/lessons/test - This test endpoint',
+      'POST /api/lessons/debug - Debug endpoint', 
+      'GET /api/lessons - Get all lessons',
+      'POST /api/lessons - Create lesson',
+      'POST /api/lessons/:id/complete - Complete lesson and extract content',
+      'POST /api/lessons/migrate-content/:userId - Migrate content from completed lessons',
+      'GET /api/lessons/:id - Get specific lesson',
+      'PUT /api/lessons/:id - Update lesson',
+      'DELETE /api/lessons/:id - Delete lesson'
+    ]
+  });
+});
+
+// ✅ Debug endpoint
 router.post('/debug', async (req, res) => {
   try {
     console.log('🔍 DEBUG: Endpoint hit');
@@ -706,69 +691,11 @@ router.post('/debug', async (req, res) => {
   }
 });
 
-// ✅ Test endpoint
-router.get('/test', (req, res) => {
-  res.json({
-    success: true,
-    message: '✅ Lesson routes are working!',
-    timestamp: new Date().toISOString(),
-    dbState: mongoose.connection.readyState,
-    modelsAvailable: { Lesson: !!Lesson, Topic: !!Topic },
-    controllerAvailable: !!addLesson,
-    endpoints: [
-      'GET /api/lessons/test - This test endpoint',
-      'POST /api/lessons/debug - Debug endpoint', 
-      'GET /api/lessons - Get all lessons',
-      'POST /api/lessons - Create lesson',
-      'POST /api/lessons/:id/complete - Complete lesson and extract content',
-      'POST /api/lessons/migrate-content/:userId - Migrate content from completed lessons',
-      'GET /api/lessons/:id - Get specific lesson',
-      'PUT /api/lessons/:id - Update lesson',
-      'DELETE /api/lessons/:id - Delete lesson'
-    ]
-  });
-});
+// ==========================================
+// 📊 STATISTICS & ANALYTICS ROUTES
+// ==========================================
 
-// ─── DELETE: All Lessons (Must come before /:id) ────
-router.delete('/all', verifyToken, async (req, res) => {
-  try {
-    if (!Lesson) {
-      return res.status(500).json({
-        success: false,
-        error: 'Lesson model not available'
-      });
-    }
-
-    const result = await Lesson.deleteMany({});
-    console.log(`🧹 Deleted ${result.deletedCount} lessons`);
-    res.status(200).json({ 
-      success: true,
-      message: `✅ Deleted ${result.deletedCount} lessons`,
-      deletedCount: result.deletedCount
-    });
-  } catch (error) {
-    console.error('❌ Error deleting all lessons:', error);
-    res.status(500).json({ 
-      success: false,
-      message: '❌ Server error clearing lessons', 
-      error: error.message 
-    });
-  }
-});
-
-// ✅ NEW: Bulk Create Lessons
-router.post('/bulk', verifyToken, (req, res) => {
-  if (bulkCreateLessons) {
-    bulkCreateLessons(req, res);
-  } else {
-    res.status(501).json({
-      success: false,
-      message: 'Bulk create not available - controller not loaded'
-    });
-  }
-});
-
-// ✅ NEW: Get Lesson Statistics
+// ✅ Get Lesson Statistics
 router.get('/stats', async (req, res) => {
   try {
     if (!Lesson) {
@@ -853,7 +780,115 @@ router.get('/stats', async (req, res) => {
   }
 });
 
-// ✅ NEW: Search Lessons
+// ✅ Get lesson summary statistics
+router.get('/summary', async (req, res) => {
+  try {
+    if (!Lesson) {
+      return res.status(500).json({
+        success: false,
+        error: 'Lesson model not available'
+      });
+    }
+
+    const [
+      totalLessons,
+      activeLessons,
+      draftLessons,
+      subjectCounts,
+      levelCounts,
+      typeCounts,
+      recentLessons
+    ] = await Promise.all([
+      Lesson.countDocuments(),
+      Lesson.countDocuments({ isActive: true }),
+      Lesson.countDocuments({ isDraft: true }),
+      Lesson.aggregate([
+        { $group: { _id: '$subject', count: { $sum: 1 } } },
+        { $sort: { count: -1 } }
+      ]),
+      Lesson.aggregate([
+        { $group: { _id: '$level', count: { $sum: 1 } } },
+        { $sort: { _id: 1 } }
+      ]),
+      Lesson.aggregate([
+        { $group: { _id: '$type', count: { $sum: 1 } } }
+      ]),
+      Lesson.find()
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .select('lessonName subject level createdAt')
+        .lean()
+    ]);
+
+    res.json({
+      success: true,
+      summary: {
+        total: totalLessons,
+        active: activeLessons,
+        draft: draftLessons,
+        published: activeLessons - draftLessons
+      },
+      distribution: {
+        bySubject: subjectCounts,
+        byLevel: levelCounts,
+        byType: typeCounts
+      },
+      recent: recentLessons
+    });
+
+  } catch (error) {
+    console.error('❌ Error getting lesson summary:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
+  }
+});
+
+// ✅ Lessons Count by Topic
+router.get('/count/by-topic', async (req, res) => {
+  try {
+    if (!Lesson) {
+      return res.status(500).json({
+        success: false,
+        error: 'Lesson model not available'
+      });
+    }
+
+    const counts = await Lesson.aggregate([
+      { $match: { isActive: true } },
+      {
+        $group: {
+          _id: '$topicId',
+          count: { $sum: 1 },
+          topic: { $first: '$topic' },
+          subject: { $first: '$subject' },
+          level: { $first: '$level' }
+        }
+      },
+      { $sort: { subject: 1, level: 1 } }
+    ]);
+    
+    console.log(`✅ Counted lessons for ${counts.length} topics`);
+    res.status(200).json({
+      success: true,
+      counts
+    });
+  } catch (error) {
+    console.error('❌ Error counting lessons by topic:', error);
+    res.status(500).json({ 
+      success: false,
+      message: '❌ Server error counting lessons', 
+      error: error.message 
+    });
+  }
+});
+
+// ==========================================
+// 🔍 SEARCH & FILTER ROUTES
+// ==========================================
+
+// ✅ Search Lessons
 router.get('/search', async (req, res) => {
   try {
     if (!Lesson) {
@@ -936,7 +971,333 @@ router.get('/search', async (req, res) => {
   }
 });
 
-// ✅ NEW: Duplicate Lesson
+// ✅ Filter lessons with complex criteria
+router.post('/filter', async (req, res) => {
+  try {
+    if (!Lesson) {
+      return res.status(500).json({
+        success: false,
+        error: 'Lesson model not available'
+      });
+    }
+
+    const { filters, sort, limit, skip } = req.body;
+    
+    let query = Lesson.find(filters || {});
+    
+    if (sort) {
+      query = query.sort(sort);
+    }
+    
+    if (skip) {
+      query = query.skip(skip);
+    }
+    
+    if (limit) {
+      query = query.limit(limit);
+    }
+
+    const lessons = await query.populate('topicId', 'name description').lean();
+    const totalCount = await Lesson.countDocuments(filters || {});
+    
+    res.json({
+      success: true,
+      lessons,
+      totalCount,
+      hasMore: totalCount > (skip || 0) + lessons.length
+    });
+
+  } catch (error) {
+    console.error('❌ Error filtering lessons:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
+  }
+});
+
+// ==========================================
+// 📍 SPECIFIC RETRIEVAL ROUTES
+// ==========================================
+
+// ✅ Get Lessons by Topic ID (CRITICAL: Must come before /:id)
+router.get('/topic/:topicId', validateObjectId, async (req, res) => {
+  console.log(`📚 GET /api/lessons/topic/${req.params.topicId} - Enhanced endpoint`);
+  
+  try {
+    if (getLessonsByTopic && typeof getLessonsByTopic === 'function') {
+      console.log('✅ Using main getLessonsByTopic controller');
+      await getLessonsByTopic(req, res);
+    } else {
+      console.log('⚠️ Main controller not available, using fallback');
+      await fallbackGetLessonsByTopic(req, res);
+    }
+  } catch (error) {
+    console.error('❌ Error in topic lessons route:', error);
+    try {
+      await fallbackGetLessonsByTopic(req, res);
+    } catch (fallbackError) {
+      console.error('❌ Fallback also failed:', fallbackError);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch lessons for topic',
+        details: process.env.NODE_ENV === 'development' ? fallbackError.message : 'Please try again'
+      });
+    }
+  }
+});
+
+// ✅ Get Lesson by Subject & Name
+router.get('/by-name', async (req, res) => {
+  const { subject, name } = req.query;
+  if (!subject || !name) {
+    return res.status(400).json({ 
+      success: false,
+      message: '❌ Missing subject or lesson name' 
+    });
+  }
+
+  try {
+    if (!Lesson) {
+      return res.status(500).json({
+        success: false,
+        error: 'Lesson model not available'
+      });
+    }
+
+    const lessons = await Lesson.find({ 
+      subject, 
+      lessonName: name,
+      isActive: true 
+    }).populate('topicId', 'name description');
+    
+    if (!lessons.length) {
+      return res.status(404).json({ 
+        success: false,
+        message: '❌ Lesson not found' 
+      });
+    }
+    
+    res.status(200).json({
+      success: true,
+      lesson: lessons[0]
+    });
+  } catch (error) {
+    console.error('❌ Error fetching lesson by name:', error);
+    res.status(500).json({ 
+      success: false,
+      message: '❌ Server error fetching lesson', 
+      error: error.message 
+    });
+  }
+});
+
+// ✅ Get Lessons by Subject
+router.get('/subject/:subject', async (req, res) => {
+  try {
+    if (!Lesson) {
+      return res.status(500).json({
+        success: false,
+        error: 'Lesson model not available'
+      });
+    }
+
+    const { subject } = req.params;
+    const { level, type, includeStats } = req.query;
+    
+    console.log(`📚 Fetching lessons for subject: ${subject}`);
+    
+    const filter = { subject, isActive: true };
+    if (level) filter.level = parseInt(level);
+    if (type) filter.type = type;
+
+    const lessons = await Lesson.find(filter)
+      .populate('topicId', 'name description')
+      .sort({ level: 1, createdAt: 1 });
+    
+    console.log(`✅ Found ${lessons.length} lessons for subject ${subject}`);
+    
+    const response = { 
+      success: true,
+      lessons 
+    };
+    
+    if (includeStats === 'true') {
+      response.stats = {
+        total: lessons.length,
+        byLevel: lessons.reduce((acc, lesson) => {
+          acc[lesson.level] = (acc[lesson.level] || 0) + 1;
+          return acc;
+        }, {}),
+        byType: lessons.reduce((acc, lesson) => {
+          acc[lesson.type] = (acc[lesson.type] || 0) + 1;
+          return acc;
+        }, {})
+      };
+    }
+    
+    res.status(200).json(response);
+  } catch (error) {
+    console.error('❌ Error fetching lessons by subject:', error);
+    res.status(500).json({ 
+      success: false,
+      message: '❌ Server error fetching lessons by subject', 
+      error: error.message 
+    });
+  }
+});
+
+// ==========================================
+// 📚 LESSON COMPLETION ROUTES 
+// ==========================================
+
+// POST /api/lessons/:id/complete - Complete lesson and extract content
+router.post('/:id/complete', verifyToken, validateObjectId, async (req, res) => {
+  try {
+    const lessonId = req.params.id;
+    const { userId, progress, stars, score } = req.body;
+    
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'User ID is required'
+      });
+    }
+    
+    console.log(`🎓 Processing lesson completion: ${lessonId} for user ${userId}`);
+    
+    // Check if lesson completion service is available
+    if (!handleLessonCompletion) {
+      console.warn('⚠️ Lesson completion service not available, saving basic progress only');
+      
+      // Fallback: just save basic user progress
+      if (UserProgress) {
+        await UserProgress.findOneAndUpdate(
+          { userId, lessonId },
+          {
+            completed: true,
+            completedAt: new Date(),
+            stars: stars || 0,
+            score: score || 0,
+            finalProgress: progress
+          },
+          { upsert: true, new: true }
+        );
+      }
+      
+      return res.json({
+        success: true,
+        message: '🎉 Lesson completed successfully! (Basic mode)',
+        data: {
+          lessonCompleted: true,
+          userProgress: {
+            completed: true,
+            stars: stars || 0,
+            score: score || 0
+          },
+          extraction: {
+            vocabularyAdded: 0,
+            homeworkCreated: false,
+            message: 'Content extraction service not available'
+          }
+        }
+      });
+    }
+    
+    // Process lesson completion and extract content
+    const extractionResult = await handleLessonCompletion(userId, lessonId, progress);
+    
+    // Update user progress
+    if (UserProgress) {
+      await UserProgress.findOneAndUpdate(
+        { userId, lessonId },
+        {
+          completed: true,
+          completedAt: new Date(),
+          stars: stars || 0,
+          score: score || 0,
+          finalProgress: progress,
+          homeworkGenerated: extractionResult.homeworkCreated,
+          vocabularyExtracted: extractionResult.vocabularyAdded
+        },
+        { upsert: true, new: true }
+      );
+    }
+    
+    res.json({
+      success: true,
+      message: '🎉 Lesson completed successfully!',
+      data: {
+        lessonCompleted: true,
+        userProgress: {
+          completed: true,
+          stars: stars || 0,
+          score: score || 0
+        },
+        extraction: extractionResult
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Error completing lesson:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to complete lesson',
+      details: error.message
+    });
+  }
+});
+
+// POST /api/lessons/migrate-content/:userId - Migrate content from completed lessons
+router.post('/migrate-content/:userId', verifyToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { lessonIds } = req.body; // Optional: specific lessons
+    
+    // Verify user access
+    if (req.user?.uid !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied: user mismatch'
+      });
+    }
+    
+    console.log(`🔄 Migrating content for user ${userId}`);
+    
+    // Check if extraction service is available
+    if (!extractContentFromCompletedLessons) {
+      return res.status(503).json({
+        success: false,
+        error: 'Content extraction service not available'
+      });
+    }
+    
+    // Call the extraction service
+    const mockReq = { params: { userId }, body: { lessonIds } };
+    const mockRes = {
+      json: (data) => data,
+      status: (code) => ({ json: (data) => ({ ...data, statusCode: code }) })
+    };
+    
+    const result = await extractContentFromCompletedLessons(mockReq, mockRes);
+    
+    res.json(result);
+    
+  } catch (error) {
+    console.error('❌ Error migrating lesson content:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to migrate lesson content',
+      details: error.message
+    });
+  }
+});
+
+// ==========================================
+// 🛠️ LESSON MANAGEMENT ROUTES
+// ==========================================
+
+// ✅ Duplicate Lesson
 router.post('/:id/duplicate', verifyToken, validateObjectId, async (req, res) => {
   try {
     if (!Lesson) {
@@ -988,7 +1349,7 @@ router.post('/:id/duplicate', verifyToken, validateObjectId, async (req, res) =>
   }
 });
 
-// ✅ NEW: Toggle Lesson Status
+// ✅ Toggle Lesson Status
 router.patch('/:id/status', verifyToken, validateObjectId, async (req, res) => {
   try {
     if (!Lesson) {
@@ -1038,7 +1399,166 @@ router.patch('/:id/status', verifyToken, validateObjectId, async (req, res) => {
   }
 });
 
-// ─── GET: All Lessons (Enhanced) ────────────────────
+// ✅ Validate lesson data
+router.post('/validate', async (req, res) => {
+  try {
+    if (!Lesson) {
+      return res.status(500).json({
+        success: false,
+        error: 'Lesson model not available'
+      });
+    }
+
+    const lessonData = req.body;
+    
+    // Create a new lesson instance for validation without saving
+    const lesson = new Lesson(lessonData);
+    
+    try {
+      await lesson.validate();
+      res.json({
+        success: true,
+        message: '✅ Lesson data is valid',
+        isValid: true
+      });
+    } catch (validationError) {
+      const errors = Object.values(validationError.errors).map(err => ({
+        field: err.path,
+        message: err.message,
+        value: err.value
+      }));
+      
+      res.status(400).json({
+        success: false,
+        message: '❌ Validation failed',
+        isValid: false,
+        errors: errors
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ Error validating lesson:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
+  }
+});
+
+// ✅ Batch update lessons
+router.patch('/batch', verifyToken, async (req, res) => {
+  try {
+    if (!Lesson) {
+      return res.status(500).json({
+        success: false,
+        error: 'Lesson model not available'
+      });
+    }
+
+    const { lessonIds, updates } = req.body;
+    
+    if (!Array.isArray(lessonIds) || lessonIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'lessonIds array is required'
+      });
+    }
+
+    if (!updates || typeof updates !== 'object') {
+      return res.status(400).json({
+        success: false,
+        error: 'updates object is required'
+      });
+    }
+
+    // Add updated timestamp
+    updates.updatedAt = new Date();
+
+    const result = await Lesson.updateMany(
+      { _id: { $in: lessonIds } },
+      updates
+    );
+
+    console.log(`📝 Batch updated ${result.modifiedCount} lessons`);
+
+    res.json({
+      success: true,
+      message: `✅ Updated ${result.modifiedCount} lessons`,
+      modifiedCount: result.modifiedCount,
+      matchedCount: result.matchedCount
+    });
+
+  } catch (error) {
+    console.error('❌ Error batch updating lessons:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
+  }
+});
+
+// ==========================================
+// 📤 IMPORT/EXPORT ROUTES
+// ==========================================
+
+// ✅ Bulk Create Lessons
+router.post('/bulk', verifyToken, (req, res) => {
+  if (bulkCreateLessons) {
+    bulkCreateLessons(req, res);
+  } else {
+    res.status(501).json({
+      success: false,
+      message: 'Bulk create not available - controller not loaded'
+    });
+  }
+});
+
+// ✅ Export Lessons (for backup/migration)
+router.get('/export/json', verifyToken, async (req, res) => {
+  try {
+    if (!Lesson) {
+      return res.status(500).json({
+        success: false,
+        error: 'Lesson model not available'
+      });
+    }
+
+    const { subject, level, type } = req.query;
+    
+    const filter = {};
+    if (subject) filter.subject = subject;
+    if (level) filter.level = parseInt(level);
+    if (type) filter.type = type;
+
+    const lessons = await Lesson.find(filter)
+      .populate('topicId', 'name description')
+      .lean();
+
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', 'attachment; filename=lessons-export.json');
+    res.json({
+      success: true,
+      exportDate: new Date().toISOString(),
+      totalLessons: lessons.length,
+      filters: filter,
+      lessons
+    });
+
+  } catch (error) {
+    console.error('❌ Error exporting lessons:', error);
+    res.status(500).json({ 
+      success: false,
+      message: '❌ Export failed', 
+      error: error.message 
+    });
+  }
+});
+
+// ==========================================
+// 📝 MAIN CRUD ROUTES (Order is critical!)
+// ==========================================
+
+// ✅ GET: All Lessons (Enhanced)
 router.get('/', async (req, res) => {
   try {
     if (!Lesson) {
@@ -1093,7 +1613,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// ─── POST: New Lesson (Enhanced with fallback) ────────────────────
+// ✅ POST: New Lesson (Enhanced with fallback)
 router.post('/', verifyToken, (req, res) => {
   console.log('📝 POST /api/lessons endpoint hit');
   
@@ -1112,65 +1632,7 @@ router.post('/', verifyToken, (req, res) => {
   }
 });
 
-// ─── GET: Lesson by Subject & Name ──────────────────
-router.get('/by-name', async (req, res) => {
-  const { subject, name } = req.query;
-  if (!subject || !name) {
-    return res.status(400).json({ 
-      success: false,
-      message: '❌ Missing subject or lesson name' 
-    });
-  }
-
-  try {
-    if (!Lesson) {
-      return res.status(500).json({
-        success: false,
-        error: 'Lesson model not available'
-      });
-    }
-
-    const lessons = await Lesson.find({ 
-      subject, 
-      lessonName: name,
-      isActive: true 
-    }).populate('topicId', 'name description');
-    
-    if (!lessons.length) {
-      return res.status(404).json({ 
-        success: false,
-        message: '❌ Lesson not found' 
-      });
-    }
-    
-    res.status(200).json({
-      success: true,
-      lesson: lessons[0]
-    });
-  } catch (error) {
-    console.error('❌ Error fetching lesson by name:', error);
-    res.status(500).json({ 
-      success: false,
-      message: '❌ Server error fetching lesson', 
-      error: error.message 
-    });
-  }
-});
-
-// ─── GET: Lessons by Topic ID (Enhanced with fallback) ────────────
-router.get('/topic/:topicId', validateObjectId, (req, res) => {
-  if (getLessonsByTopic) {
-    getLessonsByTopic(req, res);
-  } else {
-    // Fallback implementation
-    res.status(501).json({
-      success: false,
-      message: 'Get lessons by topic not available - controller not loaded'
-    });
-  }
-});
-
-// ─── GET: Lesson by ID (Enhanced with fallback) ───────────────────
+// ✅ GET: Lesson by ID (Enhanced with fallback) - MUST come after specific routes
 router.get('/:id', validateObjectId, async (req, res) => {
   try {
     if (!Lesson) {
@@ -1220,7 +1682,7 @@ router.get('/:id', validateObjectId, async (req, res) => {
   }
 });
 
-// ─── PUT: Update Lesson (Enhanced with fallback) ──────────────────
+// ✅ PUT: Update Lesson (Enhanced with fallback)
 router.put('/:id', verifyToken, validateObjectId, async (req, res) => {
   try {
     if (!Lesson) {
@@ -1277,7 +1739,7 @@ router.put('/:id', verifyToken, validateObjectId, async (req, res) => {
   }
 });
 
-// ─── DELETE: One Lesson (Enhanced with fallback) ──────────────────
+// ✅ DELETE: One Lesson (Enhanced with fallback)
 router.delete('/:id', verifyToken, validateObjectId, async (req, res) => {
   try {
     if (!Lesson) {
@@ -1318,8 +1780,8 @@ router.delete('/:id', verifyToken, validateObjectId, async (req, res) => {
   }
 });
 
-// ─── GET: Lessons by Subject ────────────────────────
-router.get('/subject/:subject', async (req, res) => {
+// ✅ DELETE: All Lessons (Destructive operation - must come BEFORE /:id)
+router.delete('/all', verifyToken, async (req, res) => {
   try {
     if (!Lesson) {
       return res.status(500).json({
@@ -1328,336 +1790,18 @@ router.get('/subject/:subject', async (req, res) => {
       });
     }
 
-    const { subject } = req.params;
-    const { level, type, includeStats } = req.query;
-    
-    console.log(`📚 Fetching lessons for subject: ${subject}`);
-    
-    const filter = { subject, isActive: true };
-    if (level) filter.level = parseInt(level);
-    if (type) filter.type = type;
-
-    const lessons = await Lesson.find(filter)
-      .populate('topicId', 'name description')
-      .sort({ level: 1, createdAt: 1 });
-    
-    console.log(`✅ Found ${lessons.length} lessons for subject ${subject}`);
-    
-    const response = { 
+    const result = await Lesson.deleteMany({});
+    console.log(`🧹 Deleted ${result.deletedCount} lessons`);
+    res.status(200).json({ 
       success: true,
-      lessons 
-    };
-    
-    if (includeStats === 'true') {
-      response.stats = {
-        total: lessons.length,
-        byLevel: lessons.reduce((acc, lesson) => {
-          acc[lesson.level] = (acc[lesson.level] || 0) + 1;
-          return acc;
-        }, {}),
-        byType: lessons.reduce((acc, lesson) => {
-          acc[lesson.type] = (acc[lesson.type] || 0) + 1;
-          return acc;
-        }, {})
-      };
-    }
-    
-    res.status(200).json(response);
-  } catch (error) {
-    console.error('❌ Error fetching lessons by subject:', error);
-    res.status(500).json({ 
-      success: false,
-      message: '❌ Server error fetching lessons by subject', 
-      error: error.message 
-    });
-  }
-});
-
-// ─── GET: Lessons Count by Topic ────────────────────
-router.get('/count/by-topic', async (req, res) => {
-  try {
-    if (!Lesson) {
-      return res.status(500).json({
-        success: false,
-        error: 'Lesson model not available'
-      });
-    }
-
-    const counts = await Lesson.aggregate([
-      { $match: { isActive: true } },
-      {
-        $group: {
-          _id: '$topicId',
-          count: { $sum: 1 },
-          topic: { $first: '$topic' },
-          subject: { $first: '$subject' },
-          level: { $first: '$level' }
-        }
-      },
-      { $sort: { subject: 1, level: 1 } }
-    ]);
-    
-    console.log(`✅ Counted lessons for ${counts.length} topics`);
-    res.status(200).json({
-      success: true,
-      counts
+      message: `✅ Deleted ${result.deletedCount} lessons`,
+      deletedCount: result.deletedCount
     });
   } catch (error) {
-    console.error('❌ Error counting lessons by topic:', error);
+    console.error('❌ Error deleting all lessons:', error);
     res.status(500).json({ 
       success: false,
-      message: '❌ Server error counting lessons', 
-      error: error.message 
-    });
-  }
-});
-
-// ✅ NEW: Export Lessons (for backup/migration)
-router.get('/export/json', verifyToken, async (req, res) => {
-  try {
-    if (!Lesson) {
-      return res.status(500).json({
-        success: false,
-        error: 'Lesson model not available'
-      });
-    }
-
-    const { subject, level, type } = req.query;
-    
-    const filter = {};
-    if (subject) filter.subject = subject;
-    if (level) filter.level = parseInt(level);
-    if (type) filter.type = type;
-
-    const lessons = await Lesson.find(filter)
-      .populate('topicId', 'name description')
-      .lean();
-
-    res.setHeader('Content-Type', 'application/json');
-    res.setHeader('Content-Disposition', 'attachment; filename=lessons-export.json');
-    res.json({
-      success: true,
-      exportDate: new Date().toISOString(),
-      totalLessons: lessons.length,
-      filters: filter,
-      lessons
-    });
-
-  } catch (error) {
-    console.error('❌ Error exporting lessons:', error);
-    res.status(500).json({ 
-      success: false,
-      message: '❌ Export failed', 
-      error: error.message 
-    });
-  }
-});
-
-// ✅ Additional utility routes for lesson management
-
-// Get lessons by multiple filters
-router.post('/filter', async (req, res) => {
-  try {
-    if (!Lesson) {
-      return res.status(500).json({
-        success: false,
-        error: 'Lesson model not available'
-      });
-    }
-
-    const { filters, sort, limit, skip } = req.body;
-    
-    let query = Lesson.find(filters || {});
-    
-    if (sort) {
-      query = query.sort(sort);
-    }
-    
-    if (skip) {
-      query = query.skip(skip);
-    }
-    
-    if (limit) {
-      query = query.limit(limit);
-    }
-
-    const lessons = await query.populate('topicId', 'name description').lean();
-    const totalCount = await Lesson.countDocuments(filters || {});
-    
-    res.json({
-      success: true,
-      lessons,
-      totalCount,
-      hasMore: totalCount > (skip || 0) + lessons.length
-    });
-
-  } catch (error) {
-    console.error('❌ Error filtering lessons:', error);
-    res.status(500).json({ 
-      success: false,
-      error: error.message 
-    });
-  }
-});
-
-// Get lesson summary statistics
-router.get('/summary', async (req, res) => {
-  try {
-    if (!Lesson) {
-      return res.status(500).json({
-        success: false,
-        error: 'Lesson model not available'
-      });
-    }
-
-    const [
-      totalLessons,
-      activeLessons,
-      draftLessons,
-      subjectCounts,
-      levelCounts,
-      typeCounts,
-      recentLessons
-    ] = await Promise.all([
-      Lesson.countDocuments(),
-      Lesson.countDocuments({ isActive: true }),
-      Lesson.countDocuments({ isDraft: true }),
-      Lesson.aggregate([
-        { $group: { _id: '$subject', count: { $sum: 1 } } },
-        { $sort: { count: -1 } }
-      ]),
-      Lesson.aggregate([
-        { $group: { _id: '$level', count: { $sum: 1 } } },
-        { $sort: { _id: 1 } }
-      ]),
-      Lesson.aggregate([
-        { $group: { _id: '$type', count: { $sum: 1 } } }
-      ]),
-      Lesson.find()
-        .sort({ createdAt: -1 })
-        .limit(5)
-        .select('lessonName subject level createdAt')
-        .lean()
-    ]);
-
-    res.json({
-      success: true,
-      summary: {
-        total: totalLessons,
-        active: activeLessons,
-        draft: draftLessons,
-        published: activeLessons - draftLessons
-      },
-      distribution: {
-        bySubject: subjectCounts,
-        byLevel: levelCounts,
-        byType: typeCounts
-      },
-      recent: recentLessons
-    });
-
-  } catch (error) {
-    console.error('❌ Error getting lesson summary:', error);
-    res.status(500).json({ 
-      success: false,
-      error: error.message 
-    });
-  }
-});
-
-// Batch update lessons
-router.patch('/batch', verifyToken, async (req, res) => {
-  try {
-    if (!Lesson) {
-      return res.status(500).json({
-        success: false,
-        error: 'Lesson model not available'
-      });
-    }
-
-    const { lessonIds, updates } = req.body;
-    
-    if (!Array.isArray(lessonIds) || lessonIds.length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'lessonIds array is required'
-      });
-    }
-
-    if (!updates || typeof updates !== 'object') {
-      return res.status(400).json({
-        success: false,
-        error: 'updates object is required'
-      });
-    }
-
-    // Add updated timestamp
-    updates.updatedAt = new Date();
-
-    const result = await Lesson.updateMany(
-      { _id: { $in: lessonIds } },
-      updates
-    );
-
-    console.log(`📝 Batch updated ${result.modifiedCount} lessons`);
-
-    res.json({
-      success: true,
-      message: `✅ Updated ${result.modifiedCount} lessons`,
-      modifiedCount: result.modifiedCount,
-      matchedCount: result.matchedCount
-    });
-
-  } catch (error) {
-    console.error('❌ Error batch updating lessons:', error);
-    res.status(500).json({ 
-      success: false,
-      error: error.message 
-    });
-  }
-});
-
-// Validate lesson data
-router.post('/validate', async (req, res) => {
-  try {
-    if (!Lesson) {
-      return res.status(500).json({
-        success: false,
-        error: 'Lesson model not available'
-      });
-    }
-
-    const lessonData = req.body;
-    
-    // Create a new lesson instance for validation without saving
-    const lesson = new Lesson(lessonData);
-    
-    try {
-      await lesson.validate();
-      res.json({
-        success: true,
-        message: '✅ Lesson data is valid',
-        isValid: true
-      });
-    } catch (validationError) {
-      const errors = Object.values(validationError.errors).map(err => ({
-        field: err.path,
-        message: err.message,
-        value: err.value
-      }));
-      
-      res.status(400).json({
-        success: false,
-        message: '❌ Validation failed',
-        isValid: false,
-        errors: errors
-      });
-    }
-
-  } catch (error) {
-    console.error('❌ Error validating lesson:', error);
-    res.status(500).json({ 
-      success: false,
+      message: '❌ Server error clearing lessons', 
       error: error.message 
     });
   }
