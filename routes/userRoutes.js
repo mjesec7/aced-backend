@@ -1440,7 +1440,61 @@ router.post('/:firebaseId/progress/save', validateFirebaseId, verifyToken, verif
     }
   }
 });
+router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
+  try {
+    const studyListData = req.body;
+    
+    console.log('📥 Study list data received:', studyListData);
+    
+    // Check required fields (frontend sends topicId, topic/topicName)
+    if (!studyListData.topicId || (!studyListData.topic && !studyListData.topicName)) {
+      return res.status(400).json({
+        success: false,
+        error: 'topicId and topic name are required'
+      });
+    }
+    
+    const user = await User.findOne({ firebaseId: req.params.firebaseId });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
 
+    // Initialize studyList if it doesn't exist
+    if (!user.studyList) {
+      user.studyList = [];
+    }
+
+    // Check if already exists
+    const exists = user.studyList.some(item => item.topicId === studyListData.topicId);
+    if (exists) {
+      return res.status(400).json({
+        success: false,
+        error: 'Этот курс уже добавлен в ваш список'
+      });
+    }
+    
+    // Add to study list with the exact data format your frontend sends
+    user.studyList.push(studyListData);
+    await user.save();
+    
+    res.status(201).json({
+      success: true,
+      message: 'Курс успешно добавлен в ваш список',
+      data: studyListData
+    });
+    
+  } catch (error) {
+    console.error('❌ Study list error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Server error',
+      message: error.message
+    });
+  }
+});
 // ========================================
 // 📚 STUDY LIST MANAGEMENT (ENHANCED)
 // ========================================
