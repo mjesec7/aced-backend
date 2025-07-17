@@ -1446,7 +1446,7 @@ router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOw
     
     console.log('📥 Study list data received:', studyListData);
     
-    // Check required fields (frontend sends topicId, topic/topicName)
+    // Check required fields
     if (!studyListData.topicId || (!studyListData.topic && !studyListData.topicName)) {
       return res.status(400).json({
         success: false,
@@ -1462,7 +1462,6 @@ router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOw
       });
     }
 
-    // Initialize studyList if it doesn't exist
     if (!user.studyList) {
       user.studyList = [];
     }
@@ -1476,14 +1475,27 @@ router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOw
       });
     }
     
-    // Add to study list with the exact data format your frontend sends
-    user.studyList.push(studyListData);
+    // Map frontend data to what your User model expects
+    const mappedData = {
+      name: studyListData.topic || studyListData.topicName,  // This was missing!
+      topicId: studyListData.topicId,
+      subject: studyListData.subject || 'General',
+      level: studyListData.level || 1,
+      lessonCount: studyListData.lessonCount || 0,
+      totalTime: studyListData.totalTime || 10,
+      type: studyListData.type || 'free',
+      description: studyListData.description || '',
+      isActive: studyListData.isActive !== false,
+      addedAt: studyListData.addedAt || new Date()
+    };
+    
+    user.studyList.push(mappedData);
     await user.save();
     
     res.status(201).json({
       success: true,
       message: 'Курс успешно добавлен в ваш список',
-      data: studyListData
+      data: mappedData
     });
     
   } catch (error) {
