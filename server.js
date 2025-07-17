@@ -2960,6 +2960,120 @@ const startServer = async () => {
     process.exit(1);
   }
 };
+// ADD THIS TO YOUR SERVER.JS FILE RIGHT AFTER YOUR EXISTING ROUTES
+
+// ✅ STUDY LIST ROUTES - SIMPLE AND WORKING
+app.post('/api/users/:userId/study-list', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const data = req.body;
+    
+    if (!data.topicId || !data.topic) {
+      return res.status(400).json({
+        success: false,
+        error: 'topicId and topic are required'
+      });
+    }
+    
+    const User = require('./models/user');
+    let user = await User.findOne({ firebaseId: userId });
+    
+    if (!user) {
+      user = new User({
+        firebaseId: userId,
+        email: 'user@example.com',
+        name: 'User',
+        studyList: []
+      });
+    }
+    
+    // Check if already exists
+    const exists = user.studyList.some(item => item.topicId === data.topicId);
+    if (exists) {
+      return res.status(400).json({
+        success: false,
+        error: 'Topic already exists in study list'
+      });
+    }
+    
+    // Add to study list
+    user.studyList.push({
+      topicId: data.topicId,
+      topic: data.topic,
+      subject: data.subject || 'General',
+      level: data.level || 1,
+      lessonCount: data.lessonCount || 0,
+      totalTime: data.totalTime || 10,
+      type: data.type || 'free',
+      addedAt: new Date()
+    });
+    
+    await user.save();
+    
+    res.json({
+      success: true,
+      message: 'Topic added to study list'
+    });
+    
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+app.get('/api/users/:userId/study-list', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const User = require('./models/user');
+    const user = await User.findOne({ firebaseId: userId });
+    
+    if (!user) {
+      return res.json({ success: true, data: [] });
+    }
+    
+    res.json({
+      success: true,
+      data: user.studyList || []
+    });
+    
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+app.delete('/api/users/:userId/study-list/:topicId', async (req, res) => {
+  try {
+    const { userId, topicId } = req.params;
+    const User = require('./models/user');
+    const user = await User.findOne({ firebaseId: userId });
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+    
+    user.studyList = user.studyList.filter(item => item.topicId !== topicId);
+    await user.save();
+    
+    res.json({
+      success: true,
+      message: 'Topic removed from study list'
+    });
+    
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
 
 // ========================================
 // 🛡️ PROCESS ERROR HANDLERS
