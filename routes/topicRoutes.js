@@ -1,8 +1,7 @@
-// FIXED topicRoutes.js - Complete solution for 404 topic issues
 const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
-const Topic = require('../models/topic');
+const Topic = require('../models/topic'); // Assuming Topic model is updated to use 'name: String'
 const Lesson = require('../models/lesson');
 
 // ✅ Enhanced ObjectId validation
@@ -102,17 +101,14 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
       }
     }
     
-    // Strategy 3: Search by string representation
+    // Strategy 3: Search by string representation (updated for 'name' field)
     if (!topic) {
       try {
         console.log(`🔍 Strategy 3: String-based search...`);
         topic = await Topic.findOne({ 
           $or: [
             { _id: id },
-            { 'name.en': id },
-            { 'name.ru': id },
-            { 'name.uz': id },
-            { name: id },
+            { name: id }, // Changed from 'name.en'
             { topicName: id }
           ]
         });
@@ -125,16 +121,13 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
       }
     }
     
-    // Strategy 4: Case-insensitive search
+    // Strategy 4: Case-insensitive search (updated for 'name' field)
     if (!topic) {
       try {
         console.log(`🔍 Strategy 4: Case-insensitive search...`);
         topic = await Topic.findOne({ 
           $or: [
-            { 'name.en': { $regex: new RegExp(`^${id}$`, 'i') } },
-            { 'name.ru': { $regex: new RegExp(`^${id}$`, 'i') } },
-            { 'name.uz': { $regex: new RegExp(`^${id}$`, 'i') } },
-            { name: { $regex: new RegExp(`^${id}$`, 'i') } },
+            { name: { $regex: new RegExp(`^${id}$`, 'i') } }, // Changed from 'name.en'
             { topicName: { $regex: new RegExp(`^${id}$`, 'i') } }
           ]
         });
@@ -237,7 +230,7 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
         } else {
           console.log(`⚠️ No lessons found via string topicId match`);
           
-          // Strategy 3: Topic name match
+          // Strategy 3: Topic name match (updated for 'name' field)
           lessons = await Lesson.find({ topic: topic.name }).sort({ order: 1, createdAt: 1 });
           if (lessons.length > 0) {
             lessonSearchStrategy = 'topic_name';
@@ -285,8 +278,8 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
         // ✅ Ensure topic has all necessary fields with fallbacks
         _id: topic._id,
         id: topic._id,
-        name: topic.name || topic.topicName,
-        topicName: topic.name || topic.topicName,
+        name: topic.name || topic.topicName, // Changed from topic.name?.en
+        topicName: topic.name || topic.topicName, // Changed from topic.name?.en
         subject: topic.subject,
         level: topic.level,
         description: topic.description || '',
@@ -466,24 +459,26 @@ router.get('/health/check', async (req, res) => {
 router.post('/', logRequest, async (req, res) => {
   const { subject, level, name, description } = req.body;
 
-  if (!subject || !level || !name?.en) {
+  // ✅ MODIFIED: Changed validation to check for 'name' directly
+  if (!subject || !level || !name) { 
     console.warn('⚠️ Validation failed - Missing required fields');
     return res.status(400).json({ 
       success: false,
-      message: '❌ Required fields missing: subject, level, name.en',
+      message: '❌ Required fields missing: subject, level, name', // Updated error message
       error: 'VALIDATION_ERROR'
     });
   }
 
   try {
+    // ✅ MODIFIED: Changed duplicate check to use 'name' directly
     const duplicate = await Topic.findOne({ 
       subject, 
       level, 
-      'name.en': name.en 
+      name: name // Changed from 'name.en': name.en
     });
     
     if (duplicate) {
-      console.warn(`⚠️ Duplicate topic attempt: "${name.en}"`);
+      console.warn(`⚠️ Duplicate topic attempt: "${name}"`); // Changed from name.en
       return res.status(409).json({ 
         success: false,
         message: '⚠️ Topic with this name already exists',
@@ -491,10 +486,11 @@ router.post('/', logRequest, async (req, res) => {
       });
     }
 
+    // Assuming 'name' is now a direct string in the Topic model
     const newTopic = new Topic({ subject, level, name, description });
     const saved = await newTopic.save();
     
-    console.log(`✅ Successfully created topic: "${saved.name.en}"`);
+    console.log(`✅ Successfully created topic: "${saved.name}"`); // Changed from saved.name.en
     res.status(201).json({
       success: true,
       message: '✅ Topic created successfully',
@@ -569,14 +565,15 @@ router.delete('/:id', logRequest, validateObjectId, async (req, res) => {
     const lessonDeleteResult = await Lesson.deleteMany({ topicId: id });
     await Topic.findByIdAndDelete(id);
     
-    console.log(`✅ Successfully deleted topic: "${topic.name.en}"`);
+    // ✅ MODIFIED: Changed console log to use 'topic.name'
+    console.log(`✅ Successfully deleted topic: "${topic.name}"`); 
 
     res.json({
       success: true,
       message: '✅ Topic and associated lessons deleted successfully',
       deletedTopic: {
         id: id,
-        name: topic.name.en
+        name: topic.name // Changed from topic.name.en
       },
       deletedLessonsCount: lessonDeleteResult.deletedCount
     });
@@ -610,7 +607,8 @@ router.put('/:id', logRequest, validateObjectId, async (req, res) => {
       });
     }
 
-    console.log(`✅ Successfully updated topic: "${topic.name.en}"`);
+    // ✅ MODIFIED: Changed console log to use 'topic.name'
+    console.log(`✅ Successfully updated topic: "${topic.name}"`); 
     res.json({
       success: true,
       message: '✅ Topic updated successfully',
