@@ -1519,8 +1519,10 @@ router.get('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOwn
     if (!user.studyList) {
       user.studyList = [];
       await user.save();
-      return res.json([]);
+      return res.json({ success: true, data: [] });
     }
+    
+    console.log(`📚 Found ${user.studyList.length} study list entries for user ${req.params.firebaseId}`);
     
     const validStudyList = [];
     const invalidTopicIds = [];
@@ -1534,171 +1536,167 @@ router.get('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOwn
       }
       
       try {
-        const topicExists = await Topic.exists({ _id: entry.topicId });
+        console.log(`🔍 Validating topic: ${entry.topicId} - "${entry.name || entry.topic}"`);
         
-        if (topicExists) {
+        // ✅ ENHANCED VALIDATION: Check both Topic collection AND Lesson collection
+        const topicExists = await Topic.exists({ _id: entry.topicId });
+        const lessonsExist = await Lesson.exists({ topicId: entry.topicId });
+        
+        if (topicExists || lessonsExist) {
+          console.log(`✅ Topic validation passed: ${entry.topicId} (Topic: ${!!topicExists}, Lessons: ${!!lessonsExist})`);
           validStudyList.push(entry);
         } else {
-          console.warn(`🗑️ Invalid topic reference found: ${entry.topicId} - "${entry.name}"`);
+          console.warn(`🗑️ Invalid topic reference found: ${entry.topicId} - "${entry.name || entry.topic}" (no topic or lessons)`);
           invalidTopicIds.push(entry.topicId.toString());
           needsCleanup = true;
         }
       } catch (validationError) {
         console.error(`❌ Error validating topic ${entry.topicId}:`, validationError.message);
+        // ✅ KEEP ENTRY ON VALIDATION ERROR (don't delete due to temporary issues)
         validStudyList.push(entry);
       }
     }
     
-    if (needsCleanup) {
+    if (needsCleanup && invalidTopicIds.length > 0) {
       console.log(`🧹 Cleaning up ${invalidTopicIds.length} invalid topic references`);
       user.studyList = validStudyList;
       await user.save();
       console.log(`✅ Cleaned study list: ${user.studyList.length} valid entries remaining`);
     }
     
-    res.json(user.studyList);
+    // ✅ CONSISTENT RESPONSE FORMAT
+    res.json({
+      success: true,
+      data: user.studyList,
+      message: `✅ Study list retrieved (${user.studyList.length} entries)`
+    });
     
   } catch (error) {
     console.error('❌ Error fetching study list:', error);
-    res.status(500).json({ error: '❌ Error fetching study list' });
+    res.status(500).json({ 
+      success: false,
+      error: '❌ Error fetching study list',
+      message: error.message 
+    });
   }
 });
 
 router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  const { subject, level, topic, topicId } = req.body;
-  
-  console.log('📥 Adding to study list:', { subject, level, topic, topicId });
-  console.log('🔍 TopicId details:', {
-    type: typeof topicId,
-    value: topicId,
-    isObject: typeof topicId === 'object',
-    stringified: JSON.stringify(topicId)
-  });
-  
-  if (!subject || !topic) {
-    console.error('❌ Missing required fields:', { subject: !!subject, topic: !!topic });
-    return res.status(400).json({ error: '❌ Missing subject or topic' });
-  }
-  
   try {
+    const studyListData = req.body;
+    
+    console.log('📥 Study list data received:', studyListData);
+    
+    // Check required fields
+    if (!studyListData.topicId || (!studyListData.topic && !studyListData.topicName)) {
+      return res.status(400).json({
+        success: false,
+        error: 'topicId and topic name are required'
+      });
+    }
+    
     const user = await User.findOne({ firebaseId: req.params.firebaseId });
     if (!user) {
-      console.error('❌ User not found:', req.params.firebaseId);
-      return res.status(404).json({ error: '❌ User not found' });
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
     }
-
-    console.log('✅ User found:', user.name);
 
     if (!user.studyList) {
       user.studyList = [];
-      console.log('📝 Initialized empty study list');
     }
 
-    const exists = user.studyList.some(entry => entry.name === topic && entry.subject === subject);
+    // Check if already exists
+    const exists = user.studyList.some(item => 
+      item.topicId?.toString() === studyListData.topicId?.toString() ||
+      (item.topic || item.name) === (studyListData.topic || studyListData.topicName)
+    );
     
     if (exists) {
-      console.log('⚠️ Topic already exists in study list');
-      return res.json(user.studyList);
-    }
-
-    // Use enhanced ObjectId extraction
-    const validTopicId = extractValidObjectId(topicId, 'study-list topicId');
-    
-    if (validTopicId) {
-      try {
-        const topicExists = await Topic.findById(validTopicId);
-        if (!topicExists) {
-          console.error('❌ Topic not found in database:', validTopicId);
-          return res.status(400).json({ 
-            error: '❌ Topic not found in database',
-            topicId: validTopicId.toString()
-          });
-        }
-        console.log('✅ Topic verified in database:', topicExists.name || topicExists.title);
-        
-      } catch (dbError) {
-        console.error('❌ Database error while validating topic:', dbError.message);
-        return res.status(500).json({ 
-          error: '❌ Error validating topic in database',
-          details: dbError.message
-        });
-      }
-    } else {
-      console.error('❌ No valid topicId provided');
-      return res.status(400).json({ 
-        error: '❌ Valid topicId is required',
-        provided: topicId,
-        message: 'Topic must exist in the database before adding to study list'
+      return res.status(400).json({
+        success: false,
+        error: 'Этот курс уже добавлен в ваш список'
       });
     }
-
-    const newEntry = { 
-      name: topic, 
-      subject, 
-      level: level || null, 
-      topicId: validTopicId
+    
+    // ✅ ENHANCED VALIDATION: Check both Topic and Lesson collections
+    const topicExists = await Topic.exists({ _id: studyListData.topicId });
+    const lessonsExist = await Lesson.exists({ topicId: studyListData.topicId });
+    
+    if (!topicExists && !lessonsExist) {
+      console.warn(`⚠️ No topic or lessons found for topicId: ${studyListData.topicId}`);
+      return res.status(400).json({
+        success: false,
+        error: 'Курс не найден в системе'
+      });
+    }
+    
+    console.log(`✅ Topic validation passed: ${studyListData.topicId} (Topic: ${!!topicExists}, Lessons: ${!!lessonsExist})`);
+    
+    // Map frontend data to what your User model expects
+    const mappedData = {
+      topicId: studyListData.topicId,
+      name: studyListData.topic || studyListData.topicName,
+      topic: studyListData.topic || studyListData.topicName,
+      subject: studyListData.subject || 'General',
+      level: studyListData.level || 1,
+      lessonCount: studyListData.lessonCount || 0,
+      totalTime: studyListData.totalTime || 10,
+      type: studyListData.type || 'free',
+      description: studyListData.description || '',
+      isActive: studyListData.isActive !== false,
+      addedAt: studyListData.addedAt || new Date(),
+      // ✅ ADD METADATA FOR DEBUGGING
+      metadata: {
+        hasTopicInDb: !!topicExists,
+        hasLessonsInDb: !!lessonsExist,
+        source: topicExists ? 'topic-collection' : 'lesson-based',
+        addedVia: 'study-list-api'
+      }
     };
     
-    console.log('➕ Adding new entry:', {
-      name: newEntry.name,
-      subject: newEntry.subject,
-      level: newEntry.level,
-      topicId: newEntry.topicId.toString()
+    user.studyList.push(mappedData);
+    await user.save();
+    
+    console.log(`✅ Added topic to study list: ${mappedData.name} (${mappedData.topicId})`);
+    
+    res.status(201).json({
+      success: true,
+      message: 'Курс успешно добавлен в ваш список',
+      data: mappedData
     });
     
-    user.studyList.push(newEntry);
-    
-    await user.save();
-    console.log('✅ Study list saved successfully');
-    
-    res.json(user.studyList);
-    
   } catch (error) {
-    console.error('❌ Error saving study list:', error);
-    console.error('❌ Error stack:', error.stack);
-    
-    if (error.name === 'ValidationError') {
-      console.error('❌ Validation error details:');
-      const validationDetails = [];
-      
-      for (const field in error.errors) {
-        const fieldError = error.errors[field];
-        console.error(`  - Field: ${field}`);
-        console.error(`  - Message: ${fieldError.message}`);
-        console.error(`  - Value: ${fieldError.value}`);
-        
-        validationDetails.push({
-          field,
-          message: fieldError.message,
-          value: fieldError.value
-        });
-      }
-      
-      return res.status(400).json({ 
-        error: '❌ Validation error', 
-        details: validationDetails.map(d => `${d.field}: ${d.message}`),
-        fullDetails: validationDetails
-      });
-    }
-    
-    res.status(500).json({ 
-      error: '❌ Error saving study list',
+    console.error('❌ Study list add error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Server error',
       message: error.message
     });
   }
 });
 
+// 🔧 ALSO FIX: Delete route to handle both topic and lesson-based topics
 router.delete('/:firebaseId/study-list/:topicId', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
   try {
     const user = await User.findOne({ firebaseId: req.params.firebaseId });
-    if (!user) return res.status(404).json({ error: '❌ User not found' });
+    if (!user) return res.status(404).json({ 
+      success: false,
+      error: '❌ User not found' 
+    });
     
     if (!user.studyList) {
-      return res.json({ message: '✅ Study list is empty', studyList: [] });
+      return res.json({ 
+        success: true,
+        message: '✅ Study list is empty', 
+        data: [] 
+      });
     }
     
     const initialCount = user.studyList.length;
     
+    // Remove entries matching the topicId
     user.studyList = user.studyList.filter(entry => {
       const topicIdMatch = entry.topicId?.toString() !== req.params.topicId;
       const entryIdMatch = entry._id?.toString() !== req.params.topicId;
@@ -1713,25 +1711,30 @@ router.delete('/:firebaseId/study-list/:topicId', validateFirebaseId, verifyToke
     if (removedCount > 0) {
       console.log(`✅ Removed ${removedCount} entry(ies) from study list`);
       res.json({ 
+        success: true,
         message: `✅ Removed ${removedCount} topic(s)`, 
-        studyList: user.studyList,
+        data: user.studyList,
         removedCount
       });
     } else {
       console.log(`⚠️ No matching entries found for removal: ${req.params.topicId}`);
       res.json({ 
+        success: true,
         message: '⚠️ No matching topic found to remove', 
-        studyList: user.studyList,
+        data: user.studyList,
         removedCount: 0
       });
     }
     
   } catch (error) {
     console.error('❌ Error removing from study list:', error);
-    res.status(500).json({ error: '❌ Error removing topic' });
+    res.status(500).json({ 
+      success: false,
+      error: '❌ Error removing topic',
+      message: error.message
+    });
   }
 });
-
 // ========================================
 // 📊 USER PROGRESS ROUTES
 // ========================================
