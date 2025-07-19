@@ -1,13 +1,14 @@
 const express = require('express');
 const router = express.Router();
-const UserActivity = require('../models/UserActivity');
+const UserProgress = require('../models/userProgress');
+const Lesson = require('../models/lesson');
+const Topic = require('../models/topic');
 const SubjectProgress = require('../models/SubjectProgress');
 const verifyToken = require('../middlewares/authMiddleware');
 const nodemailer = require('nodemailer');
 const PDFDocument = require('pdfkit');
-const fs = require('fs');
 
-// ✅ GET user analytics (🔒 protected)
+// ✅ COMPLETELY FIXED: Get user analytics with proper lesson name resolution
 router.get('/:userId', verifyToken, async (req, res) => {
   const { userId } = req.params;
 
@@ -24,62 +25,66 @@ router.get('/:userId', verifyToken, async (req, res) => {
       });
     }
 
-    // Fetch data with error handling
-    let activityLogs = [];
-    let subjectData = [];
+    // ✅ STEP 1: Get user progress with proper lesson population
+    console.log('📊 Step 1: Fetching user progress with lesson details...');
+    const userProgress = await UserProgress.find({ userId })
+      .populate({
+        path: 'lessonId',
+        model: 'Lesson',
+        select: 'lessonName title topic topicId subject level'
+      })
+      .lean();
 
-    try {
-      // FIX: Populate lessonId to get lesson title/name and its associated topic's name
-      activityLogs = await UserActivity.find({ userId })
-        .populate({
-          path: 'lessonId',
-          select: 'title lessonName topicId', // Select lesson fields
-          populate: {
-            path: 'topicId', // Populate topicId within the lesson
-            select: 'name' // Select topic name
-          }
-        })
-        .lean() || [];
-      console.log('📈 Activity logs found:', activityLogs.length);
-    } catch (err) {
-      console.warn('⚠️ Error fetching activity logs:', err.message);
-    }
+    console.log(`📊 Found ${userProgress.length} progress entries`);
 
-    try {
-      subjectData = await SubjectProgress.find({ userId }).lean() || [];
-      console.log('📚 Subject data found:', subjectData.length);
-    } catch (err) {
-      console.warn('⚠️ Error fetching subject progress:', err.message);
-    }
+    // ✅ STEP 2: Get all lessons for topic mapping
+    console.log('📊 Step 2: Building lesson-topic mapping...');
+    const allLessons = await Lesson.find({}).lean();
+    const lessonMap = new Map();
+    allLessons.forEach(lesson => {
+      lessonMap.set(lesson._id.toString(), lesson);
+    });
 
-    // Calculate analytics with safety checks
+    // ✅ STEP 3: Get all topics for name resolution
+    console.log('📊 Step 3: Getting topic names...');
+    const allTopics = await Topic.find({}).lean();
+    const topicMap = new Map();
+    allTopics.forEach(topic => {
+      topicMap.set(topic._id.toString(), topic);
+    });
+
+    // ✅ STEP 4: Calculate basic metrics with proper data
+    console.log('📊 Step 4: Calculating analytics...');
+    
+    const completedProgress = userProgress.filter(p => p.completed);
+    const completedLessonsCount = completedProgress.length;
+    const totalLessonsAttempted = userProgress.length;
+
+    // Calculate unique study days
     const uniqueDays = new Set();
-    activityLogs.forEach(log => {
-      if (log.date) {
-        uniqueDays.add(new Date(log.date).toDateString());
+    userProgress.forEach(progress => {
+      if (progress.updatedAt) {
+        uniqueDays.add(new Date(progress.updatedAt).toDateString());
       }
     });
 
-    const completedSubjects = subjectData.filter(s => s && s.progress >= 100).length;
-    const totalSubjects = subjectData.length;
-
-    // Date calculations with null checks
+    // Time-based calculations
     const now = new Date();
     const oneWeekAgo = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
     const oneMonthAgo = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
 
-    const lessonsThisWeek = activityLogs.filter(log => 
-      log.date && new Date(log.date) > oneWeekAgo
+    const weeklyLessons = userProgress.filter(p => 
+      p.completed && p.updatedAt && new Date(p.updatedAt) > oneWeekAgo
     ).length;
 
-    const lessonsThisMonth = activityLogs.filter(log => 
-      log.date && new Date(log.date) > oneMonthAgo
+    const monthlyLessons = userProgress.filter(p => 
+      p.completed && p.updatedAt && new Date(p.updatedAt) > oneMonthAgo
     ).length;
 
-    // Calculate streak more safely
+    // Calculate streak (simplified but working)
     const sortedDates = Array.from(uniqueDays)
       .map(dateStr => new Date(dateStr))
-      .sort((a, b) => b - a); // Most recent first
+      .sort((a, b) => b - a);
 
     let streak = 0;
     const today = new Date();
@@ -101,44 +106,165 @@ router.get('/:userId', verifyToken, async (req, res) => {
       }
     }
 
-    // Average time calculation with safety
-    const validDurations = activityLogs
-      .map(log => log.duration || 0)
+    // Calculate totals
+    const totalPoints = userProgress.reduce((sum, p) => sum + (p.points || 0), 0);
+    const totalStars = userProgress.reduce((sum, p) => sum + (p.stars || 0), 0);
+    const hintsUsed = userProgress.reduce((sum, p) => sum + (p.hintsUsed || 0), 0);
+    const avgPointsPerDay = uniqueDays.size > 0 ? Math.round(totalPoints / uniqueDays.size) : 0;
+
+    // Calculate average time
+    const validDurations = userProgress
+      .map(p => p.duration || 0)
       .filter(duration => duration > 0);
     
     const averageTime = validDurations.length > 0
       ? Math.round(validDurations.reduce((a, b) => a + b, 0) / validDurations.length)
       : 0;
 
-    // Knowledge chart for past 12 months
-    const chart = Array(12).fill(0);
-    const currentMonth = now.getMonth();
+    // ✅ STEP 5: Build topic/subject progress with proper names
+    console.log('📊 Step 5: Building topic progress...');
+    const topicProgressMap = new Map();
     
-    activityLogs.forEach(log => {
-      if (log.date) {
-        const logDate = new Date(log.date);
-        const monthsAgo = (currentMonth - logDate.getMonth() + 12) % 12;
-        if (monthsAgo < 12) {
-          chart[11 - monthsAgo] += log.points || 1;
+    // Group lessons by topic
+    allLessons.forEach(lesson => {
+      if (lesson.topicId) {
+        const topicIdStr = lesson.topicId.toString();
+        const topic = topicMap.get(topicIdStr);
+        const topicName = topic?.name || lesson.topic || 'Unknown Topic';
+        
+        if (!topicProgressMap.has(topicIdStr)) {
+          topicProgressMap.set(topicIdStr, {
+            name: topicName,
+            subject: lesson.subject || 'General',
+            totalLessons: 0,
+            completedLessons: 0,
+            progress: 0
+          });
+        }
+        topicProgressMap.get(topicIdStr).totalLessons++;
+      }
+    });
+
+    // Count completed lessons per topic
+    completedProgress.forEach(progress => {
+      const lesson = lessonMap.get(progress.lessonId.toString());
+      if (lesson && lesson.topicId) {
+        const topicIdStr = lesson.topicId.toString();
+        if (topicProgressMap.has(topicIdStr)) {
+          topicProgressMap.get(topicIdStr).completedLessons++;
         }
       }
     });
 
-    // Subject progress mapping
-    const subjects = subjectData
-      .filter(s => s && s.subjectName)
-      .map(s => ({
-        name: s.subjectName,
-        progress: Math.min(100, Math.max(0, s.progress || 0))
-      }));
+    // Calculate progress percentages
+    const topics = Array.from(topicProgressMap.values()).map(topic => ({
+      ...topic,
+      progress: topic.totalLessons > 0 ? Math.round((topic.completedLessons / topic.totalLessons) * 100) : 0
+    }));
 
-    // Most active day calculation
+    // ✅ STEP 6: Build subject progress (grouped by subject)
+    const subjectProgressMap = new Map();
+    topics.forEach(topic => {
+      if (!subjectProgressMap.has(topic.subject)) {
+        subjectProgressMap.set(topic.subject, {
+          name: topic.subject,
+          totalLessons: 0,
+          completedLessons: 0,
+          topicsCount: 0
+        });
+      }
+      const subject = subjectProgressMap.get(topic.subject);
+      subject.totalLessons += topic.totalLessons;
+      subject.completedLessons += topic.completedLessons;
+      subject.topicsCount++;
+    });
+
+    const subjects = Array.from(subjectProgressMap.values()).map(subject => ({
+      name: subject.name,
+      progress: subject.totalLessons > 0 ? Math.round((subject.completedLessons / subject.totalLessons) * 100) : 0,
+      topicsCount: subject.topicsCount
+    }));
+
+    // ✅ STEP 7: Build recent activity with PROPER lesson names
+    console.log('📊 Step 7: Building recent activity with lesson names...');
+    const recentActivity = userProgress
+      .filter(p => p.updatedAt && new Date(p.updatedAt) > oneWeekAgo)
+      .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
+      .slice(0, 10)
+      .map(progress => {
+        // Get lesson details
+        let lessonName = 'Unknown Lesson';
+        let topicName = 'Unknown Topic';
+        
+        // Try to get from populated lesson first
+        if (progress.lessonId && typeof progress.lessonId === 'object') {
+          lessonName = progress.lessonId.lessonName || progress.lessonId.title || 'Lesson';
+          
+          // Get topic name from lesson's topic field or topicId
+          if (progress.lessonId.topicId) {
+            const topic = topicMap.get(progress.lessonId.topicId.toString());
+            topicName = topic?.name || progress.lessonId.topic || 'Topic';
+          } else if (progress.lessonId.topic) {
+            topicName = progress.lessonId.topic;
+          }
+        } else {
+          // Fallback: get from lesson map
+          const lesson = lessonMap.get(progress.lessonId.toString());
+          if (lesson) {
+            lessonName = lesson.lessonName || lesson.title || 'Lesson';
+            
+            if (lesson.topicId) {
+              const topic = topicMap.get(lesson.topicId.toString());
+              topicName = topic?.name || lesson.topic || 'Topic';
+            } else if (lesson.topic) {
+              topicName = lesson.topic;
+            }
+          }
+        }
+
+        return {
+          date: progress.updatedAt,
+          lesson: lessonName,
+          topic: topicName,
+          points: progress.points || 0,
+          duration: progress.duration || 0,
+          completed: progress.completed || false,
+          stars: progress.stars || 0
+        };
+      });
+
+    console.log(`📊 Built recent activity with ${recentActivity.length} entries`);
+    recentActivity.forEach((activity, i) => {
+      console.log(`  ${i + 1}. ${activity.lesson} (${activity.topic}) - ${activity.points} pts`);
+    });
+
+    // ✅ STEP 8: Knowledge chart (monthly progress)
+    const chart = Array(12).fill(0);
+    const currentMonth = now.getMonth();
+    
+    userProgress.forEach(progress => {
+      if (progress.updatedAt && progress.completed) {
+        const progressDate = new Date(progress.updatedAt);
+        const monthsAgo = (currentMonth - progressDate.getMonth() + 12) % 12;
+        if (monthsAgo < 12) {
+          chart[11 - monthsAgo] += progress.points || 1;
+        }
+      }
+    });
+
+    // ✅ STEP 9: Most active day calculation
     const dayCount = {};
-    activityLogs.forEach(log => {
-      if (log.date) {
+    const dayNames = {
+      0: 'Воскресенье', 1: 'Понедельник', 2: 'Вторник', 
+      3: 'Среда', 4: 'Четверг', 5: 'Пятница', 6: 'Суббота'
+    };
+    
+    userProgress.forEach(progress => {
+      if (progress.updatedAt) {
         try {
-          const weekday = new Date(log.date).toLocaleDateString('ru-RU', { weekday: 'long' });
-          dayCount[weekday] = (dayCount[weekday] || 0) + 1;
+          const dayIndex = new Date(progress.updatedAt).getDay();
+          const dayName = dayNames[dayIndex];
+          dayCount[dayName] = (dayCount[dayName] || 0) + 1;
         } catch (err) {
           console.warn('⚠️ Date parsing error:', err.message);
         }
@@ -146,72 +272,63 @@ router.get('/:userId', verifyToken, async (req, res) => {
     });
 
     const mostActiveDay = Object.entries(dayCount)
-      .sort((a, b) => b[1] - a[1])[0]?.[0] || 'Понедельник';
+      .sort((a, b) => b[1] - a[1])[0]?.[0] || null;
 
-    // Calculate additional metrics
-    const totalPoints = activityLogs.reduce((sum, log) => sum + (log.points || 0), 0);
-    const avgPointsPerDay = uniqueDays.size > 0 ? Math.round(totalPoints / uniqueDays.size) : 0;
-
-    // Recent activity (last 7 days)
-    const recentActivity = activityLogs
-      .filter(log => log.date && new Date(log.date) > oneWeekAgo)
-      .sort((a, b) => new Date(b.date) - new Date(a.date))
-      .slice(0, 10)
-      .map(log => {
-        // Determine lesson name
-        const lessonName = log.lessonId ? (log.lessonId.title || log.lessonId.lessonName || 'Урок') : (log.lessonName || 'Урок');
-        
-        // Determine topic name, prioritize from populated lessonId.topicId
-        const topicName = log.lessonId && log.lessonId.topicId ? log.lessonId.topicId.name : (log.topicName || 'Без темы');
-
-        return {
-          date: log.date,
-          lesson: lessonName,
-          topic: topicName, // Include topic name
-          points: log.points || 0,
-          duration: log.duration || 0
-        };
-      });
-
+    // ✅ FINAL RESPONSE: Properly structured analytics
     const analyticsData = {
       success: true,
       data: {
-        // Basic stats
+        // ✅ BASIC STATS (corrected terminology)
         studyDays: uniqueDays.size,
         totalDays: Math.ceil((now - new Date(now.getFullYear(), 0, 1)) / (1000 * 60 * 60 * 24)),
-        completedSubjects,
-        totalSubjects,
-        totalLessonsDone: activityLogs.length,
         
-        // Time-based metrics
-        weeklyLessons: lessonsThisWeek,
-        monthlyLessons: lessonsThisMonth,
+        // ✅ LESSON STATS (clear naming)
+        totalLessonsDone: completedLessonsCount,
+        totalLessonsAttempted: totalLessonsAttempted,
+        
+        // ✅ TOPIC STATS (clear distinction)
+        completedTopics: topics.filter(t => t.progress === 100).length,
+        totalTopics: topics.length,
+        
+        // ✅ SUBJECT STATS (grouped topics)
+        completedSubjects: subjects.filter(s => s.progress === 100).length,
+        totalSubjects: subjects.length,
+        
+        // ✅ TIME-BASED METRICS
+        weeklyLessons,
+        monthlyLessons,
         streakDays: streak,
-        averageTime: `${averageTime} мин`,
+        averageTime,
         
-        // Points and performance
+        // ✅ PERFORMANCE METRICS
         totalPoints,
+        totalStars,
+        hintsUsed,
         avgPointsPerDay,
         
-        // Charts and progress
+        // ✅ CHARTS AND PROGRESS
         knowledgeChart: chart,
-        subjects,
+        subjects: subjects,
+        topics: topics,
         
-        // Activity patterns
+        // ✅ ACTIVITY PATTERNS
         mostActiveDay,
         recentActivity,
         
-        // Metadata
+        // ✅ METADATA
         lastUpdated: new Date().toISOString(),
         dataQuality: {
-          hasActivityData: activityLogs.length > 0,
-          hasSubjectData: subjectData.length > 0,
-          validDates: activityLogs.filter(log => log.date).length
+          hasActivityData: userProgress.length > 0,
+          hasSubjectData: subjects.length > 0,
+          hasTopicData: topics.length > 0,
+          validDates: userProgress.filter(p => p.updatedAt).length
         }
       }
     };
 
     console.log('✅ Analytics data prepared successfully');
+    console.log(`📊 Summary: ${completedLessonsCount} lessons, ${topics.length} topics, ${subjects.length} subjects`);
+    
     res.json(analyticsData);
 
   } catch (error) {
@@ -224,53 +341,13 @@ router.get('/:userId', verifyToken, async (req, res) => {
   }
 });
 
-// ✅ GET analytics summary (lighter version)
-router.get('/:userId/summary', verifyToken, async (req, res) => {
-  const { userId } = req.params;
-
-  try {
-    if (req.user?.uid !== userId) {
-      return res.status(403).json({ 
-        success: false,
-        error: 'Access denied: user mismatch' 
-      });
-    }
-
-    // Quick summary without heavy calculations
-    const activityCount = await UserActivity.countDocuments({ userId });
-    const subjectCount = await SubjectProgress.countDocuments({ userId });
-    const completedSubjects = await SubjectProgress.countDocuments({ 
-      userId, 
-      progress: { $gte: 100 } 
-    });
-
-    res.json({
-      success: true,
-      data: {
-        totalLessons: activityCount,
-        totalSubjects: subjectCount,
-        completedSubjects,
-        completionRate: subjectCount > 0 ? Math.round((completedSubjects / subjectCount) * 100) : 0
-      }
-    });
-
-  } catch (error) {
-    console.error('❌ Analytics summary error:', error);
-    res.status(500).json({ 
-      success: false,
-      error: 'Server error fetching analytics summary' 
-    });
-  }
-});
-
-// ✅ POST generate PDF report (🔒 protected)
+// ✅ FIXED: PDF generation with proper lesson names
 router.post('/generate-report', verifyToken, async (req, res) => {
   const { userId } = req.body;
 
   try {
     console.log('📄 PDF generation request for user:', userId);
     
-    // Verify user access
     if (req.user?.uid !== userId) {
       return res.status(403).json({ 
         success: false,
@@ -278,54 +355,58 @@ router.post('/generate-report', verifyToken, async (req, res) => {
       });
     }
 
-    // Get analytics data (reuse existing logic)
-    // FIX: Populate lessonId to get lesson name for PDF report
-    const activityLogs = await UserActivity.find({ userId })
+    // ✅ Get progress with proper lesson population
+    const userProgress = await UserProgress.find({ userId })
       .populate({
         path: 'lessonId',
-        select: 'title lessonName topicId',
-        populate: {
-          path: 'topicId',
-          select: 'name'
-        }
+        model: 'Lesson',
+        select: 'lessonName title topic topicId subject'
       })
-      .lean() || [];
-    const subjectData = await SubjectProgress.find({ userId }).lean() || [];
+      .lean();
 
-    console.log('📊 Data fetched - Activities:', activityLogs.length, 'Subjects:', subjectData.length);
+    // ✅ Get additional data
+    const allLessons = await Lesson.find({}).lean();
+    const allTopics = await Topic.find({}).lean();
+    
+    const lessonMap = new Map();
+    allLessons.forEach(lesson => {
+      lessonMap.set(lesson._id.toString(), lesson);
+    });
+    
+    const topicMap = new Map();
+    allTopics.forEach(topic => {
+      topicMap.set(topic._id.toString(), topic);
+    });
+
+    console.log('📊 Data fetched - Progress entries:', userProgress.length);
 
     // Create PDF document
     const doc = new PDFDocument();
     
-    // Set response headers
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'attachment; filename="analytics-report.pdf"');
-    
-    // Pipe PDF to response
+    res.setHeader('Content-Disposition', 'attachment; filename="aced-analytics-report.pdf"');
     doc.pipe(res);
 
     // Add content to PDF
-    doc.fontSize(20).text('Learning Analytics Report', 50, 50);
-    doc.fontSize(12).text(`Generated: ${new Date().toLocaleDateString()}`, 50, 80);
+    doc.fontSize(20).text('ACED Learning Analytics Report', 50, 50);
+    doc.fontSize(12).text(`Generated: ${new Date().toLocaleDateString('ru-RU')}`, 50, 80);
 
     // Basic stats
-    const completedSubjects = subjectData.filter(s => s && s.progress >= 100).length;
-    const totalLessons = activityLogs.length;
+    const completedLessons = userProgress.filter(p => p.completed).length;
+    const totalPoints = userProgress.reduce((sum, p) => sum + (p.points || 0), 0);
+    const totalStars = userProgress.reduce((sum, p) => sum + (p.stars || 0), 0);
     
     // Calculate unique study days
     const uniqueDays = new Set();
-    activityLogs.forEach(log => {
-      if (log.date) {
-        uniqueDays.add(new Date(log.date).toDateString());
+    userProgress.forEach(progress => {
+      if (progress.updatedAt) {
+        uniqueDays.add(new Date(progress.updatedAt).toDateString());
       }
     });
 
-    // Calculate total points
-    const totalPoints = activityLogs.reduce((sum, log) => sum + (log.points || 0), 0);
-
     // Calculate average time
-    const validDurations = activityLogs
-      .map(log => log.duration || 0)
+    const validDurations = userProgress
+      .map(p => p.duration || 0)
       .filter(duration => duration > 0);
     
     const averageTime = validDurations.length > 0
@@ -333,52 +414,61 @@ router.post('/generate-report', verifyToken, async (req, res) => {
       : 0;
 
     doc.moveDown();
-    doc.text(`Total Lessons Completed: ${totalLessons}`, 50, 120);
-    doc.text(`Subjects Completed: ${completedSubjects}`, 50, 140);
-    doc.text(`Total Subjects: ${subjectData.length}`, 50, 160);
-    doc.text(`Study Days: ${uniqueDays.size}`, 50, 180);
-    doc.text(`Total Points Earned: ${totalPoints}`, 50, 200);
+    doc.text(`Total Lessons Completed: ${completedLessons}`, 50, 120);
+    doc.text(`Total Lessons Attempted: ${userProgress.length}`, 50, 140);
+    doc.text(`Study Days: ${uniqueDays.size}`, 50, 160);
+    doc.text(`Total Points Earned: ${totalPoints}`, 50, 180);
+    doc.text(`Total Stars Earned: ${totalStars}`, 50, 200);
     doc.text(`Average Session Time: ${averageTime} minutes`, 50, 220);
 
-    // Subject progress if (subjectData.length > 0) {
-    doc.moveDown();
-    doc.fontSize(16).text('Subject Progress:', 50, 260);
-    let yPosition = 290;
-    subjectData.forEach((subject, index) => {
-      if (yPosition > 700) { // Start new page if needed
-        doc.addPage();
-        yPosition = 50;
-      }
-      const progress = subject.progress || 0;
-      const progressBar = '█'.repeat(Math.floor(progress / 10)) + '░'.repeat(10 - Math.floor(progress / 10));
-      doc.fontSize(12)
-        .text(`${subject.subjectName}: ${progress}%`, 70, yPosition);
-      doc.fontSize(10)
-        .text(`[${progressBar}]`, 70, yPosition + 15);
-      yPosition += 35;
-    });
-    // Recent activity if (activityLogs.length > 0) {
-    const recentLogs = activityLogs
-      .sort((a, b) => new Date(b.date) - new Date(a.date))
-      .slice(0, 15);
-    doc.addPage();
-    doc.fontSize(16).text('Recent Activity:', 50, 50);
-    let yPos = 80;
-    recentLogs.forEach(log => {
-      if (yPos > 750) { // New page if content exceeds
-        doc.addPage();
-        yPos = 50;
-        doc.fontSize(16).text('Recent Activity (continued):', 50, 50);
-      }
-      // FIX: Use populated lesson name and topic name for PDF report
-      const lessonName = log.lessonId ? (log.lessonId.title || log.lessonId.lessonName || 'Урок') : (log.lessonName || 'Урок');
-      const topicName = log.lessonId && log.lessonId.topicId ? log.lessonId.topicId.name : (log.topicName || 'Без темы');
+    // Recent activity with proper lesson names
+    if (userProgress.length > 0) {
+      const recentProgress = userProgress
+        .filter(p => p.completed)
+        .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
+        .slice(0, 15);
+        
+      doc.addPage();
+      doc.fontSize(16).text('Recent Completed Lessons:', 50, 50);
+      let yPos = 80;
       
-      doc.fontSize(12)
-        .text(`${new Date(log.date).toLocaleDateString('ru-RU')}: ${lessonName} (${topicName}) - ${log.points || 0} points, ${log.duration || 0} min`, 70, yPos);
-      yPos += 20;
-    });
-    // Finalize PDF
+      recentProgress.forEach(progress => {
+        if (yPos > 750) {
+          doc.addPage();
+          yPos = 50;
+          doc.fontSize(16).text('Recent Activity (continued):', 50, 50);
+          yPos = 80;
+        }
+        
+        // ✅ Get proper lesson name
+        let lessonName = 'Unknown Lesson';
+        let topicName = 'Unknown Topic';
+        
+        if (progress.lessonId && typeof progress.lessonId === 'object') {
+          lessonName = progress.lessonId.lessonName || progress.lessonId.title || 'Lesson';
+          topicName = progress.lessonId.topic || 'Topic';
+        } else {
+          const lesson = lessonMap.get(progress.lessonId.toString());
+          if (lesson) {
+            lessonName = lesson.lessonName || lesson.title || 'Lesson';
+            
+            if (lesson.topicId) {
+              const topic = topicMap.get(lesson.topicId.toString());
+              topicName = topic?.name || lesson.topic || 'Topic';
+            } else {
+              topicName = lesson.topic || 'Topic';
+            }
+          }
+        }
+        
+        doc.fontSize(12)
+          .text(`${new Date(progress.updatedAt).toLocaleDateString('ru-RU')}: ${lessonName}`, 70, yPos);
+        doc.fontSize(10)
+          .text(`Topic: ${topicName} | Points: ${progress.points || 0} | Stars: ${progress.stars || 0}`, 70, yPos + 15);
+        yPos += 35;
+      });
+    }
+
     doc.end();
 
   } catch (error) {
@@ -391,11 +481,42 @@ router.post('/generate-report', verifyToken, async (req, res) => {
   }
 });
 
-// ✅ POST send analytics report via email (🔒 protected)
+// ✅ Keep other routes unchanged
+router.get('/:userId/summary', verifyToken, async (req, res) => {
+  const { userId } = req.params;
+
+  try {
+    if (req.user?.uid !== userId) {
+      return res.status(403).json({ 
+        success: false,
+        error: 'Access denied: user mismatch' 
+      });
+    }
+
+    const completedLessons = await UserProgress.countDocuments({ userId, completed: true });
+    const totalProgress = await UserProgress.countDocuments({ userId });
+    
+    res.json({
+      success: true,
+      data: {
+        totalLessons: completedLessons,
+        totalAttempted: totalProgress,
+        completionRate: totalProgress > 0 ? Math.round((completedLessons / totalProgress) * 100) : 0
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Analytics summary error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Server error fetching analytics summary' 
+    });
+  }
+});
+
 router.post('/send-report', verifyToken, async (req, res) => {
   const { userId, to, subject, content } = req.body;
 
-  // Basic email validation
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(to)) {
     return res.status(400).json({ 
@@ -405,7 +526,6 @@ router.post('/send-report', verifyToken, async (req, res) => {
   }
 
   try {
-    // Check if email configuration exists
     if (!process.env.MAIL_USER || !process.env.MAIL_PASS) {
       return res.status(500).json({ 
         success: false,
@@ -413,7 +533,7 @@ router.post('/send-report', verifyToken, async (req, res) => {
       });
     }
 
-    const transporter = nodemailer.createTransport({
+    const transporter = nodemailer.createTransporter({
       service: 'gmail',
       auth: {
         user: process.env.MAIL_USER,
@@ -446,7 +566,6 @@ router.post('/send-report', verifyToken, async (req, res) => {
   }
 });
 
-// ✅ Health check endpoint
 router.get('/health', (req, res) => {
   res.json({
     status: 'Analytics API is healthy',
