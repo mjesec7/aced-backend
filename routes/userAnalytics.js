@@ -29,9 +29,16 @@ router.get('/:userId', verifyToken, async (req, res) => {
     let subjectData = [];
 
     try {
-      // FIX: Populate lessonId to get lesson name
+      // FIX: Populate lessonId to get lesson title/name and its associated topic's name
       activityLogs = await UserActivity.find({ userId })
-        .populate('lessonId', 'title lessonName') // Populate with title and lessonName
+        .populate({
+          path: 'lessonId',
+          select: 'title lessonName topicId', // Select lesson fields
+          populate: {
+            path: 'topicId', // Populate topicId within the lesson
+            select: 'name' // Select topic name
+          }
+        })
         .lean() || [];
       console.log('📈 Activity logs found:', activityLogs.length);
     } catch (err) {
@@ -150,13 +157,21 @@ router.get('/:userId', verifyToken, async (req, res) => {
       .filter(log => log.date && new Date(log.date) > oneWeekAgo)
       .sort((a, b) => new Date(b.date) - new Date(a.date))
       .slice(0, 10)
-      .map(log => ({
-        date: log.date,
-        // FIX: Use populated lesson name (title or lessonName)
-        lesson: log.lessonId ? (log.lessonId.title || log.lessonId.lessonName || 'Урок') : (log.lessonName || 'Урок'),
-        points: log.points || 0,
-        duration: log.duration || 0
-      }));
+      .map(log => {
+        // Determine lesson name
+        const lessonName = log.lessonId ? (log.lessonId.title || log.lessonId.lessonName || 'Урок') : (log.lessonName || 'Урок');
+        
+        // Determine topic name, prioritize from populated lessonId.topicId
+        const topicName = log.lessonId && log.lessonId.topicId ? log.lessonId.topicId.name : (log.topicName || 'Без темы');
+
+        return {
+          date: log.date,
+          lesson: lessonName,
+          topic: topicName, // Include topic name
+          points: log.points || 0,
+          duration: log.duration || 0
+        };
+      });
 
     const analyticsData = {
       success: true,
@@ -266,7 +281,14 @@ router.post('/generate-report', verifyToken, async (req, res) => {
     // Get analytics data (reuse existing logic)
     // FIX: Populate lessonId to get lesson name for PDF report
     const activityLogs = await UserActivity.find({ userId })
-      .populate('lessonId', 'title lessonName')
+      .populate({
+        path: 'lessonId',
+        select: 'title lessonName topicId',
+        populate: {
+          path: 'topicId',
+          select: 'name'
+        }
+      })
       .lean() || [];
     const subjectData = await SubjectProgress.find({ userId }).lean() || [];
 
@@ -348,10 +370,12 @@ router.post('/generate-report', verifyToken, async (req, res) => {
         yPos = 50;
         doc.fontSize(16).text('Recent Activity (continued):', 50, 50);
       }
-      // FIX: Use populated lesson name for PDF report
+      // FIX: Use populated lesson name and topic name for PDF report
       const lessonName = log.lessonId ? (log.lessonId.title || log.lessonId.lessonName || 'Урок') : (log.lessonName || 'Урок');
+      const topicName = log.lessonId && log.lessonId.topicId ? log.lessonId.topicId.name : (log.topicName || 'Без темы');
+      
       doc.fontSize(12)
-        .text(`${new Date(log.date).toLocaleDateString('ru-RU')}: ${lessonName} - ${log.points || 0} points, ${log.duration || 0} min`, 70, yPos);
+        .text(`${new Date(log.date).toLocaleDateString('ru-RU')}: ${lessonName} (${topicName}) - ${log.points || 0} points, ${log.duration || 0} min`, 70, yPos);
       yPos += 20;
     });
     // Finalize PDF
