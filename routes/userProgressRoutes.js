@@ -205,6 +205,129 @@ router.get('/lesson/:lessonId/user/:userId', async (req, res) => {
     });
   }
 });
+router.post('/user-progress', verifyToken, async (req, res) => {
+  console.log('💾 POST /api/user-progress - Alternative progress save endpoint');
+  
+  try {
+    const progressData = req.body;
+    const firebaseId = progressData.userId || req.user?.uid;
+    
+    console.log('📝 User-progress data received:', {
+      userId: firebaseId,
+      lessonId: progressData.lessonId,
+      progressPercent: progressData.progressPercent
+    });
+    
+    // Basic validation
+    if (!firebaseId) {
+      return res.status(400).json({
+        success: false,
+        message: '❌ userId is required.',
+        error: '❌ userId and lessonId are required.'
+      });
+    }
+    
+    if (!progressData.lessonId) {
+      return res.status(400).json({
+        success: false,
+        message: '❌ lessonId is required.',
+        error: '❌ userId and lessonId are required.'
+      });
+    }
+    
+    // Validate lessonId
+    const validLessonId = extractValidObjectId(progressData.lessonId, 'lessonId');
+    if (!validLessonId) {
+      return res.status(400).json({ 
+        success: false,
+        message: '❌ Invalid lessonId format.',
+        error: '❌ userId and lessonId are required.'
+      });
+    }
+    
+    // Get topicId from lesson if needed
+    let finalTopicId = null;
+    try {
+      const lesson = await Lesson.findById(validLessonId);
+      if (lesson && lesson.topicId) {
+        finalTopicId = extractValidObjectId(lesson.topicId, 'lesson.topicId');
+      }
+    } catch (lessonError) {
+      console.warn('⚠️ Could not fetch lesson for topicId:', lessonError.message);
+    }
+    
+    const updateData = {
+      userId: firebaseId,
+      lessonId: validLessonId,
+      topicId: finalTopicId,
+      completedSteps: progressData.completedSteps || [],
+      progressPercent: Math.min(100, Math.max(0, Number(progressData.progressPercent) || 0)),
+      completed: Boolean(progressData.completed),
+      currentStep: Math.max(0, Number(progressData.currentStep) || 0),
+      totalSteps: Math.max(0, Number(progressData.totalSteps) || 0),
+      mistakes: Math.max(0, Number(progressData.mistakes) || 0),
+      medal: String(progressData.medal || 'none'),
+      duration: Math.max(0, Number(progressData.duration) || 0),
+      timeSpent: Math.max(0, Number(progressData.timeSpent) || Number(progressData.duration) || 0),
+      stars: Math.min(5, Math.max(0, Number(progressData.stars) || 0)),
+      score: Math.max(0, Number(progressData.score) || 0),
+      points: Math.max(0, Number(progressData.points) || 0),
+      hintsUsed: Math.max(0, Number(progressData.hintsUsed) || 0),
+      submittedHomework: Boolean(progressData.submittedHomework),
+      updatedAt: new Date()
+    };
+
+    // Set completedAt when lesson is marked as completed
+    if (updateData.completed && !updateData.completedAt) {
+      updateData.completedAt = new Date();
+    }
+    
+    // Remove null/undefined fields
+    Object.keys(updateData).forEach(key => {
+      if (updateData[key] === null || updateData[key] === undefined) {
+        delete updateData[key];
+      }
+    });
+    
+    const updated = await UserProgress.findOneAndUpdate(
+      { userId: firebaseId, lessonId: validLessonId },
+      updateData,
+      { upsert: true, new: true, runValidators: true }
+    );
+    
+    console.log('✅ Progress saved via /api/user-progress');
+    
+    res.json({
+      success: true,
+      data: updated,
+      message: '✅ Progress saved/updated',
+      endpoint: 'user-progress'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error in /api/user-progress:', error);
+    
+    if (error.name === 'CastError') {
+      res.status(400).json({ 
+        success: false,
+        message: '❌ Invalid data format - ObjectId casting failed',
+        error: '❌ userId and lessonId are required.'
+      });
+    } else if (error.name === 'ValidationError') {
+      res.status(400).json({ 
+        success: false,
+        message: '❌ Validation error',
+        error: '❌ userId and lessonId are required.'
+      });
+    } else {
+      res.status(500).json({ 
+        success: false,
+        message: '❌ Server error',
+        error: '❌ Server error'
+      });
+    }
+  }
+});
 
 // ✅ FIXED: POST /api/progress - Save or update user progress
 router.post('/', verifyToken, async (req, res) => {

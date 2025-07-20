@@ -1311,25 +1311,122 @@ router.post('/:firebaseId/lesson/:lessonId', validateFirebaseId, verifyToken, ve
     }
   }
 });
-// ========================================
-// 🔧 COMPLETE FIX FOR MISSING PROGRESS ROUTES
-// ========================================
+router.post('/:firebaseId/progress/save', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
+  console.log('💾 POST /users/:firebaseId/progress/save for user:', req.params.firebaseId);
+  
+  try {
+    const { firebaseId } = req.params;
+    const progressData = req.body;
+    
+    console.log('📝 Progress data received:', {
+      lessonId: progressData.lessonId,
+      completed: progressData.completed,
+      progressPercent: progressData.progressPercent,
+      stars: progressData.stars,
+      points: progressData.points
+    });
+    
+    // Basic validation
+    if (!progressData.lessonId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing lessonId in progress data'
+      });
+    }
 
-// PROBLEM ANALYSIS:
-// Your frontend calls: POST /api/users/ba9kX3mIQdM1wgShGOxrRNkf7c22/progress/save
-// 
-// Available routes:
-// - userProgressRoutes.js has: POST /api/progress (mounted at /api/progress)
-// - userLessonRoutes.js has: POST /api/user/:firebaseId/lesson/:lessonId (mounted at /api/user)
-// - userRoutes.js has: various user routes (mounted at /api/users)
-//
-// MISSING: The specific /api/users/:firebaseId/progress/save endpoint
+    // Use the existing sanitizeProgressData function
+    const sanitizedData = sanitizeProgressData(progressData);
+    
+    // Get topicId from lesson if not provided or invalid
+    let finalTopicId = sanitizedData.topicId;
+    if (!finalTopicId) {
+      try {
+        const lesson = await Lesson.findById(progressData.lessonId);
+        if (lesson && lesson.topicId) {
+          finalTopicId = extractValidObjectId(lesson.topicId, 'lesson.topicId');
+          console.log('📖 Got topicId from lesson:', finalTopicId);
+        }
+      } catch (lessonError) {
+        console.warn('⚠️ Could not fetch lesson for topicId:', lessonError.message);
+      }
+    }
+    
+    const updateData = {
+      userId: firebaseId,
+      lessonId: progressData.lessonId,
+      topicId: finalTopicId,
+      completedSteps: sanitizedData.completedSteps || [],
+      progressPercent: sanitizedData.progressPercent || 0,
+      completed: sanitizedData.completed || false,
+      currentStep: sanitizedData.currentStep || 0,
+      totalSteps: sanitizedData.totalSteps || 0,
+      mistakes: sanitizedData.mistakes || 0,
+      medal: sanitizedData.medal || 'none',
+      duration: sanitizedData.duration || 0,
+      timeSpent: sanitizedData.timeSpent || sanitizedData.duration || 0,
+      stars: sanitizedData.stars || 0,
+      points: sanitizedData.points || 0,
+      hintsUsed: sanitizedData.hintsUsed || 0,
+      submittedHomework: sanitizedData.submittedHomework || false,
+      updatedAt: new Date()
+    };
 
-// ========================================
-// 1. ADD TO userRoutes.js (PRIORITY FIX)
-// ========================================
-
-// Add this to your userRoutes.js file around line 870:
+    // Set completedAt when lesson is marked as completed
+    if (updateData.completed && !updateData.completedAt) {
+      updateData.completedAt = new Date();
+    }
+    
+    // Remove null/undefined fields
+    Object.keys(updateData).forEach(key => {
+      if (updateData[key] === null || updateData[key] === undefined) {
+        delete updateData[key];
+      }
+    });
+    
+    console.log('📝 Saving progress with data:', updateData);
+    
+    const updated = await UserProgress.findOneAndUpdate(
+      { userId: firebaseId, lessonId: progressData.lessonId },
+      updateData,
+      { upsert: true, new: true, runValidators: true }
+    );
+    
+    console.log('✅ Progress saved successfully via /users/:firebaseId/progress/save');
+    
+    res.json({
+      success: true,
+      data: updated,
+      message: '✅ Progress saved successfully',
+      endpoint: 'users/progress/save'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error saving progress via /users/:firebaseId/progress/save:', error);
+    
+    // Enhanced error handling
+    if (error.name === 'CastError') {
+      res.status(400).json({ 
+        success: false,
+        error: '❌ Invalid data format',
+        field: error.path,
+        value: error.value,
+        message: 'Please check the data format and try again'
+      });
+    } else if (error.name === 'ValidationError') {
+      res.status(400).json({ 
+        success: false,
+        error: '❌ Validation error',
+        details: Object.values(error.errors).map(e => e.message)
+      });
+    } else {
+      res.status(500).json({ 
+        success: false,
+        error: '❌ Error saving progress',
+        message: error.message
+      });
+    }
+  }
+});
 
 // ✅ MISSING ROUTE: Progress save endpoint
 router.post('/:firebaseId/progress/save', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
