@@ -900,6 +900,233 @@ router.get('/stats/language/:language', async (req, res) => {
 });
 
 // ========================================
+// 🎯 VOCABULARY SERVICE INTEGRATION ROUTES
+// ========================================
+
+// GET /api/vocabulary/languages/stats - Get language statistics for user
+router.get('/languages/stats/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    console.log('📊 Getting language stats for user:', userId);
+    
+    // Get user's vocabulary from main endpoint
+    const userVocabResponse = await fetch(`${req.protocol}://${req.get('host')}/api/vocabulary/user/${userId}`);
+    
+    let languageStats = {};
+    
+    if (userVocabResponse.ok) {
+      const vocabData = await userVocabResponse.json();
+      
+      if (vocabData.success && vocabData.data) {
+        // Group by language
+        vocabData.data.forEach(word => {
+          const lang = word.language || 'english';
+          if (!languageStats[lang]) {
+            languageStats[lang] = {
+              code: lang,
+              name: getLanguageDisplayName(lang),
+              nameRu: getLanguageDisplayNameRu(lang),
+              flag: getLanguageFlag(lang),
+              totalWords: 0,
+              wordsFromLessons: 0,
+              mastered: 0,
+              progress: 0
+            };
+          }
+          
+          languageStats[lang].totalWords++;
+          if (word.source === 'lesson') languageStats[lang].wordsFromLessons++;
+          if (word.progress >= 90) languageStats[lang].mastered++;
+        });
+        
+        // Calculate progress for each language
+        Object.values(languageStats).forEach(lang => {
+          lang.progress = lang.totalWords > 0 ? Math.round((lang.mastered / lang.totalWords) * 100) : 0;
+        });
+      }
+    }
+    
+    // Add default languages if none found
+    if (Object.keys(languageStats).length === 0) {
+      const defaultLanguages = ['english', 'russian', 'spanish', 'french', 'german'];
+      defaultLanguages.forEach(code => {
+        languageStats[code] = {
+          code,
+          name: getLanguageDisplayName(code),
+          nameRu: getLanguageDisplayNameRu(code),
+          flag: getLanguageFlag(code),
+          totalWords: 0,
+          wordsFromLessons: 0,
+          mastered: 0,
+          progress: 0
+        };
+      });
+    }
+    
+    const languages = Object.values(languageStats);
+    const totalWords = languages.reduce((sum, lang) => sum + lang.totalWords, 0);
+    const totalFromLessons = languages.reduce((sum, lang) => sum + lang.wordsFromLessons, 0);
+    const languagesStarted = languages.filter(lang => lang.totalWords > 0).length;
+    const totalMastered = languages.reduce((sum, lang) => sum + lang.mastered, 0);
+    
+    res.json({
+      success: true,
+      data: {
+        languages,
+        stats: {
+          totalWords,
+          wordsFromLessons: totalFromLessons,
+          languagesStarted,
+          mastered: totalMastered
+        }
+      },
+      message: '✅ Language statistics retrieved successfully'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error getting language stats:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error getting language statistics',
+      details: error.message
+    });
+  }
+});
+
+// GET /api/vocabulary/topics/:userId/:languageCode - Get topics for language
+router.get('/topics/:userId/:languageCode', async (req, res) => {
+  try {
+    const { userId, languageCode } = req.params;
+    console.log('📚 Getting topics for user:', userId, 'language:', languageCode);
+    
+    // Get user's vocabulary for the language
+    const vocabResponse = await fetch(`${req.protocol}://${req.get('host')}/api/vocabulary/user/${userId}/language/${languageCode}`);
+    
+    if (!vocabResponse.ok) {
+      return res.json({
+        success: true,
+        data: { topics: [] },
+        message: 'No topics found for this language'
+      });
+    }
+    
+    const vocabData = await vocabResponse.json();
+    
+    if (!vocabData.success || !vocabData.vocabulary || vocabData.vocabulary.length === 0) {
+      return res.json({
+        success: true,
+        data: { topics: [] },
+        message: 'No vocabulary found for this language'
+      });
+    }
+    
+    // Group words by lesson/topic
+    const topicGroups = {};
+    
+    vocabData.vocabulary.forEach(word => {
+      const topicName = word.lessonName || word.topic || 'General';
+      
+      if (!topicGroups[topicName]) {
+        topicGroups[topicName] = {
+          name: topicName,
+          wordCount: 0,
+          subtopicCount: 1,
+          difficulty: word.difficulty || 'beginner',
+          words: []
+        };
+      }
+      
+      topicGroups[topicName].wordCount++;
+      topicGroups[topicName].words.push(word);
+    });
+    
+    const topics = Object.values(topicGroups);
+    
+    res.json({
+      success: true,
+      data: { topics },
+      count: topics.length,
+      message: `✅ Found ${topics.length} topics for ${languageCode}`
+    });
+    
+  } catch (error) {
+    console.error('❌ Error getting topics:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error getting topics',
+      details: error.message
+    });
+  }
+});
+
+// GET /api/vocabulary/topic/:userId/:topicName/:languageCode - Get words for topic
+router.get('/topic/:userId/:topicName/:languageCode', async (req, res) => {
+  try {
+    const { userId, topicName, languageCode } = req.params;
+    console.log('📖 Getting words for topic:', topicName, 'language:', languageCode);
+    
+    // Get user's vocabulary for the language
+    const vocabResponse = await fetch(`${req.protocol}://${req.get('host')}/api/vocabulary/user/${userId}/language/${languageCode}`);
+    
+    if (!vocabResponse.ok) {
+      return res.json({
+        success: true,
+        data: { words: [] },
+        message: 'No words found for this topic'
+      });
+    }
+    
+    const vocabData = await vocabResponse.json();
+    
+    if (!vocabData.success || !vocabData.vocabulary) {
+      return res.json({
+        success: true,
+        data: { words: [] },
+        message: 'No vocabulary found'
+      });
+    }
+    
+    // Filter words by topic/lesson name
+    const topicWords = vocabData.vocabulary.filter(word => 
+      (word.lessonName && word.lessonName === topicName) ||
+      (word.topic && word.topic === topicName)
+    );
+    
+    res.json({
+      success: true,
+      data: { words: topicWords },
+      count: topicWords.length,
+      message: `✅ Found ${topicWords.length} words for topic "${topicName}"`
+    });
+    
+  } catch (error) {
+    console.error('❌ Error getting topic words:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error getting topic words',
+      details: error.message
+    });
+  }
+});
+
+// Helper function to get language flag
+function getLanguageFlag(code) {
+  const flags = {
+    'english': '🇺🇸',
+    'spanish': '🇪🇸',
+    'french': '🇫🇷',
+    'german': '🇩🇪',
+    'chinese': '🇨🇳',
+    'arabic': '🇸🇦',
+    'japanese': '🇯🇵',
+    'korean': '🇰🇷',
+    'uzbek': '🇺🇿',
+    'russian': '🇷🇺'
+  };
+  return flags[code] || '🌍';
+}
+
+// ========================================
 // 🔍 SEARCH ROUTES
 // ========================================
 
