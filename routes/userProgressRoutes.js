@@ -67,9 +67,9 @@ const extractValidObjectId = (value, fieldName = 'ObjectId') => {
   }
 };
 
-// ✅ CRITICAL: Enhanced logging middleware for debugging
+// ✅ ENHANCED: Logging middleware for debugging
 router.use((req, res, next) => {
-  if (req.method === 'POST') {
+  if (req.method === 'POST' || req.method === 'PUT') {
     console.log('\n📤 UserProgress Route Request:');
     console.log(`🔗 URL: ${req.originalUrl}`);
     console.log(`📋 Headers: Authorization: ${req.headers.authorization ? 'Present' : 'Missing'}`);
@@ -147,6 +147,65 @@ router.get('/', async (req, res) => {
   }
 });
 
+// ✅ ENHANCED: GET /api/progress/lesson/:lessonId/user/:userId - Get specific lesson progress
+router.get('/lesson/:lessonId/user/:userId', async (req, res) => {
+  try {
+    const { lessonId, userId } = req.params;
+    
+    const validLessonId = extractValidObjectId(lessonId, 'lessonId');
+    if (!validLessonId) {
+      return res.status(400).json({
+        success: false,
+        message: '❌ Invalid lessonId format',
+        received: lessonId
+      });
+    }
+    
+    const progress = await UserProgress.findOne({ 
+      userId, 
+      lessonId: validLessonId 
+    }).populate('lessonId', 'lessonName subject level');
+    
+    if (!progress) {
+      return res.json({
+        success: true,
+        progress: null,
+        hasProgress: false,
+        message: 'No progress found for this lesson'
+      });
+    }
+    
+    res.json({
+      success: true,
+      progress: {
+        lessonId: progress.lessonId,
+        userId: progress.userId,
+        completed: progress.completed,
+        completedAt: progress.completedAt,
+        progressPercent: progress.progressPercent || 0,
+        currentStep: progress.currentStep || 0,
+        totalSteps: progress.totalSteps || 0,
+        stars: progress.stars || 0,
+        score: progress.score || 0,
+        timeSpent: progress.timeSpent || 0,
+        mistakes: progress.mistakes || 0,
+        lastAccessed: progress.updatedAt,
+        completedSteps: progress.completedSteps || []
+      },
+      hasProgress: true,
+      lesson: progress.lessonId
+    });
+    
+  } catch (error) {
+    console.error('❌ Error getting lesson progress:', error);
+    res.status(500).json({
+      success: false,
+      message: '❌ Failed to get lesson progress',
+      error: error.message
+    });
+  }
+});
+
 // ✅ FIXED: POST /api/progress - Save or update user progress
 router.post('/', verifyToken, async (req, res) => {
   console.log('\n🚀 POST /api/progress - Starting request processing');
@@ -159,10 +218,14 @@ router.post('/', verifyToken, async (req, res) => {
       completedSteps = [],
       progressPercent = 0,
       completed = false,
+      currentStep = 0,
+      totalSteps = 0,
       mistakes = 0,
       medal = 'none',
       duration = 0,
+      timeSpent = 0,
       stars = 0,
+      score = 0,
       points = 0,
       hintsUsed = 0,
       submittedHomework = false
@@ -257,15 +320,24 @@ router.post('/', verifyToken, async (req, res) => {
       completedSteps: Array.isArray(completedSteps) ? completedSteps : [],
       progressPercent: Math.min(100, Math.max(0, Number(progressPercent) || 0)),
       completed: Boolean(completed),
+      currentStep: Math.max(0, Number(currentStep) || 0),
+      totalSteps: Math.max(0, Number(totalSteps) || 0),
       mistakes: Math.max(0, Number(mistakes) || 0),
       medal: String(medal || 'none'),
       duration: Math.max(0, Number(duration) || 0),
+      timeSpent: Math.max(0, Number(timeSpent) || Number(duration) || 0),
       stars: Math.min(5, Math.max(0, Number(stars) || 0)),
+      score: Math.max(0, Number(score) || 0),
       points: Math.max(0, Number(points) || 0),
       hintsUsed: Math.max(0, Number(hintsUsed) || 0),
       submittedHomework: Boolean(submittedHomework),
       updatedAt: new Date()
     };
+
+    // Set completedAt when lesson is marked as completed
+    if (completed && !updateData.completedAt) {
+      updateData.completedAt = new Date();
+    }
 
     // ✅ CRITICAL: Only add topicId if it's valid
     if (finalTopicId) {
@@ -283,6 +355,8 @@ router.post('/', verifyToken, async (req, res) => {
       topicId: finalTopicId || 'not set',
       progressPercent: updateData.progressPercent,
       completed: updateData.completed,
+      currentStep: updateData.currentStep,
+      totalSteps: updateData.totalSteps,
       hasTopicId: !!finalTopicId
     });
 
@@ -305,7 +379,9 @@ router.post('/', verifyToken, async (req, res) => {
       lessonId: updated.lessonId,
       topicId: updated.topicId || 'not set',
       progressPercent: updated.progressPercent,
-      completed: updated.completed
+      completed: updated.completed,
+      currentStep: updated.currentStep,
+      totalSteps: updated.totalSteps
     });
 
     res.status(200).json({
@@ -413,8 +489,5 @@ router.use((error, req, res, next) => {
   // Pass to global error handler if not handled here
   next(error);
 });
-
-// ✅ All other routes remain the same as in your original file
-// ... (include all your other routes here without modification)
 
 module.exports = router;

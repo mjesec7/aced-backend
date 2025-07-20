@@ -3,7 +3,7 @@ const router = express.Router();
 const mongoose = require('mongoose');
 
 // Models with error handling
-let Lesson, Topic, UserProgress, Homework, HomeworkProgress, VocabularyProgress;
+let Lesson, Topic, UserProgress, Homework, HomeworkProgress, VocabularyProgress, Vocabulary;
 try {
   Lesson = require('../models/lesson');
   Topic = require('../models/topic');
@@ -11,6 +11,7 @@ try {
   Homework = require('../models/homework');
   HomeworkProgress = require('../models/homeworkProgress');
   VocabularyProgress = require('../models/vocabularyProgress');
+  Vocabulary = require('../models/vocabulary');
   console.log('✅ Lesson models loaded successfully');
 } catch (modelError) {
   console.error('❌ Failed to load lesson models:', modelError.message);
@@ -94,6 +95,29 @@ function getStepTypesCount(steps) {
     });
   }
   return counts;
+}
+
+// Helper function to validate vocabulary items
+function isValidVocabularyItem(vocab) {
+  if (!vocab || typeof vocab !== 'object') return false;
+  
+  const hasTermDefinition = vocab.term && vocab.definition;
+  const hasWordTranslation = vocab.word && vocab.translation;
+  const hasFrontBack = vocab.front && vocab.back;
+  const hasQuestionAnswer = vocab.question && vocab.answer;
+  
+  return hasTermDefinition || hasWordTranslation || hasFrontBack || hasQuestionAnswer;
+}
+
+// Helper function to standardize vocabulary format
+function standardizeVocabularyItem(vocab) {
+  return {
+    term: vocab.term || vocab.word || vocab.front || vocab.question,
+    definition: vocab.definition || vocab.translation || vocab.back || vocab.answer,
+    example: vocab.example || vocab.hint || '',
+    pronunciation: vocab.pronunciation || '',
+    partOfSpeech: vocab.partOfSpeech || vocab.type || 'noun'
+  };
 }
 
 // ✅ ENHANCED: Fallback lesson creation with detailed error handling
@@ -650,6 +674,7 @@ router.get('/test', (req, res) => {
       'GET /api/lessons - Get all lessons',
       'POST /api/lessons - Create lesson',
       'POST /api/lessons/:id/complete - Complete lesson and extract content',
+      'POST /api/lessons/:id/complete-and-extract - Complete lesson with enhanced extraction',
       'POST /api/lessons/migrate-content/:userId - Migrate content from completed lessons',
       'GET /api/lessons/:id - Get specific lesson',
       'PUT /api/lessons/:id - Update lesson',
@@ -687,6 +712,449 @@ router.post('/debug', async (req, res) => {
       success: false,
       error: error.message,
       stack: error.stack
+    });
+  }
+});
+
+// ==========================================
+// 📚 LESSON COMPLETION ROUTES 
+// ==========================================
+
+// ✅ POST /api/lessons/:id/complete - Complete lesson and extract content
+router.post('/:id/complete', verifyToken, validateObjectId, async (req, res) => {
+  try {
+    const lessonId = req.params.id;
+    const { userId, progress, stars, score } = req.body;
+    
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'User ID is required'
+      });
+    }
+    
+    console.log(`🎓 Processing lesson completion: ${lessonId} for user ${userId}`);
+    
+    // Check if lesson completion service is available
+    if (!handleLessonCompletion) {
+      console.warn('⚠️ Lesson completion service not available, saving basic progress only');
+      
+      // Fallback: just save basic user progress
+      if (UserProgress) {
+        await UserProgress.findOneAndUpdate(
+          { userId, lessonId },
+          {
+            completed: true,
+            completedAt: new Date(),
+            stars: stars || 0,
+            score: score || 0,
+            finalProgress: progress
+          },
+          { upsert: true, new: true }
+        );
+      }
+      
+      return res.json({
+        success: true,
+        message: '🎉 Lesson completed successfully! (Basic mode)',
+        data: {
+          lessonCompleted: true,
+          userProgress: {
+            completed: true,
+            stars: stars || 0,
+            score: score || 0
+          },
+          extraction: {
+            vocabularyAdded: 0,
+            homeworkCreated: false,
+            message: 'Content extraction service not available'
+          }
+        }
+      });
+    }
+    
+    // Process lesson completion and extract content
+    const extractionResult = await handleLessonCompletion(userId, lessonId, progress);
+    
+    // Update user progress
+    if (UserProgress) {
+      await UserProgress.findOneAndUpdate(
+        { userId, lessonId },
+        {
+          completed: true,
+          completedAt: new Date(),
+          stars: stars || 0,
+          score: score || 0,
+          finalProgress: progress,
+          homeworkGenerated: extractionResult.homeworkCreated,
+          vocabularyExtracted: extractionResult.vocabularyAdded
+        },
+        { upsert: true, new: true }
+      );
+    }
+    
+    res.json({
+      success: true,
+      message: '🎉 Lesson completed successfully!',
+      data: {
+        lessonCompleted: true,
+        userProgress: {
+          completed: true,
+          stars: stars || 0,
+          score: score || 0
+        },
+        extraction: extractionResult
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Error completing lesson:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to complete lesson',
+      details: error.message
+    });
+  }
+});
+
+// ✅ NEW: POST /api/lessons/:id/complete-and-extract - Enhanced lesson completion with content extraction
+router.post('/:id/complete-and-extract', verifyToken, validateObjectId, async (req, res) => {
+  try {
+    const lessonId = req.params.id;
+    const { userId, progress, stars, score } = req.body;
+    
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'User ID is required'
+      });
+    }
+    
+    console.log(`🎓 Processing enhanced lesson completion: ${lessonId} for user ${userId}`);
+    
+    // Step 1: Mark lesson as completed in user progress
+    if (UserProgress) {
+      await UserProgress.findOneAndUpdate(
+        { userId, lessonId },
+        {
+          completed: true,
+          completedAt: new Date(),
+          stars: stars || 0,
+          score: score || 0,
+          finalProgress: progress,
+          extractionProcessed: true
+        },
+        { upsert: true, new: true }
+      );
+    }
+    
+    // Step 2: Get the lesson for content extraction
+    const lesson = await Lesson.findById(lessonId);
+    if (!lesson) {
+      throw new Error('Lesson not found');
+    }
+    
+    let extractionResult = {
+      vocabularyAdded: 0,
+      vocabularyCount: 0,
+      homeworkCreated: false,
+      homeworkId: null,
+      message: 'Lesson completed successfully'
+    };
+    
+    // Step 3: Extract vocabulary from lesson steps
+    const vocabularyItems = [];
+    
+    if (lesson.steps && Array.isArray(lesson.steps)) {
+      lesson.steps.forEach((step, stepIndex) => {
+        if (step.type === 'vocabulary' && step.data) {
+          let vocabData = [];
+          
+          // Handle different vocabulary data structures
+          if (Array.isArray(step.data)) {
+            vocabData = step.data;
+          } else if (step.data.vocabulary && Array.isArray(step.data.vocabulary)) {
+            vocabData = step.data.vocabulary;
+          } else if (step.vocabulary && Array.isArray(step.vocabulary)) {
+            vocabData = step.vocabulary;
+          }
+          
+          vocabData.forEach((vocab, vocabIndex) => {
+            if (isValidVocabularyItem(vocab)) {
+              const standardVocab = standardizeVocabularyItem(vocab);
+              const vocabularyItem = {
+                userId,
+                lessonId,
+                lessonName: lesson.lessonName,
+                term: standardVocab.term,
+                definition: standardVocab.definition,
+                example: standardVocab.example,
+                pronunciation: standardVocab.pronunciation,
+                partOfSpeech: standardVocab.partOfSpeech,
+                language: getLanguageFromLesson(lesson),
+                difficulty: getDifficultyFromLevel(lesson.level),
+                learned: false,
+                extractedAt: new Date(),
+                source: 'lesson_completion',
+                metadata: {
+                  stepIndex,
+                  vocabIndex,
+                  lessonLevel: lesson.level,
+                  lessonSubject: lesson.subject
+                }
+              };
+              
+              vocabularyItems.push(vocabularyItem);
+            }
+          });
+        }
+      });
+    }
+    
+    // Step 4: Save vocabulary to database
+    if (vocabularyItems.length > 0) {
+      try {
+        if (Vocabulary) {
+          // Check for existing vocabulary to avoid duplicates
+          const existingVocab = await Vocabulary.find({
+            userId,
+            lessonId,
+            term: { $in: vocabularyItems.map(v => v.term) }
+          });
+          
+          const existingTerms = new Set(existingVocab.map(v => v.term));
+          const newVocabularyItems = vocabularyItems.filter(v => !existingTerms.has(v.term));
+          
+          if (newVocabularyItems.length > 0) {
+            await Vocabulary.insertMany(newVocabularyItems);
+            extractionResult.vocabularyAdded = newVocabularyItems.length;
+            extractionResult.vocabularyCount = newVocabularyItems.length;
+            
+            console.log(`✅ Added ${newVocabularyItems.length} vocabulary items`);
+          }
+        } else {
+          // Fallback: Store in user progress as metadata
+          await UserProgress.findOneAndUpdate(
+            { userId, lessonId },
+            {
+              $set: {
+                extractedVocabulary: vocabularyItems,
+                vocabularyExtracted: vocabularyItems.length
+              }
+            }
+          );
+          
+          extractionResult.vocabularyAdded = vocabularyItems.length;
+          extractionResult.vocabularyCount = vocabularyItems.length;
+          
+          console.log(`✅ Stored ${vocabularyItems.length} vocabulary items in user progress`);
+        }
+      } catch (vocabError) {
+        console.warn('⚠️ Failed to save vocabulary:', vocabError.message);
+      }
+    }
+    
+    // Step 5: Create homework from lesson exercises
+    const homeworkExercises = [];
+    const homeworkQuizzes = [];
+    
+    if (lesson.steps && Array.isArray(lesson.steps)) {
+      lesson.steps.forEach((step, stepIndex) => {
+        if (step.type === 'exercise' && step.data && Array.isArray(step.data)) {
+          step.data.forEach((exercise, exerciseIndex) => {
+            if (exercise.includeInHomework || step.data.length <= 3) { // Auto-include if few exercises
+              homeworkExercises.push({
+                question: exercise.question,
+                type: exercise.type || 'short-answer',
+                options: exercise.options || [],
+                correctAnswer: exercise.correctAnswer || exercise.answer,
+                points: exercise.points || 1,
+                instruction: exercise.instruction || '',
+                hint: exercise.hint || '',
+                explanation: exercise.explanation || '',
+                source: 'lesson_extraction',
+                lessonStep: stepIndex,
+                exerciseIndex
+              });
+            }
+          });
+        }
+        
+        if (step.type === 'quiz' && step.data && Array.isArray(step.data)) {
+          step.data.forEach((quiz, quizIndex) => {
+            homeworkQuizzes.push({
+              question: quiz.question,
+              type: quiz.type || 'multiple-choice',
+              options: quiz.options || [],
+              correctAnswer: quiz.correctAnswer,
+              explanation: quiz.explanation || '',
+              points: 1,
+              source: 'lesson_extraction',
+              lessonStep: stepIndex,
+              quizIndex
+            });
+          });
+        }
+      });
+    }
+    
+    // Step 6: Save homework if we have content
+    if ((homeworkExercises.length > 0 || homeworkQuizzes.length > 0) && Homework) {
+      try {
+        const homeworkData = {
+          userId,
+          lessonId,
+          title: `Домашнее задание: ${lesson.lessonName}`,
+          description: `Упражнения по уроку "${lesson.lessonName}"`,
+          subject: lesson.subject,
+          level: lesson.level,
+          exercises: [...homeworkExercises, ...homeworkQuizzes],
+          totalQuestions: homeworkExercises.length + homeworkQuizzes.length,
+          isActive: true,
+          createdAt: new Date(),
+          dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days from now
+          source: 'lesson_completion',
+          metadata: {
+            originalLessonName: lesson.lessonName,
+            extractedAt: new Date(),
+            exerciseCount: homeworkExercises.length,
+            quizCount: homeworkQuizzes.length
+          }
+        };
+        
+        const homework = new Homework(homeworkData);
+        await homework.save();
+        
+        extractionResult.homeworkCreated = true;
+        extractionResult.homeworkId = homework._id;
+        
+        console.log(`✅ Created homework with ${homeworkData.totalQuestions} questions`);
+      } catch (homeworkError) {
+        console.warn('⚠️ Failed to create homework:', homeworkError.message);
+      }
+    }
+    
+    // Step 7: Update lesson completion statistics
+    try {
+      await Lesson.findByIdAndUpdate(lessonId, {
+        $inc: { 
+          'stats.completions': 1,
+          'stats.vocabularyExtractions': vocabularyItems.length > 0 ? 1 : 0,
+          'stats.homeworkGenerations': extractionResult.homeworkCreated ? 1 : 0
+        }
+      });
+    } catch (statsError) {
+      console.warn('⚠️ Failed to update lesson stats:', statsError.message);
+    }
+    
+    // Step 8: Build response
+    if (vocabularyItems.length > 0) {
+      extractionResult.message += ` Добавлено ${vocabularyItems.length} слов в словарь.`;
+    }
+    
+    if (extractionResult.homeworkCreated) {
+      extractionResult.message += ` Создано домашнее задание с ${homeworkExercises.length + homeworkQuizzes.length} вопросами.`;
+    }
+    
+    console.log(`🎉 Enhanced lesson completion finished:`, extractionResult);
+    
+    res.json({
+      success: true,
+      message: '🎉 Lesson completed and content extracted successfully!',
+      data: {
+        lessonCompleted: true,
+        userProgress: {
+          completed: true,
+          stars: stars || 0,
+          score: score || 0
+        },
+        extraction: extractionResult
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Error in enhanced lesson completion:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to complete lesson with extraction',
+      details: error.message
+    });
+  }
+});
+
+// Helper function to determine language from lesson
+function getLanguageFromLesson(lesson) {
+  const subject = (lesson.subject || '').toLowerCase();
+  const title = (lesson.lessonName || lesson.title || '').toLowerCase();
+  
+  const languageMap = {
+    'english': ['english', 'английский', 'англ', 'eng'],
+    'russian': ['russian', 'русский', 'рус', 'rus'],
+    'spanish': ['spanish', 'испанский', 'español', 'esp'],
+    'french': ['french', 'французский', 'français', 'fra'],
+    'german': ['german', 'немецкий', 'deutsch', 'deu'],
+    'uzbek': ['uzbek', 'узбекский', 'o\'zbek', 'uzb']
+  };
+  
+  const searchText = `${subject} ${title}`;
+  
+  for (const [language, keywords] of Object.entries(languageMap)) {
+    if (keywords.some(keyword => searchText.includes(keyword))) {
+      return language;
+    }
+  }
+  
+  return 'english'; // Default
+}
+
+// Helper function to convert lesson level to difficulty
+function getDifficultyFromLevel(level) {
+  if (level <= 2) return 'beginner';
+  if (level <= 4) return 'intermediate';
+  return 'advanced';
+}
+
+// POST /api/lessons/migrate-content/:userId - Migrate content from completed lessons
+router.post('/migrate-content/:userId', verifyToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { lessonIds } = req.body; // Optional: specific lessons
+    
+    // Verify user access
+    if (req.user?.uid !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied: user mismatch'
+      });
+    }
+    
+    console.log(`🔄 Migrating content for user ${userId}`);
+    
+    // Check if extraction service is available
+    if (!extractContentFromCompletedLessons) {
+      return res.status(503).json({
+        success: false,
+        error: 'Content extraction service not available'
+      });
+    }
+    
+    // Call the extraction service
+    const mockReq = { params: { userId }, body: { lessonIds } };
+    const mockRes = {
+      json: (data) => data,
+      status: (code) => ({ json: (data) => ({ ...data, statusCode: code }) })
+    };
+    
+    const result = await extractContentFromCompletedLessons(mockReq, mockRes);
+    
+    res.json(result);
+    
+  } catch (error) {
+    console.error('❌ Error migrating lesson content:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to migrate lesson content',
+      details: error.message
     });
   }
 });
@@ -1143,152 +1611,6 @@ router.get('/subject/:subject', async (req, res) => {
       success: false,
       message: '❌ Server error fetching lessons by subject', 
       error: error.message 
-    });
-  }
-});
-
-// ==========================================
-// 📚 LESSON COMPLETION ROUTES 
-// ==========================================
-
-// POST /api/lessons/:id/complete - Complete lesson and extract content
-router.post('/:id/complete', verifyToken, validateObjectId, async (req, res) => {
-  try {
-    const lessonId = req.params.id;
-    const { userId, progress, stars, score } = req.body;
-    
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        error: 'User ID is required'
-      });
-    }
-    
-    console.log(`🎓 Processing lesson completion: ${lessonId} for user ${userId}`);
-    
-    // Check if lesson completion service is available
-    if (!handleLessonCompletion) {
-      console.warn('⚠️ Lesson completion service not available, saving basic progress only');
-      
-      // Fallback: just save basic user progress
-      if (UserProgress) {
-        await UserProgress.findOneAndUpdate(
-          { userId, lessonId },
-          {
-            completed: true,
-            completedAt: new Date(),
-            stars: stars || 0,
-            score: score || 0,
-            finalProgress: progress
-          },
-          { upsert: true, new: true }
-        );
-      }
-      
-      return res.json({
-        success: true,
-        message: '🎉 Lesson completed successfully! (Basic mode)',
-        data: {
-          lessonCompleted: true,
-          userProgress: {
-            completed: true,
-            stars: stars || 0,
-            score: score || 0
-          },
-          extraction: {
-            vocabularyAdded: 0,
-            homeworkCreated: false,
-            message: 'Content extraction service not available'
-          }
-        }
-      });
-    }
-    
-    // Process lesson completion and extract content
-    const extractionResult = await handleLessonCompletion(userId, lessonId, progress);
-    
-    // Update user progress
-    if (UserProgress) {
-      await UserProgress.findOneAndUpdate(
-        { userId, lessonId },
-        {
-          completed: true,
-          completedAt: new Date(),
-          stars: stars || 0,
-          score: score || 0,
-          finalProgress: progress,
-          homeworkGenerated: extractionResult.homeworkCreated,
-          vocabularyExtracted: extractionResult.vocabularyAdded
-        },
-        { upsert: true, new: true }
-      );
-    }
-    
-    res.json({
-      success: true,
-      message: '🎉 Lesson completed successfully!',
-      data: {
-        lessonCompleted: true,
-        userProgress: {
-          completed: true,
-          stars: stars || 0,
-          score: score || 0
-        },
-        extraction: extractionResult
-      }
-    });
-    
-  } catch (error) {
-    console.error('❌ Error completing lesson:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to complete lesson',
-      details: error.message
-    });
-  }
-});
-
-// POST /api/lessons/migrate-content/:userId - Migrate content from completed lessons
-router.post('/migrate-content/:userId', verifyToken, async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const { lessonIds } = req.body; // Optional: specific lessons
-    
-    // Verify user access
-    if (req.user?.uid !== userId) {
-      return res.status(403).json({
-        success: false,
-        error: 'Access denied: user mismatch'
-      });
-    }
-    
-    console.log(`🔄 Migrating content for user ${userId}`);
-    
-    // Check if extraction service is available
-    if (!extractContentFromCompletedLessons) {
-      return res.status(503).json({
-        success: false,
-        error: 'Content extraction service not available'
-      });
-    }
-    
-    // Call the extraction service
-    const mockReq = { params: { userId }, body: { lessonIds } };
-    const mockRes = {
-      json: (data) => data,
-      status: (code) => ({ json: (data) => ({ ...data, statusCode: code }) })
-    };
-    
-    const result = await extractContentFromCompletedLessons(mockReq, mockRes);
-    
-    res.json(result);
-    
-  } catch (error) {
-    console.error('❌ Error migrating lesson content:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to migrate lesson content',
-      details: error.message
     });
   }
 });
@@ -1803,6 +2125,95 @@ router.delete('/all', verifyToken, async (req, res) => {
       success: false,
       message: '❌ Server error clearing lessons', 
       error: error.message 
+    });
+  }
+});
+
+// ✅ ENHANCED: Update lesson completion status after user completes
+router.patch('/:id/mark-completed', verifyToken, validateObjectId, async (req, res) => {
+  try {
+    const lessonId = req.params.id;
+    const { userId } = req.body;
+    
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'User ID is required'
+      });
+    }
+    
+    // Update lesson completion statistics
+    await Lesson.findByIdAndUpdate(lessonId, {
+      $inc: { 
+        'stats.completions': 1,
+        'stats.totalCompletions': 1
+      },
+      $set: {
+        'stats.lastCompletedAt': new Date()
+      }
+    });
+    
+    console.log(`✅ Marked lesson ${lessonId} as completed by user ${userId}`);
+    
+    res.json({
+      success: true,
+      message: 'Lesson completion recorded'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error marking lesson as completed:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to record lesson completion',
+      details: error.message
+    });
+  }
+});
+
+// ✅ NEW: Get user's lesson progress
+router.get('/:id/progress/:userId', verifyToken, validateObjectId, async (req, res) => {
+  try {
+    const { id: lessonId, userId } = req.params;
+    
+    if (!UserProgress) {
+      return res.status(500).json({
+        success: false,
+        error: 'UserProgress model not available'
+      });
+    }
+    
+    const progress = await UserProgress.findOne({ userId, lessonId });
+    
+    if (!progress) {
+      return res.json({
+        success: true,
+        progress: null,
+        message: 'No progress found for this lesson'
+      });
+    }
+    
+    res.json({
+      success: true,
+      progress: {
+        completed: progress.completed,
+        completedAt: progress.completedAt,
+        stars: progress.stars,
+        score: progress.score,
+        currentStep: progress.currentStep || 0,
+        totalSteps: progress.totalSteps || 0,
+        progressPercent: progress.progressPercent || 0,
+        timeSpent: progress.timeSpent || 0,
+        mistakes: progress.mistakes || 0,
+        lastAccessed: progress.updatedAt
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Error fetching lesson progress:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch lesson progress',
+      details: error.message
     });
   }
 });
