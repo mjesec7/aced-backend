@@ -2320,6 +2320,507 @@ app.get('/api/homeworks/user/:userId/lesson/:lessonId', async (req, res) => {
     });
   }
 });
+const routesToMount = [
+  // ✅ CRITICAL: Add main payment routes FIRST
+  ['/api/payments', './routes/payments', 'Main payment routes (CRITICAL)'],
+  
+  // PayMe routes (legacy)
+  ['/api/payments', './routes/paymeRoutes', 'PayMe payment routes (legacy)'],
+  
+  // ✅ ADD THIS LINE - PROMOCODE ROUTES
+  ['/api/promocodes', './routes/promocodeRoutes', 'Promocode management routes (ADMIN)'],
+  
+  // User routes - CRITICAL
+  ['/api/users', './routes/userRoutes', 'User management routes (MAIN)'],
+  ['/api/user', './routes/userRoutes', 'User management routes (LEGACY)'],
+  
+  // Other routes
+  ['/api/progress', './routes/userProgressRoutes', 'Progress tracking routes'],
+  ['/api/lessons', './routes/lessonRoutes', 'Lesson management routes'],
+  ['/api/subjects', './routes/subjectRoutes', 'Subject management routes'],
+  ['/api/topics', './routes/topicRoutes', 'Topic management routes'],
+  ['/api/chat', './routes/chatRoutes', 'Chat/AI routes'],
+  ['/api/homeworks', './routes/homeworkRoutes', 'Homework routes'],
+  ['/api/tests', './routes/testRoutes', 'Test/quiz routes'],
+  ['/api/analytics', './routes/userAnalytics', 'User analytics routes'],
+  ['/api/vocabulary', './routes/vocabularyRoutes', 'Vocabulary management routes'],
+];
+
+// ========================================
+// 🚨 ALTERNATIVE: ADD PROMOCODE ROUTES DIRECTLY TO server.js (IF ROUTE FILE MISSING)
+// ========================================
+
+// If you don't have the promocodeRoutes.js file, add this directly to your server.js file
+// Place this AFTER your existing emergency routes and BEFORE the route mounting section:
+
+console.log('🎟️ Adding promocode routes directly to server.js...');
+
+// Import the model directly
+const Promocode = require('./models/promoCode'); // Note: your model file is promoCode.js, not promocode.js
+
+// Basic auth middleware (customize based on your auth system)
+const requireAuth = async (req, res, next) => {
+  try {
+    // Use your existing auth logic here
+    if (!req.headers.authorization) {
+      return res.status(401).json({ success: false, error: 'Authentication required' });
+    }
+    
+    // For now, assume authenticated admin user
+    req.user = { 
+      uid: 'admin', 
+      email: 'admin@aced.live', 
+      name: 'Admin User' 
+    };
+    next();
+  } catch (error) {
+    res.status(401).json({ success: false, error: 'Invalid authentication' });
+  }
+};
+
+// ✅ GET /api/promocodes - Get all promocodes with pagination and filtering
+app.get('/api/promocodes', requireAuth, async (req, res) => {
+  try {
+    console.log('📋 Fetching promocodes with filters:', req.query);
+    
+    const { 
+      page = 1, 
+      limit = 20, 
+      search = '', 
+      status = '', 
+      plan = '',
+      sortBy = 'createdAt',
+      sortOrder = 'desc'
+    } = req.query;
+    
+    // Build filter
+    const filter = {};
+    
+    if (search) {
+      filter.$or = [
+        { code: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } },
+        { createdByName: { $regex: search, $options: 'i' } }
+      ];
+    }
+    
+    if (plan) {
+      filter.grantsPlan = plan;
+    }
+    
+    // Status filtering
+    const now = new Date();
+    if (status === 'active') {
+      filter.isActive = true;
+      filter.$and = [
+        { $or: [{ expiresAt: null }, { expiresAt: { $gt: now } }] }
+      ];
+    } else if (status === 'inactive') {
+      filter.isActive = false;
+    } else if (status === 'expired') {
+      filter.expiresAt = { $lt: now };
+    } else if (status === 'exhausted') {
+      filter.$expr = { $gte: ['$currentUses', '$maxUses'] };
+      filter.maxUses = { $ne: null };
+    }
+    
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const sort = {};
+    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+    
+    const [promocodes, total] = await Promise.all([
+      Promocode.find(filter)
+        .sort(sort)
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean(),
+      Promocode.countDocuments(filter)
+    ]);
+    
+    // Add computed fields for frontend
+    const enrichedPromocodes = promocodes.map(promo => {
+      const isExpired = promo.expiresAt && now > promo.expiresAt;
+      const isExhausted = promo.maxUses && promo.currentUses >= promo.maxUses;
+      const remainingUses = promo.maxUses ? Math.max(0, promo.maxUses - promo.currentUses) : null;
+      const usagePercentage = promo.maxUses ? Math.round((promo.currentUses / promo.maxUses) * 100) : 0;
+      
+      let computedStatus = 'active';
+      if (!promo.isActive) computedStatus = 'inactive';
+      else if (isExpired) computedStatus = 'expired';
+      else if (isExhausted) computedStatus = 'exhausted';
+      
+      return {
+        ...promo,
+        isExpired,
+        isExhausted,
+        remainingUses,
+        usagePercentage,
+        status: computedStatus
+      };
+    });
+    
+    res.json({
+      success: true,
+      data: enrichedPromocodes,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit))
+      }
+    });
+    
+    console.log(`✅ Returned ${enrichedPromocodes.length} promocodes`);
+    
+  } catch (error) {
+    console.error('❌ Error fetching promocodes:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch promocodes',
+      details: error.message
+    });
+  }
+});
+
+// ✅ GET /api/promocodes/stats - Get promocode statistics
+app.get('/api/promocodes/stats', requireAuth, async (req, res) => {
+  try {
+    console.log('📊 Fetching promocode stats...');
+    
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    
+    const [
+      total,
+      active,
+      expired,
+      exhausted,
+      inactive,
+      recentUsageResult,
+      planDistribution
+    ] = await Promise.all([
+      Promocode.countDocuments(),
+      Promocode.countDocuments({ 
+        isActive: true,
+        $or: [
+          { expiresAt: null },
+          { expiresAt: { $gt: now } }
+        ]
+      }),
+      Promocode.countDocuments({ 
+        expiresAt: { $lt: now }
+      }),
+      Promocode.countDocuments({
+        $expr: { $gte: ['$currentUses', '$maxUses'] },
+        maxUses: { $ne: null }
+      }),
+      Promocode.countDocuments({ isActive: false }),
+      Promocode.aggregate([
+        { $unwind: '$usedBy' },
+        { $match: { 'usedBy.usedAt': { $gte: thirtyDaysAgo } } },
+        { $count: 'recentUsage' }
+      ]),
+      Promocode.aggregate([
+        { $group: { _id: '$grantsPlan', count: { $sum: 1 } } }
+      ])
+    ]);
+    
+    const stats = {
+      total: total || 0,
+      active: active || 0,
+      expired: expired || 0,
+      exhausted: exhausted || 0,
+      inactive: inactive || 0,
+      recentUsage: recentUsageResult[0]?.recentUsage || 0,
+      planDistribution: planDistribution.reduce((acc, item) => {
+        acc[item._id] = item.count;
+        return acc;
+      }, {})
+    };
+    
+    res.json({
+      success: true,
+      stats: stats
+    });
+    
+    console.log('✅ Promocode stats returned:', stats);
+    
+  } catch (error) {
+    console.error('❌ Error fetching promocode stats:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch promocode stats',
+      details: error.message
+    });
+  }
+});
+
+// ✅ POST /api/promocodes - Create new promocode
+app.post('/api/promocodes', requireAuth, async (req, res) => {
+  try {
+    console.log('➕ Creating new promocode:', req.body.code || req.body.grantsPlan);
+    
+    const {
+      code,
+      grantsPlan,
+      description,
+      maxUses,
+      expiresAt,
+      subscriptionDays,
+      generateRandom,
+      isActive = true
+    } = req.body;
+    
+    // Validation
+    if (!grantsPlan || !['start', 'pro', 'premium'].includes(grantsPlan)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Valid grantsPlan is required (start, pro, premium)'
+      });
+    }
+    
+    let finalCode = code?.trim()?.toUpperCase();
+    
+    // Generate random code if requested or no code provided
+    if (generateRandom || !finalCode) {
+      const prefix = grantsPlan.toUpperCase().substring(0, 3);
+      finalCode = generateRandomCode(prefix, 10);
+      
+      // Ensure uniqueness
+      let attempts = 0;
+      while (await Promocode.findOne({ code: finalCode }) && attempts < 10) {
+        finalCode = generateRandomCode(prefix, 10);
+        attempts++;
+      }
+      
+      if (attempts >= 10) {
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to generate unique code, please try again'
+        });
+      }
+    }
+    
+    if (!finalCode || finalCode.length < 4) {
+      return res.status(400).json({
+        success: false,
+        error: 'Code must be at least 4 characters long'
+      });
+    }
+    
+    // Check if code already exists
+    const existingCode = await Promocode.findOne({ code: finalCode });
+    if (existingCode) {
+      return res.status(400).json({
+        success: false,
+        error: 'Promocode already exists'
+      });
+    }
+    
+    // Validate dates
+    let parsedExpiresAt = null;
+    if (expiresAt) {
+      parsedExpiresAt = new Date(expiresAt);
+      if (parsedExpiresAt <= new Date()) {
+        return res.status(400).json({
+          success: false,
+          error: 'Expiry date must be in the future'
+        });
+      }
+    }
+    
+    // Validate subscription days
+    const days = parseInt(subscriptionDays) || 30;
+    if (days < 1 || days > 365) {
+      return res.status(400).json({
+        success: false,
+        error: 'Subscription days must be between 1 and 365'
+      });
+    }
+    
+    // Create promocode
+    const promocode = new Promocode({
+      code: finalCode,
+      grantsPlan,
+      description: description?.trim() || `${grantsPlan.toUpperCase()} plan access`,
+      maxUses: maxUses && maxUses > 0 ? parseInt(maxUses) : null,
+      expiresAt: parsedExpiresAt,
+      subscriptionDays: days,
+      isActive: Boolean(isActive),
+      createdBy: req.user.uid,
+      createdByName: req.user.name || req.user.email || 'Admin',
+      createdByEmail: req.user.email || ''
+    });
+    
+    await promocode.save();
+    
+    console.log('✅ Promocode created successfully:', finalCode);
+    
+    res.status(201).json({
+      success: true,
+      data: promocode,
+      message: `Promocode ${finalCode} created successfully`
+    });
+    
+  } catch (error) {
+    console.error('❌ Error creating promocode:', error);
+    
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        error: 'Promocode already exists'
+      });
+    }
+    
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create promocode',
+      details: error.message
+    });
+  }
+});
+
+// ✅ PUT /api/promocodes/:id - Update promocode
+app.put('/api/promocodes/:id', requireAuth, async (req, res) => {
+  try {
+    console.log('🔄 Updating promocode:', req.params.id);
+    
+    const promocode = await Promocode.findById(req.params.id);
+    if (!promocode) {
+      return res.status(404).json({
+        success: false,
+        error: 'Promocode not found'
+      });
+    }
+    
+    const {
+      description,
+      maxUses,
+      expiresAt,
+      subscriptionDays,
+      isActive
+    } = req.body;
+    
+    // Update fields
+    if (description !== undefined) {
+      promocode.description = description?.trim() || '';
+    }
+    
+    if (maxUses !== undefined) {
+      promocode.maxUses = maxUses && maxUses > 0 ? parseInt(maxUses) : null;
+    }
+    
+    if (expiresAt !== undefined) {
+      if (expiresAt) {
+        const parsedDate = new Date(expiresAt);
+        if (parsedDate <= new Date()) {
+          return res.status(400).json({
+            success: false,
+            error: 'Expiry date must be in the future'
+          });
+        }
+        promocode.expiresAt = parsedDate;
+      } else {
+        promocode.expiresAt = null;
+      }
+    }
+    
+    if (subscriptionDays !== undefined) {
+      const days = parseInt(subscriptionDays);
+      if (days < 1 || days > 365) {
+        return res.status(400).json({
+          success: false,
+          error: 'Subscription days must be between 1 and 365'
+        });
+      }
+      promocode.subscriptionDays = days;
+    }
+    
+    if (isActive !== undefined) {
+      promocode.isActive = Boolean(isActive);
+    }
+    
+    await promocode.save();
+    
+    console.log('✅ Promocode updated successfully:', promocode.code);
+    
+    res.json({
+      success: true,
+      data: promocode,
+      message: `Promocode ${promocode.code} updated successfully`
+    });
+    
+  } catch (error) {
+    console.error('❌ Error updating promocode:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update promocode',
+      details: error.message
+    });
+  }
+});
+
+// ✅ DELETE /api/promocodes/:id - Delete promocode
+app.delete('/api/promocodes/:id', requireAuth, async (req, res) => {
+  try {
+    console.log('🗑️ Deleting promocode:', req.params.id);
+    
+    const promocode = await Promocode.findById(req.params.id);
+    if (!promocode) {
+      return res.status(404).json({
+        success: false,
+        error: 'Promocode not found'
+      });
+    }
+    
+    // Check if promocode has been used
+    if (promocode.currentUses > 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Cannot delete promocode that has been used. Deactivate it instead.',
+        usageCount: promocode.currentUses
+      });
+    }
+    
+    await promocode.deleteOne();
+    
+    console.log('✅ Promocode deleted successfully:', promocode.code);
+    
+    res.json({
+      success: true,
+      message: `Promocode ${promocode.code} deleted successfully`
+    });
+    
+  } catch (error) {
+    console.error('❌ Error deleting promocode:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete promocode',
+      details: error.message
+    });
+  }
+});
+
+// Helper function to generate random codes
+function generateRandomCode(prefix = '', length = 8) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let result = prefix.toUpperCase();
+  const remainingLength = Math.max(4, length - prefix.length);
+  
+  for (let i = 0; i < remainingLength; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  
+  return result;
+}
+
+console.log('✅ Promocode routes added directly to server.js:');
+console.log('   GET /api/promocodes - List with pagination/filtering');
+console.log('   GET /api/promocodes/stats - Statistics');
+console.log('   POST /api/promocodes - Create new promocode');
+console.log('   PUT /api/promocodes/:id - Update promocode');
+console.log('   DELETE /api/promocodes/:id - Delete promocode');
+console.log('   This should fix the 404 errors in your admin panel.');
 
 // ✅ GET /api/homeworks/user/:userId/homework/:homeworkId
 app.get('/api/homeworks/user/:userId/homework/:homeworkId', async (req, res) => {
