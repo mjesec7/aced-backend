@@ -1571,6 +1571,8 @@ const mountRoute = (path, routeFile, description) => {
 const routesToMount = [
   // ✅ FIXED: Add main payment routes FIRST
   ['/api/payments', './routes/payments', 'Main payment routes (CRITICAL)'],
+  ['/api/promocodes', './routes/promocodeRoutes', 'Promocode management routes (ADMIN)'],
+
   
   // PayMe routes (legacy)
   ['/api/payments', './routes/paymeRoutes', 'PayMe payment routes (legacy)'],
@@ -2320,31 +2322,7 @@ app.get('/api/homeworks/user/:userId/lesson/:lessonId', async (req, res) => {
     });
   }
 });
-const routesToMount = [
-  // ✅ CRITICAL: Add main payment routes FIRST
-  ['/api/payments', './routes/payments', 'Main payment routes (CRITICAL)'],
-  
-  // PayMe routes (legacy)
-  ['/api/payments', './routes/paymeRoutes', 'PayMe payment routes (legacy)'],
-  
-  // ✅ ADD THIS LINE - PROMOCODE ROUTES
-  ['/api/promocodes', './routes/promocodeRoutes', 'Promocode management routes (ADMIN)'],
-  
-  // User routes - CRITICAL
-  ['/api/users', './routes/userRoutes', 'User management routes (MAIN)'],
-  ['/api/user', './routes/userRoutes', 'User management routes (LEGACY)'],
-  
-  // Other routes
-  ['/api/progress', './routes/userProgressRoutes', 'Progress tracking routes'],
-  ['/api/lessons', './routes/lessonRoutes', 'Lesson management routes'],
-  ['/api/subjects', './routes/subjectRoutes', 'Subject management routes'],
-  ['/api/topics', './routes/topicRoutes', 'Topic management routes'],
-  ['/api/chat', './routes/chatRoutes', 'Chat/AI routes'],
-  ['/api/homeworks', './routes/homeworkRoutes', 'Homework routes'],
-  ['/api/tests', './routes/testRoutes', 'Test/quiz routes'],
-  ['/api/analytics', './routes/userAnalytics', 'User analytics routes'],
-  ['/api/vocabulary', './routes/vocabularyRoutes', 'Vocabulary management routes'],
-];
+
 
 // ========================================
 // 🚨 ALTERNATIVE: ADD PROMOCODE ROUTES DIRECTLY TO server.js (IF ROUTE FILE MISSING)
