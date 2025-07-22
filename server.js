@@ -2855,51 +2855,12 @@ const startServer = async () => {
         console.log('');
       }
 
-      // Show Critical Progress Routes Status
-      console.log('🚨 CRITICAL Progress Routes Status:');
-      console.log('   ✅ POST /api/user-progress - ACTIVE (Main endpoint)');
-      console.log('   ✅ POST /api/progress - ACTIVE (Alternative endpoint)');
-      console.log('   ✅ POST /api/progress/quick-save - ACTIVE (Quick save)');
-      console.log('   🔧 These routes fix the 404 errors in your logs');
-      console.log('');
+      
 
-      // Show PayMe configuration
-      console.log('💳 PayMe Configuration:');
-      console.log(`   Controllers Loaded: ${handlePaymeWebhook && initiatePaymePayment ? '✅ Yes' : '❌ No'}`);
-      console.log(`   Emergency Routes: ✅ Active`);
-      console.log(`   Merchant ID: ${process.env.PAYME_MERCHANT_ID ? '✅ Set' : '❌ Missing'}`);
-      console.log(`   Merchant Key: ${process.env.PAYME_MERCHANT_KEY ? '✅ Set' : '❌ Missing'}`);
-      console.log(`   Checkout URL: ${process.env.PAYME_CHECKOUT_URL || 'https://checkout.paycom.uz'}`);
-      console.log(`   Environment: ${process.env.NODE_ENV === 'production' ? 'Production' : 'Development'}`);
-      console.log(`   Webhook URL: https://api.aced.live/api/payments/payme`);
-      console.log(`   Test URL: https://api.aced.live/api/payments/payme/test`);
-      console.log(`   Loop Prevention: ✅ Active`);
-      console.log(`   Rate Limiting: ${MAX_REQUESTS_PER_WINDOW} requests per ${RATE_LIMIT_WINDOW/1000}s`);
-      console.log('');
 
-      // Show Emergency Payment Routes
-      console.log('🚨 Emergency Payment Routes:');
-      console.log('   GET /api/payments/validate-user/:userId - User validation');
-      console.log('   POST /api/payments/initiate - Payment initiation');
-      console.log('   GET /api/payments/status/:transactionId - Status check');
-      console.log('   POST /api/payments/promo-code - Promo code application');
-      console.log('   POST /api/payments/generate-form - Form generation');
-      console.log('');
 
-      // Show Firebase configuration
-      console.log('🔥 Firebase Configuration:');
-      console.log(`   Project ID: ${process.env.FIREBASE_PROJECT_ID || 'Not set'}`);
-      console.log(`   Client Email: ${process.env.FIREBASE_CLIENT_EMAIL ? '✅ Set' : '❌ Missing'}`);
-      console.log(`   Private Key: ${process.env.FIREBASE_PRIVATE_KEY ? '✅ Set' : '❌ Missing'}`);
-      console.log('');
 
-      // Show CORS configuration
-      console.log('🌐 CORS Configuration:');
-      console.log(`   Environment Override: ${process.env.ALLOWED_ORIGINS ? '✅ Active' : '❌ Using defaults'}`);
-      console.log(`   Allowed Origins: ${allowedOrigins.length} configured`);
-      console.log(`   PayMe Domains: ${allowedOrigins.some(origin => origin.includes('paycom.uz')) ? '✅ Included' : '❌ Missing'}`);
-      console.log(`   No-Origin Requests: ✅ Allowed (webhooks, mobile apps)`);
-      console.log('');
+     
 
       // PayMe Endpoint Summary
       if (handlePaymeWebhook && initiatePaymePayment) {
@@ -2914,22 +2875,7 @@ const startServer = async () => {
         console.log('');
       }
 
-      // Critical System Status
-      console.log('🔧 CRITICAL System Status Summary:');
-      console.log('   ✅ Payment initiation: /api/payments/initiate');
-      console.log('   ✅ Status checking: /api/payments/status/:transactionId');
-      console.log('   ✅ Promo codes: /api/payments/promo-code');
-      console.log('   ✅ Form generation: /api/payments/generate-form');
-      console.log('   ✅ PayMe webhooks: /api/payments/payme');
-      console.log('   ✅ Loop prevention: ACTIVE');
-      console.log('   ✅ CORS properly configured');
-      console.log('   ✅ Progress saving: /api/user-progress & /api/progress');
-      console.log('   ✅ Quick save: /api/progress/quick-save');
-      console.log('');
-      console.log('🎯 Your frontend should now work without 404 errors!');
-      console.log('🔧 Progress saving should work properly now!');
-      console.log('💳 Payment system is fully operational!');
-      console.log('');
+    
     });
     
     // Graceful shutdown
