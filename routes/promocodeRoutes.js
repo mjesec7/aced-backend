@@ -1,8 +1,9 @@
-// routes/promocodeRoutes.js - COMPLETE PROMOCODE ROUTES FOR ADMIN PANEL
+// routes/promocodeRoutes.js - COMPLETE AND ENHANCED PROMOCODE ROUTES
 const express = require('express');
 const router = express.Router();
 
-// Try to import the promocode model - note your model file is promoCode.js
+// --- Model Imports ---
+// Try to import the promocode model with error handling
 let Promocode;
 try {
   Promocode = require('../models/promoCode'); // Your model file name
@@ -12,7 +13,13 @@ try {
   console.error('💡 Make sure models/promoCode.js exists and is properly formatted');
 }
 
-// Basic auth middleware - customize based on your existing auth system
+const User = require('../models/user');
+
+// --- Middleware ---
+// Enhanced auth middleware with better error handling
+const authMiddleware = require('../middlewares/authMiddleware');
+
+// Basic auth middleware for admin routes - customize based on your existing auth system
 const requireAuth = async (req, res, next) => {
   try {
     // Check for authorization header
@@ -23,8 +30,6 @@ const requireAuth = async (req, res, next) => {
       });
     }
     
-    // You can add your Firebase Auth verification here
-    // For now, we'll use a simple token check
     const token = req.headers.authorization.replace('Bearer ', '');
     
     // Add your token verification logic here
@@ -34,6 +39,7 @@ const requireAuth = async (req, res, next) => {
     
     // For now, assume authenticated admin user (customize this!)
     req.user = { 
+      id: token.substring(0, 10) || 'admin',
       uid: token.substring(0, 10) || 'admin', 
       email: 'admin@aced.live', 
       name: 'Admin User' 
@@ -50,6 +56,200 @@ const requireAuth = async (req, res, next) => {
 };
 
 // ============================================
+// 🎟️ USER-FACING ROUTES
+// ============================================
+
+/**
+ * @route   POST /api/promocodes/apply
+ * @desc    Apply a promocode to the current user's account
+ * @access  Private
+ */
+router.post('/apply', authMiddleware, async (req, res) => {
+  try {
+    if (!Promocode) {
+      return res.status(503).json({ success: false, message: 'Promocode system not available.' });
+    }
+
+    const { code } = req.body;
+    const userId = req.user.id; // Assumes authMiddleware adds user to req
+
+    console.log(`🚀 User [${userId}] attempting to apply promo code: ${code}`);
+
+    if (!code || !code.trim()) {
+      return res.status(400).json({ success: false, message: 'Promocode is required.' });
+    }
+
+    const promoCode = await Promocode.findOne({ code: code.trim().toUpperCase(), isActive: true });
+
+    if (!promoCode) {
+      return res.status(404).json({ success: false, message: 'Promo code not found or is inactive.' });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+        return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+
+    // --- Enhanced Validation Checks ---
+    const validity = promoCode.isValid ? promoCode.isValid() : { valid: true };
+    if (!validity.valid) {
+      return res.status(400).json({ success: false, message: validity.reason || 'Promocode is not valid.' });
+    }
+
+    if (promoCode.expiresAt && promoCode.expiresAt < new Date()) {
+      return res.status(400).json({ success: false, message: 'This promo code has expired.' });
+    }
+
+    if (promoCode.maxUses && promoCode.currentUses >= promoCode.maxUses) {
+      return res.status(400).json({ success: false, message: 'This promo code has reached its usage limit.' });
+    }
+
+    if (user.usedPromoCodes && user.usedPromoCodes.includes(promoCode._id.toString())) {
+      return res.status(400).json({ success: false, message: 'You have already used this promo code.' });
+    }
+
+    // Check restricted users if applicable
+    if (promoCode.restrictedToUsers && promoCode.restrictedToUsers.length > 0) {
+      const isRestricted = promoCode.restrictedToUsers.includes(user.email) || 
+                          promoCode.restrictedToUsers.includes(user._id.toString());
+      if (!isRestricted) {
+        return res.status(403).json({ success: false, message: 'This promo code is not available for your account.' });
+      }
+    }
+
+    // Check minimum plan requirement if applicable
+    if (promoCode.requiresMinimumPlan && promoCode.requiresMinimumPlan !== 'free') {
+      const planHierarchy = { free: 0, start: 1, pro: 2, premium: 3 };
+      const userPlanLevel = planHierarchy[user.status] || 0;
+      const requiredLevel = planHierarchy[promoCode.requiresMinimumPlan] || 0;
+      
+      if (userPlanLevel < requiredLevel) {
+        return res.status(403).json({ 
+          success: false, 
+          message: `This promo code requires a minimum ${promoCode.requiresMinimumPlan} plan.` 
+        });
+      }
+    }
+
+    // --- Apply the promo code benefits ---
+    user.status = promoCode.grantsPlan;
+    const subscriptionEndDate = user.subscriptionEndDate && user.subscriptionEndDate > new Date()
+        ? new Date(user.subscriptionEndDate)
+        : new Date();
+
+    subscriptionEndDate.setDate(subscriptionEndDate.getDate() + promoCode.subscriptionDays);
+    user.subscriptionEndDate = subscriptionEndDate;
+
+    // --- Update records ---
+    if (!user.usedPromoCodes) user.usedPromoCodes = [];
+    user.usedPromoCodes.push(promoCode._id);
+    
+    promoCode.currentUses = (promoCode.currentUses || 0) + 1;
+    if (!promoCode.usedBy) promoCode.usedBy = [];
+    promoCode.usedBy.push({ 
+      userId: user._id, 
+      email: user.email, 
+      usedAt: new Date(),
+      userName: user.name || user.email
+    });
+
+    await user.save();
+    await promoCode.save();
+
+    console.log(`✅ Successfully applied promo [${promoCode.code}] to user [${user.email}]`);
+
+    res.json({
+      success: true,
+      message: 'Promo code applied successfully!',
+      user: user, // The frontend might need the updated user object
+      promocode: {
+        code: promoCode.code,
+        grantsPlan: promoCode.grantsPlan,
+        subscriptionDays: promoCode.subscriptionDays
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error applying promo code:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error while applying promo code.', 
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+/**
+ * @route   GET /api/promocodes/validate/:code
+ * @desc    Validate a promocode without applying it
+ * @access  Public
+ */
+router.get('/validate/:code', async (req, res) => {
+  try {
+    if (!Promocode) {
+      return res.status(503).json({ success: false, valid: false, error: 'Promocode system not available' });
+    }
+
+    console.log('🔍 Validating promocode:', req.params.code);
+    
+    const { code } = req.params;
+    if (!code || !code.trim()) {
+      return res.status(400).json({ success: false, valid: false, error: 'Promocode is required' });
+    }
+
+    const promocode = await Promocode.findOne({ 
+      code: code.trim().toUpperCase(), 
+      isActive: true 
+    });
+
+    if (!promocode) {
+      return res.status(404).json({ success: false, valid: false, error: 'Invalid or inactive promocode' });
+    }
+
+    // Enhanced validation using model method if available
+    const validity = promocode.isValid ? promocode.isValid() : { 
+      valid: true,
+      reason: null
+    };
+
+    if (validity.valid) {
+      const remainingUses = promocode.maxUses ? Math.max(0, promocode.maxUses - promocode.currentUses) : null;
+      
+      res.json({
+        success: true,
+        valid: true,
+        data: {
+          code: promocode.code,
+          grantsPlan: promocode.grantsPlan,
+          description: promocode.description,
+          subscriptionDays: promocode.subscriptionDays,
+          maxUses: promocode.maxUses,
+          currentUses: promocode.currentUses,
+          remainingUses: remainingUses,
+          expiresAt: promocode.expiresAt,
+          tags: promocode.tags || []
+        }
+      });
+    } else {
+      res.status(400).json({ 
+        success: false, 
+        valid: false, 
+        error: validity.reason, 
+        code: validity.code 
+      });
+    }
+  } catch (error) {
+    console.error('❌ Error validating promocode:', error);
+    res.status(500).json({ 
+      success: false, 
+      valid: false, 
+      error: 'Failed to validate promocode', 
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// ============================================
 // 📋 ADMIN PROMOCODE ROUTES
 // ============================================
 
@@ -57,10 +257,7 @@ const requireAuth = async (req, res, next) => {
 router.get('/', requireAuth, async (req, res) => {
   try {
     if (!Promocode) {
-      return res.status(503).json({
-        success: false,
-        error: 'Promocode model not available'
-      });
+      return res.status(503).json({ success: false, error: 'Promocode model not available' });
     }
     
     console.log('📋 Admin: Fetching all promocodes with filters:', req.query);
@@ -86,11 +283,9 @@ router.get('/', requireAuth, async (req, res) => {
       ];
     }
     
-    if (plan) {
-      filter.grantsPlan = plan;
-    }
-    
-    // Status filtering
+    if (plan) filter.grantsPlan = plan;
+
+    // Enhanced status filtering
     const now = new Date();
     if (status === 'active') {
       filter.isActive = true;
@@ -105,11 +300,10 @@ router.get('/', requireAuth, async (req, res) => {
       filter.$expr = { $gte: ['$currentUses', '$maxUses'] };
       filter.maxUses = { $ne: null };
     }
-    
+
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    const sort = {};
-    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
-    
+    const sort = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
+
     const [promocodes, total] = await Promise.all([
       Promocode.find(filter)
         .sort(sort)
@@ -118,11 +312,11 @@ router.get('/', requireAuth, async (req, res) => {
         .lean(),
       Promocode.countDocuments(filter)
     ]);
-    
+
     // Add computed fields for frontend compatibility
     const enrichedPromocodes = promocodes.map(promo => {
       const isExpired = promo.expiresAt && now > promo.expiresAt;
-      const isExhausted = promo.maxUses && promo.currentUses >= promo.maxUses;
+      const isExhausted = promo.maxUses != null && promo.currentUses >= promo.maxUses;
       const remainingUses = promo.maxUses ? Math.max(0, promo.maxUses - promo.currentUses) : null;
       const usagePercentage = promo.maxUses ? Math.round((promo.currentUses / promo.maxUses) * 100) : 0;
       
@@ -131,35 +325,35 @@ router.get('/', requireAuth, async (req, res) => {
       else if (isExpired) computedStatus = 'expired';
       else if (isExhausted) computedStatus = 'exhausted';
       
-      return {
-        ...promo,
-        isExpired,
-        isExhausted,
+      return { 
+        ...promo, 
+        isExpired, 
+        isExhausted, 
         remainingUses,
-        usagePercentage,
-        status: computedStatus
+        usagePercentage, 
+        status: computedStatus 
       };
     });
     
-    res.json({
-      success: true,
-      data: enrichedPromocodes,
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total,
-        pages: Math.ceil(total / parseInt(limit))
-      }
+    res.json({ 
+      success: true, 
+      data: enrichedPromocodes, 
+      pagination: { 
+        page: parseInt(page), 
+        limit: parseInt(limit), 
+        total, 
+        pages: Math.ceil(total / parseInt(limit)) 
+      } 
     });
-    
+
     console.log(`✅ Returned ${enrichedPromocodes.length} promocodes (${total} total)`);
     
   } catch (error) {
     console.error('❌ Error fetching promocodes:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch promocodes',
-      details: error.message
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to fetch promocodes', 
+      details: error.message 
     });
   }
 });
@@ -168,17 +362,14 @@ router.get('/', requireAuth, async (req, res) => {
 router.get('/stats', requireAuth, async (req, res) => {
   try {
     if (!Promocode) {
-      return res.status(503).json({
-        success: false,
-        error: 'Promocode model not available'
-      });
+      return res.status(503).json({ success: false, error: 'Promocode model not available' });
     }
     
     console.log('📊 Admin: Fetching promocode stats');
     
     const now = new Date();
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    
+
     const [
       total,
       active,
@@ -192,14 +383,9 @@ router.get('/stats', requireAuth, async (req, res) => {
       Promocode.countDocuments(),
       Promocode.countDocuments({ 
         isActive: true,
-        $or: [
-          { expiresAt: null },
-          { expiresAt: { $gt: now } }
-        ]
+        $or: [{ expiresAt: null }, { expiresAt: { $gt: now } }]
       }),
-      Promocode.countDocuments({ 
-        expiresAt: { $lt: now }
-      }),
+      Promocode.countDocuments({ expiresAt: { $lt: now } }),
       Promocode.countDocuments({
         $expr: { $gte: ['$currentUses', '$maxUses'] },
         maxUses: { $ne: null }
@@ -218,38 +404,34 @@ router.get('/stats', requireAuth, async (req, res) => {
         .limit(5)
         .lean()
     ]);
-    
-    const stats = {
-      total: total || 0,
-      active: active || 0,
-      expired: expired || 0,
-      exhausted: exhausted || 0,
-      inactive: inactive || 0,
-      recentUsage: recentUsageResult[0]?.recentUsage || 0,
-      planDistribution: planDistribution.reduce((acc, item) => {
-        acc[item._id] = item.count;
-        return acc;
-      }, {}),
-      topCodes: topCodes.map(code => ({
-        code: code.code,
-        uses: code.currentUses,
-        plan: code.grantsPlan
-      }))
+
+    const stats = { 
+      total: total || 0, 
+      active: active || 0, 
+      expired: expired || 0, 
+      exhausted: exhausted || 0, 
+      inactive: inactive || 0, 
+      recentUsage: recentUsageResult[0]?.recentUsage || 0, 
+      planDistribution: planDistribution.reduce((acc, item) => { 
+        acc[item._id] = item.count; 
+        return acc; 
+      }, {}), 
+      topCodes: topCodes.map(c => ({ 
+        code: c.code, 
+        uses: c.currentUses, 
+        plan: c.grantsPlan 
+      })) 
     };
     
-    res.json({
-      success: true,
-      stats: stats
-    });
-    
+    res.json({ success: true, stats });
     console.log('✅ Promocode stats returned:', stats);
     
   } catch (error) {
     console.error('❌ Error fetching promocode stats:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch promocode stats',
-      details: error.message
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to fetch promocode stats', 
+      details: error.message 
     });
   }
 });
@@ -258,10 +440,7 @@ router.get('/stats', requireAuth, async (req, res) => {
 router.post('/', requireAuth, async (req, res) => {
   try {
     if (!Promocode) {
-      return res.status(503).json({
-        success: false,
-        error: 'Promocode model not available'
-      });
+      return res.status(503).json({ success: false, error: 'Promocode model not available' });
     }
     
     console.log('➕ Admin: Creating new promocode');
@@ -280,11 +459,11 @@ router.post('/', requireAuth, async (req, res) => {
       tags
     } = req.body;
     
-    // Validation
+    // Enhanced validation
     if (!grantsPlan || !['start', 'pro', 'premium'].includes(grantsPlan)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Valid grantsPlan is required (start, pro, premium)'
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Valid grantsPlan is required (start, pro, premium)' 
       });
     }
     
@@ -303,37 +482,33 @@ router.post('/', requireAuth, async (req, res) => {
       }
       
       if (attempts >= 10) {
-        return res.status(500).json({
-          success: false,
-          error: 'Failed to generate unique code, please try again'
+        return res.status(500).json({ 
+          success: false, 
+          error: 'Failed to generate unique code, please try again' 
         });
       }
     }
     
     if (!finalCode || finalCode.length < 4) {
-      return res.status(400).json({
-        success: false,
-        error: 'Code must be at least 4 characters long'
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Code must be at least 4 characters long' 
       });
     }
-    
+
     // Check if code already exists
-    const existingCode = await Promocode.findOne({ code: finalCode });
-    if (existingCode) {
-      return res.status(400).json({
-        success: false,
-        error: 'Promocode already exists'
-      });
+    if (await Promocode.findOne({ code: finalCode })) {
+      return res.status(400).json({ success: false, error: 'Promocode already exists' });
     }
-    
+
     // Validate dates
     let parsedExpiresAt = null;
     if (expiresAt) {
       parsedExpiresAt = new Date(expiresAt);
       if (parsedExpiresAt <= new Date()) {
-        return res.status(400).json({
-          success: false,
-          error: 'Expiry date must be in the future'
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Expiry date must be in the future' 
         });
       }
     }
@@ -341,13 +516,12 @@ router.post('/', requireAuth, async (req, res) => {
     // Validate subscription days
     const days = parseInt(subscriptionDays) || 30;
     if (days < 1 || days > 365) {
-      return res.status(400).json({
-        success: false,
-        error: 'Subscription days must be between 1 and 365'
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Subscription days must be between 1 and 365' 
       });
     }
-    
-    // Create promocode
+
     const promocode = new Promocode({
       code: finalCode,
       grantsPlan,
@@ -359,7 +533,7 @@ router.post('/', requireAuth, async (req, res) => {
       restrictedToUsers: Array.isArray(restrictedToUsers) ? restrictedToUsers : [],
       requiresMinimumPlan: requiresMinimumPlan || 'free',
       tags: Array.isArray(tags) ? tags.map(tag => tag.trim()).filter(Boolean) : [],
-      createdBy: req.user.uid,
+      createdBy: req.user.uid || req.user.id,
       createdByName: req.user.name || req.user.email || 'Admin',
       createdByEmail: req.user.email || ''
     });
@@ -368,26 +542,23 @@ router.post('/', requireAuth, async (req, res) => {
     
     console.log('✅ Promocode created successfully:', finalCode);
     
-    res.status(201).json({
-      success: true,
-      data: promocode,
-      message: `Promocode ${finalCode} created successfully`
+    res.status(201).json({ 
+      success: true, 
+      data: promocode, 
+      message: `Promocode ${finalCode} created successfully` 
     });
     
   } catch (error) {
     console.error('❌ Error creating promocode:', error);
     
     if (error.code === 11000) {
-      return res.status(400).json({
-        success: false,
-        error: 'Promocode already exists'
-      });
+      return res.status(400).json({ success: false, error: 'Promocode already exists' });
     }
     
-    res.status(500).json({
-      success: false,
-      error: 'Failed to create promocode',
-      details: error.message
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to create promocode', 
+      details: error.message 
     });
   }
 });
@@ -396,20 +567,14 @@ router.post('/', requireAuth, async (req, res) => {
 router.put('/:id', requireAuth, async (req, res) => {
   try {
     if (!Promocode) {
-      return res.status(503).json({
-        success: false,
-        error: 'Promocode model not available'
-      });
+      return res.status(503).json({ success: false, error: 'Promocode model not available' });
     }
     
     console.log('🔄 Admin: Updating promocode:', req.params.id);
     
     const promocode = await Promocode.findById(req.params.id);
     if (!promocode) {
-      return res.status(404).json({
-        success: false,
-        error: 'Promocode not found'
-      });
+      return res.status(404).json({ success: false, error: 'Promocode not found' });
     }
     
     const {
@@ -423,7 +588,7 @@ router.put('/:id', requireAuth, async (req, res) => {
       tags
     } = req.body;
     
-    // Update fields
+    // Update fields with enhanced validation
     if (description !== undefined) {
       promocode.description = description?.trim() || '';
     }
@@ -436,9 +601,9 @@ router.put('/:id', requireAuth, async (req, res) => {
       if (expiresAt) {
         const parsedDate = new Date(expiresAt);
         if (parsedDate <= new Date()) {
-          return res.status(400).json({
-            success: false,
-            error: 'Expiry date must be in the future'
+          return res.status(400).json({ 
+            success: false, 
+            error: 'Expiry date must be in the future' 
           });
         }
         promocode.expiresAt = parsedDate;
@@ -450,17 +615,15 @@ router.put('/:id', requireAuth, async (req, res) => {
     if (subscriptionDays !== undefined) {
       const days = parseInt(subscriptionDays);
       if (days < 1 || days > 365) {
-        return res.status(400).json({
-          success: false,
-          error: 'Subscription days must be between 1 and 365'
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Subscription days must be between 1 and 365' 
         });
       }
       promocode.subscriptionDays = days;
     }
     
-    if (isActive !== undefined) {
-      promocode.isActive = Boolean(isActive);
-    }
+    if (isActive !== undefined) promocode.isActive = Boolean(isActive);
     
     if (restrictedToUsers !== undefined) {
       promocode.restrictedToUsers = Array.isArray(restrictedToUsers) ? restrictedToUsers : [];
@@ -468,9 +631,9 @@ router.put('/:id', requireAuth, async (req, res) => {
     
     if (requiresMinimumPlan !== undefined) {
       if (!['free', 'start', 'pro', 'premium'].includes(requiresMinimumPlan)) {
-        return res.status(400).json({
-          success: false,
-          error: 'Invalid minimum plan requirement'
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Invalid minimum plan requirement' 
         });
       }
       promocode.requiresMinimumPlan = requiresMinimumPlan;
@@ -479,23 +642,23 @@ router.put('/:id', requireAuth, async (req, res) => {
     if (tags !== undefined) {
       promocode.tags = Array.isArray(tags) ? tags.map(tag => tag.trim()).filter(Boolean) : [];
     }
-    
+
     await promocode.save();
     
     console.log('✅ Promocode updated successfully:', promocode.code);
     
-    res.json({
-      success: true,
-      data: promocode,
-      message: `Promocode ${promocode.code} updated successfully`
+    res.json({ 
+      success: true, 
+      data: promocode, 
+      message: `Promocode ${promocode.code} updated successfully` 
     });
     
   } catch (error) {
     console.error('❌ Error updating promocode:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to update promocode',
-      details: error.message
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to update promocode', 
+      details: error.message 
     });
   }
 });
@@ -504,46 +667,40 @@ router.put('/:id', requireAuth, async (req, res) => {
 router.delete('/:id', requireAuth, async (req, res) => {
   try {
     if (!Promocode) {
-      return res.status(503).json({
-        success: false,
-        error: 'Promocode model not available'
-      });
+      return res.status(503).json({ success: false, error: 'Promocode model not available' });
     }
     
     console.log('🗑️ Admin: Deleting promocode:', req.params.id);
     
     const promocode = await Promocode.findById(req.params.id);
     if (!promocode) {
-      return res.status(404).json({
-        success: false,
-        error: 'Promocode not found'
-      });
+      return res.status(404).json({ success: false, error: 'Promocode not found' });
     }
     
-    // Check if promocode has been used
+    // Enhanced deletion logic
     if (promocode.currentUses > 0) {
-      return res.status(400).json({
-        success: false,
+      return res.status(400).json({ 
+        success: false, 
         error: 'Cannot delete promocode that has been used. Deactivate it instead.',
         usageCount: promocode.currentUses
       });
     }
-    
+
     await promocode.deleteOne();
     
     console.log('✅ Promocode deleted successfully:', promocode.code);
     
-    res.json({
-      success: true,
-      message: `Promocode ${promocode.code} deleted successfully`
+    res.json({ 
+      success: true, 
+      message: `Promocode ${promocode.code} deleted successfully` 
     });
     
   } catch (error) {
     console.error('❌ Error deleting promocode:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to delete promocode',
-      details: error.message
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to delete promocode', 
+      details: error.message 
     });
   }
 });
@@ -552,10 +709,7 @@ router.delete('/:id', requireAuth, async (req, res) => {
 router.post('/bulk-create', requireAuth, async (req, res) => {
   try {
     if (!Promocode) {
-      return res.status(503).json({
-        success: false,
-        error: 'Promocode model not available'
-      });
+      return res.status(503).json({ success: false, error: 'Promocode model not available' });
     }
     
     console.log('📦 Admin: Bulk creating promocodes');
@@ -571,17 +725,11 @@ router.post('/bulk-create', requireAuth, async (req, res) => {
     } = req.body;
     
     if (!grantsPlan || !['start', 'pro', 'premium'].includes(grantsPlan)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Valid grantsPlan is required'
-      });
+      return res.status(400).json({ success: false, error: 'Valid grantsPlan is required' });
     }
     
     if (count < 1 || count > 100) {
-      return res.status(400).json({
-        success: false,
-        error: 'Count must be between 1 and 100'
-      });
+      return res.status(400).json({ success: false, error: 'Count must be between 1 and 100' });
     }
     
     const promocodes = [];
@@ -609,7 +757,7 @@ router.post('/bulk-create', requireAuth, async (req, res) => {
           maxUses: maxUses && maxUses > 0 ? parseInt(maxUses) : null,
           expiresAt: expiresAt ? new Date(expiresAt) : null,
           subscriptionDays: parseInt(subscriptionDays) || 30,
-          createdBy: req.user.uid,
+          createdBy: req.user.uid || req.user.id,
           createdByName: req.user.name || req.user.email || 'Admin',
           createdByEmail: req.user.email || ''
         });
@@ -633,10 +781,10 @@ router.post('/bulk-create', requireAuth, async (req, res) => {
     
   } catch (error) {
     console.error('❌ Error bulk creating promocodes:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to bulk create promocodes',
-      details: error.message
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to bulk create promocodes', 
+      details: error.message 
     });
   }
 });
@@ -645,10 +793,7 @@ router.post('/bulk-create', requireAuth, async (req, res) => {
 router.post('/cleanup', requireAuth, async (req, res) => {
   try {
     if (!Promocode) {
-      return res.status(503).json({
-        success: false,
-        error: 'Promocode model not available'
-      });
+      return res.status(503).json({ success: false, error: 'Promocode model not available' });
     }
     
     console.log('🧹 Admin: Cleaning up promocodes');
@@ -727,87 +872,250 @@ router.post('/cleanup', requireAuth, async (req, res) => {
     
   } catch (error) {
     console.error('❌ Error cleaning up promocodes:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to cleanup promocodes',
-      details: error.message
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to cleanup promocodes', 
+      details: error.message 
     });
   }
 });
 
-// ============================================
-// 🎟️ USER ROUTES (for main website)
-// ============================================
-
-// GET /api/promocodes/validate/:code - Validate promocode without applying
-router.get('/validate/:code', async (req, res) => {
+// GET /api/promocodes/:id/usage - Get detailed usage information for a promocode
+router.get('/:id/usage', requireAuth, async (req, res) => {
   try {
     if (!Promocode) {
-      return res.status(503).json({
-        success: false,
-        valid: false,
-        error: 'Promocode system not available'
-      });
+      return res.status(503).json({ success: false, error: 'Promocode model not available' });
     }
     
-    console.log('🔍 Validating promocode:', req.params.code);
+    console.log('📊 Admin: Fetching promocode usage details:', req.params.id);
     
-    const { code } = req.params;
-    
-    if (!code || !code.trim()) {
-      return res.status(400).json({
-        success: false,
-        valid: false,
-        error: 'Promocode is required'
-      });
-    }
-    
-    const promocode = await Promocode.findOne({ 
-      code: code.trim().toUpperCase(),
-      isActive: true 
-    });
+    const promocode = await Promocode.findById(req.params.id)
+      .populate('usedBy.userId', 'name email')
+      .lean();
     
     if (!promocode) {
-      return res.status(404).json({
-        success: false,
-        valid: false,
-        error: 'Invalid or inactive promocode'
-      });
+      return res.status(404).json({ success: false, error: 'Promocode not found' });
     }
     
-    const validity = promocode.isValid();
+    // Enhanced usage analytics
+    const usageData = promocode.usedBy || [];
+    const last30Days = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const last7Days = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     
-    if (validity.valid) {
-      res.json({
-        success: true,
-        valid: true,
-        data: {
+    const analytics = {
+      totalUses: usageData.length,
+      uniqueUsers: new Set(usageData.map(u => u.userId?.toString())).size,
+      recentUses: {
+        last7Days: usageData.filter(u => u.usedAt >= last7Days).length,
+        last30Days: usageData.filter(u => u.usedAt >= last30Days).length
+      },
+      usageByDate: usageData.reduce((acc, usage) => {
+        const date = usage.usedAt.toISOString().split('T')[0];
+        acc[date] = (acc[date] || 0) + 1;
+        return acc;
+      }, {}),
+      topUsers: usageData
+        .reduce((acc, usage) => {
+          const userId = usage.userId?.toString();
+          if (userId) {
+            acc[userId] = (acc[userId] || 0) + 1;
+          }
+          return acc;
+        }, {})
+    };
+    
+    res.json({
+      success: true,
+      data: {
+        promocode: {
           code: promocode.code,
           grantsPlan: promocode.grantsPlan,
           description: promocode.description,
-          subscriptionDays: promocode.subscriptionDays,
           maxUses: promocode.maxUses,
           currentUses: promocode.currentUses,
-          remainingUses: promocode.remainingUses,
-          expiresAt: promocode.expiresAt
-        }
-      });
-    } else {
-      res.json({
-        success: false,
-        valid: false,
-        error: validity.reason,
-        code: validity.code
+          isActive: promocode.isActive,
+          expiresAt: promocode.expiresAt,
+          createdAt: promocode.createdAt
+        },
+        usage: usageData,
+        analytics
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Error fetching promocode usage:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to fetch promocode usage', 
+      details: error.message 
+    });
+  }
+});
+
+// POST /api/promocodes/:id/duplicate - Duplicate a promocode with new code
+router.post('/:id/duplicate', requireAuth, async (req, res) => {
+  try {
+    if (!Promocode) {
+      return res.status(503).json({ success: false, error: 'Promocode model not available' });
+    }
+    
+    console.log('📋 Admin: Duplicating promocode:', req.params.id);
+    
+    const originalPromocode = await Promocode.findById(req.params.id);
+    if (!originalPromocode) {
+      return res.status(404).json({ success: false, error: 'Promocode not found' });
+    }
+    
+    const { newCode, generateRandom } = req.body;
+    
+    let finalCode = newCode?.trim()?.toUpperCase();
+    
+    // Generate random code if requested or no code provided
+    if (generateRandom || !finalCode) {
+      const prefix = originalPromocode.grantsPlan.toUpperCase().substring(0, 3);
+      finalCode = generateRandomCode(prefix, 10);
+      
+      // Ensure uniqueness
+      let attempts = 0;
+      while (await Promocode.findOne({ code: finalCode }) && attempts < 10) {
+        finalCode = generateRandomCode(prefix, 10);
+        attempts++;
+      }
+      
+      if (attempts >= 10) {
+        return res.status(500).json({ 
+          success: false, 
+          error: 'Failed to generate unique code' 
+        });
+      }
+    }
+    
+    if (!finalCode || finalCode.length < 4) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Code must be at least 4 characters long' 
       });
     }
     
+    // Check if code already exists
+    if (await Promocode.findOne({ code: finalCode })) {
+      return res.status(400).json({ success: false, error: 'Promocode already exists' });
+    }
+    
+    // Create duplicate with fresh usage stats
+    const duplicatePromocode = new Promocode({
+      code: finalCode,
+      grantsPlan: originalPromocode.grantsPlan,
+      description: originalPromocode.description,
+      maxUses: originalPromocode.maxUses,
+      expiresAt: originalPromocode.expiresAt,
+      subscriptionDays: originalPromocode.subscriptionDays,
+      isActive: originalPromocode.isActive,
+      restrictedToUsers: [...(originalPromocode.restrictedToUsers || [])],
+      requiresMinimumPlan: originalPromocode.requiresMinimumPlan,
+      tags: [...(originalPromocode.tags || [])],
+      createdBy: req.user.uid || req.user.id,
+      createdByName: req.user.name || req.user.email || 'Admin',
+      createdByEmail: req.user.email || '',
+      currentUses: 0,
+      usedBy: []
+    });
+    
+    await duplicatePromocode.save();
+    
+    console.log('✅ Promocode duplicated successfully:', finalCode);
+    
+    res.status(201).json({
+      success: true,
+      data: duplicatePromocode,
+      message: `Promocode duplicated as ${finalCode}`
+    });
+    
   } catch (error) {
-    console.error('❌ Error validating promocode:', error);
-    res.status(500).json({
-      success: false,
-      valid: false,
-      error: 'Failed to validate promocode',
-      details: error.message
+    console.error('❌ Error duplicating promocode:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to duplicate promocode', 
+      details: error.message 
+    });
+  }
+});
+
+// GET /api/promocodes/export - Export promocodes to CSV
+router.get('/export', requireAuth, async (req, res) => {
+  try {
+    if (!Promocode) {
+      return res.status(503).json({ success: false, error: 'Promocode model not available' });
+    }
+    
+    console.log('📤 Admin: Exporting promocodes');
+    
+    const { format = 'json', status = '', plan = '' } = req.query;
+    
+    // Build filter
+    const filter = {};
+    if (plan) filter.grantsPlan = plan;
+    if (status === 'active') filter.isActive = true;
+    else if (status === 'inactive') filter.isActive = false;
+    
+    const promocodes = await Promocode.find(filter)
+      .select('-usedBy -__v')
+      .sort({ createdAt: -1 })
+      .lean();
+    
+    // Add computed fields
+    const now = new Date();
+    const exportData = promocodes.map(promo => ({
+      code: promo.code,
+      grantsPlan: promo.grantsPlan,
+      description: promo.description,
+      maxUses: promo.maxUses || 'Unlimited',
+      currentUses: promo.currentUses || 0,
+      remainingUses: promo.maxUses ? Math.max(0, promo.maxUses - (promo.currentUses || 0)) : 'Unlimited',
+      subscriptionDays: promo.subscriptionDays,
+      isActive: promo.isActive,
+      expiresAt: promo.expiresAt || 'Never',
+      status: !promo.isActive ? 'Inactive' : 
+              (promo.expiresAt && promo.expiresAt < now) ? 'Expired' :
+              (promo.maxUses && promo.currentUses >= promo.maxUses) ? 'Exhausted' : 'Active',
+      createdAt: promo.createdAt,
+      createdByName: promo.createdByName,
+      tags: promo.tags?.join(', ') || ''
+    }));
+    
+    if (format === 'csv') {
+      // Convert to CSV format
+      const headers = Object.keys(exportData[0] || {});
+      const csvContent = [
+        headers.join(','),
+        ...exportData.map(row => 
+          headers.map(header => 
+            typeof row[header] === 'string' && row[header].includes(',') 
+              ? `"${row[header]}"` 
+              : row[header]
+          ).join(',')
+        )
+      ].join('\n');
+      
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', 'attachment; filename=promocodes.csv');
+      res.send(csvContent);
+    } else {
+      res.json({
+        success: true,
+        data: exportData,
+        count: exportData.length
+      });
+    }
+    
+    console.log(`✅ Exported ${exportData.length} promocodes as ${format}`);
+    
+  } catch (error) {
+    console.error('❌ Error exporting promocodes:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to export promocodes', 
+      details: error.message 
     });
   }
 });
@@ -828,12 +1136,35 @@ function generateRandomCode(prefix = '', length = 8) {
   return result;
 }
 
-// Error handler for this router
+// Enhanced error handler for this router
 router.use((error, req, res, next) => {
   console.error('❌ Promocode route error:', error);
   
   const statusCode = error.status || error.statusCode || 500;
   const message = error.message || 'Internal server error in promocode routes';
+  
+  // Handle specific error types
+  if (error.name === 'ValidationError') {
+    return res.status(400).json({
+      success: false,
+      error: 'Validation error',
+      details: Object.values(error.errors).map(err => err.message)
+    });
+  }
+  
+  if (error.name === 'CastError') {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid ID format'
+    });
+  }
+  
+  if (error.code === 11000) {
+    return res.status(400).json({
+      success: false,
+      error: 'Duplicate entry found'
+    });
+  }
   
   res.status(statusCode).json({
     success: false,
@@ -842,6 +1173,6 @@ router.use((error, req, res, next) => {
   });
 });
 
-console.log('✅ Promocode routes module loaded successfully');
+console.log('✅ Enhanced Promocode routes module loaded successfully');
 
-module.exports = router
+module.exports = router;
