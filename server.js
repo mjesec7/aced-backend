@@ -1118,65 +1118,70 @@ app.post('/api/payments/initiate', async (req, res) => {
   }
 });
 
-// ✅ EMERGENCY: Add promo code route directly
 app.post('/api/payments/promo-code', async (req, res) => {
   try {
     const { userId, plan, promoCode } = req.body;
-    console.log('🎟️ Emergency: Applying promo code:', { userId, plan, promoCode });
-
-    // For now, just check if it's a valid promo code
-    const validPromoCodes = ['acedpromocode2406', 'FREE2024', 'TESTCODE'];
     
-    if (validPromoCodes.includes(promoCode)) {
-      // In a real implementation, you'd update the user's subscription here
-      try {
-        const User = require('./models/user');
-        const user = await User.findOne({ firebaseId: userId });
-        
-        if (user) {
-          user.subscriptionPlan = plan;
-          user.paymentStatus = 'paid';
-          user.lastPaymentDate = new Date();
-          await user.save();
-          
-          res.json({
-            success: true,
-            message: 'Промокод применён успешно! Подписка активирована.',
-            data: {
-              user: {
-                id: user._id,
-                plan: user.subscriptionPlan,
-                paymentStatus: user.paymentStatus
-              }
-            }
-          });
-        } else {
-          res.json({
-            success: true,
-            message: 'Промокод применён успешно! (тестовый режим)',
-            data: { applied: true }
-          });
-        }
-      } catch (dbError) {
-        console.warn('⚠️ Database error, but promo code is valid:', dbError.message);
-        res.json({
-          success: true,
-          message: 'Промокод применён успешно! (режим разработки)',
-          data: { applied: true }
-        });
-      }
-    } else {
-      res.status(400).json({
-        success: false,
-        error: 'Неверный промокод'
+    if (!userId || !plan || !promoCode) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Заполните все поля' 
       });
     }
+
+    // ✅ Check if promocode exists in database
+    const Promocode = require('./models/promoCode');
+    const promocode = await Promocode.findOne({ 
+      code: promoCode.toUpperCase(),
+      isActive: true 
+    });
+
+    if (!promocode) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Промокод не найден' 
+      });
+    }
+
+    // ✅ Check if promocode grants the right plan
+    if (promocode.grantsPlan !== plan) {
+      return res.status(400).json({ 
+        success: false, 
+        error: `Этот промокод для плана ${promocode.grantsPlan.toUpperCase()}` 
+      });
+    }
+
+    // ✅ SIMPLE: Just update user status
+    const User = require('./models/user');
+    const user = await User.findOne({ firebaseId: userId });
     
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Пользователь не найден' 
+      });
+    }
+
+    // ✅ Update user subscription
+    user.subscriptionPlan = plan;
+    await user.save();
+
+    // ✅ Update promocode usage
+    promocode.currentUses = (promocode.currentUses || 0) + 1;
+    await promocode.save();
+
+    console.log(`✅ Applied promocode ${promoCode} to user ${userId}: ${plan}`);
+
+    res.json({
+      success: true,
+      message: `Промокод применён! Активирован план ${plan.toUpperCase()}`
+    });
+
   } catch (error) {
-    console.error('❌ Emergency promo code error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Ошибка применения промокода'
+    console.error('❌ Promocode error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Ошибка сервера' 
     });
   }
 });
