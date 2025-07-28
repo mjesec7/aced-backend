@@ -55,7 +55,6 @@ const extractValidObjectId = (value, fieldName = 'ObjectId') => {
       return null;
     }
     
-    console.log(`✅ Valid ${fieldName} extracted:`, idString);
     return idString;
   } catch (error) {
     console.error(`❌ Error extracting ${fieldName}:`, {
@@ -175,17 +174,12 @@ router.get('/lesson/:lessonId/user/:userId', async (req, res) => {
   }
 });
 router.post('/user-progress', verifyToken, async (req, res) => {
-  console.log('💾 POST /api/user-progress - Alternative progress save endpoint');
   
   try {
     const progressData = req.body;
     const firebaseId = progressData.userId || req.user?.uid;
     
-    console.log('📝 User-progress data received:', {
-      userId: firebaseId,
-      lessonId: progressData.lessonId,
-      progressPercent: progressData.progressPercent
-    });
+   
     
     // Basic validation
     if (!firebaseId) {
@@ -264,7 +258,6 @@ router.post('/user-progress', verifyToken, async (req, res) => {
       { upsert: true, new: true, runValidators: true }
     );
     
-    console.log('✅ Progress saved via /api/user-progress');
     
     res.json({
       success: true,
@@ -300,7 +293,6 @@ router.post('/user-progress', verifyToken, async (req, res) => {
 
 // ✅ FIXED: POST /api/progress - Save or update user progress
 router.post('/', verifyToken, async (req, res) => {
-  console.log('\n🚀 POST /api/progress - Starting request processing');
   
   try {
     const {
@@ -341,7 +333,6 @@ router.post('/', verifyToken, async (req, res) => {
     }
 
     // ✅ STEP 1: Validate and extract lessonId
-    console.log('🔍 Step 1: Validating lessonId...');
     const validLessonId = extractValidObjectId(lessonId, 'lessonId');
     if (!validLessonId) {
       console.error('❌ Invalid lessonId received:', {
@@ -359,19 +350,14 @@ router.post('/', verifyToken, async (req, res) => {
         expected: '24-character hex string like "6839dfac0ee10d51ff4a5dcb"'
       });
     }
-    console.log('✅ Valid lessonId:', validLessonId);
-
     // ✅ STEP 2: Handle topicId validation and extraction
-    console.log('🔍 Step 2: Processing topicId...');
     let finalTopicId = null;
     
     // First, try to extract topicId from request if provided
     if (topicId !== undefined && topicId !== null) {
-      console.log('🔍 TopicId provided in request, attempting extraction...');
       finalTopicId = extractValidObjectId(topicId, 'topicId');
       
       if (finalTopicId) {
-        console.log('✅ Valid topicId extracted from request:', finalTopicId);
       } else {
         console.warn('⚠️ Invalid topicId in request, will try to get from lesson:', {
           original: topicId,

@@ -272,21 +272,17 @@ lessonSchema.methods.extractHomework = function() {
 
 // ✅ Logging Hooks (keep existing ones)
 lessonSchema.pre('save', function (next) {
-  console.log(`🛠️ [Pre-Save] Saving lesson: "${this.lessonName || 'Unnamed'}"`);
   next();
 });
 
 lessonSchema.post('save', function (doc) {
-  console.log(`✅ [Post-Save] Lesson saved: "${doc.lessonName}" (ID: ${doc._id})`);
 });
 
 lessonSchema.post('find', function (docs) {
-  console.log(`🔎 [Find] Lessons found: ${docs.length}`);
 });
 
 lessonSchema.post('findOne', function (doc) {
   if (doc) {
-    console.log(`🔍 [FindOne] Lesson found: "${doc.lessonName}" (ID: ${doc._id})`);
   } else {
     console.warn('⚠️ [FindOne] No lesson found.');
   }
@@ -294,7 +290,6 @@ lessonSchema.post('findOne', function (doc) {
 
 lessonSchema.post('findOneAndUpdate', function (doc) {
   if (doc) {
-    console.log(`🔄 [Update] Lesson updated: "${doc.lessonName}" (ID: ${doc._id})`);
   } else {
     console.warn('⚠️ [Update] No lesson found to update.');
   }
@@ -302,7 +297,6 @@ lessonSchema.post('findOneAndUpdate', function (doc) {
 
 lessonSchema.post('findOneAndDelete', function (doc) {
   if (doc) {
-    console.log(`🗑️ [Delete] Lesson deleted: "${doc.lessonName}" (ID: ${doc._id})`);
   } else {
     console.warn('⚠️ [Delete] No lesson found to delete.');
   }

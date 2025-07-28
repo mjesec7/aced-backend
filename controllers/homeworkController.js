@@ -18,7 +18,6 @@ exports.getAllHomeworks = async (req, res) => {
       .populate('lessonId', 'title description homework')
       .sort({ updatedAt: -1 });
 
-    console.log(`📥 Found ${homeworks.length} homework records for user ${firebaseId}`);
 
     res.status(200).json({
       message: '✅ Homework records retrieved successfully',
@@ -63,7 +62,6 @@ exports.getHomeworkByLesson = async (req, res) => {
       });
     }
 
-    console.log(`📥 Homework for user ${firebaseId}, lesson ${lessonId}:`, homework ? 'Found' : 'Not found');
 
     res.status(200).json({
       message: '✅ Homework data retrieved successfully',
@@ -118,7 +116,6 @@ exports.saveHomework = async (req, res) => {
       }
     ).populate('lessonId', 'title description');
 
-    console.log(`💾 Homework saved (draft) for user ${firebaseId}, lesson ${lessonId}`);
 
     res.status(200).json({
       message: '✅ Homework saved as draft',
@@ -231,7 +228,6 @@ exports.submitHomework = async (req, res) => {
       { upsert: false } // Don't create if doesn't exist
     );
 
-    console.log(`🎯 Homework submitted and graded for user ${firebaseId}, lesson ${lessonId}. Score: ${score}%, Stars: ${stars}`);
 
     res.status(200).json({
       message: '✅ Homework submitted and graded successfully',

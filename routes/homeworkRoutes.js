@@ -61,7 +61,6 @@ router.get('/', async (req, res) => {
       .populate('linkedLessonIds', 'title lessonName subject')
       .sort({ createdAt: -1 });
     
-    console.log(`📥 Admin: Retrieved ${homework.length} homework assignments`);
     res.json({
       success: true,
       data: homework,
@@ -90,9 +89,7 @@ router.get('/:id', validateObjectId, async (req, res) => {
       });
     }
     
-    console.log('📥 Admin: Retrieved homework:', homework.title);
-    console.log('📝 Homework exercises count:', homework.exercises?.length || 0);
-    
+   
     res.json({
       success: true,
       data: homework,
@@ -111,7 +108,6 @@ router.get('/:id', validateObjectId, async (req, res) => {
 // POST new homework assignment (from admin panel)
 router.post('/', verifyToken, async (req, res) => {
   try {
-    console.log('📝 Creating new homework with data:', JSON.stringify(req.body, null, 2));
     
     const homeworkData = {
       ...req.body,
@@ -132,7 +128,6 @@ router.post('/', verifyToken, async (req, res) => {
       exercises = req.body.quiz;
     }
     
-    console.log('🔍 Processing exercises:', exercises.length, 'exercises found');
     
     // Process exercises with proper structure and validation
     if (exercises && exercises.length > 0) {
@@ -173,14 +168,7 @@ router.post('/', verifyToken, async (req, res) => {
           }));
         }
         
-        console.log(`✅ Processed exercise ${index + 1}:`, {
-          id: processedExercise._id,
-          type: processedExercise.type,
-          question: processedExercise.question.substring(0, 50) + '...',
-          optionsCount: processedExercise.options.length,
-          hasCorrectAnswer: !!processedExercise.correctAnswer
-        });
-        
+       
         return processedExercise;
       });
     } else {
@@ -188,22 +176,12 @@ router.post('/', verifyToken, async (req, res) => {
       homeworkData.exercises = [];
     }
     
-    console.log(`📊 Final homework data summary:`, {
-      title: homeworkData.title,
-      subject: homeworkData.subject,
-      level: homeworkData.level,
-      exerciseCount: homeworkData.exercises.length,
-      isActive: homeworkData.isActive
-    });
+   
 
     const homework = new Homework(homeworkData);
     const savedHomework = await homework.save();
     
-    console.log('✅ Admin: Created homework successfully:', {
-      id: savedHomework._id,
-      title: savedHomework.title,
-      exerciseCount: savedHomework.exercises.length
-    });
+  
     
     res.status(201).json({
       success: true,
@@ -235,7 +213,6 @@ router.post('/', verifyToken, async (req, res) => {
 router.put('/:id', verifyToken, validateObjectId, async (req, res) => {
   try {
     const { id } = req.params;
-    console.log('📝 Updating homework:', id, 'with data:', JSON.stringify(req.body, null, 2));
     
     const updateData = {
       ...req.body,
@@ -246,7 +223,6 @@ router.put('/:id', verifyToken, validateObjectId, async (req, res) => {
     if (req.body.exercises || req.body.questions || req.body.exerciseGroups || req.body.quiz) {
       let exercises = req.body.exercises || req.body.questions || req.body.exerciseGroups || req.body.quiz || [];
       
-      console.log('🔍 Updating exercises:', exercises.length, 'exercises found');
       
       if (Array.isArray(exercises) && exercises.length > 0) {
         updateData.exercises = exercises.map((exercise, index) => {
@@ -304,11 +280,7 @@ router.put('/:id', verifyToken, validateObjectId, async (req, res) => {
       });
     }
     
-    console.log('✅ Admin: Updated homework successfully:', {
-      id: homework._id,
-      title: homework.title,
-      exerciseCount: homework.exercises.length
-    });
+   
     
     res.json({
       success: true,
@@ -352,7 +324,6 @@ router.delete('/:id', verifyToken, validateObjectId, async (req, res) => {
     // Also delete any user progress related to this homework
     await HomeworkProgress.deleteMany({ homeworkId: id });
     
-    console.log('✅ Admin: Deleted homework:', homework.title);
     res.json({
       success: true,
       message: '✅ Homework deleted successfully'
@@ -386,7 +357,6 @@ router.patch('/:id/status', verifyToken, validateObjectId, async (req, res) => {
       });
     }
     
-    console.log('✅ Admin: Toggled homework status:', homework.title, 'is now', isActive ? 'active' : 'inactive');
     res.json({
       success: true,
       data: homework,
@@ -430,7 +400,6 @@ router.post('/:id/duplicate', verifyToken, validateObjectId, async (req, res) =>
     
     await duplicatedHomework.save();
     
-    console.log('✅ Admin: Duplicated homework:', duplicatedHomework.title);
     res.status(201).json({
       success: true,
       data: duplicatedHomework,
@@ -507,7 +476,6 @@ router.get('/user/:firebaseId', verifyToken, validateFirebaseId, verifyOwnership
   try {
     const { firebaseId } = req.params;
     
-    console.log(`📥 Fetching all homework for user ${firebaseId}`);
 
     // Get user's homework progress
     const userProgress = await HomeworkProgress.find({ userId: firebaseId })
@@ -597,7 +565,6 @@ router.get('/user/:firebaseId', verifyToken, validateFirebaseId, verifyOwnership
       return new Date(b.updatedAt) - new Date(a.updatedAt);
     });
 
-    console.log(`✅ Found ${allHomeworks.length} homework items for user ${firebaseId}`);
 
     res.json({
       success: true,
@@ -618,7 +585,6 @@ router.get('/user/:firebaseId', verifyToken, validateFirebaseId, verifyOwnership
 
 // GET standalone homework for user
 router.get('/user/:firebaseId/homework/:homeworkId', verifyToken, validateFirebaseId, validateObjectId, verifyOwnership, async (req, res) => {
-  console.log('📥 GET standalone homework for user:', req.params.firebaseId, 'homeworkId:', req.params.homeworkId);
   
   try {
     const { firebaseId, homeworkId } = req.params;
@@ -687,7 +653,6 @@ router.get('/user/:firebaseId/lesson/:lessonId', verifyToken, validateFirebaseId
       });
     }
 
-    console.log(`📥 Homework for user ${firebaseId}, lesson ${lessonId}:`, homework ? 'Found' : 'Not found');
 
     res.json({
       success: true,
@@ -714,7 +679,6 @@ router.get('/user/:firebaseId/lesson/:lessonId', verifyToken, validateFirebaseId
 
 // POST save standalone homework progress
 router.post('/user/:firebaseId/homework/:homeworkId/save', verifyToken, validateFirebaseId, validateObjectId, verifyOwnership, async (req, res) => {
-  console.log('💾 POST save standalone homework for user:', req.params.firebaseId, 'homeworkId:', req.params.homeworkId);
   
   try {
     const { firebaseId, homeworkId } = req.params;
@@ -763,7 +727,6 @@ router.post('/user/:firebaseId/homework/:homeworkId/save', verifyToken, validate
       { upsert: true, new: true, runValidators: true }
     );
 
-    console.log(`💾 Standalone homework progress saved for user ${firebaseId}`);
     res.json({
       success: true,
       data: progress,
@@ -782,7 +745,6 @@ router.post('/user/:firebaseId/homework/:homeworkId/save', verifyToken, validate
 
 // POST submit standalone homework with grading
 router.post('/user/:firebaseId/homework/:homeworkId/submit', verifyToken, validateFirebaseId, validateObjectId, verifyOwnership, async (req, res) => {
-  console.log('📤 POST submit standalone homework for user:', req.params.firebaseId, 'homeworkId:', req.params.homeworkId);
   
   try {
     const { firebaseId, homeworkId } = req.params;
@@ -804,7 +766,7 @@ router.post('/user/:firebaseId/homework/:homeworkId/submit', verifyToken, valida
       });
     }
 
-    console.log('📝 Grading homework with', homework.exercises.length, 'exercises');
+    ('📝 Grading homework with', homework.exercises.length, 'exercises');
 
     // Auto-grade the homework
     const gradedAnswers = answers.map((answer, index) => {
@@ -849,13 +811,7 @@ router.post('/user/:firebaseId/homework/:homeworkId/submit', verifyToken, valida
       
       const points = isCorrect ? (exercise.points || 1) : 0;
 
-      console.log(`🔍 Question ${index + 1}:`, {
-        type: exercise.type,
-        userAnswer: userAnswer.substring(0, 50),
-        correctAnswer: correctAnswerNormalized.substring(0, 50),
-        isCorrect,
-        points
-      });
+    
 
       return {
         questionIndex: index,
@@ -880,14 +836,7 @@ router.post('/user/:firebaseId/homework/:homeworkId/submit', verifyToken, valida
     else if (score >= 70) stars = 2;
     else if (score >= 50) stars = 1;
 
-    console.log('📊 Grading results:', {
-      totalQuestions,
-      correctAnswers,
-      totalPoints,
-      maxPoints,
-      score,
-      stars
-    });
+  
 
     // Update progress
     const progressData = {
@@ -914,7 +863,6 @@ router.post('/user/:firebaseId/homework/:homeworkId/submit', verifyToken, valida
       { upsert: true, new: true, runValidators: true }
     );
 
-    console.log(`📤 Standalone homework submitted by user ${firebaseId}. Score: ${score}%`);
 
     res.json({
       success: true,
@@ -991,7 +939,6 @@ router.post('/user/:firebaseId/save', verifyToken, validateFirebaseId, verifyOwn
       }
     ).populate('lessonId', 'title description').populate('homeworkId', 'title');
 
-    console.log(`💾 Homework saved (draft) for user ${firebaseId}, ${lessonId ? 'lesson' : 'homework'} ${lessonId || homeworkId}`);
 
     res.json({
       success: true,
@@ -1109,7 +1056,6 @@ router.post('/user/:firebaseId/lesson/:lessonId/submit', verifyToken, validateFi
       { upsert: false } // Don't create if doesn't exist
     );
 
-    console.log(`🎯 Homework submitted and graded for user ${firebaseId}, lesson ${lessonId}. Score: ${score}%, Stars: ${stars}`);
 
     res.json({
       success: true,
@@ -1142,11 +1088,9 @@ router.post('/user/:firebaseId/lesson/:lessonId/submit', verifyToken, validateFi
 // POST cleanup invalid homework references
 router.post('/cleanup', verifyToken, async (req, res) => {
   try {
-    console.log('🧹 Starting homework cleanup...');
     
     // Get all homework records
     const allHomework = await HomeworkProgress.find({});
-    console.log(`📊 Found ${allHomework.length} total homework records`);
     
     const invalidHomework = [];
     const validHomework = [];
@@ -1189,9 +1133,7 @@ router.post('/cleanup', verifyToken, async (req, res) => {
       }
     }
     
-    console.log(`✅ Valid homework records: ${validHomework.length}`);
-    console.log(`❌ Invalid homework records: ${invalidHomework.length}`);
-    
+   
     // Delete invalid homework records
     let deletedCount = 0;
     if (invalidHomework.length > 0) {
@@ -1201,7 +1143,6 @@ router.post('/cleanup', verifyToken, async (req, res) => {
       });
       
       deletedCount = deleteResult.deletedCount;
-      console.log(`🗑️ Deleted ${deletedCount} invalid homework records`);
     }
     
     res.json({

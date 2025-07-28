@@ -10,8 +10,7 @@ const verifyToken = require('../middlewares/authMiddleware');
 
 // ✅ Middleware: Logging for chat routes
 router.use((req, res, next) => {
-  console.log(`💬 [CHAT] [${req.method}] ${req.originalUrl}`);
-  console.log(`👤 User: ${req.user?.uid || 'Not authenticated'}`);
+
   next();
 });
 

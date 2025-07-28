@@ -113,7 +113,6 @@ router.post('/:firebaseId/progress/save', verifyToken, async (req, res) => {
       { upsert: true, new: true, runValidators: true }
     );
     
-    console.log('✅ Progress saved via userLessonRoutes /progress/save');
     
     res.json({
       success: true,

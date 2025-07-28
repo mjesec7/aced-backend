@@ -14,7 +14,6 @@ exports.getAvailableTests = async (req, res) => {
 
     const tests = await Test.find(filter).sort({ createdAt: -1 });
     
-    console.log(`📊 Retrieved ${tests.length} tests with filters:`, filter);
     res.json({ success: true, data: tests });
   } catch (error) {
     console.error('❌ Error fetching tests:', error);
@@ -133,7 +132,6 @@ exports.submitTestResult = async (req, res) => {
 
     await result.save();
 
-    console.log(`✅ Test ${testId} submitted by user ${firebaseId}. Score: ${percentage}% (${earnedPoints}/${totalPoints} points)`);
 
     res.json({
       success: true,
@@ -308,7 +306,6 @@ exports.createTestFromLesson = async (req, res) => {
 
     await test.save();
 
-    console.log(`✅ Test created from lesson ${lessonId}: "${test.title}" with ${questions.length} questions`);
     
     res.status(201).json({
       success: true,

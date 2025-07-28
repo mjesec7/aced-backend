@@ -304,7 +304,6 @@ userProgressSchema.statics.calculateTopicProgress = async function(userId, topic
     });
     
     if (totalLessons === 0) {
-      console.log(`No lessons found for topic ${topicId}`);
       return 0;
     }
     
@@ -319,7 +318,6 @@ userProgressSchema.statics.calculateTopicProgress = async function(userId, topic
     const progressPercent = Math.round((completedLessons / totalLessons) * 100);
     const result = Math.min(progressPercent, 100);
     
-    console.log(`Topic progress for ${userId}: ${completedLessons}/${totalLessons} = ${result}%`);
     return result;
     
   } catch (error) {
@@ -547,7 +545,6 @@ userProgressSchema.methods.markCompleted = async function(additionalData = {}) {
     }
     
     const result = await this.save();
-    console.log(`Lesson completed: ${this.lessonId} by user ${this.userId}`);
     return result;
     
   } catch (error) {
@@ -643,7 +640,6 @@ userProgressSchema.pre('save', function(next) {
 
 // Post-save hook for logging
 userProgressSchema.post('save', function(doc) {
-  console.log(`Progress saved: ${doc.userId} - Lesson ${doc.lessonId} - ${doc.progressPercent}%`);
 });
 
 // Handle duplicate key errors gracefully

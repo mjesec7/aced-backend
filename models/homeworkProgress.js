@@ -243,7 +243,6 @@ HomeworkProgressSchema.statics.cleanupOrphaned = async function() {
   
   if (orphanedIds.length > 0) {
     const result = await this.deleteMany({ _id: { $in: orphanedIds } });
-    console.log(`🧹 Cleaned up ${result.deletedCount} orphaned homework progress records`);
     return result.deletedCount;
   }
   

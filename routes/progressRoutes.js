@@ -44,7 +44,6 @@ router.post('/', verifyToken, async (req, res) => {
         finalTopicId = topicId;
       } else {
         // If topicId is a string (like "Nouns"), try to find the topic by name
-        console.log(`📝 topicId is a string: "${topicId}", looking up Topic...`);
         try {
           // First try to get subject/level from the lesson
           const lesson = await Lesson.findById(lessonId);
@@ -56,13 +55,11 @@ router.post('/', verifyToken, async (req, res) => {
             });
             if (topic) {
               finalTopicId = topic._id;
-              console.log(`✅ Found topic by name: ${topicId} -> ${finalTopicId}`);
             } else {
               // If exact match not found, try just by name
               const topicByName = await Topic.findOne({ name: topicId });
               if (topicByName) {
                 finalTopicId = topicByName._id;
-                console.log(`✅ Found topic by name only: ${topicId} -> ${finalTopicId}`);
               }
             }
           }
@@ -78,7 +75,6 @@ router.post('/', verifyToken, async (req, res) => {
         const lesson = await Lesson.findById(lessonId);
         if (lesson && lesson.topicId) {
           finalTopicId = lesson.topicId;
-          console.log(`✅ Got topicId from lesson: ${finalTopicId}`);
         }
       } catch (error) {
         console.warn('⚠️ Could not fetch topicId from lesson:', error.message);
@@ -110,7 +106,6 @@ router.post('/', verifyToken, async (req, res) => {
       { upsert: true, new: true }
     );
 
-    console.log(`✅ Progress saved for user ${firebaseId}, lesson ${lessonId}`);
     
     res.status(200).json({
       message: '✅ Progress saved/updated',
@@ -146,7 +141,6 @@ router.get('/', async (req, res) => {
         .populate('lessonId', 'title description order')
         .populate('topicId', 'title description order');
       
-      console.log(`📥 Progress for user ${userId}, lesson ${lessonId}:`, progress ? 'Found' : 'Not found');
       
       return res.status(200).json({
         message: '✅ Progress loaded',
@@ -159,7 +153,6 @@ router.get('/', async (req, res) => {
         .populate('topicId', 'title description order')
         .sort({ updatedAt: -1 });
 
-      console.log(`📥 All progress for user ${userId}: ${progressRecords.length} records`);
 
       return res.status(200).json({
         message: '✅ All progress loaded',
@@ -181,21 +174,18 @@ router.get('/:userId/:lessonId', async (req, res) => {
   try {
     const { userId, lessonId } = req.params;
     
-    console.log(`📥 Getting progress for user ${userId}, lesson ${lessonId}`);
     
     const progress = await UserProgress.findOne({ userId, lessonId })
       .populate('lessonId', 'title description order')
       .populate('topicId', 'title description order');
     
     if (!progress) {
-      console.log(`⚠️ No progress found for user ${userId}, lesson ${lessonId}`);
       return res.status(200).json({ 
         message: '⚠️ No progress found for this lesson.',
         data: null 
       });
     }
 
-    console.log(`✅ Progress found for user ${userId}, lesson ${lessonId}`);
     res.status(200).json({ 
       message: '✅ Lesson progress found', 
       data: progress 

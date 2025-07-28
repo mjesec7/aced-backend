@@ -7,7 +7,6 @@ const router = express.Router();
 let paymentController;
 try {
   paymentController = require('../controllers/paymentController');
-  console.log('✅ Payment controller loaded successfully');
 } catch (error) {
   console.error('❌ Failed to load payment controller:', error.message);
 }
@@ -27,11 +26,7 @@ const {
 // PayMe sends webhooks to the root `/api/payments` endpoint
 // This is the MAIN endpoint that PayMe expects to find
 router.post('/', async (req, res) => {
-  console.log('💳 PayMe ROOT webhook received at /api/payments');
-  console.log('📦 Request body:', JSON.stringify(req.body, null, 2));
-  console.log('🔐 Auth header:', req.headers.authorization ? 'Present' : 'Missing');
-  console.log('🌐 User-Agent:', req.headers['user-agent']);
-  console.log('📍 Content-Type:', req.headers['content-type']);
+
   
   try {
     if (handleSandboxPayment) {
@@ -41,7 +36,6 @@ router.post('/', async (req, res) => {
       // Emergency fallback for PayMe JSON-RPC
       const { method, params, id } = req.body || {};
       
-      console.log('⚠️ Using emergency PayMe handler for method:', method);
       
       if (method === 'CheckPerformTransaction') {
         return res.status(200).json({
@@ -203,7 +197,6 @@ router.get('/', (req, res) => {
 
 // ✅ PayMe Webhook Route (alternative endpoint)
 router.post('/webhook/payme', (req, res) => {
-  console.log('💳 PayMe webhook received at /api/payments/webhook/payme');
   if (handleSandboxPayment) {
     handleSandboxPayment(req, res);
   } else {
@@ -220,7 +213,6 @@ router.post('/webhook/payme', (req, res) => {
 
 // ✅ Payment Initiation Route (for frontend to call)
 router.post('/initiate', (req, res) => {
-  console.log('🚀 Payment initiation at /api/payments/initiate');
   if (initiatePaymePayment) {
     initiatePaymePayment(req, res);
   } else {
@@ -272,7 +264,6 @@ router.post('/initiate', (req, res) => {
 
 // ✅ Alternative endpoint names to match your frontend
 router.post('/initiate-payme', (req, res) => {
-  console.log('🚀 PayMe initiation at /api/payments/initiate-payme');
   if (initiatePaymePayment) {
     initiatePaymePayment(req, res);
   } else {
@@ -286,7 +277,6 @@ router.post('/initiate-payme', (req, res) => {
 router.get('/validate-user/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
-    console.log('🔍 Validating user for payment:', userId);
     
     // Find user
     const User = require('../models/user');
@@ -394,7 +384,6 @@ router.get('/plans', (req, res) => {
 router.get('/status/:orderId', async (req, res) => {
   try {
     const { orderId } = req.params;
-    console.log('🔍 Checking payment status for:', orderId);
     
     // Try to find transaction by order ID
     try {
@@ -522,7 +511,6 @@ router.post('/test-auth', (req, res) => {
 
 // 404 handler for unmatched routes
 router.use('*', (req, res) => {
-  console.log('❌ Unmatched payment route:', req.method, req.originalUrl);
   
   res.status(404).json({
     message: '❌ Payment endpoint not found',

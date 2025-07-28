@@ -3,14 +3,11 @@ const admin = require('../config/firebase');
 
 const authenticateUser = async (req, res, next) => {
   try {
-    console.log('🔐 Verifying Firebase token on api.aced.live...');
     
     const authHeader = req.headers.authorization;
-    console.log('📥 [authMiddleware] Incoming token header:', authHeader ? 'Present' : 'Missing');
 
     // 🔒 Validate Authorization header presence and format
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      console.log('❌ No valid authorization header');
       return res.status(401).json({ 
         success: false, 
         error: 'Authorization header required' 
@@ -19,7 +16,6 @@ const authenticateUser = async (req, res, next) => {
 
     // Extract token using substring method for consistency
     const token = authHeader.substring(7); // Remove 'Bearer ' prefix
-    console.log('🔑 Token received, length:', token.length);
     
     if (!token || token.length < 20) {
       console.warn('❌ [authMiddleware] Token too short or missing');
@@ -29,14 +25,11 @@ const authenticateUser = async (req, res, next) => {
       });
     }
 
-    console.log('🔍 [authMiddleware] Extracted token (preview):', token.slice(0, 40), '...');
-    console.log('⏳ [authMiddleware] Verifying token with Firebase Admin SDK...');
-
+    
     // 🔐 Verify token via Firebase Admin with enhanced error handling
     let decodedToken;
     try {
       decodedToken = await admin.auth().verifyIdToken(token);
-      console.log('✅ Token verified for user:', decodedToken.uid);
     } catch (verificationError) {
       console.error('❌ Token verification failed:', {
         error: verificationError.message,
@@ -65,28 +58,14 @@ const authenticateUser = async (req, res, next) => {
       throw verificationError;
     }
 
-    console.log('✅ [authMiddleware] Token details:', {
-      uid: decodedToken.uid,
-      email: decodedToken.email,
-      email_verified: decodedToken.email_verified,
-      exp: decodedToken.exp,
-      iat: decodedToken.iat,
-      aud: decodedToken.aud,
-      iss: decodedToken.iss,
-    });
+
 
     // ✅ CRITICAL: Force validate project ID match
     const REQUIRED_PROJECT_ID = 'aced-9cf72'; // Your frontend project ID
     const tokenAud = (decodedToken.aud || '').trim();
     const envProjectId = (process.env.FIREBASE_PROJECT_ID || '').trim();
 
-    console.log('[CRITICAL] Project ID validation:', {
-      requiredProjectId: REQUIRED_PROJECT_ID,
-      tokenAud: tokenAud,
-      envProjectId: envProjectId,
-      tokenMatches: tokenAud === REQUIRED_PROJECT_ID,
-      envMatches: envProjectId === REQUIRED_PROJECT_ID
-    });
+  
 
     // Check if token is from correct project
     if (tokenAud !== REQUIRED_PROJECT_ID) {
@@ -130,7 +109,6 @@ const authenticateUser = async (req, res, next) => {
     };
     req.firebaseId = decodedToken.uid; // Keep for backward compatibility
 
-    console.log('✅ Authentication successful for:', decodedToken.email);
     next();
 
   } catch (error) {

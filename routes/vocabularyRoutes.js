@@ -12,7 +12,6 @@ try {
   VocabularyProgress = vocabModels.VocabularyProgress || require('../models/vocabularyProgress');
   VocabularyCategory = vocabModels.VocabularyCategory;
   VocabularyDialogue = vocabModels.VocabularyDialogue;
-  console.log('✅ Vocabulary models loaded successfully');
 } catch (error) {
   console.warn('⚠️ Vocabulary models not available:', error.message);
 }
@@ -21,7 +20,6 @@ try {
   Lesson = require('../models/lesson');
   UserProgress = require('../models/userProgress');
   User = require('../models/user');
-  console.log('✅ Additional models loaded successfully');
 } catch (error) {
   console.warn('⚠️ Some models not available:', error.message);
 }
@@ -38,7 +36,6 @@ try {
   verifyToken = (req, res, next) => next();
 }
 
-console.log('✅ Complete Enhanced vocabularyRoutes.js loaded');
 
 // ========================================
 // 🌐 MAIN USER VOCABULARY ROUTES (FRONTEND INTEGRATION)
@@ -48,13 +45,11 @@ console.log('✅ Complete Enhanced vocabularyRoutes.js loaded');
 router.get('/user/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
-    console.log('📚 [MAIN] Getting vocabulary for user:', userId);
     
     // Strategy 1: Try to get from vocabulary database first
     let vocabularyFromDB = [];
     if (Vocabulary && VocabularyProgress) {
       try {
-        console.log('🔍 Strategy 1: Checking vocabulary database...');
         
         const userProgress = await VocabularyProgress.find({ userId })
           .populate('vocabularyId')
@@ -84,7 +79,6 @@ router.get('/user/:userId', async (req, res) => {
             }
           }));
         
-        console.log(`✅ Found ${vocabularyFromDB.length} words from vocabulary database`);
         
       } catch (dbError) {
         console.warn('⚠️ Vocabulary database query failed:', dbError.message);
@@ -95,10 +89,8 @@ router.get('/user/:userId', async (req, res) => {
     let vocabularyFromLessons = [];
     if (Lesson && UserProgress) {
       try {
-        console.log('🔍 Strategy 2: Extracting from completed lessons...');
         
         const userProgress = await UserProgress.find({ userId, completed: true });
-        console.log(`📊 Found ${userProgress.length} completed lessons`);
         
         for (const progress of userProgress.slice(0, 50)) {
           try {
@@ -141,7 +133,6 @@ router.get('/user/:userId', async (req, res) => {
           }
         }
         
-        console.log(`✅ Extracted ${vocabularyFromLessons.length} words from lessons`);
         
       } catch (lessonsError) {
         console.warn('⚠️ Lesson extraction failed:', lessonsError.message);
@@ -161,7 +152,6 @@ router.get('/user/:userId', async (req, res) => {
       }
     });
     
-    console.log(`📚 Total unique vocabulary: ${uniqueVocabulary.length}`);
     
     res.json({
       success: true,
@@ -188,14 +178,12 @@ router.get('/user/:userId', async (req, res) => {
 router.get('/user/:userId/language/:languageCode', async (req, res) => {
   try {
     const { userId, languageCode } = req.params;
-    console.log('📚 Getting vocabulary for user:', userId, 'language:', languageCode);
     
     // First get all user vocabulary
     const allVocabResponse = await fetch(`${req.protocol}://${req.get('host')}/api/vocabulary/user/${userId}`);
     
     if (!allVocabResponse.ok) {
       // Fallback to direct extraction
-      console.log('⚠️ Main vocabulary endpoint failed, using direct extraction...');
       return res.json({
         success: true,
         vocabulary: [],
@@ -218,7 +206,6 @@ router.get('/user/:userId/language/:languageCode', async (req, res) => {
       word.language && word.language.toLowerCase() === languageCode.toLowerCase()
     );
     
-    console.log(`📚 Found ${languageVocabulary.length} words for language ${languageCode}`);
     
     res.json({
       success: true,
@@ -244,7 +231,6 @@ router.get('/user/:userId/language/:languageCode', async (req, res) => {
 // GET /api/vocabulary/languages - Get all available languages
 router.get('/languages', async (req, res) => {
   try {
-    console.log('📚 Getting vocabulary languages');
     
     // If we have vocabulary database, get real languages
     if (Vocabulary) {
@@ -503,7 +489,6 @@ router.get('/progress/:userId', verifyToken, async (req, res) => {
     const { userId } = req.params;
     const { language, status } = req.query;
     
-    console.log('📊 Getting vocabulary progress for user:', userId);
     
     if (!VocabularyProgress) {
       // Fallback when vocabulary progress model not available
@@ -560,7 +545,6 @@ router.post('/progress/:userId/update', verifyToken, async (req, res) => {
     const { userId } = req.params;
     const { vocabularyId, correct, timeSpent } = req.body;
     
-    console.log('📊 Updating vocabulary progress:', { userId, vocabularyId, correct });
     
     if (!VocabularyProgress) {
       // Fallback when vocabulary progress model not available
@@ -907,7 +891,6 @@ router.get('/stats/language/:language', async (req, res) => {
 router.get('/languages/stats/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
-    console.log('📊 Getting language stats for user:', userId);
     
     // Get user's vocabulary from main endpoint
     const userVocabResponse = await fetch(`${req.protocol}://${req.get('host')}/api/vocabulary/user/${userId}`);
@@ -997,7 +980,6 @@ router.get('/languages/stats/:userId', async (req, res) => {
 router.get('/topics/:userId/:languageCode', async (req, res) => {
   try {
     const { userId, languageCode } = req.params;
-    console.log('📚 Getting topics for user:', userId, 'language:', languageCode);
     
     // Get user's vocabulary for the language
     const vocabResponse = await fetch(`${req.protocol}://${req.get('host')}/api/vocabulary/user/${userId}/language/${languageCode}`);
@@ -1063,7 +1045,6 @@ router.get('/topics/:userId/:languageCode', async (req, res) => {
 router.get('/topic/:userId/:topicName/:languageCode', async (req, res) => {
   try {
     const { userId, topicName, languageCode } = req.params;
-    console.log('📖 Getting words for topic:', topicName, 'language:', languageCode);
     
     // Get user's vocabulary for the language
     const vocabResponse = await fetch(`${req.protocol}://${req.get('host')}/api/vocabulary/user/${userId}/language/${languageCode}`);
@@ -1193,7 +1174,6 @@ router.get('/practice/:userId/:languageCode', async (req, res) => {
     const { userId, languageCode } = req.params;
     const { count = 10, difficulty, type = 'mixed' } = req.query;
     
-    console.log('🎮 Getting practice words for:', { userId, languageCode, count, type });
     
     // Get user's vocabulary for the language
     const vocabResponse = await fetch(`${req.protocol}://${req.get('host')}/api/vocabulary/user/${userId}/language/${languageCode}`);
@@ -1490,7 +1470,6 @@ router.post('/admin/create', verifyToken, async (req, res) => {
     const vocabulary = new Vocabulary(vocabularyData);
     await vocabulary.save();
     
-    console.log('✅ Vocabulary word created:', vocabulary.word);
     
     res.status(201).json({
       success: true,
@@ -1547,7 +1526,6 @@ router.put('/admin/:id', verifyToken, async (req, res) => {
       });
     }
     
-    console.log('✅ Vocabulary word updated:', vocabulary.word);
     
     res.json({
       success: true,
@@ -1589,7 +1567,6 @@ router.delete('/admin/:id', verifyToken, async (req, res) => {
       await VocabularyProgress.deleteMany({ vocabularyId: id });
     }
     
-    console.log('✅ Vocabulary word deleted:', vocabulary.word);
     
     res.json({
       success: true,
@@ -1632,7 +1609,6 @@ router.post('/admin/bulk-create', verifyToken, async (req, res) => {
     
     const result = await Vocabulary.insertMany(vocabularyWords, { ordered: false });
     
-    console.log(`✅ Bulk created ${result.length} vocabulary words`);
     
     res.status(201).json({
       success: true,
@@ -1686,7 +1662,6 @@ router.post('/user/submit', verifyToken, async (req, res) => {
     const vocabulary = new Vocabulary(wordData);
     await vocabulary.save();
 
-    console.log('✅ User submitted vocabulary word:', vocabulary.word);
 
     res.status(201).json({
       success: true,
@@ -1736,7 +1711,6 @@ router.post('/admin/dialogue/create', verifyToken, async (req, res) => {
     const dialogue = new VocabularyDialogue(dialogueData);
     await dialogue.save();
     
-    console.log('✅ Dialogue created:', dialogue.title);
     
     res.status(201).json({
       success: true,
@@ -1819,7 +1793,6 @@ router.put('/admin/dialogue/:id', verifyToken, async (req, res) => {
       });
     }
     
-    console.log('✅ Dialogue updated:', dialogue.title);
     
     res.json({
       success: true,
@@ -1856,7 +1829,6 @@ router.delete('/admin/dialogue/:id', verifyToken, async (req, res) => {
       });
     }
     
-    console.log('✅ Dialogue deleted:', dialogue.title);
     
     res.json({
       success: true,
@@ -1921,7 +1893,6 @@ router.post('/admin/import-csv', verifyToken, async (req, res) => {
     
     const result = await Vocabulary.insertMany(vocabularyWords, { ordered: false });
     
-    console.log(`✅ Imported ${result.length} vocabulary words from CSV`);
     
     res.status(201).json({
       success: true,
@@ -2002,7 +1973,6 @@ router.delete('/admin/cleanup', verifyToken, async (req, res) => {
         });
     }
     
-    console.log(`✅ Cleanup completed: ${action}`, result);
     
     res.json({
       success: true,

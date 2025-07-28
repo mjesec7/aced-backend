@@ -7,7 +7,6 @@ const router = express.Router();
 let Promocode;
 try {
   Promocode = require('../models/promoCode'); // Your model file name
-  console.log('✅ Promocode model loaded successfully');
 } catch (error) {
   console.error('❌ Failed to load Promocode model:', error.message);
   console.error('💡 Make sure models/promoCode.js exists and is properly formatted');
@@ -73,7 +72,6 @@ router.post('/apply', authMiddleware, async (req, res) => {
     const { code } = req.body;
     const userId = req.user.id; // Assumes authMiddleware adds user to req
 
-    console.log(`🚀 User [${userId}] attempting to apply promo code: ${code}`);
 
     if (!code || !code.trim()) {
       return res.status(400).json({ success: false, message: 'Promocode is required.' });
@@ -156,7 +154,6 @@ router.post('/apply', authMiddleware, async (req, res) => {
     await user.save();
     await promoCode.save();
 
-    console.log(`✅ Successfully applied promo [${promoCode.code}] to user [${user.email}]`);
 
     res.json({
       success: true,
@@ -190,7 +187,6 @@ router.get('/validate/:code', async (req, res) => {
       return res.status(503).json({ success: false, valid: false, error: 'Promocode system not available' });
     }
 
-    console.log('🔍 Validating promocode:', req.params.code);
     
     const { code } = req.params;
     if (!code || !code.trim()) {
@@ -260,7 +256,6 @@ router.get('/', requireAuth, async (req, res) => {
       return res.status(503).json({ success: false, error: 'Promocode model not available' });
     }
     
-    console.log('📋 Admin: Fetching all promocodes with filters:', req.query);
     
     const { 
       page = 1, 
@@ -346,7 +341,6 @@ router.get('/', requireAuth, async (req, res) => {
       } 
     });
 
-    console.log(`✅ Returned ${enrichedPromocodes.length} promocodes (${total} total)`);
     
   } catch (error) {
     console.error('❌ Error fetching promocodes:', error);
@@ -365,7 +359,6 @@ router.get('/stats', requireAuth, async (req, res) => {
       return res.status(503).json({ success: false, error: 'Promocode model not available' });
     }
     
-    console.log('📊 Admin: Fetching promocode stats');
     
     const now = new Date();
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -424,7 +417,6 @@ router.get('/stats', requireAuth, async (req, res) => {
     };
     
     res.json({ success: true, stats });
-    console.log('✅ Promocode stats returned:', stats);
     
   } catch (error) {
     console.error('❌ Error fetching promocode stats:', error);
@@ -443,7 +435,6 @@ router.post('/', requireAuth, async (req, res) => {
       return res.status(503).json({ success: false, error: 'Promocode model not available' });
     }
     
-    console.log('➕ Admin: Creating new promocode');
     
     const {
       code,
@@ -540,7 +531,6 @@ router.post('/', requireAuth, async (req, res) => {
     
     await promocode.save();
     
-    console.log('✅ Promocode created successfully:', finalCode);
     
     res.status(201).json({ 
       success: true, 
@@ -570,7 +560,7 @@ router.put('/:id', requireAuth, async (req, res) => {
       return res.status(503).json({ success: false, error: 'Promocode model not available' });
     }
     
-    console.log('🔄 Admin: Updating promocode:', req.params.id);
+    ('🔄 Admin: Updating promocode:', req.params.id);
     
     const promocode = await Promocode.findById(req.params.id);
     if (!promocode) {
@@ -645,7 +635,6 @@ router.put('/:id', requireAuth, async (req, res) => {
 
     await promocode.save();
     
-    console.log('✅ Promocode updated successfully:', promocode.code);
     
     res.json({ 
       success: true, 
@@ -670,7 +659,6 @@ router.delete('/:id', requireAuth, async (req, res) => {
       return res.status(503).json({ success: false, error: 'Promocode model not available' });
     }
     
-    console.log('🗑️ Admin: Deleting promocode:', req.params.id);
     
     const promocode = await Promocode.findById(req.params.id);
     if (!promocode) {
@@ -688,7 +676,6 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
     await promocode.deleteOne();
     
-    console.log('✅ Promocode deleted successfully:', promocode.code);
     
     res.json({ 
       success: true, 
@@ -712,7 +699,6 @@ router.post('/bulk-create', requireAuth, async (req, res) => {
       return res.status(503).json({ success: false, error: 'Promocode model not available' });
     }
     
-    console.log('📦 Admin: Bulk creating promocodes');
     
     const {
       count = 10,
@@ -770,7 +756,6 @@ router.post('/bulk-create', requireAuth, async (req, res) => {
       }
     }
     
-    console.log(`✅ Bulk created ${promocodes.length} promocodes`);
     
     res.status(201).json({
       success: true,
@@ -796,7 +781,6 @@ router.post('/cleanup', requireAuth, async (req, res) => {
       return res.status(503).json({ success: false, error: 'Promocode model not available' });
     }
     
-    console.log('🧹 Admin: Cleaning up promocodes');
     
     const { action = 'deactivate' } = req.body; // 'deactivate' or 'delete'
     
@@ -853,7 +837,6 @@ router.post('/cleanup', requireAuth, async (req, res) => {
       );
     }
     
-    console.log('✅ Cleanup completed');
     
     res.json({
       success: true,
@@ -887,7 +870,6 @@ router.get('/:id/usage', requireAuth, async (req, res) => {
       return res.status(503).json({ success: false, error: 'Promocode model not available' });
     }
     
-    console.log('📊 Admin: Fetching promocode usage details:', req.params.id);
     
     const promocode = await Promocode.findById(req.params.id)
       .populate('usedBy.userId', 'name email')
@@ -959,7 +941,6 @@ router.post('/:id/duplicate', requireAuth, async (req, res) => {
       return res.status(503).json({ success: false, error: 'Promocode model not available' });
     }
     
-    console.log('📋 Admin: Duplicating promocode:', req.params.id);
     
     const originalPromocode = await Promocode.findById(req.params.id);
     if (!originalPromocode) {
@@ -1023,7 +1004,6 @@ router.post('/:id/duplicate', requireAuth, async (req, res) => {
     
     await duplicatePromocode.save();
     
-    console.log('✅ Promocode duplicated successfully:', finalCode);
     
     res.status(201).json({
       success: true,
@@ -1048,7 +1028,6 @@ router.get('/export', requireAuth, async (req, res) => {
       return res.status(503).json({ success: false, error: 'Promocode model not available' });
     }
     
-    console.log('📤 Admin: Exporting promocodes');
     
     const { format = 'json', status = '', plan = '' } = req.query;
     
@@ -1108,7 +1087,6 @@ router.get('/export', requireAuth, async (req, res) => {
       });
     }
     
-    console.log(`✅ Exported ${exportData.length} promocodes as ${format}`);
     
   } catch (error) {
     console.error('❌ Error exporting promocodes:', error);
@@ -1173,6 +1151,5 @@ router.use((error, req, res, next) => {
   });
 });
 
-console.log('✅ Enhanced Promocode routes module loaded successfully');
 
 module.exports = router;

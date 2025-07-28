@@ -9,7 +9,6 @@ function validateObjectId(req, res, next) {
   const { id, topicId } = req.params;
   const idToValidate = id || topicId;
   
-  console.log(`🔍 Validating ObjectId: ${idToValidate}`);
   
   if (idToValidate) {
     // ✅ CRITICAL FIX: More robust ObjectId validation
@@ -43,9 +42,7 @@ function validateObjectId(req, res, next) {
 
 // ✅ Enhanced logging middleware
 function logRequest(req, res, next) {
-  console.log(`📥 [${req.method}] ${req.originalUrl} - ${new Date().toISOString()}`);
   if (req.body && Object.keys(req.body).length > 0) {
-    console.log('📦 Request body:', JSON.stringify(req.body, null, 2));
   }
   next();
 }
@@ -55,8 +52,6 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
   const id = req.params.id;
   
   try {
-    console.log(`🔍 Searching for topic with ID: ${id}`);
-    console.log(`📊 MongoDB connection state: ${mongoose.connection.readyState}`);
     
     // ✅ CRITICAL FIX: Check database connection first
     if (mongoose.connection.readyState !== 1) {
@@ -76,11 +71,9 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
     
     try {
       // Strategy 1: Direct ObjectId search
-      console.log(`🔍 Strategy 1: Searching by ObjectId...`);
-      topic = await Topic.findById(id);
+                topic = await Topic.findById(id);
       if (topic) {
         searchStrategy = 'direct_objectid';
-        console.log(`✅ Found topic by ObjectId: "${topic.name}"`);
       }
     } catch (objectIdError) {
       console.warn(`⚠️ ObjectId search failed:`, objectIdError.message);
@@ -89,12 +82,10 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
     // Strategy 2: Manual ObjectId construction and search
     if (!topic) {
       try {
-        console.log(`🔍 Strategy 2: Manual ObjectId construction...`);
         const objectId = new mongoose.Types.ObjectId(id);
         topic = await Topic.findOne({ _id: objectId });
         if (topic) {
           searchStrategy = 'manual_objectid';
-          console.log(`✅ Found topic by manual ObjectId: "${topic.name}"`);
         }
       } catch (manualError) {
         console.warn(`⚠️ Manual ObjectId search failed:`, manualError.message);
@@ -104,7 +95,6 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
     // Strategy 3: Search by string representation (updated for 'name' field)
     if (!topic) {
       try {
-        console.log(`🔍 Strategy 3: String-based search...`);
         topic = await Topic.findOne({ 
           $or: [
             { _id: id },
@@ -114,7 +104,6 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
         });
         if (topic) {
           searchStrategy = 'string_search';
-          console.log(`✅ Found topic by string search: "${topic.name}"`);
         }
       } catch (stringError) {
         console.warn(`⚠️ String search failed:`, stringError.message);
@@ -124,7 +113,6 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
     // Strategy 4: Case-insensitive search (updated for 'name' field)
     if (!topic) {
       try {
-        console.log(`🔍 Strategy 4: Case-insensitive search...`);
         topic = await Topic.findOne({ 
           $or: [
             { name: { $regex: new RegExp(`^${id}$`, 'i') } }, // Changed from 'name.en'
@@ -133,7 +121,6 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
         });
         if (topic) {
           searchStrategy = 'case_insensitive_search';
-          console.log(`✅ Found topic by case-insensitive search: "${topic.name}"`);
         }
       } catch (caseError) {
         console.warn(`⚠️ Case-insensitive search failed:`, caseError.message);
@@ -142,24 +129,16 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
     
     // ✅ CRITICAL DEBUG: If still not found, check what's actually in the database
     if (!topic) {
-      console.log(`🔍 Topic not found. Let's check what's in the database...`);
       
       try {
         // Get sample topics to see the data structure
         const sampleTopics = await Topic.find().limit(5).lean();
-        console.log(`📋 Sample topics in database:`, sampleTopics.map(t => ({
-          _id: t._id,
-          name: t.name,
-          topicName: t.topicName,
-          subject: t.subject,
-          level: t.level
-        })));
+        
         
         // Try to find by exact ObjectId string match
         const exactMatch = await Topic.findOne({ 
           _id: { $eq: id }
         });
-        console.log(`🔍 Exact ObjectId match result:`, exactMatch ? 'FOUND' : 'NOT FOUND');
         
         // Check if the ID exists as a string in the collection
         const stringMatch = await Topic.findOne({
@@ -169,7 +148,6 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
             { 'topicName': id }
           ]
         });
-        console.log(`🔍 String match result:`, stringMatch ? 'FOUND' : 'NOT FOUND');
         
       } catch (debugError) {
         console.error(`❌ Debug search failed:`, debugError.message);
@@ -202,7 +180,6 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
       });
     }
 
-    console.log(`📘 Topic found successfully: "${topic.name}" via ${searchStrategy}`);
     
     // ✅ CRITICAL: Fetch associated lessons with better error handling
     let lessons = [];
@@ -210,7 +187,6 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
     let lessonSearchStrategy = '';
     
     try {
-      console.log(`📚 Fetching lessons for topic ID: ${topic._id}`);
       
       // Try multiple lesson search strategies
       
@@ -218,25 +194,19 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
       lessons = await Lesson.find({ topicId: topic._id }).sort({ order: 1, createdAt: 1 });
       if (lessons.length > 0) {
         lessonSearchStrategy = 'direct_topicId';
-        console.log(`✅ Found ${lessons.length} lessons via direct topicId match`);
       } else {
-        console.log(`⚠️ No lessons found via direct topicId match`);
         
         // Strategy 2: String-based topic ID match
         lessons = await Lesson.find({ topicId: id }).sort({ order: 1, createdAt: 1 });
         if (lessons.length > 0) {
           lessonSearchStrategy = 'string_topicId';
-          console.log(`✅ Found ${lessons.length} lessons via string topicId match`);
         } else {
-          console.log(`⚠️ No lessons found via string topicId match`);
           
           // Strategy 3: Topic name match (updated for 'name' field)
           lessons = await Lesson.find({ topic: topic.name }).sort({ order: 1, createdAt: 1 });
           if (lessons.length > 0) {
             lessonSearchStrategy = 'topic_name';
-            console.log(`✅ Found ${lessons.length} lessons via topic name match`);
           } else {
-            console.log(`⚠️ No lessons found via topic name match`);
             
             // Strategy 4: Check all lessons and match manually
             const allLessons = await Lesson.find().lean();
@@ -249,9 +219,7 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
             
             if (lessons.length > 0) {
               lessonSearchStrategy = 'manual_filter';
-              console.log(`✅ Found ${lessons.length} lessons via manual filtering`);
             } else {
-              console.log(`⚠️ No lessons found after all strategies`);
             }
           }
         }
@@ -301,7 +269,6 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
       }
     };
 
-    console.log(`✅ Successfully returning topic "${topic.name}" with ${lessons.length} lessons`);
     res.json(response);
     
   } catch (err) {
@@ -358,7 +325,6 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
 // ✅ FIXED: Get all topics with enhanced error handling
 router.get('/', logRequest, async (req, res) => {
   try {
-    console.log(`📋 Fetching all topics...`);
     
     // Check database connection
     if (mongoose.connection.readyState !== 1) {
@@ -372,7 +338,6 @@ router.get('/', logRequest, async (req, res) => {
     
     const topics = await Topic.find().sort({ createdAt: -1 });
     
-    console.log(`📦 Successfully returned ${topics.length} topics`);
     
     res.json({
       success: true,
@@ -394,8 +359,7 @@ router.get('/', logRequest, async (req, res) => {
 // ✅ Enhanced health check with database testing
 router.get('/health/check', async (req, res) => {
   try {
-    console.log(`🏥 Health check for topics...`);
-    
+          
     // Test database connection
     const dbConnected = mongoose.connection.readyState === 1;
     let topicCount = 0;
@@ -490,7 +454,6 @@ router.post('/', logRequest, async (req, res) => {
     const newTopic = new Topic({ subject, level, name, description });
     const saved = await newTopic.save();
     
-    console.log(`✅ Successfully created topic: "${saved.name}"`); // Changed from saved.name.en
     res.status(201).json({
       success: true,
       message: '✅ Topic created successfully',
@@ -510,7 +473,7 @@ router.get('/:id/lessons', logRequest, validateObjectId, async (req, res) => {
   const id = req.params.id;
   
   try {
-    console.log(`🔍 Checking if topic exists: ${id}`);
+    (`🔍 Checking if topic exists: ${id}`);
     
     const topicExists = await Topic.exists({ _id: id });
     if (!topicExists) {
@@ -522,10 +485,8 @@ router.get('/:id/lessons', logRequest, validateObjectId, async (req, res) => {
       });
     }
 
-    console.log(`✅ Topic exists, fetching lessons for: ${id}`);
     
     const lessons = await Lesson.find({ topicId: id }).sort({ order: 1, createdAt: 1 });
-    console.log(`📚 Found ${lessons.length} lessons for topic ID ${id}`);
 
     const lessonsWithTopicId = lessons.map(lesson => ({
       ...lesson.toObject(),
@@ -566,7 +527,6 @@ router.delete('/:id', logRequest, validateObjectId, async (req, res) => {
     await Topic.findByIdAndDelete(id);
     
     // ✅ MODIFIED: Changed console log to use 'topic.name'
-    console.log(`✅ Successfully deleted topic: "${topic.name}"`); 
 
     res.json({
       success: true,
@@ -608,7 +568,6 @@ router.put('/:id', logRequest, validateObjectId, async (req, res) => {
     }
 
     // ✅ MODIFIED: Changed console log to use 'topic.name'
-    console.log(`✅ Successfully updated topic: "${topic.name}"`); 
     res.json({
       success: true,
       message: '✅ Topic updated successfully',

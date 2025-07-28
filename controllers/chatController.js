@@ -82,11 +82,7 @@ const trackAIUsage = async (userId, usageData) => {
     }
 
     await user.save();
-    console.log('✅ AI usage tracked successfully:', {
-      userId,
-      monthKey,
-      newUsage: user.aiUsage[monthKey]
-    });
+  
 
   } catch (error) {
     console.error('❌ Failed to track AI usage:', error);
@@ -251,7 +247,6 @@ ${lessonData ? `
       }
     ];
 
-    console.log("📤 Enhanced prompt to OpenAI for lesson:", lessonId || 'general');
 
     // 🌐 Send to OpenAI
     const response = await axios.post(
@@ -361,12 +356,7 @@ const getLessonContextAIResponse = async (req, res) => {
       }
     ];
 
-    console.log('🎓 Lesson-context AI request:', {
-      userId,
-      lessonId: lessonContext.lessonId,
-      currentStep: userProgress?.currentStep,
-      stepType: stepContext?.type
-    });
+   
 
     // Call OpenAI
     const response = await axios.post(
@@ -399,7 +389,6 @@ const getLessonContextAIResponse = async (req, res) => {
       context: 'lesson'
     });
 
-    console.log('✅ Lesson AI response generated successfully');
 
     res.json({
       success: true,

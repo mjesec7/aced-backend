@@ -56,7 +56,6 @@ router.post('/', verifyToken, async (req, res) => {
     });
 
     const saved = await newSubject.save();
-    console.log('✅ Subject created:', saved.name);
     res.status(201).json({
       message: '✅ Subject saved successfully',
       subject: saved
@@ -89,7 +88,6 @@ router.put('/:id', verifyToken, validateObjectId, async (req, res) => {
       return res.status(404).json({ message: '❌ Subject not found' });
     }
 
-    console.log('✅ Subject updated:', updated.name);
     res.status(200).json(updated);
   } catch (err) {
     console.error('❌ Failed to update subject:', err);
@@ -105,7 +103,6 @@ router.delete('/:id', verifyToken, validateObjectId, async (req, res) => {
       return res.status(404).json({ message: '❌ Subject not found' });
     }
 
-    console.log('🗑️ Subject deleted:', deleted.name);
     res.status(204).end();
   } catch (err) {
     console.error('❌ Failed to delete subject:', err);
@@ -117,7 +114,6 @@ router.delete('/:id', verifyToken, validateObjectId, async (req, res) => {
 router.get('/debug/all', verifyToken, async (req, res) => {
   try {
     const subjects = await Subject.find();
-    console.log('🧠 DEBUG: Subjects in DB:', subjects);
     res.status(200).json(subjects);
   } catch (err) {
     console.error('❌ Failed to debug subjects:', err);

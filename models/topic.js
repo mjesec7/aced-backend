@@ -199,24 +199,20 @@ topicSchema.pre('save', function(next) {
 // ✅ Enhanced logging hooks
 topicSchema.post('save', (doc) => {
   const displayName = doc.displayName;
-  console.log(`✅ [Topic Saved] "${displayName}" under "${doc.subject}" (Level ${doc.level}, ID: ${doc._id})`);
 });
 
 topicSchema.post('findOne', (doc) => {
   if (doc) {
-    console.log(`🔍 [Topic Found] "${doc.displayName}" (ID: ${doc._id})`);
   } else {
     console.warn('⚠️ [Topic FindOne] No topic found.');
   }
 });
 
 topicSchema.post('find', (docs) => {
-  console.log(`📋 [Topics Find] Found ${docs.length} topics`);
 });
 
 topicSchema.post('findOneAndUpdate', (doc) => {
   if (doc) {
-    console.log(`🔄 [Topic Updated] "${doc.displayName}" (ID: ${doc._id})`);
   } else {
     console.warn('⚠️ [Topic Update] No topic found to update.');
   }
@@ -224,7 +220,6 @@ topicSchema.post('findOneAndUpdate', (doc) => {
 
 topicSchema.post('findOneAndDelete', (doc) => {
   if (doc) {
-    console.log(`🗑️ [Topic Deleted] "${doc.displayName}" (ID: ${doc._id})`);
   } else {
     console.warn('⚠️ [Topic Delete] No topic found to delete.');
   }
@@ -242,7 +237,6 @@ topicSchema.post('save', function(error, doc, next) {
 
 // ✅ Add debugging method to help troubleshoot
 topicSchema.statics.debug = async function(topicId) {
-  console.log(`🔍 [DEBUG] Searching for topic: ${topicId}`);
   
   const strategies = [
     { name: 'Direct findById', query: () => this.findById(topicId) },
@@ -254,17 +248,13 @@ topicSchema.statics.debug = async function(topicId) {
   for (const strategy of strategies) {
     try {
       const result = await strategy.query();
-      console.log(`   ${strategy.name}: ${result ? '✅ FOUND' : '❌ NOT FOUND'}`);
       if (result) {
-        console.log(`   Found: "${result.displayName}" (${result.subject}, Level ${result.level})`);
         return result;
       }
     } catch (error) {
-      console.log(`   ${strategy.name}: ❌ ERROR - ${error.message}`);
     }
   }
   
-  console.log(`❌ [DEBUG] Topic ${topicId} not found with any strategy`);
   return null;
 };
 

@@ -11,7 +11,6 @@ const TestResult = require('../models/TestResult');
 // Middleware
 const verifyToken = require('../middlewares/authMiddleware');
 
-console.log('✅ testRoutes.js loaded');
 
 // Validation middleware
 function validateTestData(req, res, next) {
@@ -103,13 +102,11 @@ function validateTestData(req, res, next) {
 // GET all tests (for admin panel)
 router.get('/', async (req, res) => {
   try {
-    console.log('📥 Admin: GET all tests');
     
     const tests = await Test.find()
       .sort({ createdAt: -1 })
       .lean();
     
-    console.log(`✅ Retrieved ${tests.length} tests for admin`);
     
     // Return in both formats for compatibility
     res.json({
@@ -131,7 +128,6 @@ router.get('/', async (req, res) => {
 // GET specific test by ID (for admin panel)
 router.get('/:id', async (req, res) => {
   try {
-    console.log('📥 Admin: GET test by ID:', req.params.id);
     
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({
@@ -149,7 +145,6 @@ router.get('/:id', async (req, res) => {
       });
     }
     
-    console.log('✅ Test retrieved:', test.title);
     res.json({
       success: true,
       data: test,
@@ -169,8 +164,6 @@ router.get('/:id', async (req, res) => {
 // POST create new test (from admin panel)
 router.post('/', verifyToken, validateTestData, async (req, res) => {
   try {
-    console.log('📤 Admin: Creating new test');
-    console.log('📦 Request body:', JSON.stringify(req.body, null, 2));
     
     // Process questions to ensure proper structure
     const processedQuestions = req.body.questions.map((question, index) => {
@@ -211,12 +204,10 @@ router.post('/', verifyToken, validateTestData, async (req, res) => {
       updatedAt: new Date()
     };
     
-    console.log('🔍 Processed test data:', JSON.stringify(testData, null, 2));
     
     const test = new Test(testData);
     const savedTest = await test.save();
     
-    console.log('✅ Test created successfully:', savedTest.title);
     
     res.status(201).json({
       success: true,
@@ -261,7 +252,7 @@ router.post('/', verifyToken, validateTestData, async (req, res) => {
 // PUT update test (from admin panel)
 router.put('/:id', verifyToken, validateTestData, async (req, res) => {
   try {
-    console.log('🔄 Admin: Updating test:', req.params.id);
+    consol.log('🔄 Admin: Updating test:', req.params.id);
     
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({
@@ -319,7 +310,6 @@ router.put('/:id', verifyToken, validateTestData, async (req, res) => {
       });
     }
     
-    console.log('✅ Test updated successfully:', test.title);
     
     res.json({
       success: true,
@@ -355,7 +345,6 @@ router.put('/:id', verifyToken, validateTestData, async (req, res) => {
 // DELETE test (from admin panel)
 router.delete('/:id', verifyToken, async (req, res) => {
   try {
-    console.log('🗑️ Admin: Deleting test:', req.params.id);
     
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({
@@ -376,7 +365,6 @@ router.delete('/:id', verifyToken, async (req, res) => {
     // Also delete any test results for this test
     await TestResult.deleteMany({ testId: req.params.id });
     
-    console.log('✅ Test deleted successfully:', test.title);
     
     res.json({
       success: true,
@@ -396,7 +384,6 @@ router.delete('/:id', verifyToken, async (req, res) => {
 // PATCH toggle test status (from admin panel)
 router.patch('/:id/status', verifyToken, async (req, res) => {
   try {
-    console.log('🔄 Admin: Toggling test status:', req.params.id);
     
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({
@@ -427,7 +414,6 @@ router.patch('/:id/status', verifyToken, async (req, res) => {
       });
     }
     
-    console.log('✅ Test status updated:', test.title, 'is now', isActive ? 'active' : 'inactive');
     
     res.json({
       success: true,
@@ -448,7 +434,6 @@ router.patch('/:id/status', verifyToken, async (req, res) => {
 // POST duplicate test (from admin panel)
 router.post('/:id/duplicate', verifyToken, async (req, res) => {
   try {
-    console.log('📋 Admin: Duplicating test:', req.params.id);
     
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({
@@ -477,7 +462,6 @@ router.post('/:id/duplicate', verifyToken, async (req, res) => {
     
     const savedTest = await duplicatedTest.save();
     
-    console.log('✅ Test duplicated successfully:', savedTest.title);
     
     res.status(201).json({
       success: true,
@@ -500,12 +484,10 @@ router.post('/:id/duplicate', verifyToken, async (req, res) => {
 // DELETE all tests (admin only)
 router.delete('/all', verifyToken, async (req, res) => {
   try {
-    console.log('🧹 Admin: Deleting all tests');
     
     const deleteResult = await Test.deleteMany({});
     await TestResult.deleteMany({}); // Also delete all test results
     
-    console.log('✅ All tests deleted:', deleteResult.deletedCount);
     
     res.json({
       success: true,
@@ -526,11 +508,9 @@ router.delete('/all', verifyToken, async (req, res) => {
 router.delete('/subject/:subjectName', verifyToken, async (req, res) => {
   try {
     const subjectName = decodeURIComponent(req.params.subjectName);
-    console.log('🧹 Admin: Deleting tests for subject:', subjectName);
     
     const deleteResult = await Test.deleteMany({ subject: subjectName });
     
-    console.log('✅ Tests deleted for subject:', subjectName, deleteResult.deletedCount);
     
     res.json({
       success: true,
@@ -565,7 +545,6 @@ function checkUserMatch(req, res, next) {
 router.get('/user/:firebaseId', verifyToken, checkUserMatch, async (req, res) => {
   try {
     const tests = await Test.find({ isActive: true }).select('-questions.correctAnswer -questions.explanation');
-    console.log(`📥 Retrieved ${tests.length} active tests for user ${req.params.firebaseId}`);
     res.json({ 
       success: true,
       tests: tests,
@@ -601,7 +580,6 @@ router.get('/user/:firebaseId/:testId', verifyToken, checkUserMatch, async (req,
       });
     }
     
-    console.log(`📥 Retrieved test ${testId} for user ${req.params.firebaseId}`);
     res.json({ 
       success: true,
       test: test,
@@ -669,7 +647,6 @@ router.post('/user/:firebaseId/:testId/submit', verifyToken, checkUserMatch, asy
 
     await result.save();
 
-    console.log(`✅ Test ${testId} submitted by user ${firebaseId}. Score: ${percentage}%`);
 
     res.json({
       success: true,
@@ -697,7 +674,6 @@ router.get('/user/:firebaseId/:testId/result', verifyToken, checkUserMatch, asyn
       return res.status(404).json({ error: 'Test result not found' });
     }
 
-    console.log(`📥 Retrieved test result for user ${firebaseId}, test ${testId}`);
     res.json({ success: true, data: result });
   } catch (error) {
     console.error('❌ Error fetching test result:', error);
@@ -711,7 +687,6 @@ router.get('/user/:firebaseId/results', verifyToken, checkUserMatch, async (req,
     const { firebaseId } = req.params;
     const results = await TestResult.find({ userId: firebaseId }).populate('testId', 'title subject level');
 
-    console.log(`📥 Retrieved ${results.length} test results for user ${firebaseId}`);
     res.json({ success: true, data: results });
   } catch (error) {
     console.error('❌ Error fetching user test results:', error);

@@ -483,7 +483,6 @@ class PaymeAPI {
         }
       });
   
-      console.log('🔗 GET URL params:', params);
   
       // Construct parameter string separated by semicolons.
       const paramString = Object.keys(params)
@@ -494,7 +493,6 @@ class PaymeAPI {
       const encodedParams = Buffer.from(paramString).toString('base64');
       const fullUrl = `${this.checkoutUrl}/${encodedParams}`;
   
-      console.log('✅ Generated PayMe GET URL:', fullUrl);
       return fullUrl;
   
     } catch (error) {
@@ -545,7 +543,6 @@ class PaymeAPI {
           }, 2000);
         </script>
       `;
-      console.log('📝 Generated PayMe POST form');
       return formHtml;
 
     } catch (error) {

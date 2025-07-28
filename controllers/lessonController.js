@@ -13,13 +13,7 @@ const mongoose = require('mongoose');
 // ✅ Enhanced lesson creation with topic-centric approach
 exports.addLesson = async (req, res) => {
   try {
-    console.log('📥 [Enhanced Lesson] Received data:', {
-      subject: req.body.subject,
-      level: req.body.level,
-      topic: req.body.topic,
-      lessonName: req.body.lessonName,
-      stepsCount: req.body.steps?.length || 0
-    });
+
 
     let {
       subject,
@@ -77,24 +71,19 @@ exports.addLesson = async (req, res) => {
         description: topicDesc 
       });
       await resolvedTopic.save();
-      console.log(`✅ [Topic Created] "${resolvedTopic.name}" (ID: ${resolvedTopic._id})`);
     } else {
       // Update description if provided and different
       if (topicDesc && topicDesc !== resolvedTopic.description) {
         resolvedTopic.description = topicDesc;
         await resolvedTopic.save();
-        console.log(`🔄 [Topic Updated] Description for "${resolvedTopic.name}"`);
       }
-      console.log(`ℹ️ [Existing Topic] ${resolvedTopic.name} (ID: ${resolvedTopic._id})`);
     }
 
     // ✅ Process enhanced steps with validation and defaults
     const processedSteps = await processLessonSteps(steps);
-    console.log(`📝 [Steps Processed] ${processedSteps.length} steps validated and processed`);
 
     // ✅ Extract homework exercises if homework creation is enabled
     const homeworkData = processHomeworkFromSteps(steps, createHomework);
-    console.log(`📝 [Homework] ${homeworkData.exercises.length} exercises extracted for homework`);
 
     // ✅ Create enhanced lesson object
     const lessonData = {
@@ -137,12 +126,10 @@ exports.addLesson = async (req, res) => {
       }
     };
 
-    console.log('📦 [Creating Lesson] Processing lesson with enhanced structure');
 
     const newLesson = new Lesson(lessonData);
     await newLesson.save();
 
-    console.log(`✅ [Success] Enhanced lesson created: "${newLesson.lessonName}" (ID: ${newLesson._id})`);
     
     // ✅ Return enhanced response with homework info
     const response = {
@@ -218,7 +205,6 @@ exports.completeLesson = async (req, res) => {
       });
     }
 
-    console.log(`🎓 Processing lesson completion: ${lessonId} for user ${userId}`);
     
     // Get the lesson
     const lesson = await Lesson.findById(lessonId);
@@ -236,7 +222,6 @@ exports.completeLesson = async (req, res) => {
     const completionPercentage = totalSteps > 0 ? (currentStep / totalSteps) * 100 : 0;
     
     if (completionPercentage < completionThreshold) {
-      console.log(`⚠️ Lesson completion insufficient: ${completionPercentage}%`);
       return res.status(400).json({
         success: false,
         error: `❌ Lesson not sufficiently completed (${Math.round(completionPercentage)}%). Minimum 80% required.`
@@ -274,7 +259,6 @@ exports.completeLesson = async (req, res) => {
       }
     });
     
-    console.log(`🎉 Lesson completion processed successfully for user ${userId}`);
     
     res.json({
       success: true,
@@ -310,7 +294,6 @@ exports.completeLesson = async (req, res) => {
 // ✅ NEW: Handle lesson completion and extract content
 const handleLessonCompletion = async (userId, lessonId, lessonProgress, lesson = null) => {
   try {
-    console.log(`🎓 Processing lesson completion for user ${userId}, lesson ${lessonId}`);
     
     // Get the completed lesson if not provided
     if (!lesson) {
@@ -332,7 +315,6 @@ const handleLessonCompletion = async (userId, lessonId, lessonProgress, lesson =
     const homeworkExercises = await extractHomeworkFromLesson(lesson);
     
     if (homeworkExercises.length > 0) {
-      console.log(`📝 Found ${homeworkExercises.length} homework exercises in lesson`);
       
       // Check if homework already exists for this lesson
       const existingHomework = await Homework.findOne({
@@ -381,10 +363,8 @@ const handleLessonCompletion = async (userId, lessonId, lessonProgress, lesson =
         results.homeworkCreated = true;
         results.homeworkId = homeworkId;
         
-        console.log(`✅ Created homework: "${homework.title}" with ${homeworkExercises.length} exercises`);
       } else {
         homeworkId = existingHomework._id;
-        console.log(`ℹ️ Using existing homework: "${existingHomework.title}"`);
       }
 
       // Create user's homework progress entry (empty, ready to start)
@@ -416,7 +396,6 @@ const handleLessonCompletion = async (userId, lessonId, lessonProgress, lesson =
     const vocabularyWords = await extractVocabularyFromLesson(lesson, userId);
     
     if (vocabularyWords.length > 0) {
-      console.log(`📚 Found ${vocabularyWords.length} vocabulary words in lesson`);
       
       // Add to user's vocabulary collection
       for (const vocabData of vocabularyWords) {
@@ -434,10 +413,8 @@ const handleLessonCompletion = async (userId, lessonId, lessonProgress, lesson =
           const vocabulary = new Vocabulary(vocabData);
           await vocabulary.save();
           vocabularyId = vocabulary._id;
-          console.log(`✅ Added vocabulary word: "${vocabulary.word}"`);
         } else {
           vocabularyId = existingVocab._id;
-          console.log(`ℹ️ Using existing vocabulary word: "${existingVocab.word}"`);
         }
 
         // Create/update user's vocabulary progress
@@ -477,7 +454,6 @@ const handleLessonCompletion = async (userId, lessonId, lessonProgress, lesson =
     }
     results.message = message;
 
-    console.log(`🎉 Lesson completion processed successfully:`, results);
     
     return results;
 
@@ -650,7 +626,6 @@ exports.migrateContentFromCompletedLessons = async (req, res) => {
       }).populate('lessonId');
     }
     
-    console.log(`🔄 Processing ${completedLessons.length} completed lessons for content extraction`);
     
     const results = {
       processedLessons: 0,
@@ -729,12 +704,10 @@ exports.updateLesson = async (req, res) => {
 
     const updates = req.body;
     
-    console.log('🔄 [Update] Processing lesson update for ID:', lessonId);
     
     // ✅ Process steps if provided
     if (updates.steps) {
       updates.steps = await processLessonSteps(updates.steps);
-      console.log(`📝 [Steps Updated] ${updates.steps.length} steps processed`);
     }
     
     // ✅ Process homework if provided
@@ -745,7 +718,6 @@ exports.updateLesson = async (req, res) => {
         quizzes: homeworkData.quizzes,
         totalExercises: homeworkData.exercises.length + homeworkData.quizzes.length
       };
-      console.log(`📝 [Homework Updated] ${updates.homework.totalExercises} exercises processed`);
     }
 
     // ✅ Process metadata
@@ -769,7 +741,6 @@ exports.updateLesson = async (req, res) => {
           description: updates.topicDescription || '' 
         });
         await resolvedTopic.save();
-        console.log(`✅ [Topic Created] "${resolvedTopic.name}" during lesson update`);
       }
       
       updates.topicId = resolvedTopic._id;
@@ -792,7 +763,6 @@ exports.updateLesson = async (req, res) => {
       return res.status(404).json({ error: '❌ Lesson not found' });
     }
 
-    console.log(`✅ [Update Success] "${updatedLesson.lessonName}" (ID: ${updatedLesson._id})`);
     
     const response = {
       success: true,
@@ -845,7 +815,6 @@ exports.getLesson = async (req, res) => {
       $inc: { 'stats.viewCount': 1 } 
     });
 
-    console.log(`📘 [Retrieved] "${lesson.lessonName}" (ID: ${lesson._id})`);
     
     const response = {
       success: true,
@@ -899,7 +868,6 @@ exports.getLessonsByTopic = async (req, res) => {
       .sort(sortOptions)
       .lean();
 
-    console.log(`📚 [Topic Query] Found ${lessons.length} lessons for topic: ${topicId}`);
 
     // ✅ Calculate detailed stats if requested
     const response = {
@@ -962,7 +930,6 @@ exports.deleteLesson = async (req, res) => {
       return res.status(404).json({ error: '❌ Lesson not found' });
     }
 
-    console.log(`🗑️ [Delete] "${deletedLesson.lessonName}" (ID: ${deletedLesson._id})`);
     res.json({ 
       success: true,
       message: '✅ Lesson deleted successfully',
@@ -989,7 +956,6 @@ async function processLessonSteps(steps) {
     return [];
   }
   
-  console.log(`🔍 Processing ${steps.length} lesson steps...`);
   
   const validStepTypes = [
     'explanation', 'example', 'practice', 'exercise', 
@@ -1078,7 +1044,6 @@ async function processLessonSteps(steps) {
     }
   }
   
-  console.log(`✅ Completed processing ${processedSteps.length} steps`);
   return processedSteps;
 }
 
@@ -1107,7 +1072,6 @@ async function processContentStep(step, index) {
 }
 
 async function processExerciseStep(step, index) {
-  console.log(`📝 Processing exercise step ${index + 1}...`);
 
   let exercises = [];
 
@@ -1223,7 +1187,6 @@ async function processExerciseStep(step, index) {
 }
 
 async function processQuizStep(step, index) {
-  console.log(`🧩 Processing quiz step ${index + 1}...`);
   
   let quizzes = [];
   
@@ -1341,7 +1304,6 @@ async function processQuizStep(step, index) {
 }
 
 async function processVocabularyStep(step, index) {
-  console.log(`📚 Processing vocabulary step ${index + 1}...`);
   
   let vocabularyItems = [];
   

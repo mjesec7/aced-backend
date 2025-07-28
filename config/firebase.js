@@ -8,23 +8,7 @@ const {
 } = process.env;
 
 // 🔍 CRITICAL DEBUG - Enhanced Firebase ENV checking
-console.log("🧪 FIXED Firebase Admin ENV Debug:", {
-  projectId: FIREBASE_PROJECT_ID,
-  clientEmail: FIREBASE_CLIENT_EMAIL,
-  keyExists: !!FIREBASE_PRIVATE_KEY,
-  keyLength: FIREBASE_PRIVATE_KEY?.length,
-  keyPreview: FIREBASE_PRIVATE_KEY?.slice(0, 50),
-  keyEndsWith: FIREBASE_PRIVATE_KEY?.slice(-30),
-  hasEscapedNewlines: FIREBASE_PRIVATE_KEY?.includes('\\n'),
-  hasDoubleEscapedNewlines: FIREBASE_PRIVATE_KEY?.includes('\\\\n'),
-  hasRealNewlines: FIREBASE_PRIVATE_KEY?.includes('\n'),
-  // CRITICAL: Check if this matches frontend
-  expectedProjectId: 'aced-9cf72',
-  projectIdMatch: FIREBASE_PROJECT_ID === 'aced-9cf72',
-  // Environment info
-  nodeEnv: process.env.NODE_ENV,
-  server: 'api.aced.live'
-});
+
 
 // ❗ CRITICAL: Exit if any required env vars are missing
 if (!FIREBASE_PROJECT_ID || !FIREBASE_CLIENT_EMAIL || !FIREBASE_PRIVATE_KEY) {
@@ -51,12 +35,10 @@ let adminApp;
 
 function initializeFirebase() {
   if (adminApp) {
-    console.log('♻️  Using existing Firebase Admin instance');
     return adminApp;
   }
 
   try {
-    console.log('🔄 Initializing Firebase Admin SDK...');
     
     // ✅ Enhanced private key processing
     let processedPrivateKey = FIREBASE_PRIVATE_KEY;
@@ -64,29 +46,20 @@ function initializeFirebase() {
     // Remove surrounding quotes if present
     if (processedPrivateKey.startsWith('"') && processedPrivateKey.endsWith('"')) {
       processedPrivateKey = processedPrivateKey.slice(1, -1);
-      console.log('🔧 Removed surrounding quotes from private key');
     }
     
     // Handle double-escaped newlines first (\\n -> \n)
     if (processedPrivateKey.includes('\\\\n')) {
-      console.log('🔧 Converting double-escaped newlines to single-escaped');
       processedPrivateKey = processedPrivateKey.replace(/\\\\n/g, '\\n');
     }
     
     // Then handle single-escaped newlines (\n -> actual newline)
     if (processedPrivateKey.includes('\\n')) {
-      console.log('🔧 Converting escaped newlines to real newlines');
       processedPrivateKey = processedPrivateKey.replace(/\\n/g, '\n');
     }
     
     // Debug the processed key
-    console.log('🔍 Processed key preview:', {
-      starts: processedPrivateKey.slice(0, 50),
-      ends: processedPrivateKey.slice(-50),
-      hasHeader: processedPrivateKey.includes('-----BEGIN PRIVATE KEY-----'),
-      hasFooter: processedPrivateKey.includes('-----END PRIVATE KEY-----'),
-      lineCount: processedPrivateKey.split('\n').length
-    });
+
     
     // Validate private key format
     if (!processedPrivateKey.includes('-----BEGIN PRIVATE KEY-----')) {
@@ -113,10 +86,7 @@ function initializeFirebase() {
       credential: credential,
       projectId: FIREBASE_PROJECT_ID.trim()
     });
-    
-    console.log('✅ Firebase Admin SDK successfully initialized');
-    console.log(`🔥 Project: ${FIREBASE_PROJECT_ID}`);
-    console.log(`📧 Client: ${FIREBASE_CLIENT_EMAIL}`);
+
     
     return adminApp;
     

@@ -804,7 +804,6 @@ router.get('/:firebaseId/tests/:testId/result', validateFirebaseId, verifyToken,
 });
 
 router.get('/:firebaseId/tests/results', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  console.log('📥 GET all test results for user:', req.params.firebaseId);
   
   try {
     const { firebaseId } = req.params;
@@ -829,7 +828,6 @@ router.get('/:firebaseId/tests/results', validateFirebaseId, verifyToken, verify
 // ========================================
 
 router.get('/:firebaseId/homework/:homeworkId', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  console.log('📥 GET standalone homework for user:', req.params.firebaseId, 'homeworkId:', req.params.homeworkId);
   
   try {
     const { firebaseId, homeworkId } = req.params;
@@ -1332,19 +1330,12 @@ router.post('/:firebaseId/progress/save', validateFirebaseId, verifyToken, verif
 
 // ✅ MISSING ROUTE: Progress save endpoint
 router.post('/:firebaseId/progress/save', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  console.log('💾 POST /users/:firebaseId/progress/save for user:', req.params.firebaseId);
   
   try {
     const { firebaseId } = req.params;
     const progressData = req.body;
     
-    console.log('📝 Progress data received:', {
-      lessonId: progressData.lessonId,
-      completed: progressData.completed,
-      progressPercent: progressData.progressPercent,
-      stars: progressData.stars,
-      points: progressData.points
-    });
+  
     
     // Basic validation
     if (!progressData.lessonId) {
@@ -1364,7 +1355,6 @@ router.post('/:firebaseId/progress/save', validateFirebaseId, verifyToken, verif
         const lesson = await Lesson.findById(progressData.lessonId);
         if (lesson && lesson.topicId) {
           finalTopicId = extractValidObjectId(lesson.topicId, 'lesson.topicId');
-          console.log('📖 Got topicId from lesson:', finalTopicId);
         }
       } catch (lessonError) {
         console.warn('⚠️ Could not fetch lesson for topicId:', lessonError.message);
@@ -1441,7 +1431,6 @@ router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOw
   try {
     const studyListData = req.body;
     
-    console.log('📥 Study list data received:', studyListData);
     
     // Check required fields
     if (!studyListData.topicId || (!studyListData.topic && !studyListData.topicName)) {
@@ -1552,10 +1541,8 @@ router.get('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOwn
     }
     
     if (needsCleanup && invalidTopicIds.length > 0) {
-      console.log(`🧹 Cleaning up ${invalidTopicIds.length} invalid topic references`);
       user.studyList = validStudyList;
       await user.save();
-      console.log(`✅ Cleaned study list: ${user.studyList.length} valid entries remaining`);
     }
     
     // ✅ CONSISTENT RESPONSE FORMAT
@@ -1579,7 +1566,6 @@ router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOw
   try {
     const studyListData = req.body;
     
-    console.log('📥 Study list data received:', studyListData);
     
     // Check required fields
     if (!studyListData.topicId || (!studyListData.topic && !studyListData.topicName)) {
@@ -1652,7 +1638,6 @@ router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOw
     user.studyList.push(mappedData);
     await user.save();
     
-    console.log(`✅ Added topic to study list: ${mappedData.name} (${mappedData.topicId})`);
     
     res.status(201).json({
       success: true,
@@ -1702,7 +1687,6 @@ router.delete('/:firebaseId/study-list/:topicId', validateFirebaseId, verifyToke
     await user.save();
     
     if (removedCount > 0) {
-      console.log(`✅ Removed ${removedCount} entry(ies) from study list`);
       res.json({ 
         success: true,
         message: `✅ Removed ${removedCount} topic(s)`, 
@@ -1710,7 +1694,6 @@ router.delete('/:firebaseId/study-list/:topicId', validateFirebaseId, verifyToke
         removedCount
       });
     } else {
-      console.log(`⚠️ No matching entries found for removal: ${req.params.topicId}`);
       res.json({ 
         success: true,
         message: '⚠️ No matching topic found to remove', 
@@ -1817,7 +1800,6 @@ router.get('/:firebaseId/topics-progress', validateFirebaseId, verifyToken, veri
         topicProgress[topic.topicName] = percentage;
       }
       
-      console.log(`📊 Topic: ${topic.topicName} (${topic.topicId}) - ${topic.completed}/${topic.total} = ${percentage}%`);
     });
     
     res.json(topicProgress);
@@ -1832,7 +1814,6 @@ router.get('/:firebaseId/topics-progress', validateFirebaseId, verifyToken, veri
 // ========================================
 
 router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  console.log('📊 Analytics GET request received for user:', req.params.firebaseId);
   
   try {
     const firebaseId = req.params.firebaseId;
@@ -1863,7 +1844,6 @@ router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwne
         lastResetCheck: new Date()
       });
       await newUser.save();
-      console.log('✅ Created new user record for analytics');
       
       // Return empty analytics for new user
       return res.json({
@@ -1897,7 +1877,6 @@ router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwne
       });
     }
     
-    console.log(`📊 Found user ${user.name} with ${userProgress.length} progress entries`);
     
     const completedLessons = userProgress.filter(p => p.completed).length;
     const totalStars = userProgress.reduce((sum, p) => sum + (p.stars || 0), 0);
@@ -2024,7 +2003,6 @@ router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwne
       dataQuality
     };
     
-    console.log('✅ Analytics calculated successfully');
     
     res.json({
       success: true,
@@ -2162,7 +2140,6 @@ try {
   
   // Run monthly reset on the 1st day of each month at 00:01
   cron.schedule('1 0 1 * *', async () => {
-    console.log('🔄 Running monthly homework usage reset...');
     
     try {
       const users = await User.find({});
@@ -2178,13 +2155,11 @@ try {
           await user.save();
           resetCount++;
           
-          console.log(`✅ Reset usage for user: ${user._id}`);
         } catch (userError) {
           console.error(`❌ Failed to reset usage for user ${user._id}:`, userError.message);
         }
       }
       
-      console.log(`✅ Monthly reset completed for ${resetCount} users`);
       
     } catch (error) {
       console.error('❌ Monthly reset failed:', error);
@@ -2193,7 +2168,6 @@ try {
     timezone: "Asia/Tashkent" // Adjust to your timezone
   });
   
-  console.log('✅ Monthly usage reset cron job scheduled');
 } catch (cronError) {
   console.warn('⚠️ node-cron not available, monthly reset will be handled manually');
 }

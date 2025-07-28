@@ -7,18 +7,15 @@ const UserProgress = require('../models/userProgress');
 const getRecommendations = async (req, res) => {
   try {
     const { firebaseId } = req.params;
-    console.log('📥 Getting recommendations for user:', firebaseId);
     
     // Get user's data
     const user = await User.findOne({ firebaseId });
     if (!user) {
-      console.log('❌ User not found:', firebaseId);
       return res.status(404).json({ error: 'User not found' });
     }
     
     // Get user's study list topic IDs
     const studyListTopicIds = user.studyList?.map(item => item.topicId?.toString()) || [];
-    console.log(`📚 User has ${studyListTopicIds.length} topics in study list`);
     
     // Get user's completed lessons
     const userProgress = await UserProgress.find({ 
@@ -27,14 +24,12 @@ const getRecommendations = async (req, res) => {
     });
     
     const completedLessonIds = userProgress.map(p => p.lessonId?.toString());
-    console.log(`✅ User has completed ${completedLessonIds.length} lessons`);
     
     // Get all topics not in user's study list
     let availableTopics = await Topic.find({
       _id: { $nin: studyListTopicIds }
     }).limit(20); // Limit to prevent overwhelming results
     
-    console.log(`🔍 Found ${availableTopics.length} topics not in study list`);
     
     // Get lessons for each topic and calculate recommendation score
     const topicsWithData = await Promise.all(
@@ -86,11 +81,9 @@ const getRecommendations = async (req, res) => {
       .sort((a, b) => b.recommendationScore - a.recommendationScore)
       .slice(0, 10); // Return top 10 recommendations
     
-    console.log(`✅ Returning ${recommendations.length} recommendations`);
     
     // Log recommendation scores for debugging
     recommendations.forEach((rec, index) => {
-      console.log(`${index + 1}. ${rec.name?.en || rec.name} - Score: ${rec.recommendationScore}`);
     });
     
     res.json(recommendations);
@@ -107,7 +100,6 @@ const getRecommendations = async (req, res) => {
 // Get trending topics (could be based on enrollments, completions, etc.)
 const getTrendingTopics = async (req, res) => {
   try {
-    console.log('📥 Getting trending topics');
     
     // For now, just return topics with the most lessons
     // In a real app, you'd track enrollments, completions, ratings, etc.
@@ -138,7 +130,6 @@ const getTrendingTopics = async (req, res) => {
       }
     ]);
     
-    console.log(`✅ Found ${topics.length} trending topics`);
     res.json(topics);
     
   } catch (error) {
@@ -154,7 +145,6 @@ const getTrendingTopics = async (req, res) => {
 const getSimilarTopics = async (req, res) => {
   try {
     const { topicId } = req.params;
-    console.log('📥 Getting similar topics for:', topicId);
     
     // Get the reference topic
     const referenceTopic = await Topic.findById(topicId);
@@ -186,7 +176,6 @@ const getSimilarTopics = async (req, res) => {
     // Filter out topics without lessons
     const recommendations = topicsWithLessons.filter(t => t.lessons.length > 0);
     
-    console.log(`✅ Found ${recommendations.length} similar topics`);
     res.json(recommendations);
     
   } catch (error) {

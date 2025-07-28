@@ -13,12 +13,9 @@ router.get('/:userId', verifyToken, async (req, res) => {
   const { userId } = req.params;
 
   try {
-    console.log('📊 Analytics request for user:', userId);
-    console.log('🔐 Token user:', req.user?.uid);
 
     // 🔐 Ensure user can only access their own analytics
     if (req.user?.uid !== userId) {
-      console.log('❌ Access denied: user mismatch');
       return res.status(403).json({ 
         success: false,
         error: 'Access denied: user mismatch' 
@@ -26,7 +23,6 @@ router.get('/:userId', verifyToken, async (req, res) => {
     }
 
     // ✅ STEP 1: Get user progress with proper lesson population
-    console.log('📊 Step 1: Fetching user progress with lesson details...');
     const userProgress = await UserProgress.find({ userId })
       .populate({
         path: 'lessonId',
@@ -35,10 +31,8 @@ router.get('/:userId', verifyToken, async (req, res) => {
       })
       .lean();
 
-    console.log(`📊 Found ${userProgress.length} progress entries`);
 
     // ✅ STEP 2: Get all lessons for topic mapping
-    console.log('📊 Step 2: Building lesson-topic mapping...');
     const allLessons = await Lesson.find({}).lean();
     const lessonMap = new Map();
     allLessons.forEach(lesson => {
@@ -46,7 +40,6 @@ router.get('/:userId', verifyToken, async (req, res) => {
     });
 
     // ✅ STEP 3: Get all topics for name resolution
-    console.log('📊 Step 3: Getting topic names...');
     const allTopics = await Topic.find({}).lean();
     const topicMap = new Map();
     allTopics.forEach(topic => {
@@ -54,7 +47,6 @@ router.get('/:userId', verifyToken, async (req, res) => {
     });
 
     // ✅ STEP 4: Calculate basic metrics with proper data
-    console.log('📊 Step 4: Calculating analytics...');
     
     const completedProgress = userProgress.filter(p => p.completed);
     const completedLessonsCount = completedProgress.length;
@@ -122,7 +114,6 @@ router.get('/:userId', verifyToken, async (req, res) => {
       : 0;
 
     // ✅ STEP 5: Build topic/subject progress with proper names
-    console.log('📊 Step 5: Building topic progress...');
     const topicProgressMap = new Map();
     
     // Group lessons by topic
@@ -186,7 +177,6 @@ router.get('/:userId', verifyToken, async (req, res) => {
     }));
 
     // ✅ STEP 7: Build recent activity with PROPER lesson names
-    console.log('📊 Step 7: Building recent activity with lesson names...');
     const recentActivity = userProgress
       .filter(p => p.updatedAt && new Date(p.updatedAt) > oneWeekAgo)
       .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
@@ -233,9 +223,7 @@ router.get('/:userId', verifyToken, async (req, res) => {
         };
       });
 
-    console.log(`📊 Built recent activity with ${recentActivity.length} entries`);
     recentActivity.forEach((activity, i) => {
-      console.log(`  ${i + 1}. ${activity.lesson} (${activity.topic}) - ${activity.points} pts`);
     });
 
     // ✅ STEP 8: Knowledge chart (monthly progress)
@@ -326,8 +314,6 @@ router.get('/:userId', verifyToken, async (req, res) => {
       }
     };
 
-    console.log('✅ Analytics data prepared successfully');
-    console.log(`📊 Summary: ${completedLessonsCount} lessons, ${topics.length} topics, ${subjects.length} subjects`);
     
     res.json(analyticsData);
 
@@ -346,7 +332,6 @@ router.post('/generate-report', verifyToken, async (req, res) => {
   const { userId } = req.body;
 
   try {
-    console.log('📄 PDF generation request for user:', userId);
     
     if (req.user?.uid !== userId) {
       return res.status(403).json({ 
@@ -378,7 +363,6 @@ router.post('/generate-report', verifyToken, async (req, res) => {
       topicMap.set(topic._id.toString(), topic);
     });
 
-    console.log('📊 Data fetched - Progress entries:', userProgress.length);
 
     // Create PDF document
     const doc = new PDFDocument();

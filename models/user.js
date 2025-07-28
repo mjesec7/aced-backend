@@ -297,7 +297,6 @@ userSchema.methods.checkMonthlyReset = async function() {
     }
     
     await this.save();
-    console.log(`🔄 Monthly AI usage reset for user ${this.firebaseId}`);
     return true;
   }
   

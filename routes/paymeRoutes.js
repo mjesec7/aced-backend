@@ -45,12 +45,7 @@ const PAYMENT_AMOUNTS = {
 // Middleware for logging requests in development
 const logRequests = (req, res, next) => {
   if (process.env.NODE_ENV !== 'production') {
-    console.log(`📝 ${req.method} ${req.path}`, {
-      body: req.body,
-      params: req.params,
-      query: req.query,
-      timestamp: new Date().toISOString()
-    });
+  
   }
   next();
 };
@@ -233,7 +228,6 @@ router.post('/generate-button', async (req, res) => {
 
 // ✅ PayMe Success Return Handler
 router.get('/payme/return/success', async (req, res) => {
-  console.log('✅ PayMe SUCCESS return:', req.query);
   
   const transactionId = req.query.transaction || req.query.id || req.query.c;
   const userId = req.query.userId || req.query.user_id;
@@ -264,7 +258,6 @@ router.get('/payme/return/success', async (req, res) => {
             user.paymentStatus = 'paid';
             user.lastPaymentDate = new Date();
             await user.save();
-            console.log(`✅ User ${user._id} upgraded to ${transaction.plan}`);
           }
         } catch (userUpdateError) {
           console.warn('⚠️ Failed to update user subscription:', userUpdateError.message);
@@ -294,7 +287,6 @@ router.get('/payme/return/success', async (req, res) => {
 
 // ✅ PayMe Failure Return Handler
 router.get('/payme/return/failure', async (req, res) => {
-  console.log('❌ PayMe FAILURE return:', req.query);
   
   const transactionId = req.query.transaction || req.query.id || req.query.c;
   const error = req.query.error || req.query.reason || 'payment_failed';
@@ -321,7 +313,6 @@ router.get('/payme/return/failure', async (req, res) => {
 
 // ✅ PayMe Cancel Return Handler
 router.get('/payme/return/cancel', async (req, res) => {
-  console.log('🚫 PayMe CANCEL return:', req.query);
   
   const transactionId = req.query.transaction || req.query.id || req.query.c;
   
@@ -347,14 +338,12 @@ router.get('/payme/return/cancel', async (req, res) => {
 
 // ✅ PayMe Webhook/Notification Handler
 router.post('/payme/notify', async (req, res) => {
-  console.log('🔔 PayMe WEBHOOK notification:', req.body);
   
   try {
     // PayMe sends JSON-RPC 2.0 notifications
     const { method, params } = req.body;
     
     if (method && params) {
-      console.log(`🔔 PayMe notification method: ${method}`);
       
       // Handle different notification types
       switch (method) {
@@ -367,7 +356,6 @@ router.post('/payme/notify', async (req, res) => {
               transaction.state = 2; // Completed
               transaction.perform_time = Date.now();
               setTransaction(transactionId, transaction);
-              console.log(`✅ Transaction ${transactionId} marked as completed via webhook`);
             }
           }
           break;
@@ -381,7 +369,6 @@ router.post('/payme/notify', async (req, res) => {
               transaction.state = -1; // Cancelled
               transaction.cancel_time = Date.now();
               setTransaction(transactionId, transaction);
-              console.log(`❌ Transaction ${transactionId} marked as cancelled via webhook`);
             }
           }
           break;
@@ -417,7 +404,6 @@ router.post('/initiate-payme', async (req, res) => {
   try {
     const { userId, plan, name, phone } = req.body;
 
-    console.log('🚀 PayMe payment initiation:', { userId, plan });
 
     if (!userId || !plan) {
       return res.status(400).json({ 
@@ -489,7 +475,6 @@ router.post('/initiate-payme', async (req, res) => {
 
       const paymentUrl = `https://checkout.paycom.uz/?${new URLSearchParams(paymeParams).toString()}`;
       
-      console.log('🔗 Production PayMe URL generated');
 
       return res.status(200).json({
         success: true,
@@ -521,7 +506,6 @@ router.post('/initiate-payme', async (req, res) => {
         currentPlan: user.subscriptionPlan || 'free'
       }).toString()}`;
 
-      console.log('🧪 Development: Redirecting to checkout page');
 
       return res.status(200).json({
         success: true,
@@ -561,7 +545,6 @@ router.post('/initialize', async (req, res) => {
   try {
     const { transactionId, cardNumber, expiryDate, cardHolder, amount, userId, plan } = req.body;
     
-    console.log('💳 Development: Simulating card initialization');
     
     // Basic validation
     if (!cardNumber || !expiryDate || !cardHolder) {
@@ -613,7 +596,6 @@ router.post('/verify-sms', async (req, res) => {
   try {
     const { transactionId, smsCode } = req.body;
     
-    console.log('📱 Development: Simulating SMS verification');
     
     if (!smsCode || smsCode.length !== 6) {
       return res.json({
@@ -643,7 +625,6 @@ router.post('/complete', async (req, res) => {
   try {
     const { transactionId, userId, plan } = req.body;
     
-    console.log('✅ Development: Completing payment');
     
     // Find user and update subscription
     const User = require('../models/user');
@@ -675,7 +656,6 @@ router.post('/complete', async (req, res) => {
       transaction.perform_time = Date.now();
     }
     
-    console.log('✅ Payment completed for user:', user._id);
     
     return res.json({
       success: true,
