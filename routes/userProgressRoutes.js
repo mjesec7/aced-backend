@@ -67,38 +67,7 @@ const extractValidObjectId = (value, fieldName = 'ObjectId') => {
   }
 };
 
-// ✅ ENHANCED: Logging middleware for debugging
-router.use((req, res, next) => {
-  if (req.method === 'POST' || req.method === 'PUT') {
-    console.log('\n📤 UserProgress Route Request:');
-    console.log(`🔗 URL: ${req.originalUrl}`);
-    console.log(`📋 Headers: Authorization: ${req.headers.authorization ? 'Present' : 'Missing'}`);
-    
-    // Log the problematic fields specifically
-    if (req.body) {
-      console.log('📦 Request Body Analysis:');
-      console.log(`  userId: ${JSON.stringify(req.body.userId)} (${typeof req.body.userId})`);
-      console.log(`  lessonId: ${JSON.stringify(req.body.lessonId)} (${typeof req.body.lessonId})`);
-      console.log(`  topicId: ${JSON.stringify(req.body.topicId)} (${typeof req.body.topicId})`);
-      console.log(`  progressPercent: ${req.body.progressPercent}`);
-      console.log(`  completed: ${req.body.completed}`);
-      
-      // Special check for the problematic topicId
-      if (req.body.topicId) {
-        console.log('🔍 TopicId Deep Analysis:');
-        console.log(`  Raw value: ${req.body.topicId}`);
-        console.log(`  String representation: "${req.body.topicId.toString()}"`);
-        console.log(`  JSON stringify: ${JSON.stringify(req.body.topicId)}`);
-        console.log(`  Is object: ${typeof req.body.topicId === 'object'}`);
-        if (typeof req.body.topicId === 'object') {
-          console.log(`  Object keys: ${Object.keys(req.body.topicId)}`);
-          console.log(`  Object values: ${Object.values(req.body.topicId)}`);
-        }
-      }
-    }
-  }
-  next();
-});
+
 
 // ✅ GET /api/progress - Load progress
 router.get('/', async (req, res) => {
@@ -411,18 +380,15 @@ router.post('/', verifyToken, async (req, res) => {
         });
       }
     } else {
-      console.log('ℹ️ No topicId provided in request');
     }
     
     // If no valid topicId from request, try to get it from the lesson
     if (!finalTopicId) {
-      console.log('🔍 Attempting to get topicId from lesson...');
       try {
         const lesson = await Lesson.findById(validLessonId);
         if (lesson && lesson.topicId) {
           finalTopicId = extractValidObjectId(lesson.topicId, 'lesson.topicId');
           if (finalTopicId) {
-            console.log('✅ Valid topicId retrieved from lesson:', finalTopicId);
           } else {
             console.warn('⚠️ Invalid topicId in lesson document:', lesson.topicId);
           }
@@ -438,7 +404,6 @@ router.post('/', verifyToken, async (req, res) => {
     }
 
     // ✅ STEP 3: Prepare update data with validation
-    console.log('🔍 Step 3: Preparing update data...');
     const updateData = {
       completedSteps: Array.isArray(completedSteps) ? completedSteps : [],
       progressPercent: Math.min(100, Math.max(0, Number(progressPercent) || 0)),
@@ -465,26 +430,14 @@ router.post('/', verifyToken, async (req, res) => {
     // ✅ CRITICAL: Only add topicId if it's valid
     if (finalTopicId) {
       updateData.topicId = finalTopicId;
-      console.log('✅ Adding valid topicId to update data:', finalTopicId);
     } else {
-      console.log('⚠️ No valid topicId available - saving progress without topicId');
       // Explicitly unset topicId if it was invalid
       updateData.$unset = { topicId: "" };
     }
 
-    console.log('📝 Final update data summary:', {
-      userId: firebaseId,
-      lessonId: validLessonId,
-      topicId: finalTopicId || 'not set',
-      progressPercent: updateData.progressPercent,
-      completed: updateData.completed,
-      currentStep: updateData.currentStep,
-      totalSteps: updateData.totalSteps,
-      hasTopicId: !!finalTopicId
-    });
+  
 
     // ✅ STEP 4: Perform the database update
-    console.log('🔍 Step 4: Updating database...');
     const updated = await UserProgress.findOneAndUpdate(
       { userId: firebaseId, lessonId: validLessonId },
       updateData,
@@ -496,16 +449,7 @@ router.post('/', verifyToken, async (req, res) => {
       }
     );
 
-    console.log('✅ Progress saved successfully:', {
-      id: updated._id,
-      userId: updated.userId,
-      lessonId: updated.lessonId,
-      topicId: updated.topicId || 'not set',
-      progressPercent: updated.progressPercent,
-      completed: updated.completed,
-      currentStep: updated.currentStep,
-      totalSteps: updated.totalSteps
-    });
+    
 
     res.status(200).json({
       message: '✅ Progress saved/updated',

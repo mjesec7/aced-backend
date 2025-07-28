@@ -23,7 +23,6 @@ const testController = require('../controllers/testController');
 const userProgressController = require('../controllers/userProgressController');
 const { getRecommendations } = require('../controllers/recommendationController');
 
-console.log('✅ userRoutes.js loaded with homework usage tracking');
 
 // ========================================
 // 🛠️ UTILITY FUNCTIONS
@@ -152,14 +151,7 @@ function validateObjectId(req, res, next) {
 router.post('/save', async (req, res) => {
   const { token, name, subscriptionPlan } = req.body;
   
-  console.log('💾 User save request on api.aced.live:', {
-    hasToken: !!token,
-    tokenLength: token?.length || 0,
-    tokenPreview: token?.slice(0, 30) + '...',
-    name,
-    subscriptionPlan,
-    timestamp: new Date().toISOString()
-  });
+
   
   if (!token || !name) {
     return res.status(400).json({ 
@@ -170,17 +162,10 @@ router.post('/save', async (req, res) => {
   }
   
   try {
-    console.log('🔍 Verifying token directly in save route...');
     
     const decoded = await admin.auth().verifyIdToken(token);
     
-    console.log('✅ Token verified in save route:', {
-      uid: decoded.uid,
-      email: decoded.email,
-      projectId: decoded.aud,
-      expectedProjectId: 'aced-9cf72',
-      match: decoded.aud === 'aced-9cf72'
-    });
+    
     
     if (decoded.aud !== 'aced-9cf72') {
       console.error('❌ Project ID mismatch in save route:', {
@@ -199,7 +184,6 @@ router.post('/save', async (req, res) => {
 
     let user = await User.findOne({ firebaseId });
     if (!user) {
-      console.log('👤 Creating new user:', firebaseId);
       user = new User({ 
         firebaseId, 
         email, 
@@ -212,7 +196,6 @@ router.post('/save', async (req, res) => {
         lastResetCheck: new Date()
       });
     } else {
-      console.log('📝 Updating existing user:', firebaseId);
       user.email = email;
       user.name = name;
       user.Login = email;
@@ -228,7 +211,6 @@ router.post('/save', async (req, res) => {
     }
 
     await user.save();
-    console.log('✅ User saved successfully on api.aced.live');
     
     res.json({
       ...user.toObject(),
@@ -313,7 +295,6 @@ router.post('/:firebaseId/usage/:monthKey/reset', validateFirebaseId, verifyToke
     
     await user.save();
 
-    console.log(`🔄 Manual usage reset for user ${firebaseId}, month ${monthKey}`);
 
     res.json({
       success: true,
@@ -428,7 +409,6 @@ router.post('/chat', verifyToken, async (req, res) => {
       const newUsage = await user.incrementUsage(1, hasImage ? 1 : 0);
       const limits = user.getUsageLimits();
 
-      console.log(`📊 Usage updated for user ${firebaseId}:`, newUsage);
       
       res.json({
         reply: aiResponse,
@@ -496,7 +476,6 @@ router.get('/:firebaseId/status', validateFirebaseId, async (req, res) => {
 // ========================================
 
 router.get('/:firebaseId/recommendations', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  console.log('📥 GET recommendations for user:', req.params.firebaseId);
   
   try {
     if (getRecommendations) {
@@ -523,7 +502,6 @@ router.get('/:firebaseId/recommendations', validateFirebaseId, verifyToken, veri
     
     const recommendations = topicsWithLessons.filter(topic => topic.lessons.length > 0);
     
-    console.log(`✅ Returning ${recommendations.length} recommendations`);
     res.json(recommendations);
     
   } catch (error) {
@@ -537,7 +515,6 @@ router.get('/:firebaseId/recommendations', validateFirebaseId, verifyToken, veri
 // ========================================
 
 router.get('/:firebaseId/homeworks', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  console.log('📥 GET all homeworks for user:', req.params.firebaseId);
   
   try {
     const userId = req.params.firebaseId;
@@ -616,12 +593,7 @@ router.get('/:firebaseId/homeworks', validateFirebaseId, verifyToken, verifyOwne
       return new Date(b.updatedAt) - new Date(a.updatedAt);
     });
     
-    console.log(`✅ Returning ${allHomeworks.length} homework items`);
-    res.json({
-      success: true,
-      data: allHomeworks,
-      message: '✅ Homework list retrieved successfully'
-    });
+    
     
   } catch (error) {
     console.error('❌ Error fetching user homeworks:', error);
@@ -634,7 +606,6 @@ router.get('/:firebaseId/homeworks', validateFirebaseId, verifyToken, verifyOwne
 // ========================================
 
 router.get('/:firebaseId/tests', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  console.log('📥 GET all tests for user:', req.params.firebaseId);
   
   try {
     const userId = req.params.firebaseId;
@@ -659,12 +630,7 @@ router.get('/:firebaseId/tests', validateFirebaseId, verifyToken, verifyOwnershi
       };
     });
     
-    console.log(`✅ Returning ${testsWithProgress.length} tests`);
-    res.json({
-      success: true,
-      tests: testsWithProgress,
-      message: '✅ Tests retrieved successfully'
-    });
+    
     
   } catch (error) {
     console.error('❌ Error fetching user tests:', error);
@@ -673,7 +639,6 @@ router.get('/:firebaseId/tests', validateFirebaseId, verifyToken, verifyOwnershi
 });
 
 router.get('/:firebaseId/tests/:testId', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  console.log('📥 GET test for user:', req.params.firebaseId, 'testId:', req.params.testId);
   
   try {
     const { testId } = req.params;
@@ -702,7 +667,6 @@ router.get('/:firebaseId/tests/:testId', validateFirebaseId, verifyToken, verify
       });
     }
     
-    console.log(`✅ Test ${testId} retrieved successfully`);
     res.json({
       success: true,
       test: test,
@@ -716,7 +680,6 @@ router.get('/:firebaseId/tests/:testId', validateFirebaseId, verifyToken, verify
 });
 
 router.post('/:firebaseId/tests/:testId/submit', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  console.log('📤 POST test submission for user:', req.params.firebaseId, 'testId:', req.params.testId);
   
   try {
     const { firebaseId, testId } = req.params;
@@ -797,7 +760,6 @@ router.post('/:firebaseId/tests/:testId/submit', validateFirebaseId, verifyToken
       await result.save();
     }
 
-    console.log(`✅ Test ${testId} submitted by user ${firebaseId}. Score: ${percentage}%`);
 
     res.json({
       success: true,
@@ -820,7 +782,6 @@ router.post('/:firebaseId/tests/:testId/submit', validateFirebaseId, verifyToken
 });
 
 router.get('/:firebaseId/tests/:testId/result', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  console.log('📥 GET test result for user:', req.params.firebaseId, 'testId:', req.params.testId);
   
   try {
     const { firebaseId, testId } = req.params;
@@ -830,7 +791,6 @@ router.get('/:firebaseId/tests/:testId/result', validateFirebaseId, verifyToken,
       return res.status(404).json({ error: '❌ Test result not found' });
     }
 
-    console.log(`✅ Test result retrieved for user ${firebaseId}, test ${testId}`);
     res.json({ 
       success: true, 
       data: result,
@@ -852,7 +812,6 @@ router.get('/:firebaseId/tests/results', validateFirebaseId, verifyToken, verify
       .populate('testId', 'title subject level topic')
       .sort({ submittedAt: -1 });
 
-    console.log(`✅ Retrieved ${results.length} test results for user ${firebaseId}`);
     res.json({ 
       success: true, 
       data: results,
@@ -911,7 +870,6 @@ router.get('/:firebaseId/homework/:homeworkId', validateFirebaseId, verifyToken,
 });
 
 router.post('/:firebaseId/homework/:homeworkId/save', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  console.log('💾 POST save standalone homework for user:', req.params.firebaseId, 'homeworkId:', req.params.homeworkId);
   
   try {
     const { firebaseId, homeworkId } = req.params;
@@ -927,11 +885,9 @@ router.post('/:firebaseId/homework/:homeworkId/save', validateFirebaseId, verify
 
     const homework = await Homework.findById(homeworkId);
     if (!homework) {
-      console.log('❌ Homework not found for ID:', homeworkId);
       return res.status(404).json({ error: '❌ Homework not found' });
     }
 
-    console.log('✅ Homework found:', homework.title);
 
     // Check for existing progress using homeworkId field
     let existingProgress = await HomeworkProgress.findOne({
@@ -939,7 +895,6 @@ router.post('/:firebaseId/homework/:homeworkId/save', validateFirebaseId, verify
       homeworkId: homeworkId
     });
 
-    console.log('Existing progress:', existingProgress ? 'Found' : 'Not found');
 
     const progressData = {
       userId: firebaseId,
@@ -956,19 +911,16 @@ router.post('/:firebaseId/homework/:homeworkId/save', validateFirebaseId, verify
 
     let progress;
     if (existingProgress) {
-      console.log('📝 Updating existing progress...');
       progress = await HomeworkProgress.findByIdAndUpdate(
         existingProgress._id,
         progressData,
         { new: true, runValidators: true }
       );
     } else {
-      console.log('📝 Creating new progress...');
       progress = new HomeworkProgress(progressData);
       await progress.save();
     }
 
-    console.log(`✅ Standalone homework progress saved for user ${firebaseId}`);
     res.json({
       success: true,
       data: progress,
@@ -991,18 +943,12 @@ router.post('/:firebaseId/homework/:homeworkId/save', validateFirebaseId, verify
 });
 
 router.post('/:firebaseId/homework/:homeworkId/submit', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  console.log('📤 POST submit standalone homework for user:', req.params.firebaseId, 'homeworkId:', req.params.homeworkId);
+  ('📤 POST submit standalone homework for user:', req.params.firebaseId, 'homeworkId:', req.params.homeworkId);
   
   try {
     const { firebaseId, homeworkId } = req.params;
     const { answers } = req.body;
-    
-    console.log('📝 Received submission data:', {
-      firebaseId,
-      homeworkId,
-      answersCount: answers?.length || 0,
-      answersType: Array.isArray(answers) ? 'array' : typeof answers
-    });
+   
     
     if (!mongoose.Types.ObjectId.isValid(homeworkId)) {
       console.error('❌ Invalid homework ID format:', homeworkId);
@@ -1037,7 +983,6 @@ router.post('/:firebaseId/homework/:homeworkId/submit', validateFirebaseId, veri
       });
     }
 
-    console.log('📝 Grading homework with', homework.exercises.length, 'exercises');
 
     // Auto-grade the homework
     const gradedAnswers = answers.map((answer, index) => {
@@ -1082,14 +1027,7 @@ router.post('/:firebaseId/homework/:homeworkId/submit', validateFirebaseId, veri
       
       const points = isCorrect ? (exercise.points || 1) : 0;
 
-      console.log(`🔍 Question ${index + 1}:`, {
-        type: exercise.type,
-        userAnswer: userAnswer.substring(0, 30) + '...',
-        correctAnswer: correctAnswerNormalized.substring(0, 30) + '...',
-        isCorrect,
-        points
-      });
-
+    
       return {
         questionIndex: index,
         userAnswer: userAnswer,
@@ -1113,14 +1051,7 @@ router.post('/:firebaseId/homework/:homeworkId/submit', validateFirebaseId, veri
     else if (score >= 70) stars = 2;
     else if (score >= 50) stars = 1;
 
-    console.log('📊 Grading results:', {
-      totalQuestions,
-      correctAnswers,
-      totalPoints,
-      maxPoints,
-      score,
-      stars
-    });
+   
 
     // Save progress with homeworkId field
     const progressData = {
@@ -1150,7 +1081,6 @@ router.post('/:firebaseId/homework/:homeworkId/submit', validateFirebaseId, veri
       { upsert: true, new: true, runValidators: true }
     );
 
-    console.log(`📤 Standalone homework submitted by user ${firebaseId}. Score: ${score}%`);
 
     res.json({
       success: true,
@@ -1204,26 +1134,16 @@ router.get('/:firebaseId/lesson/:lessonId', validateFirebaseId, verifyToken, ver
 });
 
 router.post('/:firebaseId/lesson/:lessonId', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  console.log('📚 POST lesson progress for user:', req.params.firebaseId, 'lesson:', req.params.lessonId);
   
   try {
     const { firebaseId, lessonId } = req.params;
     const progressData = req.body;
     
-    console.log('📝 Raw progress data received:', {
-      ...progressData,
-      topicIdType: typeof progressData.topicId,
-      topicIdValue: progressData.topicId
-    });
+ 
     
     // Sanitize the progress data to handle ObjectId issues
     const sanitizedData = sanitizeProgressData(progressData);
-    
-    console.log('📝 Sanitized progress data:', {
-      ...sanitizedData,
-      topicIdType: typeof sanitizedData.topicId,
-      topicIdValue: sanitizedData.topicId
-    });
+   
     
     // If no topicId provided or extraction failed, try to get it from lesson
     let finalTopicId = sanitizedData.topicId;
@@ -1232,7 +1152,6 @@ router.post('/:firebaseId/lesson/:lessonId', validateFirebaseId, verifyToken, ve
         const lesson = await Lesson.findById(lessonId);
         if (lesson && lesson.topicId) {
           finalTopicId = extractValidObjectId(lesson.topicId, 'lesson.topicId');
-          console.log('📖 Got topicId from lesson:', finalTopicId);
         }
       } catch (lessonError) {
         console.warn('⚠️ Could not fetch lesson for topicId:', lessonError.message);
@@ -1262,19 +1181,13 @@ router.post('/:firebaseId/lesson/:lessonId', validateFirebaseId, verifyToken, ve
         delete updateData[key];
       }
     });
-    
-    console.log('📝 Final update data:', {
-      ...updateData,
-      topicIdType: typeof updateData.topicId
-    });
-    
+   
     const updated = await UserProgress.findOneAndUpdate(
       { userId: firebaseId, lessonId },
       updateData,
       { upsert: true, new: true, runValidators: true }
     );
     
-    console.log('✅ Lesson progress saved successfully');
     res.json({
       success: true,
       data: updated,
@@ -1312,19 +1225,11 @@ router.post('/:firebaseId/lesson/:lessonId', validateFirebaseId, verifyToken, ve
   }
 });
 router.post('/:firebaseId/progress/save', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  console.log('💾 POST /users/:firebaseId/progress/save for user:', req.params.firebaseId);
   
   try {
     const { firebaseId } = req.params;
     const progressData = req.body;
-    
-    console.log('📝 Progress data received:', {
-      lessonId: progressData.lessonId,
-      completed: progressData.completed,
-      progressPercent: progressData.progressPercent,
-      stars: progressData.stars,
-      points: progressData.points
-    });
+ 
     
     // Basic validation
     if (!progressData.lessonId) {
@@ -1344,7 +1249,6 @@ router.post('/:firebaseId/progress/save', validateFirebaseId, verifyToken, verif
         const lesson = await Lesson.findById(progressData.lessonId);
         if (lesson && lesson.topicId) {
           finalTopicId = extractValidObjectId(lesson.topicId, 'lesson.topicId');
-          console.log('📖 Got topicId from lesson:', finalTopicId);
         }
       } catch (lessonError) {
         console.warn('⚠️ Could not fetch lesson for topicId:', lessonError.message);
@@ -1383,7 +1287,6 @@ router.post('/:firebaseId/progress/save', validateFirebaseId, verifyToken, verif
       }
     });
     
-    console.log('📝 Saving progress with data:', updateData);
     
     const updated = await UserProgress.findOneAndUpdate(
       { userId: firebaseId, lessonId: progressData.lessonId },
@@ -1391,7 +1294,6 @@ router.post('/:firebaseId/progress/save', validateFirebaseId, verifyToken, verif
       { upsert: true, new: true, runValidators: true }
     );
     
-    console.log('✅ Progress saved successfully via /users/:firebaseId/progress/save');
     
     res.json({
       success: true,
@@ -1493,7 +1395,6 @@ router.post('/:firebaseId/progress/save', validateFirebaseId, verifyToken, verif
       }
     });
     
-    console.log('📝 Saving progress with data:', updateData);
     
     const updated = await UserProgress.findOneAndUpdate(
       { userId: firebaseId, lessonId: progressData.lessonId },
@@ -1501,7 +1402,6 @@ router.post('/:firebaseId/progress/save', validateFirebaseId, verifyToken, verif
       { upsert: true, new: true, runValidators: true }
     );
     
-    console.log('✅ Progress saved successfully via /users/:firebaseId/progress/save');
     
     res.json({
       success: true,
@@ -1619,7 +1519,6 @@ router.get('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOwn
       return res.json({ success: true, data: [] });
     }
     
-    console.log(`📚 Found ${user.studyList.length} study list entries for user ${req.params.firebaseId}`);
     
     const validStudyList = [];
     const invalidTopicIds = [];
@@ -1633,14 +1532,12 @@ router.get('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOwn
       }
       
       try {
-        console.log(`🔍 Validating topic: ${entry.topicId} - "${entry.name || entry.topic}"`);
         
         // ✅ ENHANCED VALIDATION: Check both Topic collection AND Lesson collection
         const topicExists = await Topic.exists({ _id: entry.topicId });
         const lessonsExist = await Lesson.exists({ topicId: entry.topicId });
         
         if (topicExists || lessonsExist) {
-          console.log(`✅ Topic validation passed: ${entry.topicId} (Topic: ${!!topicExists}, Lessons: ${!!lessonsExist})`);
           validStudyList.push(entry);
         } else {
           console.warn(`🗑️ Invalid topic reference found: ${entry.topicId} - "${entry.name || entry.topic}" (no topic or lessons)`);
@@ -1729,7 +1626,6 @@ router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOw
       });
     }
     
-    console.log(`✅ Topic validation passed: ${studyListData.topicId} (Topic: ${!!topicExists}, Lessons: ${!!lessonsExist})`);
     
     // Map frontend data to what your User model expects
     const mappedData = {

@@ -176,10 +176,7 @@ app.use((req, res, next) => {
   const isPayMeRequest = req.url.includes('/payme') || req.url.includes('/payment');
   const isProgressRequest = req.url.includes('/progress') || req.url.includes('user-progress');
   
-  console.log(`\n📅 [${timestamp}] ${req.method} ${req.url}`);
-  console.log(`🌐 Origin: ${req.headers.origin || 'Direct access'}`);
-  console.log(`🔑 Auth: ${req.headers.authorization ? 'Present' : 'None'}`);
-  console.log(`🆔 User-Agent: ${req.headers['user-agent']?.substring(0, 50)}...`);
+
   
   // Special logging for PayMe requests with loop detection
   if (isPayMeRequest) {
@@ -188,27 +185,10 @@ app.use((req, res, next) => {
     const isPayMeWebhook = req.headers.authorization?.startsWith('Basic ') && 
                           req.headers['content-type']?.includes('application/json');
     
-    console.log('💳 PayMe/Payment Request Detected');
-    console.log(`🤖 Request Type: ${isBrowser ? 'BROWSER' : 'WEBHOOK/API'} ${isPayMeWebhook ? '(PayMe Webhook)' : ''}`);
-    console.log(`📋 Headers:`, {
-      'content-type': req.headers['content-type'],
-      'authorization': req.headers.authorization ? 'Present' : 'None',
-      'x-forwarded-for': req.headers['x-forwarded-for'],
-      'user-agent': userAgent.substring(0, 100)
-    });
+
   }
   
-  // Special logging for progress requests
-  if (isProgressRequest) {
-    console.log('📊 Progress Request Detected');
-    console.log(`📝 Method: ${req.method}`);
-    console.log(`📋 URL: ${req.url}`);
-    if (req.body && Object.keys(req.body).length > 0) {
-      console.log(`📦 Body keys: ${Object.keys(req.body).join(', ')}`);
-      console.log(`👤 UserId: ${req.body.userId || 'Missing'}`);
-      console.log(`📚 LessonId: ${req.body.lessonId || 'Missing'}`);
-    }
-  }
+
   
   // Log POST/PUT request bodies (excluding sensitive data)
   if (['POST', 'PUT', 'PATCH'].includes(req.method) && req.body && !isPayMeRequest) {
@@ -362,14 +342,10 @@ const connectDB = async () => {
     // Attempt connection
     await mongoose.connect(process.env.MONGO_URI, connectionOptions);
     
-    console.log('✅ MongoDB connected successfully!');
-    console.log(`📍 Database: ${mongoose.connection.name}`);
-    console.log(`🏠 Host: ${mongoose.connection.host}:${mongoose.connection.port}`);
-    console.log(`🔄 Ready state: ${mongoose.connection.readyState}`);
+
     
     // Connection event listeners with better error handling
     mongoose.connection.on('connected', () => {
-      console.log('🔗 Mongoose connected to MongoDB');
     });
     
     mongoose.connection.on('error', (err) => {
@@ -1304,13 +1280,11 @@ app.post('/api/payments/generate-form', async (req, res) => {
         </form>
         
         <script>
-          console.log('📝 PayMe POST form auto-submitting...');
           
           function submitPaymeForm() {
             const form = document.getElementById('payme-form');
             if (form) {
-              console.log('✅ Form found, submitting to PayMe...');
-              console.log('🏷️ Account Login value:', '${user._id}');
+          
               form.submit();
             } else {
               console.error('❌ PayMe form not found in DOM');
