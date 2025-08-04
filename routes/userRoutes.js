@@ -151,10 +151,16 @@ function validateObjectId(req, res, next) {
 router.post('/save', async (req, res) => {
   const { token, name, subscriptionPlan } = req.body;
   
-
+  console.log('💾 Server: User save request received', {
+    hasToken: !!token,
+    name: name,
+    providedSubscriptionPlan: subscriptionPlan,
+    timestamp: new Date().toISOString()
+  });
   
   if (!token || !name) {
     return res.status(400).json({ 
+      success: false,
       error: '❌ Missing token or name',
       required: ['token', 'name'],
       server: 'api.aced.live'
@@ -162,82 +168,97 @@ router.post('/save', async (req, res) => {
   }
   
   try {
-    
     const decoded = await admin.auth().verifyIdToken(token);
-    
-    
-    
-    if (decoded.aud !== 'aced-9cf72') {
-      console.error('❌ Project ID mismatch in save route:', {
-        expected: 'aced-9cf72',
-        received: decoded.aud
-      });
-      return res.status(403).json({ 
-        error: '❌ Token from wrong Firebase project',
-        expected: 'aced-9cf72',
-        received: decoded.aud
-      });
-    }
-    
     const firebaseId = decoded.uid;
     const email = decoded.email;
 
+    // ✅ CRITICAL: Find existing user and preserve their subscription status
     let user = await User.findOne({ firebaseId });
+    let currentSubscriptionPlan = 'free';
+    
     if (!user) {
+      console.log('🆕 Creating new user:', firebaseId);
+      currentSubscriptionPlan = subscriptionPlan || 'free';
+      
       user = new User({ 
         firebaseId, 
         email, 
         name, 
         Login: email,
-        subscriptionPlan: subscriptionPlan || 'free',
+        subscriptionPlan: currentSubscriptionPlan,
         diary: [],
         studyList: [],
         homeworkUsage: new Map(),
+        aiUsage: new Map(),
         lastResetCheck: new Date()
       });
     } else {
+      console.log('👤 Updating existing user:', firebaseId);
+      
+      // ✅ CRITICAL: PRESERVE existing subscription status
+      currentSubscriptionPlan = user.subscriptionPlan || 'free';
+      
+      // Only upgrade if provided status is better
+      if (subscriptionPlan) {
+        const statusHierarchy = { 'free': 0, 'start': 1, 'pro': 2, 'premium': 3 };
+        const currentLevel = statusHierarchy[currentSubscriptionPlan] || 0;
+        const providedLevel = statusHierarchy[subscriptionPlan] || 0;
+        
+        if (providedLevel > currentLevel) {
+          console.log('⬆️ Upgrading subscription:', currentSubscriptionPlan, '->', subscriptionPlan);
+          currentSubscriptionPlan = subscriptionPlan;
+        } else {
+          console.log('✅ Preserving existing subscription:', currentSubscriptionPlan);
+        }
+      }
+      
       user.email = email;
       user.name = name;
       user.Login = email;
-      if (subscriptionPlan) user.subscriptionPlan = subscriptionPlan;
-      
-      // Initialize homework usage if not present
-      if (!user.homeworkUsage) {
-        user.homeworkUsage = new Map();
-      }
-      if (!user.lastResetCheck) {
-        user.lastResetCheck = new Date();
-      }
+      user.subscriptionPlan = currentSubscriptionPlan;
+      user.lastLoginAt = new Date();
     }
 
     await user.save();
     
+    // ✅ CRITICAL: Return all status fields
+    const responseUser = {
+      firebaseId: user.firebaseId,
+      _id: user._id,
+      uid: user.firebaseId,
+      email: user.email,
+      name: user.name,
+      displayName: user.name,
+      // All status variations
+      subscriptionPlan: user.subscriptionPlan,
+      userStatus: user.subscriptionPlan,
+      plan: user.subscriptionPlan,
+      subscription: user.subscriptionPlan,
+      status: user.subscriptionPlan,
+      // Other data
+      studyList: user.studyList || [],
+      progress: user.progress || {},
+      totalPoints: user.totalPoints || 0,
+      createdAt: user.createdAt,
+      lastLoginAt: user.lastLoginAt
+    };
+    
     res.json({
-      ...user.toObject(),
+      success: true,
+      user: responseUser,
       message: '✅ User saved successfully',
-      server: 'api.aced.live'
+      server: 'api.aced.live',
+      subscriptionPlan: user.subscriptionPlan,
+      userStatus: user.subscriptionPlan
     });
     
   } catch (err) {
-    console.error('❌ Token verification failed in save route:', {
-      error: err.message,
-      code: err.code,
-      name: err.name,
-      server: 'api.aced.live'
+    console.error('❌ User save error:', err);
+    res.status(500).json({ 
+      success: false,
+      error: '❌ Server error',
+      details: err.message
     });
-    
-    if (err.code && err.code.startsWith('auth/')) {
-      res.status(401).json({ 
-        error: '❌ Invalid Firebase token',
-        details: err.message,
-        code: err.code
-      });
-    } else {
-      res.status(500).json({ 
-        error: '❌ Server error during user save',
-        details: err.message
-      });
-    }
   }
 });
 
