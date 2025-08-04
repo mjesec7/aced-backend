@@ -130,7 +130,7 @@ router.post('/apply', authMiddleware, async (req, res) => {
     }
 
     // --- Apply the promo code benefits ---
-    user.status = promoCode.grantsPlan;
+    user.subscriptionPlan = promoCode.grantsPlan;
     const subscriptionEndDate = user.subscriptionEndDate && user.subscriptionEndDate > new Date()
         ? new Date(user.subscriptionEndDate)
         : new Date();
