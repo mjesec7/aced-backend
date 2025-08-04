@@ -1,4 +1,4 @@
-// routes/promocodeRoutes.js - COMPLETE AND ENHANCED PROMOCODE ROUTES
+// routes/promocodeRoutes.js - FIXED VERSION WITH CORRECT FIELD NAME
 const express = require('express');
 const router = express.Router();
 
@@ -72,7 +72,6 @@ router.post('/apply', authMiddleware, async (req, res) => {
     const { code } = req.body;
     const userId = req.user.id; // Assumes authMiddleware adds user to req
 
-
     if (!code || !code.trim()) {
       return res.status(400).json({ success: false, message: 'Promocode is required.' });
     }
@@ -118,7 +117,7 @@ router.post('/apply', authMiddleware, async (req, res) => {
     // Check minimum plan requirement if applicable
     if (promoCode.requiresMinimumPlan && promoCode.requiresMinimumPlan !== 'free') {
       const planHierarchy = { free: 0, start: 1, pro: 2, premium: 3 };
-      const userPlanLevel = planHierarchy[user.status] || 0;
+      const userPlanLevel = planHierarchy[user.subscriptionPlan] || 0; // ✅ FIXED: Use subscriptionPlan instead of status
       const requiredLevel = planHierarchy[promoCode.requiresMinimumPlan] || 0;
       
       if (userPlanLevel < requiredLevel) {
@@ -130,7 +129,9 @@ router.post('/apply', authMiddleware, async (req, res) => {
     }
 
     // --- Apply the promo code benefits ---
+    // ✅ CRITICAL FIX: Use subscriptionPlan instead of status
     user.subscriptionPlan = promoCode.grantsPlan;
+    
     const subscriptionEndDate = user.subscriptionEndDate && user.subscriptionEndDate > new Date()
         ? new Date(user.subscriptionEndDate)
         : new Date();
@@ -153,7 +154,6 @@ router.post('/apply', authMiddleware, async (req, res) => {
 
     await user.save();
     await promoCode.save();
-
 
     res.json({
       success: true,
@@ -187,7 +187,6 @@ router.get('/validate/:code', async (req, res) => {
       return res.status(503).json({ success: false, valid: false, error: 'Promocode system not available' });
     }
 
-    
     const { code } = req.params;
     if (!code || !code.trim()) {
       return res.status(400).json({ success: false, valid: false, error: 'Promocode is required' });
@@ -255,7 +254,6 @@ router.get('/', requireAuth, async (req, res) => {
     if (!Promocode) {
       return res.status(503).json({ success: false, error: 'Promocode model not available' });
     }
-    
     
     const { 
       page = 1, 
@@ -340,7 +338,6 @@ router.get('/', requireAuth, async (req, res) => {
         pages: Math.ceil(total / parseInt(limit)) 
       } 
     });
-
     
   } catch (error) {
     console.error('❌ Error fetching promocodes:', error);
@@ -358,7 +355,6 @@ router.get('/stats', requireAuth, async (req, res) => {
     if (!Promocode) {
       return res.status(503).json({ success: false, error: 'Promocode model not available' });
     }
-    
     
     const now = new Date();
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -434,7 +430,6 @@ router.post('/', requireAuth, async (req, res) => {
     if (!Promocode) {
       return res.status(503).json({ success: false, error: 'Promocode model not available' });
     }
-    
     
     const {
       code,
@@ -531,7 +526,6 @@ router.post('/', requireAuth, async (req, res) => {
     
     await promocode.save();
     
-    
     res.status(201).json({ 
       success: true, 
       data: promocode, 
@@ -559,8 +553,6 @@ router.put('/:id', requireAuth, async (req, res) => {
     if (!Promocode) {
       return res.status(503).json({ success: false, error: 'Promocode model not available' });
     }
-    
-    ('🔄 Admin: Updating promocode:', req.params.id);
     
     const promocode = await Promocode.findById(req.params.id);
     if (!promocode) {
@@ -635,7 +627,6 @@ router.put('/:id', requireAuth, async (req, res) => {
 
     await promocode.save();
     
-    
     res.json({ 
       success: true, 
       data: promocode, 
@@ -659,7 +650,6 @@ router.delete('/:id', requireAuth, async (req, res) => {
       return res.status(503).json({ success: false, error: 'Promocode model not available' });
     }
     
-    
     const promocode = await Promocode.findById(req.params.id);
     if (!promocode) {
       return res.status(404).json({ success: false, error: 'Promocode not found' });
@@ -675,7 +665,6 @@ router.delete('/:id', requireAuth, async (req, res) => {
     }
 
     await promocode.deleteOne();
-    
     
     res.json({ 
       success: true, 
@@ -698,7 +687,6 @@ router.post('/bulk-create', requireAuth, async (req, res) => {
     if (!Promocode) {
       return res.status(503).json({ success: false, error: 'Promocode model not available' });
     }
-    
     
     const {
       count = 10,
@@ -756,7 +744,6 @@ router.post('/bulk-create', requireAuth, async (req, res) => {
       }
     }
     
-    
     res.status(201).json({
       success: true,
       data: promocodes,
@@ -780,7 +767,6 @@ router.post('/cleanup', requireAuth, async (req, res) => {
     if (!Promocode) {
       return res.status(503).json({ success: false, error: 'Promocode model not available' });
     }
-    
     
     const { action = 'deactivate' } = req.body; // 'deactivate' or 'delete'
     
@@ -837,7 +823,6 @@ router.post('/cleanup', requireAuth, async (req, res) => {
       );
     }
     
-    
     res.json({
       success: true,
       message: 'Cleanup completed successfully',
@@ -869,7 +854,6 @@ router.get('/:id/usage', requireAuth, async (req, res) => {
     if (!Promocode) {
       return res.status(503).json({ success: false, error: 'Promocode model not available' });
     }
-    
     
     const promocode = await Promocode.findById(req.params.id)
       .populate('usedBy.userId', 'name email')
@@ -941,7 +925,6 @@ router.post('/:id/duplicate', requireAuth, async (req, res) => {
       return res.status(503).json({ success: false, error: 'Promocode model not available' });
     }
     
-    
     const originalPromocode = await Promocode.findById(req.params.id);
     if (!originalPromocode) {
       return res.status(404).json({ success: false, error: 'Promocode not found' });
@@ -1004,7 +987,6 @@ router.post('/:id/duplicate', requireAuth, async (req, res) => {
     
     await duplicatePromocode.save();
     
-    
     res.status(201).json({
       success: true,
       data: duplicatePromocode,
@@ -1027,7 +1009,6 @@ router.get('/export', requireAuth, async (req, res) => {
     if (!Promocode) {
       return res.status(503).json({ success: false, error: 'Promocode model not available' });
     }
-    
     
     const { format = 'json', status = '', plan = '' } = req.query;
     
@@ -1086,7 +1067,6 @@ router.get('/export', requireAuth, async (req, res) => {
         count: exportData.length
       });
     }
-    
     
   } catch (error) {
     console.error('❌ Error exporting promocodes:', error);
@@ -1150,6 +1130,5 @@ router.use((error, req, res, next) => {
     details: process.env.NODE_ENV === 'development' ? error.stack : undefined
   });
 });
-
 
 module.exports = router;
