@@ -1,154 +1,141 @@
-// controllers/chatController.js - ENHANCED VERSION WITH LESSON CONTEXT
+// controllers/chatController.js - Complete Chat Controller with AI Usage Tracking
 const axios = require('axios');
 const Lesson = require('../models/lesson');
 const User = require('../models/user');
+const { AIUsageService } = require('../models/aiUsage');
 require('dotenv').config();
 
-// Helper function to get current month key for usage tracking
-const getCurrentMonthKey = () => {
-  const now = new Date();
-  return `${now.getFullYear()}-${now.getMonth()}`;
-};
+// ============================================
+// AI USAGE HELPER FUNCTIONS
+// ============================================
 
-// Helper function to check usage limits
-const checkUsageLimits = (plan, currentUsage, hasImage = false) => {
-  const limits = {
-    free: { messages: 50, images: 5 },
-    start: { messages: -1, images: 20 }, // -1 means unlimited
-    pro: { messages: -1, images: -1 }
-  };
-
-  const planLimits = limits[plan] || limits.free;
-  
-  // Check message limit
-  if (planLimits.messages !== -1 && currentUsage.messages >= planLimits.messages) {
-    return {
-      allowed: false,
-      reason: 'message_limit_exceeded',
-      message: `Достигнут лимит сообщений (${planLimits.messages}) для плана "${plan}". Обновите план для продолжения.`
-    };
-  }
-  
-  // Check image limit if image is attached
-  if (hasImage && planLimits.images !== -1 && currentUsage.images >= planLimits.images) {
-    return {
-      allowed: false,
-      reason: 'image_limit_exceeded',
-      message: `Достигнут лимит изображений (${planLimits.images}) для плана "${plan}". Обновите план для продолжения.`
-    };
-  }
-  
-  return {
-    allowed: true,
-    remaining: {
-      messages: planLimits.messages === -1 ? '∞' : Math.max(0, planLimits.messages - currentUsage.messages),
-      images: planLimits.images === -1 ? '∞' : Math.max(0, planLimits.images - currentUsage.images)
-    }
-  };
-};
-
-// Helper function to track AI usage
-const trackAIUsage = async (userId, usageData) => {
+const checkAIUsageLimits = async (userId) => {
   try {
-    const monthKey = getCurrentMonthKey();
-    
-    // Find user and update usage
-    const user = await User.findOne({ firebaseId: userId });
-    if (!user) {
-      console.warn('⚠️ User not found for usage tracking:', userId);
-      return;
-    }
-
-    // Initialize usage tracking if not exists
-    if (!user.aiUsage) {
-      user.aiUsage = {};
-    }
-    
-    if (!user.aiUsage[monthKey]) {
-      user.aiUsage[monthKey] = { messages: 0, images: 0 };
-    }
-
-    // Update usage
-    user.aiUsage[monthKey].messages += usageData.messages || 0;
-    user.aiUsage[monthKey].images += usageData.images || 0;
-    
-    // Add metadata
-    if (usageData.lessonId) {
-      if (!user.aiUsage[monthKey].lessons) {
-        user.aiUsage[monthKey].lessons = {};
+    // Get user's current plan
+    let userPlan = 'free';
+    try {
+      const user = await User.findOne({ firebaseId: userId });
+      if (user) {
+        userPlan = user.subscriptionPlan || 'free';
       }
-      user.aiUsage[monthKey].lessons[usageData.lessonId] = 
-        (user.aiUsage[monthKey].lessons[usageData.lessonId] || 0) + 1;
+    } catch (userError) {
+      console.warn('⚠️ Could not fetch user plan, defaulting to free:', userError.message);
     }
 
-    await user.save();
-  
+    // Check usage with our global service
+    const usageCheck = await AIUsageService.checkUsageLimit(userId, userPlan);
+    
+    return {
+      allowed: usageCheck.allowed,
+      reason: usageCheck.reason || 'unknown',
+      message: usageCheck.message || 'Usage check failed',
+      remaining: usageCheck.remaining || 0,
+      percentage: usageCheck.percentage || 0,
+      plan: userPlan,
+      unlimited: usageCheck.remaining === -1
+    };
 
   } catch (error) {
-    console.error('❌ Failed to track AI usage:', error);
+    console.error('❌ Error checking AI usage limits:', error);
+    return {
+      allowed: false,
+      reason: 'error',
+      message: 'Unable to verify usage limits',
+      remaining: 0,
+      percentage: 100,
+      plan: 'free',
+      unlimited: false
+    };
   }
 };
 
-// Helper function to get user usage
-const getUserUsage = async (userId) => {
+const trackAIUsage = async (userId, metadata = {}) => {
   try {
-    const user = await User.findOne({ firebaseId: userId });
-    if (!user) {
-      return {
-        success: false,
-        error: 'User not found'
-      };
+    // Get user's current plan
+    let userPlan = 'free';
+    try {
+      const user = await User.findOne({ firebaseId: userId });
+      if (user) {
+        userPlan = user.subscriptionPlan || 'free';
+      }
+    } catch (userError) {
+      console.warn('⚠️ Could not fetch user plan for tracking:', userError.message);
     }
 
-    const monthKey = getCurrentMonthKey();
-    const usage = user.aiUsage?.[monthKey] || { messages: 0, images: 0 };
-    const plan = user.subscriptionPlan || 'free';
+    // Track with our global service
+    const trackingResult = await AIUsageService.trackMessage(userId, userPlan, metadata);
+    
+    if (trackingResult.success) {
+      console.log(`📊 AI usage tracked: User ${userId} (${userPlan}) - ${trackingResult.usage} messages`);
+    } else {
+      console.error('❌ Failed to track AI usage:', trackingResult.error);
+    }
 
-    return {
-      success: true,
-      usage,
-      plan,
-      monthKey
-    };
+    return trackingResult;
+
   } catch (error) {
-    console.error('❌ Failed to get user usage:', error);
-    return {
-      success: false,
-      error: error.message
-    };
+    console.error('❌ Error tracking AI usage:', error);
+    return { success: false, error: error.message };
   }
 };
 
-// ✅ ENHANCED: Standard AI chat with lesson context support
+// ============================================
+// MAIN AI CHAT ENDPOINTS
+// ============================================
+
+// Standard AI chat with global usage tracking
 const getAIResponse = async (req, res) => {
+  const startTime = Date.now();
+  
   try {
     const { userInput, imageUrl, lessonId } = req.body;
     const userId = req.user?.uid || req.user?.firebaseId;
 
+    // Input validation
     if (!userInput && !imageUrl) {
-      return res.status(400).json({ error: '❌ Нет запроса или изображения' });
+      return res.status(400).json({ 
+        success: false,
+        error: '❌ Нет запроса или изображения' 
+      });
     }
 
     if (!process.env.OPENAI_API_KEY) {
-      return res.status(500).json({ error: '❌ Отсутствует API-ключ OpenAI' });
+      return res.status(500).json({ 
+        success: false,
+        error: '❌ Отсутствует API-ключ OpenAI' 
+      });
     }
 
     if (!userId) {
-      return res.status(401).json({ error: '❌ Пользователь не авторизован' });
+      return res.status(401).json({ 
+        success: false,
+        error: '❌ Пользователь не авторизован' 
+      });
     }
 
-    // Check usage limits
-    const usageInfo = await getUserUsage(userId);
-    if (!usageInfo.success) {
-      return res.status(500).json({ error: 'Не удалось проверить лимиты использования' });
+    // Check AI usage limits with global tracking
+    console.log(`🤖 Checking AI usage for user: ${userId}`);
+    const usageCheck = await checkAIUsageLimits(userId);
+    
+    if (!usageCheck.allowed) {
+      console.log(`🚫 AI usage limit exceeded for user ${userId}: ${usageCheck.message}`);
+      
+      return res.status(429).json({ 
+        success: false,
+        error: usageCheck.message,
+        usage: {
+          remaining: usageCheck.remaining,
+          percentage: usageCheck.percentage,
+          plan: usageCheck.plan,
+          unlimited: usageCheck.unlimited
+        },
+        limitExceeded: true
+      });
     }
 
-    const limitCheck = checkUsageLimits(usageInfo.plan, usageInfo.usage, !!imageUrl);
-    if (!limitCheck.allowed) {
-      return res.status(429).json({ error: limitCheck.message });
-    }
+    console.log(`✅ AI usage check passed for user ${userId} (${usageCheck.plan}): ${usageCheck.remaining} remaining`);
 
-    // 🔒 Filter sensitive topics
+    // Content filtering
     const bannedWords = [
       'суицид', 'секс', 'порно', 'насилие', 'терроризм', 'убийство', 'оружие',
       'наркотики', 'алкоголь', 'расизм', 'гомофобия', 'сект', 'религия',
@@ -157,6 +144,7 @@ const getAIResponse = async (req, res) => {
       'политика', 'путин', 'зеленский', 'байден', 'трамп', 'нацизм', 'гитлер',
       'власть', 'правительство', 'парламент', 'вакцина', 'covid', 'беженцы'
     ];
+    
     const safeWords = ['кто', 'что', 'где', 'когда', 'какой', 'какая', 'какие', 'каков'];
     const lowerText = (userInput || '').toLowerCase();
 
@@ -166,11 +154,12 @@ const getAIResponse = async (req, res) => {
 
     if (isHighlySensitive) {
       return res.status(403).json({
-        reply: '🚫 Ваш вопрос содержит чувствительные или запрещённые темы. Попробуйте переформулировать.'
+        success: false,
+        error: '🚫 Ваш вопрос содержит чувствительные или запрещённые темы. Попробуйте переформулировать.'
       });
     }
 
-    // 🧠 Enhanced context from lesson
+    // Get lesson context if provided
     let lessonContext = '';
     let lessonData = null;
     if (lessonId) {
@@ -193,7 +182,7 @@ ${lessonData.hint ? `- Подсказки: ${lessonData.hint}` : ''}`;
       }
     }
 
-    // 🔤 Message structure for OpenAI
+    // Prepare OpenAI message
     const contentArray = [];
     if (imageUrl) {
       contentArray.push({
@@ -247,8 +236,9 @@ ${lessonData ? `
       }
     ];
 
+    console.log(`🌐 Sending request to OpenAI for user ${userId}`);
 
-    // 🌐 Send to OpenAI
+    // Send to OpenAI
     const response = await axios.post(
       'https://api.openai.com/v1/chat/completions',
       {
@@ -269,18 +259,37 @@ ${lessonData ? `
     );
 
     const reply = response?.data?.choices?.[0]?.message?.content?.trim() || "⚠️ AI не смог дать ответ.";
+    const responseTime = Date.now() - startTime;
 
-    // Track usage
-    await trackAIUsage(userId, {
-      messages: 1,
-      images: imageUrl ? 1 : 0,
-      lessonId: lessonId
+    console.log(`✅ OpenAI response received in ${responseTime}ms`);
+
+    // Track usage globally after successful response
+    const trackingResult = await trackAIUsage(userId, {
+      ip: req.ip || req.connection.remoteAddress,
+      userAgent: req.headers['user-agent'],
+      responseTime: responseTime,
+      lessonId: lessonId,
+      hasImage: !!imageUrl
     });
 
+    // Get updated usage stats
+    const updatedUsageCheck = await checkAIUsageLimits(userId);
+
+    console.log(`📊 AI usage tracked for user ${userId}. Remaining: ${updatedUsageCheck.remaining}`);
+
     res.json({ 
-      reply,
-      usage: limitCheck.remaining,
-      lessonContext: !!lessonData
+      success: true,
+      reply: reply,
+      usage: {
+        current: updatedUsageCheck.remaining === -1 ? 0 : (updatedUsageCheck.percentage / 100) * (updatedUsageCheck.remaining + 1),
+        remaining: updatedUsageCheck.remaining,
+        percentage: updatedUsageCheck.percentage,
+        plan: updatedUsageCheck.plan,
+        unlimited: updatedUsageCheck.unlimited,
+        limit: updatedUsageCheck.remaining === -1 ? -1 : updatedUsageCheck.remaining + Math.floor(updatedUsageCheck.percentage / 100 * 50)
+      },
+      lessonContext: !!lessonData,
+      responseTime: responseTime
     });
 
   } catch (error) {
@@ -288,25 +297,30 @@ ${lessonData ? `
     
     if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
       return res.status(504).json({
+        success: false,
         error: '⏱️ Запрос занял слишком много времени. Попробуйте снова.'
       });
     }
 
     if (error.response?.status === 429) {
       return res.status(429).json({
+        success: false,
         error: '⏳ Слишком много запросов к AI. Подождите немного и попробуйте снова.'
       });
     }
 
     res.status(500).json({
+      success: false,
       error: '⚠️ Ошибка при получении ответа от AI',
       debug: process.env.NODE_ENV === 'development' ? (error.response?.data || error.message) : undefined
     });
   }
 };
 
-// ✅ NEW: Enhanced lesson-context chat endpoint
+// Enhanced lesson-context chat endpoint
 const getLessonContextAIResponse = async (req, res) => {
+  const startTime = Date.now();
+  
   try {
     const { userInput, lessonContext, userProgress, stepContext } = req.body;
     const userId = req.user?.uid || req.user?.firebaseId;
@@ -325,24 +339,27 @@ const getLessonContextAIResponse = async (req, res) => {
       });
     }
 
-    // Check usage limits
-    const usageInfo = await getUserUsage(userId);
-    if (!usageInfo.success) {
-      return res.status(500).json({
-        success: false,
-        error: 'Не удалось проверить лимиты использования'
-      });
-    }
-
-    const limitCheck = checkUsageLimits(usageInfo.plan, usageInfo.usage, false);
-    if (!limitCheck.allowed) {
+    // Check AI usage limits
+    console.log(`🤖 Checking lesson AI usage for user: ${userId}`);
+    const usageCheck = await checkAIUsageLimits(userId);
+    
+    if (!usageCheck.allowed) {
+      console.log(`🚫 AI usage limit exceeded for lesson chat user ${userId}: ${usageCheck.message}`);
+      
       return res.status(429).json({
         success: false,
-        error: limitCheck.message
+        error: usageCheck.message,
+        usage: {
+          remaining: usageCheck.remaining,
+          percentage: usageCheck.percentage,
+          plan: usageCheck.plan,
+          unlimited: usageCheck.unlimited
+        },
+        limitExceeded: true
       });
     }
 
-    // Build enhanced system prompt for lesson context
+    // Build lesson-specific system prompt
     const systemPrompt = buildLessonSystemPrompt(lessonContext, userProgress, stepContext);
 
     const messages = [
@@ -356,7 +373,7 @@ const getLessonContextAIResponse = async (req, res) => {
       }
     ];
 
-   
+    console.log(`🌐 Sending lesson context request to OpenAI for user ${userId}`);
 
     // Call OpenAI
     const response = await axios.post(
@@ -381,20 +398,37 @@ const getLessonContextAIResponse = async (req, res) => {
     const aiReply = response?.data?.choices?.[0]?.message?.content?.trim() || 
       'Извините, не смог сформулировать ответ. Попробуйте переформулировать вопрос.';
 
-    // Track usage
-    await trackAIUsage(userId, {
-      messages: 1,
-      images: 0,
+    const responseTime = Date.now() - startTime;
+    console.log(`✅ Lesson context response received in ${responseTime}ms`);
+
+    // Track usage globally after successful response
+    const trackingResult = await trackAIUsage(userId, {
+      ip: req.ip || req.connection.remoteAddress,
+      userAgent: req.headers['user-agent'],
+      responseTime: responseTime,
       lessonId: lessonContext.lessonId,
-      context: 'lesson'
+      context: 'lesson',
+      stepType: stepContext?.type
     });
 
+    // Get updated usage stats
+    const updatedUsageCheck = await checkAIUsageLimits(userId);
+
+    console.log(`📊 Lesson AI usage tracked for user ${userId}. Remaining: ${updatedUsageCheck.remaining}`);
 
     res.json({
       success: true,
       reply: aiReply,
       context: 'lesson-integrated',
-      usage: limitCheck.remaining
+      usage: {
+        current: updatedUsageCheck.remaining === -1 ? 0 : (updatedUsageCheck.percentage / 100) * (updatedUsageCheck.remaining + 1),
+        remaining: updatedUsageCheck.remaining,
+        percentage: updatedUsageCheck.percentage,
+        plan: updatedUsageCheck.plan,
+        unlimited: updatedUsageCheck.unlimited,
+        limit: updatedUsageCheck.remaining === -1 ? -1 : updatedUsageCheck.remaining + Math.floor(updatedUsageCheck.percentage / 100 * 50)
+      },
+      responseTime: responseTime
     });
 
   } catch (error) {
@@ -421,7 +455,151 @@ const getLessonContextAIResponse = async (req, res) => {
   }
 };
 
-// Helper function to build lesson-specific system prompt
+// ============================================
+// AI USAGE MANAGEMENT ENDPOINTS
+// ============================================
+
+// Get user AI usage statistics
+const getUserAIUsageStats = async (req, res) => {
+  try {
+    const userId = req.user?.uid || req.user?.firebaseId;
+    
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'Пользователь не авторизован'
+      });
+    }
+
+    console.log(`📊 Getting AI usage stats for user: ${userId}`);
+
+    const usageStats = await AIUsageService.getUserUsageStats(userId);
+    
+    if (!usageStats.success) {
+      return res.status(500).json({
+        success: false,
+        error: usageStats.error || 'Не удалось получить статистику использования'
+      });
+    }
+
+    res.json({
+      success: true,
+      usage: {
+        messages: usageStats.data.current,
+        current: usageStats.data.current,
+        limit: usageStats.data.limit,
+        remaining: usageStats.data.remaining,
+        percentage: usageStats.data.percentage,
+        unlimited: usageStats.data.unlimited,
+        plan: usageStats.data.plan
+      },
+      message: 'Статистика использования AI получена успешно'
+    });
+
+  } catch (error) {
+    console.error('❌ Error getting AI usage stats:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Ошибка получения статистики использования AI'
+    });
+  }
+};
+
+// Check if user can send AI message
+const checkCanSendAIMessage = async (req, res) => {
+  try {
+    const userId = req.user?.uid || req.user?.firebaseId;
+    
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'Пользователь не авторизован'
+      });
+    }
+
+    const usageCheck = await checkAIUsageLimits(userId);
+
+    res.json({
+      success: true,
+      canSend: usageCheck.allowed,
+      usage: {
+        remaining: usageCheck.remaining,
+        percentage: usageCheck.percentage,
+        plan: usageCheck.plan,
+        unlimited: usageCheck.unlimited
+      },
+      reason: usageCheck.reason,
+      message: usageCheck.message
+    });
+
+  } catch (error) {
+    console.error('❌ Error checking can send message:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Ошибка проверки лимитов сообщений'
+    });
+  }
+};
+
+// Update user AI plan (when subscription changes)
+const updateUserAIPlan = async (req, res) => {
+  try {
+    const userId = req.user?.uid || req.user?.firebaseId;
+    const { newPlan } = req.body;
+    
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'Пользователь не авторизован'
+      });
+    }
+
+    if (!['free', 'start', 'pro', 'premium'].includes(newPlan)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Неверный план подписки'
+      });
+    }
+
+    console.log(`🔄 Updating AI plan for user ${userId}: ${newPlan}`);
+
+    const updateResult = await AIUsageService.updateUserPlan(userId, newPlan);
+    
+    if (!updateResult.success) {
+      return res.status(500).json({
+        success: false,
+        error: updateResult.error || 'Не удалось обновить план'
+      });
+    }
+
+    // Get updated usage stats
+    const updatedUsageCheck = await checkAIUsageLimits(userId);
+
+    res.json({
+      success: true,
+      message: `План AI обновлён на: ${newPlan}`,
+      usage: {
+        remaining: updatedUsageCheck.remaining,
+        percentage: updatedUsageCheck.percentage,
+        plan: updatedUsageCheck.plan,
+        unlimited: updatedUsageCheck.unlimited
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error updating AI plan:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Ошибка обновления плана AI'
+    });
+  }
+};
+
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
+
+// Build lesson-specific system prompt
 function buildLessonSystemPrompt(lessonContext, userProgress, stepContext) {
   const currentStepType = stepContext?.type || 'unknown';
   const lessonName = lessonContext?.lessonName || 'Текущий урок';
@@ -492,44 +670,10 @@ function buildLessonSystemPrompt(lessonContext, userProgress, stepContext) {
 - Всегда связывай ответы с контекстом текущего урока`;
 }
 
-// ✅ NEW: Get user usage statistics
-const getUserUsageStats = async (req, res) => {
-  try {
-    const userId = req.user?.uid || req.user?.firebaseId;
-    
-    if (!userId) {
-      return res.status(401).json({
-        success: false,
-        error: 'Пользователь не авторизован'
-      });
-    }
-
-    const usageInfo = await getUserUsage(userId);
-    if (!usageInfo.success) {
-      return res.status(500).json(usageInfo);
-    }
-
-    const limitCheck = checkUsageLimits(usageInfo.plan, usageInfo.usage, false);
-
-    res.json({
-      success: true,
-      usage: usageInfo.usage,
-      plan: usageInfo.plan,
-      limits: limitCheck.remaining,
-      monthKey: usageInfo.monthKey
-    });
-
-  } catch (error) {
-    console.error('❌ Error getting usage stats:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Не удалось получить статистику использования'
-    });
-  }
-};
-
 module.exports = { 
   getAIResponse, 
   getLessonContextAIResponse,
-  getUserUsageStats 
+  getUserAIUsageStats,
+  checkCanSendAIMessage,
+  updateUserAIPlan
 };

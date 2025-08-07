@@ -1,29 +1,53 @@
-// routes/chatRoutes.js - ENHANCED VERSION
+// routes/chatRoutes.js - Complete Chat Routes with AI Usage Tracking
 const express = require('express');
 const router = express.Router();
 const { 
   getAIResponse, 
   getLessonContextAIResponse,
-  getUserUsageStats 
+  getUserAIUsageStats,
+  checkCanSendAIMessage,
+  updateUserAIPlan
 } = require('../controllers/chatController');
 const verifyToken = require('../middlewares/authMiddleware');
 
-// ✅ Middleware: Logging for chat routes
-router.use((req, res, next) => {
+// ============================================
+// MIDDLEWARE
+// ============================================
 
+// Logging middleware for chat routes
+router.use((req, res, next) => {
+  console.log(`🗣️ Chat route: ${req.method} ${req.originalUrl}`);
   next();
 });
 
-// ✅ POST /api/chat — Standard AI Chat with enhanced lesson context
+// ============================================
+// CORE AI CHAT ENDPOINTS
+// ============================================
+
+// Standard AI Chat with enhanced lesson context
 router.post('/', verifyToken, getAIResponse);
 
-// ✅ NEW: POST /api/chat/lesson-context — Enhanced lesson-specific AI chat
+// Enhanced lesson-specific AI chat
 router.post('/lesson-context', verifyToken, getLessonContextAIResponse);
 
-// ✅ NEW: GET /api/chat/usage — Get user AI usage statistics
-router.get('/usage', verifyToken, getUserUsageStats);
+// ============================================
+// AI USAGE TRACKING ENDPOINTS
+// ============================================
 
-// ✅ NEW: POST /api/chat/smart-hint — Generate smart hints for exercises
+// Get user AI usage statistics
+router.get('/usage', verifyToken, getUserAIUsageStats);
+
+// Check if user can send AI message
+router.get('/can-send', verifyToken, checkCanSendAIMessage);
+
+// Update user AI plan (for subscription changes)
+router.post('/update-plan', verifyToken, updateUserAIPlan);
+
+// ============================================
+// SPECIALIZED AI ENDPOINTS
+// ============================================
+
+// Generate smart hints for exercises
 router.post('/smart-hint', verifyToken, async (req, res) => {
   try {
     const { exercise, mistakeCount, lessonContext } = req.body;
@@ -70,7 +94,7 @@ router.post('/smart-hint', verifyToken, async (req, res) => {
   }
 });
 
-// ✅ NEW: POST /api/chat/progress-insight — Generate progress insights
+// Generate progress insights
 router.post('/progress-insight', verifyToken, async (req, res) => {
   try {
     const { userProgress, lessonContext } = req.body;
@@ -121,7 +145,7 @@ router.post('/progress-insight', verifyToken, async (req, res) => {
   }
 });
 
-// ✅ NEW: POST /api/chat/explanation-help — Get help understanding explanations
+// Get help understanding explanations
 router.post('/explanation-help', verifyToken, async (req, res) => {
   try {
     const { explanationText, userQuestion, lessonContext } = req.body;
@@ -167,7 +191,11 @@ router.post('/explanation-help', verifyToken, async (req, res) => {
   }
 });
 
-// ✅ NEW: GET /api/chat/suggestions — Generate contextual suggestions
+// ============================================
+// UTILITY ENDPOINTS
+// ============================================
+
+// Generate contextual suggestions
 router.post('/suggestions', verifyToken, (req, res) => {
   try {
     const { currentStep, userProgress } = req.body;
@@ -188,7 +216,169 @@ router.post('/suggestions', verifyToken, (req, res) => {
   }
 });
 
-// Helper function to generate contextual suggestions
+// Get current AI usage limits for user's plan
+router.get('/limits', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user?.uid || req.user?.firebaseId;
+    
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'Пользователь не авторизован'
+      });
+    }
+
+    // Get user's plan from database
+    const User = require('../models/user');
+    let userPlan = 'free';
+    
+    try {
+      const user = await User.findOne({ firebaseId: userId });
+      if (user) {
+        userPlan = user.subscriptionPlan || 'free';
+      }
+    } catch (userError) {
+      console.warn('⚠️ Could not fetch user plan:', userError.message);
+    }
+
+    // Get limits from AI usage service
+    const { AIUsage } = require('../models/aiUsage');
+    const limits = AIUsage.getUsageLimits(userPlan);
+
+    res.json({
+      success: true,
+      plan: userPlan,
+      limits: limits,
+      unlimited: limits.aiMessages === -1
+    });
+
+  } catch (error) {
+    console.error('❌ Error getting AI limits:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Ошибка получения лимитов AI'
+    });
+  }
+});
+
+// ============================================
+// ADMIN ENDPOINTS
+// ============================================
+
+// Reset user's monthly usage (admin only)
+router.post('/reset-usage', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user?.uid || req.user?.firebaseId;
+    const { targetUserId } = req.body;
+    
+    // Basic admin check (you can enhance this)
+    if (!userId || !req.user?.email?.includes('admin')) {
+      return res.status(403).json({
+        success: false,
+        error: 'Admin access required'
+      });
+    }
+
+    const userToReset = targetUserId || userId;
+    
+    // Reset usage by deleting current month record
+    const { AIUsage } = require('../models/aiUsage');
+    const currentMonth = AIUsage.getCurrentMonth();
+    
+    const result = await AIUsage.deleteOne({
+      userId: userToReset,
+      currentMonth: currentMonth
+    });
+
+    res.json({
+      success: true,
+      message: `AI usage reset for user ${userToReset}`,
+      deletedRecords: result.deletedCount
+    });
+
+  } catch (error) {
+    console.error('❌ Error resetting AI usage:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Ошибка сброса использования AI'
+    });
+  }
+});
+
+// Get AI usage analytics (admin only)
+router.get('/analytics', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user?.uid || req.user?.firebaseId;
+    
+    // Basic admin check
+    if (!userId || !req.user?.email?.includes('admin')) {
+      return res.status(403).json({
+        success: false,
+        error: 'Admin access required'
+      });
+    }
+
+    const { AIUsage } = require('../models/aiUsage');
+    const currentMonth = AIUsage.getCurrentMonth();
+
+    // Get analytics data
+    const [
+      totalUsers,
+      activeUsers,
+      totalMessages,
+      planDistribution,
+      topUsers
+    ] = await Promise.all([
+      AIUsage.countDocuments({ currentMonth }),
+      AIUsage.countDocuments({ 
+        currentMonth,
+        'usage.aiMessages': { $gt: 0 }
+      }),
+      AIUsage.aggregate([
+        { $match: { currentMonth } },
+        { $group: { _id: null, total: { $sum: '$usage.aiMessages' } } }
+      ]),
+      AIUsage.aggregate([
+        { $match: { currentMonth } },
+        { $group: { _id: '$subscriptionPlan', count: { $sum: 1 }, messages: { $sum: '$usage.aiMessages' } } }
+      ]),
+      AIUsage.find({ currentMonth })
+        .sort({ 'usage.aiMessages': -1 })
+        .limit(10)
+        .select('userId email usage.aiMessages subscriptionPlan')
+    ]);
+
+    res.json({
+      success: true,
+      analytics: {
+        month: currentMonth,
+        totalUsers,
+        activeUsers,
+        totalMessages: totalMessages[0]?.total || 0,
+        planDistribution,
+        topUsers: topUsers.map(user => ({
+          userId: user.userId.substring(0, 8) + '...',
+          email: user.email,
+          messages: user.usage.aiMessages,
+          plan: user.subscriptionPlan
+        }))
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error getting AI analytics:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Ошибка получения аналитики AI'
+    });
+  }
+});
+
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
+
+// Generate contextual suggestions based on lesson step
 function generateLessonSuggestions(currentStep, userProgress) {
   const suggestions = [];
   
