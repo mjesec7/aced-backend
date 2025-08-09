@@ -1663,6 +1663,130 @@ app.get('/api/status', (req, res) => {
       quickSave: '/api/progress/quick-save'
     }
   });
+});app.get('/api/admin/users', async (req, res) => {
+  try {
+    console.log('👥 Admin: Fetching all users...');
+    
+    const { 
+      page = 1, 
+      limit = 50, 
+      search = '', 
+      plan = '', 
+      status = '' 
+    } = req.query;
+
+    const User = require('./models/user');
+    
+    // Build filter
+    const filter = {};
+    
+    if (search) {
+      filter.$or = [
+        { email: { $regex: search, $options: 'i' } },
+        { name: { $regex: search, $options: 'i' } },
+        { firebaseId: { $regex: search, $options: 'i' } }
+      ];
+    }
+    
+    if (plan && plan !== 'all') {
+      filter.subscriptionPlan = plan;
+    }
+    
+    if (status === 'active') {
+      filter.isBlocked = { $ne: true };
+    } else if (status === 'blocked') {
+      filter.isBlocked = true;
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    const [users, total] = await Promise.all([
+      User.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean(),
+      User.countDocuments(filter)
+    ]);
+
+    console.log(`✅ Found ${users.length} users (${total} total)`);
+
+    // Enhance users with computed fields
+    const enhancedUsers = users.map(user => ({
+      ...user,
+      studyListCount: user.studyList?.length || 0,
+      paymentCount: 0, // You can enhance this with actual payment data
+      totalPaid: 0,
+      promocodeCount: 0,
+      userSegment: user.subscriptionPlan === 'free' ? 'free-inactive' : 'premium-active',
+      engagementLevel: user.lastLoginAt && (Date.now() - new Date(user.lastLoginAt).getTime()) < (7 * 24 * 60 * 60 * 1000) ? 'high' : 'low',
+      riskLevel: 'low',
+      isActivePaidUser: user.subscriptionPlan !== 'free',
+      isActiveStudent: user.studyList?.length > 0,
+      accountValue: user.subscriptionPlan === 'pro' ? 455000 : user.subscriptionPlan === 'start' ? 260000 : 0,
+      lastActivity: user.lastLoginAt || user.updatedAt,
+      analytics: {
+        studyDays: user.studyList?.length || 0,
+        totalLessonsDone: 0, // You can enhance this with UserProgress data
+        totalPoints: 0,
+        weeklyLessons: 0,
+        monthlyLessons: 0
+      }
+    }));
+
+    res.json({
+      success: true,
+      users: enhancedUsers,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit))
+      },
+      dataSource: 'real_backend',
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching admin users:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch users',
+      details: error.message
+    });
+  }
+});
+
+// ✅ GET /api/users/all - Alternative endpoint
+app.get('/api/users/all', async (req, res) => {
+  try {
+    console.log('👥 Fetching all users (basic)...');
+    
+    const User = require('./models/user');
+    const users = await User.find({})
+      .select('firebaseId email name subscriptionPlan isBlocked createdAt lastLoginAt studyList')
+      .sort({ createdAt: -1 })
+      .limit(100) // Reasonable limit
+      .lean();
+
+    console.log(`✅ Found ${users.length} users`);
+
+    res.json({
+      success: true,
+      data: users,
+      count: users.length,
+      dataSource: 'real_backend',
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching all users:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch users',
+      details: error.message
+    });
+  }
 });
 
 
