@@ -1302,7 +1302,7 @@ async function processQuizStep(step, index) {
   
   return validatedQuizzes;
 }
-
+//smth
 async function processVocabularyStep(step, index) {
   
   let vocabularyItems = [];
