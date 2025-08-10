@@ -3385,7 +3385,6 @@ app.delete('/api/users/:userId/study-list/:topicId', async (req, res) => {
 process.on('unhandledRejection', (reason, promise) => {
   console.error('⚠️  Unhandled Rejection at:', promise);
   console.error('⚠️  Reason:', reason);
-  console.error('🌐 Server: api.aced.live');
   
   if (process.env.NODE_ENV === 'production') {
     console.error('🚨 Exiting due to unhandled rejection in production');
@@ -3395,7 +3394,6 @@ process.on('unhandledRejection', (reason, promise) => {
 
 process.on('uncaughtException', (error) => {
   console.error('❌ Uncaught Exception:', error);
-  console.error('🌐 Server: api.aced.live');
   console.error('🚨 Exiting due to uncaught exception');
   process.exit(1);
 });
