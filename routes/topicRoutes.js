@@ -13,7 +13,6 @@ function validateObjectId(req, res, next) {
   if (idToValidate) {
     // ✅ CRITICAL FIX: More robust ObjectId validation
     if (!mongoose.Types.ObjectId.isValid(idToValidate)) {
-      console.warn(`⚠️ Invalid ObjectId format: ${idToValidate}`);
       return res.status(400).json({ 
         success: false,
         exists: false,
@@ -25,7 +24,6 @@ function validateObjectId(req, res, next) {
     
     // ✅ Additional check for proper ObjectId length and format
     if (idToValidate.length !== 24 || !/^[0-9a-fA-F]{24}$/.test(idToValidate)) {
-      console.warn(`⚠️ ObjectId wrong format: ${idToValidate}`);
       return res.status(400).json({ 
         success: false,
         exists: false,
@@ -76,7 +74,6 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
         searchStrategy = 'direct_objectid';
       }
     } catch (objectIdError) {
-      console.warn(`⚠️ ObjectId search failed:`, objectIdError.message);
     }
     
     // Strategy 2: Manual ObjectId construction and search
@@ -88,7 +85,6 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
           searchStrategy = 'manual_objectid';
         }
       } catch (manualError) {
-        console.warn(`⚠️ Manual ObjectId search failed:`, manualError.message);
       }
     }
     
@@ -106,7 +102,6 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
           searchStrategy = 'string_search';
         }
       } catch (stringError) {
-        console.warn(`⚠️ String search failed:`, stringError.message);
       }
     }
     
@@ -123,7 +118,6 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
           searchStrategy = 'case_insensitive_search';
         }
       } catch (caseError) {
-        console.warn(`⚠️ Case-insensitive search failed:`, caseError.message);
       }
     }
     
@@ -156,7 +150,6 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
     
     // ✅ If topic still not found, return comprehensive 404
     if (!topic) {
-      console.warn(`⚠️ Topic not found after all search strategies: ${id}`);
       
       return res.status(404).json({ 
         success: false,
@@ -425,7 +418,6 @@ router.post('/', logRequest, async (req, res) => {
 
   // ✅ MODIFIED: Changed validation to check for 'name' directly
   if (!subject || !level || !name) { 
-    console.warn('⚠️ Validation failed - Missing required fields');
     return res.status(400).json({ 
       success: false,
       message: '❌ Required fields missing: subject, level, name', // Updated error message
@@ -442,7 +434,6 @@ router.post('/', logRequest, async (req, res) => {
     });
     
     if (duplicate) {
-      console.warn(`⚠️ Duplicate topic attempt: "${name}"`); // Changed from name.en
       return res.status(409).json({ 
         success: false,
         message: '⚠️ Topic with this name already exists',
@@ -477,7 +468,6 @@ router.get('/:id/lessons', logRequest, validateObjectId, async (req, res) => {
     
     const topicExists = await Topic.exists({ _id: id });
     if (!topicExists) {
-      console.warn(`⚠️ Cannot fetch lessons - topic not found: ${id}`);
       return res.status(404).json({ 
         success: false,
         message: '❌ Topic not found',

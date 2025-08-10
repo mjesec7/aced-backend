@@ -28,7 +28,6 @@ function validateFirebaseId(req, res, next) {
 
 function verifyOwnership(req, res, next) {
   if (!req.user || req.user.uid !== req.params.firebaseId) {
-    console.warn(`⚠️ Access denied for user: ${req.user?.uid} vs ${req.params.firebaseId}`);
     return res.status(403).json({ 
       success: false,
       error: '❌ Access denied: user mismatch' 
@@ -172,7 +171,6 @@ router.post('/', verifyToken, async (req, res) => {
         return processedExercise;
       });
     } else {
-      console.warn('⚠️ No exercises provided or exercises array is empty');
       homeworkData.exercises = [];
     }
     
@@ -773,7 +771,6 @@ router.post('/user/:firebaseId/homework/:homeworkId/submit', verifyToken, valida
       const exercise = homework.exercises[index];
       
       if (!exercise) {
-        console.warn(`⚠️ No exercise found for answer index ${index}`);
         return {
           questionIndex: index,
           userAnswer: answer.userAnswer || answer.answer || answer || '',

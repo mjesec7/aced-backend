@@ -952,7 +952,6 @@ exports.deleteLesson = async (req, res) => {
 // ✅ HELPER FUNCTIONS
 async function processLessonSteps(steps) {
   if (!Array.isArray(steps)) {
-    console.warn('⚠️ processLessonSteps: Steps is not an array:', typeof steps);
     return [];
   }
   
@@ -972,7 +971,6 @@ async function processLessonSteps(steps) {
       const stepType = step.type || 'explanation';
       
       if (!validStepTypes.includes(stepType)) {
-        console.warn(`⚠️ Invalid step type: ${stepType}, defaulting to explanation`);
         step.type = 'explanation';
       }
       
@@ -1018,7 +1016,6 @@ async function processLessonSteps(steps) {
         }
           
         default:
-          console.warn(`⚠️ Unknown step type: ${stepType}, using raw data`);
           processedData = step.data || step.content || {};
       }
       
@@ -1062,7 +1059,6 @@ async function processContentStep(step, index) {
   
   if (!content.trim()) {
     content = `Content for ${step.type} step ${index + 1} is not available.`;
-    console.warn(`⚠️ Step ${index + 1}: No content found, using default`);
   }
   
   return {
@@ -1168,7 +1164,6 @@ async function processExerciseStep(step, index) {
   }
 
   if (validatedExercises.length === 0) {
-    console.warn(`⚠️ No valid exercises found in step ${index + 1}, adding default placeholder`);
     validatedExercises.push({
       id: `default_ex_${index}`,
       type: 'short-answer',
@@ -1326,7 +1321,6 @@ async function processVocabularyStep(step, index) {
   }));
   
   if (validatedVocabulary.length === 0) {
-    console.warn(`⚠️ No vocabulary items in step ${index + 1}, creating default`);
     validatedVocabulary.push({
       term: "Sample Term",
       definition: "Sample definition for this term",
@@ -1507,7 +1501,6 @@ function processHomeworkFromSteps(steps, createHomework) {
         });
       }
     } catch (stepError) {
-      console.warn(`⚠️ Error processing step ${stepIndex + 1} for homework:`, stepError.message);
     }
   });
   

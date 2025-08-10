@@ -1990,7 +1990,6 @@ const getPaymentStats = async (req, res) => {
       stats.users.free = userCounts.find(item => item._id === 'free')?.count || 0;
       stats.users.paid = stats.users.total - stats.users.free;
     } catch (dbError) {
-      console.warn('Could not get user stats:', dbError.message);
     }
     
     res.json(stats);

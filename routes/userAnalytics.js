@@ -254,7 +254,6 @@ router.get('/:userId', verifyToken, async (req, res) => {
           const dayName = dayNames[dayIndex];
           dayCount[dayName] = (dayCount[dayName] || 0) + 1;
         } catch (err) {
-          console.warn('⚠️ Date parsing error:', err.message);
         }
       }
     });

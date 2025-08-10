@@ -19,7 +19,6 @@ const checkAIUsageLimits = async (userId) => {
         userPlan = user.subscriptionPlan || 'free';
       }
     } catch (userError) {
-      console.warn('⚠️ Could not fetch user plan, defaulting to free:', userError.message);
     }
 
     // Check usage with our global service
@@ -59,14 +58,12 @@ const trackAIUsage = async (userId, metadata = {}) => {
         userPlan = user.subscriptionPlan || 'free';
       }
     } catch (userError) {
-      console.warn('⚠️ Could not fetch user plan for tracking:', userError.message);
     }
 
     // Track with our global service
     const trackingResult = await AIUsageService.trackMessage(userId, userPlan, metadata);
     
     if (trackingResult.success) {
-      console.log(`📊 AI usage tracked: User ${userId} (${userPlan}) - ${trackingResult.usage} messages`);
     } else {
       console.error('❌ Failed to track AI usage:', trackingResult.error);
     }
@@ -114,11 +111,9 @@ const getAIResponse = async (req, res) => {
     }
 
     // Check AI usage limits with global tracking
-    console.log(`🤖 Checking AI usage for user: ${userId}`);
     const usageCheck = await checkAIUsageLimits(userId);
     
     if (!usageCheck.allowed) {
-      console.log(`🚫 AI usage limit exceeded for user ${userId}: ${usageCheck.message}`);
       
       return res.status(429).json({ 
         success: false,
@@ -133,7 +128,6 @@ const getAIResponse = async (req, res) => {
       });
     }
 
-    console.log(`✅ AI usage check passed for user ${userId} (${usageCheck.plan}): ${usageCheck.remaining} remaining`);
 
     // Content filtering
     const bannedWords = [
@@ -178,7 +172,6 @@ ${lessonData.content ? `- Содержание: ${lessonData.content}` : ''}
 ${lessonData.hint ? `- Подсказки: ${lessonData.hint}` : ''}`;
         }
       } catch (err) {
-        console.warn('⚠️ Ошибка при получении урока:', err.message);
       }
     }
 
@@ -236,7 +229,6 @@ ${lessonData ? `
       }
     ];
 
-    console.log(`🌐 Sending request to OpenAI for user ${userId}`);
 
     // Send to OpenAI
     const response = await axios.post(
@@ -261,7 +253,6 @@ ${lessonData ? `
     const reply = response?.data?.choices?.[0]?.message?.content?.trim() || "⚠️ AI не смог дать ответ.";
     const responseTime = Date.now() - startTime;
 
-    console.log(`✅ OpenAI response received in ${responseTime}ms`);
 
     // Track usage globally after successful response
     const trackingResult = await trackAIUsage(userId, {
@@ -275,7 +266,6 @@ ${lessonData ? `
     // Get updated usage stats
     const updatedUsageCheck = await checkAIUsageLimits(userId);
 
-    console.log(`📊 AI usage tracked for user ${userId}. Remaining: ${updatedUsageCheck.remaining}`);
 
     res.json({ 
       success: true,
@@ -340,11 +330,9 @@ const getLessonContextAIResponse = async (req, res) => {
     }
 
     // Check AI usage limits
-    console.log(`🤖 Checking lesson AI usage for user: ${userId}`);
     const usageCheck = await checkAIUsageLimits(userId);
     
     if (!usageCheck.allowed) {
-      console.log(`🚫 AI usage limit exceeded for lesson chat user ${userId}: ${usageCheck.message}`);
       
       return res.status(429).json({
         success: false,
@@ -373,7 +361,6 @@ const getLessonContextAIResponse = async (req, res) => {
       }
     ];
 
-    console.log(`🌐 Sending lesson context request to OpenAI for user ${userId}`);
 
     // Call OpenAI
     const response = await axios.post(
@@ -399,7 +386,6 @@ const getLessonContextAIResponse = async (req, res) => {
       'Извините, не смог сформулировать ответ. Попробуйте переформулировать вопрос.';
 
     const responseTime = Date.now() - startTime;
-    console.log(`✅ Lesson context response received in ${responseTime}ms`);
 
     // Track usage globally after successful response
     const trackingResult = await trackAIUsage(userId, {
@@ -414,7 +400,6 @@ const getLessonContextAIResponse = async (req, res) => {
     // Get updated usage stats
     const updatedUsageCheck = await checkAIUsageLimits(userId);
 
-    console.log(`📊 Lesson AI usage tracked for user ${userId}. Remaining: ${updatedUsageCheck.remaining}`);
 
     res.json({
       success: true,
@@ -471,7 +456,6 @@ const getUserAIUsageStats = async (req, res) => {
       });
     }
 
-    console.log(`📊 Getting AI usage stats for user: ${userId}`);
 
     const usageStats = await AIUsageService.getUserUsageStats(userId);
     
@@ -561,7 +545,6 @@ const updateUserAIPlan = async (req, res) => {
       });
     }
 
-    console.log(`🔄 Updating AI plan for user ${userId}: ${newPlan}`);
 
     const updateResult = await AIUsageService.updateUserPlan(userId, newPlan);
     

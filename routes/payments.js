@@ -433,7 +433,6 @@ router.get('/status/:orderId', async (req, res) => {
         }
       });
     } catch (modelError) {
-      console.warn('⚠️ PaymeTransaction model not available:', modelError.message);
       
       // Emergency fallback
       res.json({

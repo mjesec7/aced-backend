@@ -236,7 +236,6 @@ HomeworkProgressSchema.statics.cleanupOrphaned = async function() {
         orphanedIds.push(progress._id);
       }
     } catch (error) {
-      console.warn('Error checking progress validity:', error.message);
       orphanedIds.push(progress._id);
     }
   }

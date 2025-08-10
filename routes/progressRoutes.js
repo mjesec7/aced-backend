@@ -64,7 +64,6 @@ router.post('/', verifyToken, async (req, res) => {
             }
           }
         } catch (error) {
-          console.warn('⚠️ Could not find topic by name:', error.message);
         }
       }
     }
@@ -77,7 +76,6 @@ router.post('/', verifyToken, async (req, res) => {
           finalTopicId = lesson.topicId;
         }
       } catch (error) {
-        console.warn('⚠️ Could not fetch topicId from lesson:', error.message);
       }
     }
 

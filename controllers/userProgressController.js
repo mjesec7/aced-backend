@@ -32,7 +32,6 @@ exports.saveOrUpdateProgress = async (req, res) => {
         finalTopicId = lesson.topicId;
       }
     } catch (error) {
-      console.warn('⚠️ Could not fetch topicId from lesson:', error.message);
     }
   }
 

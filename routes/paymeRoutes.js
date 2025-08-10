@@ -234,7 +234,6 @@ router.get('/payme/return/success', async (req, res) => {
   
   try {
     if (!transactionId) {
-      console.warn('⚠️ No transaction ID in PayMe success return');
       return res.redirect('https://aced.live/payment-failed?error=missing_transaction_id');
     }
 
@@ -260,7 +259,6 @@ router.get('/payme/return/success', async (req, res) => {
             await user.save();
           }
         } catch (userUpdateError) {
-          console.warn('⚠️ Failed to update user subscription:', userUpdateError.message);
         }
       }
       
@@ -274,7 +272,6 @@ router.get('/payme/return/success', async (req, res) => {
       
       return res.redirect(`https://aced.live/payment-success?${successParams.toString()}`);
     } else {
-      console.warn('⚠️ Transaction not found in our system:', transactionId);
       // Still redirect to success, but without details
       return res.redirect(`https://aced.live/payment-success?transaction=${transactionId}&source=payme`);
     }

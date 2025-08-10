@@ -7,7 +7,6 @@ const verifyToken = require('../middlewares/authMiddleware');
 // 🔍 Validate ObjectId middleware
 function validateObjectId(req, res, next) {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-    console.warn(`⚠️ Invalid Subject ID: ${req.params.id}`);
     return res.status(400).json({ message: '❌ Invalid ID format' });
   }
   next();

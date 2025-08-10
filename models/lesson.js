@@ -284,21 +284,18 @@ lessonSchema.post('find', function (docs) {
 lessonSchema.post('findOne', function (doc) {
   if (doc) {
   } else {
-    console.warn('⚠️ [FindOne] No lesson found.');
   }
 });
 
 lessonSchema.post('findOneAndUpdate', function (doc) {
   if (doc) {
   } else {
-    console.warn('⚠️ [Update] No lesson found to update.');
   }
 });
 
 lessonSchema.post('findOneAndDelete', function (doc) {
   if (doc) {
   } else {
-    console.warn('⚠️ [Delete] No lesson found to delete.');
   }
 });
 

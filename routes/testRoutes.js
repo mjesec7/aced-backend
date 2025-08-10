@@ -532,7 +532,6 @@ router.delete('/subject/:subjectName', verifyToken, async (req, res) => {
 // Middleware to check user ownership
 function checkUserMatch(req, res, next) {
   if (!req.user || req.user.uid !== req.params.firebaseId) {
-    console.warn(`⚠️ Access denied for user: ${req.user?.uid} vs ${req.params.firebaseId}`);
     return res.status(403).json({ 
       success: false,
       error: '❌ Access denied: user mismatch' 

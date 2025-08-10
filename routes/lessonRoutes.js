@@ -68,7 +68,6 @@ function validateObjectId(req, res, next) {
   const idToValidate = id || topicId;
   
   if (idToValidate && !mongoose.Types.ObjectId.isValid(idToValidate)) {
-    console.warn(`⚠️ Invalid ObjectId: ${idToValidate}`);
     return res.status(400).json({ 
       success: false,
       message: '❌ Invalid ID format' 
@@ -222,7 +221,6 @@ const enhancedFallbackAddLesson = async (req, res) => {
       const stepType = step.type || 'explanation';
       
       if (!validTypes.includes(stepType)) {
-        console.warn(`⚠️ Invalid step type: ${stepType}, defaulting to explanation`);
         step.type = 'explanation';
       }
       
@@ -398,7 +396,6 @@ const enhancedFallbackAddLesson = async (req, res) => {
             });
           }
         } catch (homeworkError) {
-          console.warn(`⚠️ Error processing homework for step ${stepIndex + 1}:`, homeworkError.message);
         }
       });
       
@@ -693,7 +690,6 @@ router.post('/:id/complete', verifyToken, validateObjectId, async (req, res) => 
     
     // Check if lesson completion service is available
     if (!handleLessonCompletion) {
-      console.warn('⚠️ Lesson completion service not available, saving basic progress only');
       
       // Fallback: just save basic user progress
       if (UserProgress) {
@@ -903,7 +899,6 @@ router.post('/:id/complete-and-extract', verifyToken, validateObjectId, async (r
           
         }
       } catch (vocabError) {
-        console.warn('⚠️ Failed to save vocabulary:', vocabError.message);
       }
     }
     
@@ -982,7 +977,6 @@ router.post('/:id/complete-and-extract', verifyToken, validateObjectId, async (r
         extractionResult.homeworkId = homework._id;
         
       } catch (homeworkError) {
-        console.warn('⚠️ Failed to create homework:', homeworkError.message);
       }
     }
     
@@ -996,7 +990,6 @@ router.post('/:id/complete-and-extract', verifyToken, validateObjectId, async (r
         }
       });
     } catch (statsError) {
-      console.warn('⚠️ Failed to update lesson stats:', statsError.message);
     }
     
     // Step 8: Build response

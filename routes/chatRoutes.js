@@ -16,7 +16,6 @@ const verifyToken = require('../middlewares/authMiddleware');
 
 // Logging middleware for chat routes
 router.use((req, res, next) => {
-  console.log(`🗣️ Chat route: ${req.method} ${req.originalUrl}`);
   next();
 });
 
@@ -238,7 +237,6 @@ router.get('/limits', verifyToken, async (req, res) => {
         userPlan = user.subscriptionPlan || 'free';
       }
     } catch (userError) {
-      console.warn('⚠️ Could not fetch user plan:', userError.message);
     }
 
     // Get limits from AI usage service

@@ -13,7 +13,6 @@ try {
   VocabularyCategory = vocabModels.VocabularyCategory;
   VocabularyDialogue = vocabModels.VocabularyDialogue;
 } catch (error) {
-  console.warn('⚠️ Vocabulary models not available:', error.message);
 }
 
 try {
@@ -21,7 +20,6 @@ try {
   UserProgress = require('../models/userProgress');
   User = require('../models/user');
 } catch (error) {
-  console.warn('⚠️ Some models not available:', error.message);
 }
 
 // Import auth middleware with fallback
@@ -32,7 +30,6 @@ try {
     verifyToken = (req, res, next) => next(); // Fallback
   }
 } catch (error) {
-  console.warn('⚠️ Auth middleware not available, using fallback');
   verifyToken = (req, res, next) => next();
 }
 
@@ -81,7 +78,6 @@ router.get('/user/:userId', async (req, res) => {
         
         
       } catch (dbError) {
-        console.warn('⚠️ Vocabulary database query failed:', dbError.message);
       }
     }
     
@@ -129,13 +125,11 @@ router.get('/user/:userId', async (req, res) => {
             });
             
           } catch (lessonError) {
-            console.warn(`⚠️ Error processing lesson ${progress.lessonId}:`, lessonError.message);
           }
         }
         
         
       } catch (lessonsError) {
-        console.warn('⚠️ Lesson extraction failed:', lessonsError.message);
       }
     }
     
@@ -255,7 +249,6 @@ router.get('/languages', async (req, res) => {
           message: '✅ Languages from database'
         });
       } catch (dbError) {
-        console.warn('⚠️ Database language query failed:', dbError.message);
       }
     }
     

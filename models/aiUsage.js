@@ -220,7 +220,6 @@ class AIUsageService {
           userPlan = user.subscriptionPlan || 'free';
         }
       } catch (error) {
-        console.warn('Could not fetch user details:', error.message);
       }
       
       const limits = AIUsage.getUsageLimits(userPlan);
@@ -243,7 +242,6 @@ class AIUsageService {
       });
       
       await usage.save();
-      console.log(`✅ Created new AI usage tracking for user ${userId} (${userPlan})`);
     }
     
     return usage;
@@ -350,7 +348,6 @@ class AIUsageService {
         { new: true, upsert: true }
       );
       
-      console.log(`✅ Updated AI usage plan for user ${userId}: ${newPlan}`);
       return { success: true, usage };
       
     } catch (error) {

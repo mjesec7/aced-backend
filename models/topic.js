@@ -204,7 +204,6 @@ topicSchema.post('save', (doc) => {
 topicSchema.post('findOne', (doc) => {
   if (doc) {
   } else {
-    console.warn('⚠️ [Topic FindOne] No topic found.');
   }
 });
 
@@ -214,14 +213,12 @@ topicSchema.post('find', (docs) => {
 topicSchema.post('findOneAndUpdate', (doc) => {
   if (doc) {
   } else {
-    console.warn('⚠️ [Topic Update] No topic found to update.');
   }
 });
 
 topicSchema.post('findOneAndDelete', (doc) => {
   if (doc) {
   } else {
-    console.warn('⚠️ [Topic Delete] No topic found to delete.');
   }
 });
 

@@ -72,11 +72,7 @@ const extractValidObjectId = (input, fieldName = 'ObjectId') => {
       return new mongoose.Types.ObjectId(stringValue);
     }
     
-    console.warn(`⚠️ Could not extract valid ObjectId from ${fieldName}:`, {
-      input,
-      type: typeof input,
-      stringified: String(input)
-    });
+   
     
     return null;
   } catch (error) {
@@ -151,12 +147,7 @@ function validateObjectId(req, res, next) {
 router.post('/save', async (req, res) => {
   const { token, name, subscriptionPlan } = req.body;
   
-  console.log('💾 Server: User save request received', {
-    hasToken: !!token,
-    name: name,
-    providedSubscriptionPlan: subscriptionPlan,
-    timestamp: new Date().toISOString()
-  });
+
   
   if (!token || !name) {
     return res.status(400).json({ 
@@ -177,7 +168,6 @@ router.post('/save', async (req, res) => {
     let currentSubscriptionPlan = 'free';
     
     if (!user) {
-      console.log('🆕 Creating new user:', firebaseId);
       currentSubscriptionPlan = subscriptionPlan || 'free';
       
       user = new User({ 
@@ -193,7 +183,6 @@ router.post('/save', async (req, res) => {
         lastResetCheck: new Date()
       });
     } else {
-      console.log('👤 Updating existing user:', firebaseId);
       
       // ✅ CRITICAL: PRESERVE existing subscription status
       currentSubscriptionPlan = user.subscriptionPlan || 'free';
@@ -205,10 +194,8 @@ router.post('/save', async (req, res) => {
         const providedLevel = statusHierarchy[subscriptionPlan] || 0;
         
         if (providedLevel > currentLevel) {
-          console.log('⬆️ Upgrading subscription:', currentSubscriptionPlan, '->', subscriptionPlan);
           currentSubscriptionPlan = subscriptionPlan;
         } else {
-          console.log('✅ Preserving existing subscription:', currentSubscriptionPlan);
         }
       }
       
@@ -1008,7 +995,6 @@ router.post('/:firebaseId/homework/:homeworkId/submit', validateFirebaseId, veri
       const exercise = homework.exercises[index];
       
       if (!exercise) {
-        console.warn(`⚠️ No exercise found for answer index ${index}`);
         return {
           questionIndex: index,
           userAnswer: answer.userAnswer || answer.answer || answer || '',
@@ -1173,7 +1159,6 @@ router.post('/:firebaseId/lesson/:lessonId', validateFirebaseId, verifyToken, ve
           finalTopicId = extractValidObjectId(lesson.topicId, 'lesson.topicId');
         }
       } catch (lessonError) {
-        console.warn('⚠️ Could not fetch lesson for topicId:', lessonError.message);
       }
     }
     
@@ -1270,7 +1255,6 @@ router.post('/:firebaseId/progress/save', validateFirebaseId, verifyToken, verif
           finalTopicId = extractValidObjectId(lesson.topicId, 'lesson.topicId');
         }
       } catch (lessonError) {
-        console.warn('⚠️ Could not fetch lesson for topicId:', lessonError.message);
       }
     }
     
@@ -1378,7 +1362,6 @@ router.post('/:firebaseId/progress/save', validateFirebaseId, verifyToken, verif
           finalTopicId = extractValidObjectId(lesson.topicId, 'lesson.topicId');
         }
       } catch (lessonError) {
-        console.warn('⚠️ Could not fetch lesson for topicId:', lessonError.message);
       }
     }
     
@@ -1536,7 +1519,6 @@ router.get('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOwn
     
     for (const entry of user.studyList) {
       if (!entry.topicId) {
-        console.warn('⚠️ Study list entry without topicId:', entry);
         validStudyList.push(entry);
         continue;
       }
@@ -1550,7 +1532,6 @@ router.get('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOwn
         if (topicExists || lessonsExist) {
           validStudyList.push(entry);
         } else {
-          console.warn(`🗑️ Invalid topic reference found: ${entry.topicId} - "${entry.name || entry.topic}" (no topic or lessons)`);
           invalidTopicIds.push(entry.topicId.toString());
           needsCleanup = true;
         }
@@ -1626,7 +1607,6 @@ router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOw
     const lessonsExist = await Lesson.exists({ topicId: studyListData.topicId });
     
     if (!topicExists && !lessonsExist) {
-      console.warn(`⚠️ No topic or lessons found for topicId: ${studyListData.topicId}`);
       return res.status(400).json({
         success: false,
         error: 'Курс не найден в системе'
@@ -2190,7 +2170,6 @@ try {
   });
   
 } catch (cronError) {
-  console.warn('⚠️ node-cron not available, monthly reset will be handled manually');
 }
 
 // ========================================

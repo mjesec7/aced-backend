@@ -223,8 +223,6 @@ app.use(cors({
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      console.warn('❌ CORS: Origin blocked -', origin);
-      console.warn('   Allowed origins:', allowedOrigins);
       callback(new Error(`CORS policy violation: ${origin} not allowed`));
     }
   },
@@ -314,7 +312,6 @@ const connectDB = async () => {
     });
     
     mongoose.connection.on('disconnected', () => {
-      console.warn('⚠️  Mongoose disconnected from MongoDB');
     });
     
     mongoose.connection.on('reconnected', () => {
@@ -327,7 +324,6 @@ const connectDB = async () => {
     
     // Handle connection close
     mongoose.connection.on('close', () => {
-      console.warn('🔒 MongoDB connection closed');
     });
     
     // Test the connection
@@ -428,7 +424,6 @@ app.post('/api/user-progress', async (req, res) => {
           finalTopicId = lesson.topicId;
         }
       } catch (error) {
-        console.warn('⚠️ Could not fetch topicId from lesson:', error.message);
       }
     }
 
@@ -563,7 +558,6 @@ app.post('/api/progress', async (req, res) => {
           finalTopicId = lesson.topicId;
         }
       } catch (error) {
-        console.warn('⚠️ Could not fetch topicId from lesson:', error.message);
       }
     }
 
@@ -764,7 +758,6 @@ if (handlePaymeWebhook && initiatePaymePayment) {
 
 
 } else {
-  console.warn('⚠️  PayMe controllers not available - routes not configured');
 }
 
 // ========================================
@@ -885,7 +878,6 @@ app.get('/api/payments/status/:transactionId/:userId?', async (req, res) => {
           });
         }
       } catch (modelError) {
-        console.warn('⚠️ PaymeTransaction model not available:', modelError.message);
         res.json({
           success: true,
           data: {
@@ -1097,7 +1089,6 @@ app.post('/api/payments/generate-form', async (req, res) => {
              await User.findById(userId).catch(() => null) ||
              await User.findOne({ email: userId }).catch(() => null);
     } catch (dbError) {
-      console.warn('⚠️ Database error, using fallback user data:', dbError.message);
       // Create fallback user object
       user = { 
         firebaseId: userId, 
@@ -1474,11 +1465,8 @@ routesToMount.forEach(([path, file, description]) => {
 
 
 if (failedRoutes.length > 0) {
-  console.warn('\n⚠️  FAILED ROUTES:');
   failedRoutes.forEach(({ path, file, description }) => {
-    console.warn(`   ${path} - ${description} (${file})`);
   });
-  console.warn('\n💡 To fix: Check if these route files exist and have no syntax errors');
 }
 
 // ✅ EMERGENCY FIX: Add user save route directly since userRoutes might be failing
@@ -1665,7 +1653,6 @@ app.get('/api/status', (req, res) => {
   });
 });app.get('/api/admin/users', async (req, res) => {
   try {
-    console.log('👥 Admin: Fetching all users...');
     
     const { 
       page = 1, 
@@ -1709,7 +1696,6 @@ app.get('/api/status', (req, res) => {
       User.countDocuments(filter)
     ]);
 
-    console.log(`✅ Found ${users.length} users (${total} total)`);
 
     // Enhance users with computed fields
     const enhancedUsers = users.map(user => ({
@@ -1760,7 +1746,6 @@ app.get('/api/status', (req, res) => {
 // ✅ GET /api/users/all - Alternative endpoint
 app.get('/api/users/all', async (req, res) => {
   try {
-    console.log('👥 Fetching all users (basic)...');
     
     const User = require('./models/user');
     const users = await User.find({})
@@ -1769,7 +1754,6 @@ app.get('/api/users/all', async (req, res) => {
       .limit(100) // Reasonable limit
       .lean();
 
-    console.log(`✅ Found ${users.length} users`);
 
     res.json({
       success: true,
@@ -1984,7 +1968,6 @@ app.post('/api/user-progress/user/:userId/lesson/:lessonId', async (req, res) =>
           finalTopicId = lesson.topicId;
         }
       } catch (lessonError) {
-        console.warn('⚠️ Could not fetch lesson for topicId:', lessonError.message);
       }
     }
     
@@ -2118,7 +2101,6 @@ app.get('/api/homeworks/user/:userId', async (req, res) => {
       Homework = require('./models/homework');
       Lesson = require('./models/lesson');
     } catch (modelError) {
-      console.warn('⚠️ Some homework models not available:', modelError.message);
       return res.json({
         success: true,
         data: [],
@@ -2231,7 +2213,6 @@ app.get('/api/homeworks/user/:userId/lesson/:lessonId', async (req, res) => {
     try {
       HomeworkProgress = require('./models/homeworkProgress');
     } catch (modelError) {
-      console.warn('⚠️ HomeworkProgress model not available');
     }
     
     // Get lesson
@@ -2259,7 +2240,6 @@ app.get('/api/homeworks/user/:userId/lesson/:lessonId', async (req, res) => {
           lessonId: lessonId
         });
       } catch (progressError) {
-        console.warn('⚠️ Could not fetch homework progress:', progressError.message);
       }
     }
     
@@ -2758,7 +2738,6 @@ app.get('/api/homeworks/user/:userId/homework/:homeworkId', async (req, res) => 
       Homework = require('./models/homework');
       HomeworkProgress = require('./models/homeworkProgress');
     } catch (modelError) {
-      console.warn('⚠️ Homework models not available:', modelError.message);
       return res.status(404).json({
         success: false,
         error: 'Homework system not available'
@@ -2793,7 +2772,6 @@ app.get('/api/homeworks/user/:userId/homework/:homeworkId', async (req, res) => 
         ]
       });
     } catch (progressError) {
-      console.warn('⚠️ Could not fetch homework progress:', progressError.message);
     }
     
     res.json({
@@ -2831,7 +2809,6 @@ app.get('/api/users/:userId/tests', async (req, res) => {
       Test = require('./models/Test');
       TestResult = require('./models/TestResult');
     } catch (modelError) {
-      console.warn('⚠️ Test models not available:', modelError.message);
       return res.json({
         success: true,
         tests: [],
@@ -2885,7 +2862,6 @@ app.get('/api/users/:userId/tests/:testId', async (req, res) => {
     try {
       Test = require('./models/Test');
     } catch (modelError) {
-      console.warn('⚠️ Test model not available:', modelError.message);
       return res.status(404).json({
         success: false,
         error: 'Test system not available'

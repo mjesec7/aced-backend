@@ -18,7 +18,6 @@ const authenticateUser = async (req, res, next) => {
     const token = authHeader.substring(7); // Remove 'Bearer ' prefix
     
     if (!token || token.length < 20) {
-      console.warn('❌ [authMiddleware] Token too short or missing');
       return res.status(401).json({ 
         success: false, 
         error: 'Invalid token format' 
@@ -91,7 +90,6 @@ const authenticateUser = async (req, res, next) => {
     // Additional expiration check
     const nowInSeconds = Math.floor(Date.now() / 1000);
     if (decodedToken.exp && decodedToken.exp < nowInSeconds) {
-      console.warn(`❌ [authMiddleware] Token expired at ${decodedToken.exp}, now is ${nowInSeconds}`);
       return res.status(401).json({ 
         success: false, 
         error: 'Token expired' 

@@ -37,21 +37,13 @@ const extractValidObjectId = (value, fieldName = 'ObjectId') => {
         idString === 'NaN' ||
         idString.includes('[object') ||
         idString.length === 0) {
-      console.warn(`⚠️ Invalid ${fieldName} detected:`, {
-        original: value,
-        extracted: idString,
-        type: typeof value
-      });
+  
       return null;
     }
     
     // Validate ObjectId format (24 character hex string)
     if (!mongoose.Types.ObjectId.isValid(idString)) {
-      console.warn(`⚠️ Invalid ${fieldName} format:`, {
-        value: idString,
-        length: idString.length,
-        isHex: /^[0-9a-fA-F]+$/.test(idString)
-      });
+
       return null;
     }
     
@@ -216,7 +208,6 @@ router.post('/user-progress', verifyToken, async (req, res) => {
         finalTopicId = extractValidObjectId(lesson.topicId, 'lesson.topicId');
       }
     } catch (lessonError) {
-      console.warn('⚠️ Could not fetch lesson for topicId:', lessonError.message);
     }
     
     const updateData = {
@@ -359,11 +350,7 @@ router.post('/', verifyToken, async (req, res) => {
       
       if (finalTopicId) {
       } else {
-        console.warn('⚠️ Invalid topicId in request, will try to get from lesson:', {
-          original: topicId,
-          type: typeof topicId,
-          stringified: JSON.stringify(topicId)
-        });
+     
       }
     } else {
     }
@@ -376,13 +363,9 @@ router.post('/', verifyToken, async (req, res) => {
           finalTopicId = extractValidObjectId(lesson.topicId, 'lesson.topicId');
           if (finalTopicId) {
           } else {
-            console.warn('⚠️ Invalid topicId in lesson document:', lesson.topicId);
           }
         } else {
-          console.warn('⚠️ Lesson not found or has no topicId:', {
-            lessonFound: !!lesson,
-            hasTopicId: !!(lesson && lesson.topicId)
-          });
+      
         }
       } catch (error) {
         console.error('❌ Error fetching lesson for topicId:', error.message);
