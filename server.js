@@ -3095,7 +3095,6 @@ app.get('*', (req, res) => {
   } else {
     res.status(404).json({
       error: 'API endpoint not found',
-      message: 'This is the API server (api.aced.live)',
       server: 'api.aced.live',
       frontend: 'aced.live',
       api: {
