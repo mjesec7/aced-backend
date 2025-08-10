@@ -1555,12 +1555,7 @@ router.get('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOwn
     });
     
   } catch (error) {
-    console.error('❌ Error fetching study list:', error);
-    res.status(500).json({ 
-      success: false,
-      error: '❌ Error fetching study list',
-      message: error.message 
-    });
+ 
   }
 });
 

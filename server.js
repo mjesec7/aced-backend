@@ -3093,26 +3093,26 @@ app.get('*', (req, res) => {
       }
     });
   } else {
-    res.status(404).json({
-      error: 'API endpoint not found',
-      server: 'api.aced.live',
-      frontend: 'aced.live',
-      api: {
-        health: 'https://api.aced.live/health',
-        routes: 'https://api.aced.live/api/routes',
-        authTest: 'https://api.aced.live/auth-test',
-        paymeWebhook: 'https://api.aced.live/api/payments/payme',
-        paymeTest: 'https://api.aced.live/api/payments/payme/test',
-        validateUser: 'https://api.aced.live/api/payments/validate-user/USER_ID',
-        paymentInitiate: 'https://api.aced.live/api/payments/initiate',
-        paymentStatus: 'https://api.aced.live/api/payments/status/TRANSACTION_ID',
-        generateForm: 'https://api.aced.live/api/payments/generate-form',
-        userProgress: 'https://api.aced.live/api/user-progress',
-        progress: 'https://api.aced.live/api/progress',
-        quickSave: 'https://api.aced.live/api/progress/quick-save'
-      },
-      timestamp: new Date().toISOString()
-    });
+    // res.status(404).json({
+    //   error: 'API endpoint not found',
+    //   server: 'api.aced.live',
+    //   frontend: 'aced.live',
+    //   api: {
+    //     health: 'https://api.aced.live/health',
+    //     routes: 'https://api.aced.live/api/routes',
+    //     authTest: 'https://api.aced.live/auth-test',
+    //     paymeWebhook: 'https://api.aced.live/api/payments/payme',
+    //     paymeTest: 'https://api.aced.live/api/payments/payme/test',
+    //     validateUser: 'https://api.aced.live/api/payments/validate-user/USER_ID',
+    //     paymentInitiate: 'https://api.aced.live/api/payments/initiate',
+    //     paymentStatus: 'https://api.aced.live/api/payments/status/TRANSACTION_ID',
+    //     generateForm: 'https://api.aced.live/api/payments/generate-form',
+    //     userProgress: 'https://api.aced.live/api/user-progress',
+    //     progress: 'https://api.aced.live/api/progress',
+    //     quickSave: 'https://api.aced.live/api/progress/quick-save'
+    //   },
+    //   timestamp: new Date().toISOString()
+    // });
   }
 });
 
