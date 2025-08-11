@@ -1337,7 +1337,15 @@ const healthCheckHandler = async (req, res) => {
       allowedOrigins: allowedOrigins.length,
       environmentOverride: !!process.env.ALLOWED_ORIGINS,
       paymeDomainsIncluded: allowedOrigins.some(origin => origin.includes('paycom.uz'))
-    }
+    },
+    updatedCourses: {
+      endpointsActive: true,
+      publicEndpoint: '/api/updated-courses',
+      adminEndpoint: '/api/updated-courses/admin/all',
+      modelLoaded: true,
+      routesMounted: true
+    },
+    
   };
 
   // Check MongoDB connection
@@ -1448,6 +1456,8 @@ const routesToMount = [
   ['/api/tests', './routes/testRoutes', 'Test/quiz routes'],
   ['/api/analytics', './routes/userAnalytics', 'User analytics routes'],
   ['/api/vocabulary', './routes/vocabularyRoutes', 'Vocabulary management routes'],
+  ['/api/updated-courses', './routes/updatedCourses', 'Updated Courses routes (MAIN FRONTEND)'],
+
 ];
 
 // Mount routes
@@ -1826,12 +1836,27 @@ app.get('/api/routes', (req, res) => {
     }
     groupedRoutes[basePath].push(route);
   });
+  const updatedCoursesRoutes = [
+    { path: '/api/updated-courses', methods: 'GET', description: 'Get updated courses for main website', status: 'ACTIVE' },
+    { path: '/api/updated-courses/categories', methods: 'GET', description: 'Get course categories', status: 'ACTIVE' },
+    { path: '/api/updated-courses/:id', methods: 'GET', description: 'Get single course', status: 'ACTIVE' },
+    { path: '/api/updated-courses/:id/bookmark', methods: 'POST,DELETE', description: 'Toggle bookmark (mock)', status: 'ACTIVE' },
+    { path: '/api/updated-courses/admin/all', methods: 'GET', description: 'Admin: Get all courses', status: 'ACTIVE' },
+    { path: '/api/updated-courses/admin', methods: 'POST', description: 'Admin: Create course', status: 'ACTIVE' },
+    { path: '/api/updated-courses/admin/:id', methods: 'PUT,DELETE', description: 'Admin: Update/Delete course', status: 'ACTIVE' },
+    { path: '/api/updated-courses/admin/:id/status', methods: 'PATCH', description: 'Admin: Update course status', status: 'ACTIVE' },
+    { path: '/api/updated-courses/admin/:id/toggle-premium', methods: 'PATCH', description: 'Admin: Toggle premium', status: 'ACTIVE' },
+    { path: '/api/updated-courses/admin/stats', methods: 'GET', description: 'Admin: Get course statistics', status: 'ACTIVE' },
+    { path: '/api/updated-courses/admin/bulk-import', methods: 'POST', description: 'Admin: Bulk import courses', status: 'ACTIVE' }
+  ];
   
   res.json({
     server: 'api.aced.live',
     totalRoutes: routes.length,
     routes: groupedRoutes,
     allRoutes: routes,
+    updatedCoursesRoutes: updatedCoursesRoutes,
+
     criticalProgressRoutes: [
       { path: '/api/user-progress', methods: 'POST', description: 'Main progress save endpoint (CRITICAL FIX)', status: 'ACTIVE' },
       { path: '/api/progress', methods: 'POST', description: 'Alternative progress save endpoint (CRITICAL FIX)', status: 'ACTIVE' },
@@ -1864,6 +1889,7 @@ app.get('/api/routes', (req, res) => {
       { path: '/api/users/save', methods: 'POST', description: 'Emergency user save', status: 'ACTIVE' },
       { path: '/api/users/test', methods: 'GET', description: 'User routes test', status: 'ACTIVE' }
     ],
+    
     mountedRoutes: mountedRoutes.map(r => r.path),
     failedRoutes: failedRoutes.map(r => ({ path: r.path, reason: 'Module load failed' })),
     timestamp: new Date().toISOString(),
