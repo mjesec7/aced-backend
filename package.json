@@ -24,6 +24,7 @@
     "html-pdf": "^3.0.1",
     "mongodb": "4.0",
     "mongoose": "^8.12.1",
+    "multer": "^2.0.2",
     "nodemailer": "^6.10.1",
     "pdfkit": "^0.17.1",
     "puppeteer": "^24.6.0"
