@@ -1,4 +1,4 @@
-// routes/updatedCourses.js - Updated Courses API Routes
+// routes/updatedCourses.js - FIXED VERSION WITH PROPER IMAGE/TEXT SUPPORT
 const express = require('express');
 const router = express.Router();
 const UpdatedCourse = require('../models/updatedCourse');
@@ -20,7 +20,7 @@ router.get('/', async (req, res) => {
       limit = 50,
       page = 1,
       sort = 'newest',
-      type = 'all' // NEW: Filter by course or guide
+      type = 'all' // Filter by course or guide
     } = req.query;
 
     // Build filter
@@ -46,7 +46,7 @@ router.get('/', async (req, res) => {
       ];
     }
     
-    // NEW: Apply type filter
+    // Apply type filter
     if (type === 'courses') {
       filter.isGuide = { $ne: true };
     } else if (type === 'guides') {
@@ -78,16 +78,25 @@ router.get('/', async (req, res) => {
       .select('-seo -metadata.views -createdBy -updatedBy')
       .lean();
 
-    // Add isBookmarked field (since we don't track individual users)
+    // ✅ FIXED: Ensure proper course data structure for frontend
     const coursesWithBookmarks = courses.map(course => ({
       ...course,
-      id: course._id.toString(),
-      isBookmarked: false // Always false for non-tracked users
+      id: course._id.toString(), // ✅ Ensure 'id' field exists
+      _id: course._id.toString(),
+      isBookmarked: false, // Always false for non-tracked users
+      // ✅ Ensure curriculum structure is correct
+      curriculum: course.curriculum || [],
+      // ✅ Ensure instructor has proper structure
+      instructor: {
+        name: course.instructor?.name || 'Unknown Instructor',
+        avatar: course.instructor?.avatar || '/default-avatar.jpg',
+        bio: course.instructor?.bio || ''
+      }
     }));
 
     const total = await UpdatedCourse.countDocuments(filter);
 
-    console.log(`✅ Found ${courses.length} updated courses`);
+    console.log(`✅ Found ${courses.length} updated courses for frontend`);
 
     res.json({
       success: true,
@@ -140,7 +149,7 @@ router.get('/categories', async (req, res) => {
   }
 });
 
-// GET /api/updated-courses/:id - Get single course by ID
+// ✅ FIXED: Get single course by ID with proper lesson structure
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -164,13 +173,40 @@ router.get('/:id', async (req, res) => {
     // Increment views
     await course.incrementViews();
 
+    // ✅ FIXED: Structure the response properly for frontend consumption
+    const courseData = {
+      ...course.toObject(),
+      id: course._id.toString(),
+      _id: course._id.toString(),
+      isBookmarked: false,
+      // ✅ Convert curriculum to lessons format for frontend compatibility
+      lessons: course.curriculum.map((lesson, index) => ({
+        id: lesson._id?.toString() || `lesson_${index}`,
+        _id: lesson._id?.toString() || `lesson_${index}`,
+        title: lesson.title,
+        lessonName: lesson.title, // For backward compatibility
+        description: lesson.description,
+        duration: lesson.duration || '30 min',
+        order: lesson.order || index,
+        // ✅ Convert steps to proper format (images and text only)
+        steps: (lesson.steps || []).map((step, stepIndex) => ({
+          id: `step_${index}_${stepIndex}`,
+          type: step.type,
+          data: step.data,
+          content: step.content,
+          title: step.title,
+          description: step.description,
+          images: step.images || [],
+          // Remove video-related fields
+          videoUrl: undefined,
+          guideVideoUrl: undefined
+        }))
+      }))
+    };
+
     res.json({
       success: true,
-      course: {
-        ...course.toObject(),
-        id: course._id.toString(),
-        isBookmarked: false
-      }
+      course: courseData
     });
 
   } catch (error) {
@@ -178,6 +214,102 @@ router.get('/:id', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to fetch course'
+    });
+  }
+});
+
+// ✅ FIXED: Get course lessons in proper format
+router.get('/:id/lessons', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const course = await UpdatedCourse.findOne({
+      $or: [
+        { _id: id },
+        { 'seo.slug': id }
+      ],
+      isActive: true,
+      status: 'published'
+    }).select('curriculum title');
+
+    if (!course) {
+      return res.status(404).json({
+        success: false,
+        error: 'Course not found'
+      });
+    }
+
+    // ✅ Convert curriculum to lessons format
+    const lessons = course.curriculum.map((lesson, index) => ({
+      id: lesson._id?.toString() || `lesson_${index}`,
+      _id: lesson._id?.toString() || `lesson_${index}`,
+      title: lesson.title,
+      lessonName: lesson.title,
+      description: lesson.description,
+      duration: lesson.duration || '30 min',
+      order: lesson.order || index,
+      topicId: course._id.toString(), // Link back to course
+      subject: course.category || 'General',
+      // ✅ Process steps to only include images and text
+      steps: (lesson.steps || []).map((step, stepIndex) => {
+        const processedStep = {
+          id: `step_${index}_${stepIndex}`,
+          type: step.type,
+          data: {},
+          content: step.content,
+          title: step.title,
+          description: step.description
+        };
+
+        // ✅ Only allow specific step types (no video)
+        switch (step.type) {
+          case 'explanation':
+          case 'example':
+          case 'reading':
+            processedStep.data = {
+              content: step.data?.content || step.content || '',
+              images: step.data?.images || step.images || []
+            };
+            break;
+
+          case 'image':
+            processedStep.data = {
+              images: step.data?.images || step.images || [],
+              description: step.data?.description || step.description || ''
+            };
+            break;
+
+          case 'practice':
+            processedStep.data = {
+              instructions: step.data?.instructions || step.instructions || '',
+              type: step.data?.type || 'guided'
+            };
+            break;
+
+          case 'quiz':
+            processedStep.data = step.data?.quizzes || step.quizzes || [];
+            break;
+
+          default:
+            processedStep.data = step.data || {};
+        }
+
+        return processedStep;
+      })
+    }));
+
+    res.json({
+      success: true,
+      data: lessons,
+      lessons: lessons, // For backward compatibility
+      source: 'updated-course-curriculum'
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching course lessons:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch course lessons'
     });
   }
 });
@@ -219,7 +351,7 @@ router.get('/admin/all', authenticateUser, async (req, res) => {
       limit = 20,
       page = 1,
       sort = 'newest',
-      type = 'all' // NEW: Filter by course or guide
+      type = 'all'
     } = req.query;
 
     // Build filter
@@ -246,7 +378,7 @@ router.get('/admin/all', authenticateUser, async (req, res) => {
       ];
     }
     
-    // NEW: Apply type filter
+    // Apply type filter
     if (type === 'courses') {
       filter.isGuide = { $ne: true };
     } else if (type === 'guides') {
@@ -340,6 +472,27 @@ router.post('/admin', authenticateUser, async (req, res) => {
       });
     }
 
+    // ✅ FIXED: Process curriculum to remove video elements
+    if (courseData.curriculum && Array.isArray(courseData.curriculum)) {
+      courseData.curriculum = courseData.curriculum.map(lesson => ({
+        ...lesson,
+        steps: (lesson.steps || []).map(step => {
+          const processedStep = { ...step };
+          
+          // Remove video-related fields
+          delete processedStep.videoUrl;
+          delete processedStep.guideVideoUrl;
+          
+          // Only allow specific step types
+          if (!['explanation', 'example', 'reading', 'image', 'practice', 'quiz'].includes(step.type)) {
+            processedStep.type = 'explanation';
+          }
+          
+          return processedStep;
+        })
+      }));
+    }
+
     const course = new UpdatedCourse(courseData);
     await course.save();
 
@@ -386,6 +539,27 @@ router.put('/admin/:id', authenticateUser, async (req, res) => {
       ...req.body,
       updatedBy: req.user.uid || req.user.email || 'admin'
     };
+
+    // ✅ FIXED: Process curriculum to remove video elements on update
+    if (updateData.curriculum && Array.isArray(updateData.curriculum)) {
+      updateData.curriculum = updateData.curriculum.map(lesson => ({
+        ...lesson,
+        steps: (lesson.steps || []).map(step => {
+          const processedStep = { ...step };
+          
+          // Remove video-related fields
+          delete processedStep.videoUrl;
+          delete processedStep.guideVideoUrl;
+          
+          // Only allow specific step types
+          if (!['explanation', 'example', 'reading', 'image', 'practice', 'quiz'].includes(step.type)) {
+            processedStep.type = 'explanation';
+          }
+          
+          return processedStep;
+        })
+      }));
+    }
 
     const course = await UpdatedCourse.findByIdAndUpdate(
       req.params.id,
@@ -623,11 +797,36 @@ router.post('/admin/bulk-import', authenticateUser, async (req, res) => {
     }
 
     const createdBy = req.user.uid || req.user.email || 'admin';
-    const coursesWithMeta = courses.map(course => ({
-      ...course,
-      createdBy,
-      updatedBy: createdBy
-    }));
+    const coursesWithMeta = courses.map(course => {
+      // ✅ FIXED: Process curriculum to remove video elements during bulk import
+      const processedCourse = {
+        ...course,
+        createdBy,
+        updatedBy: createdBy
+      };
+
+      if (processedCourse.curriculum && Array.isArray(processedCourse.curriculum)) {
+        processedCourse.curriculum = processedCourse.curriculum.map(lesson => ({
+          ...lesson,
+          steps: (lesson.steps || []).map(step => {
+            const processedStep = { ...step };
+            
+            // Remove video-related fields
+            delete processedStep.videoUrl;
+            delete processedStep.guideVideoUrl;
+            
+            // Only allow specific step types
+            if (!['explanation', 'example', 'reading', 'image', 'practice', 'quiz'].includes(step.type)) {
+              processedStep.type = 'explanation';
+            }
+            
+            return processedStep;
+          })
+        }));
+      }
+
+      return processedCourse;
+    });
 
     const result = await UpdatedCourse.insertMany(coursesWithMeta, { 
       ordered: false // Continue on errors

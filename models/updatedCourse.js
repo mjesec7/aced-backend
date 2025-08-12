@@ -1,4 +1,4 @@
-// models/updatedCourse.js - Updated Course Model for MongoDB
+// models/updatedCourse.js - FIXED Updated Course Model (Images & Text Only)
 const mongoose = require('mongoose');
 
 const updatedCourseSchema = new mongoose.Schema({
@@ -88,6 +88,7 @@ const updatedCourseSchema = new mongoose.Schema({
       maxlength: 500
     }
   },
+  // ✅ FIXED: Curriculum with only images and text support
   curriculum: [{
     title: {
       type: String,
@@ -105,7 +106,84 @@ const updatedCourseSchema = new mongoose.Schema({
     order: {
       type: Number,
       default: 0
-    }
+    },
+    // ✅ FIXED: Steps now only support images and text
+    steps: [{
+      type: {
+        type: String,
+        enum: ['explanation', 'example', 'reading', 'image', 'practice', 'quiz'],
+        required: true
+      },
+      title: {
+        type: String,
+        trim: true
+      },
+      content: {
+        type: String,
+        trim: true
+      },
+      description: {
+        type: String,
+        trim: true
+      },
+      // ✅ Images support
+      images: [{
+        url: {
+          type: String,
+          required: true
+        },
+        caption: {
+          type: String,
+          trim: true
+        },
+        filename: {
+          type: String,
+          trim: true
+        },
+        size: {
+          type: Number
+        }
+      }],
+      // ✅ Data field for structured content
+      data: {
+        type: mongoose.Schema.Types.Mixed
+      },
+      // ✅ Practice-specific fields
+      instructions: {
+        type: String,
+        trim: true
+      },
+      // ✅ Quiz-specific fields
+      question: {
+        type: String,
+        trim: true
+      },
+      options: [{
+        text: {
+          type: String,
+          required: true
+        }
+      }],
+      correctAnswer: {
+        type: Number
+      },
+      quizzes: [{
+        question: {
+          type: String,
+          required: true
+        },
+        type: {
+          type: String,
+          enum: ['multiple-choice', 'true-false', 'short-answer'],
+          default: 'multiple-choice'
+        },
+        options: [{
+          text: String
+        }],
+        correctAnswer: mongoose.Schema.Types.Mixed,
+        explanation: String
+      }]
+    }]
   }],
   tags: [{
     type: String,
@@ -205,15 +283,11 @@ const updatedCourseSchema = new mongoose.Schema({
   updatedBy: {
     type: String
   },
-  // NEW: Fields for Guide-related content
+  // ✅ FIXED: Guide fields (removed video, kept PDF)
   isGuide: {
     type: Boolean,
     default: false,
     description: "Flag to indicate if this course is also a downloadable guide"
-  },
-  guideVideoUrl: {
-    type: String,
-    description: "A public video URL for the guide, available to all users"
   },
   guidePdfUrl: {
     type: String,
