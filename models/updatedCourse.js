@@ -204,6 +204,20 @@ const updatedCourseSchema = new mongoose.Schema({
   },
   updatedBy: {
     type: String
+  },
+  // NEW: Fields for Guide-related content
+  isGuide: {
+    type: Boolean,
+    default: false,
+    description: "Flag to indicate if this course is also a downloadable guide"
+  },
+  guideVideoUrl: {
+    type: String,
+    description: "A public video URL for the guide, available to all users"
+  },
+  guidePdfUrl: {
+    type: String,
+    description: "A downloadable PDF file for the guide, available to premium users"
   }
 }, {
   timestamps: true,

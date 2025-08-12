@@ -1,6 +1,6 @@
-// server.js - COMPLETE UPDATED VERSION WITH PROGRESS FIXES AND PAYME INTEGRATION
+// server.js - COMPLETE UPDATED VERSION WITH PROGRESS FIXES, PAYME INTEGRATION, AND NEW ROUTES FOR GUIDES, BOOKS, AND COURSES
 // ========================================
-// 🔧 COMPLETE MONGOOSE DEBUG SETUP WITH PAYME INTEGRATION AND PROGRESS FIXES
+// 🔧 COMPLETE MONGOOSE DEBUG SETUP WITH PAYME INTEGRATION, PROGRESS FIXES, AND FILE UPLOADS
 // ========================================
 
 const express = require('express');
@@ -11,15 +11,14 @@ const mongoose = require('mongoose');
 const dotenv = require('dotenv');
 const path = require('path');
 const fs = require('fs');
+const multer = require('multer');
+const { v4: uuidv4 } = require('uuid');
 
 // Load environment variables first
 dotenv.config();
 
 // Enable Mongoose debugging to see all queries
 mongoose.set('debug', process.env.NODE_ENV === 'development');
-
-// Enhanced  debugging including PayMe
-
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -322,7 +321,6 @@ const connectDB = async () => {
       console.error('⏰ MongoDB connection timeout');
     });
     
-    // Handle connection close
     mongoose.connection.on('close', () => {
     });
     
@@ -1455,8 +1453,11 @@ const routesToMount = [
   ['/api/homeworks', './routes/homeworkRoutes', 'Homework routes'],
   ['/api/tests', './routes/testRoutes', 'Test/quiz routes'],
   ['/api/analytics', './routes/userAnalytics', 'User analytics routes'],
-  ['/api/vocabulary', './routes/vocabularyRoutes', 'Vocabulary management routes'],
   ['/api/updated-courses', './routes/updatedCourses', 'Updated Courses routes (MAIN FRONTEND)'],
+  
+  // NEW: Routes for Guides and Books
+  ['/api/guides', './routes/guides', 'Guides routes'],
+  ['/api/books', './routes/books', 'Books routes'],
 
 ];
 
@@ -1921,8 +1922,123 @@ app.get('/api/routes', (req, res) => {
     }
   });
 });
+// ========================================
+// 🖼️ FILE UPLOAD MIDDLEWARE
+// ========================================
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = 'uploads/';
+    fs.mkdirSync(uploadDir, { recursive: true });
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueName = uuidv4();
+    const fileExtension = path.extname(file.originalname);
+    cb(null, uniqueName + fileExtension);
+  }
+});
+
+const fileUpload = multer({ storage: storage });
+
+// ========================================
+// 📚 NEW FILE UPLOAD ROUTE
+// ========================================
+
+app.post('/api/upload', fileUpload.single('file'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'No file uploaded' });
+    }
+    const fileUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+    res.json({
+      success: true,
+      message: 'File uploaded successfully',
+      url: fileUrl,
+      filename: req.file.filename,
+      mimetype: req.file.mimetype,
+      size: req.file.size
+    });
+  } catch (error) {
+    console.error('❌ File upload error:', error);
+    res.status(500).json({ success: false, message: 'File upload failed' });
+  }
+});
+
+app.use('/uploads', express.static('uploads'));
+
+// ========================================
+// 📂 NEW FILE MODELS & ROUTES (CRITICAL)
+// ========================================
+
+const guideSchema = new mongoose.Schema({
+  title: { type: String, required: true, trim: true },
+  description: { type: String, required: true, trim: true },
+  videoUrl: { type: String, required: true },
+  guidePdfUrl: { type: String, required: true },
+  thumbnail: { type: String },
+  isPremium: { type: Boolean, default: false }, // Only available for subscription users
+  createdBy: { type: String },
+  updatedBy: { type: String },
+}, { timestamps: true });
+
+const Guide = mongoose.model('Guide', guideSchema);
+
+const bookSchema = new mongoose.Schema({
+  title: { type: String, required: true, trim: true },
+  author: { type: String, required: true, trim: true },
+  description: { type: String, trim: true },
+  bookPdfUrl: { type: String, required: true },
+  thumbnail: { type: String },
+  isPremium: { type: Boolean, default: false }, // Only available for subscription users
+  createdBy: { type: String },
+  updatedBy: { type: String },
+}, { timestamps: true });
+
+const Book = mongoose.model('Book', bookSchema);
 
 
+// GUIDE ROUTES
+const guidesRouter = express.Router();
+guidesRouter.get('/', async (req, res) => {
+  try {
+    const guides = await Guide.find({});
+    res.json({ success: true, guides });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+guidesRouter.post('/admin', async (req, res) => {
+  try {
+    const newGuide = new Guide(req.body);
+    await newGuide.save();
+    res.status(201).json({ success: true, guide: newGuide });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+app.use('/api/guides', guidesRouter);
+
+// BOOK ROUTES
+const booksRouter = express.Router();
+booksRouter.get('/', async (req, res) => {
+  try {
+    const books = await Book.find({});
+    res.json({ success: true, books });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+booksRouter.post('/admin', async (req, res) => {
+  try {
+    const newBook = new Book(req.body);
+    await newBook.save();
+    res.status(201).json({ success: true, book: newBook });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+app.use('/api/books', booksRouter);
 
 
 // ✅ GET /api/user-progress/user/:userId/lesson/:lessonId

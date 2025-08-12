@@ -19,7 +19,8 @@ router.get('/', async (req, res) => {
       search,
       limit = 50,
       page = 1,
-      sort = 'newest'
+      sort = 'newest',
+      type = 'all' // NEW: Filter by course or guide
     } = req.query;
 
     // Build filter
@@ -43,6 +44,13 @@ router.get('/', async (req, res) => {
         { tools: { $regex: search, $options: 'i' } },
         { tags: { $regex: search, $options: 'i' } }
       ];
+    }
+    
+    // NEW: Apply type filter
+    if (type === 'courses') {
+      filter.isGuide = { $ne: true };
+    } else if (type === 'guides') {
+      filter.isGuide = true;
     }
 
     // Build sort
@@ -210,7 +218,8 @@ router.get('/admin/all', authenticateUser, async (req, res) => {
       search,
       limit = 20,
       page = 1,
-      sort = 'newest'
+      sort = 'newest',
+      type = 'all' // NEW: Filter by course or guide
     } = req.query;
 
     // Build filter
@@ -235,6 +244,13 @@ router.get('/admin/all', authenticateUser, async (req, res) => {
         { 'instructor.name': { $regex: search, $options: 'i' } },
         { tools: { $regex: search, $options: 'i' } }
       ];
+    }
+    
+    // NEW: Apply type filter
+    if (type === 'courses') {
+      filter.isGuide = { $ne: true };
+    } else if (type === 'guides') {
+      filter.isGuide = true;
     }
 
     // Build sort
