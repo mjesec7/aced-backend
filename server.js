@@ -1,6 +1,6 @@
-// server.js - COMPLETE UPDATED VERSION WITH PROGRESS FIXES, PAYME INTEGRATION, NEW ROUTES, AND ENHANCED FILE UPLOADS
+// server.js - COMPLETE UPDATED VERSION WITH PROGRESS FIXES, PAYME INTEGRATION, AND NEW ROUTES FOR GUIDES, BOOKS, AND COURSES
 // ========================================
-// 🔧 COMPLETE MONGOOSE DEBUG SETUP WITH PAYME INTEGRATION, PROGRESS FIXES, AND ENHANCED FILE UPLOADS
+// 🔧 COMPLETE MONGOOSE DEBUG SETUP WITH PAYME INTEGRATION, PROGRESS FIXES, AND FILE UPLOADS
 // ========================================
 
 const express = require('express');
@@ -36,42 +36,42 @@ const preventInfiniteLoop = (req, res, next) => {
   const clientIP = req.ip || req.connection.remoteAddress;
   const userAgent = req.headers['user-agent'] || '';
   const key = `${clientIP}-${req.url}`;
-
+  
   // Set CORS headers early for all requests
   const origin = req.headers.origin;
-  const allowedOrigins = process.env.ALLOWED_ORIGINS
+  const allowedOrigins = process.env.ALLOWED_ORIGINS 
     ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
     : [
-      'https://aced.live',
-      'https://www.aced.live',
-      'https://api.aced.live',
-      'http://localhost:3000',
-      'http://localhost:3001',
-      'http://127.0.0.1:3000',
-      // PayMe allowed origins
-      'https://checkout.paycom.uz',
-      'https://checkout.test.paycom.uz',
-    ];
-
+        'https://aced.live',
+        'https://www.aced.live',
+        'https://api.aced.live',
+        'http://localhost:3000',
+        'http://localhost:3001',
+        'http://127.0.0.1:3000',
+        // PayMe allowed origins
+        'https://checkout.paycom.uz',
+        'https://checkout.test.paycom.uz',
+      ];
+  
   if (origin && allowedOrigins.includes(origin)) {
     res.header('Access-Control-Allow-Origin', origin);
     res.header('Access-Control-Allow-Credentials', 'true');
   }
-
+  
   // Check if this is a PayMe webhook vs browser request
-  const isPayMeWebhook = req.headers.authorization?.startsWith('Basic ') &&
-    req.headers['content-type']?.includes('application/json') &&
-    req.url === '/api/payments/payme';
+  const isPayMeWebhook = req.headers.authorization?.startsWith('Basic ') && 
+                        req.headers['content-type']?.includes('application/json') &&
+                        req.url === '/api/payments/payme';
   const isBrowserRequest = userAgent.includes('Mozilla') || userAgent.includes('Chrome');
-
+  
   // Allow PayMe webhooks but block browser requests to webhook endpoints
   const webhookPaths = ['/api/payments/payme'];
   const isWebhookPath = webhookPaths.some(path => req.url.startsWith(path));
-
+  
   if (isBrowserRequest && isWebhookPath && !req.headers['x-request-source'] && !isPayMeWebhook) {
-
+   
   }
-
+  
   // Rate limiting for all requests
   const now = Date.now();
   if (!requestTracker.has(key)) {
@@ -92,7 +92,7 @@ const preventInfiniteLoop = (req, res, next) => {
       requestTracker.set(key, { count: 1, firstRequest: now });
     }
   }
-
+  
   // Clean old entries
   if (requestTracker.size > 1000) {
     const cutoff = now - RATE_LIMIT_WINDOW;
@@ -102,7 +102,7 @@ const preventInfiniteLoop = (req, res, next) => {
       }
     }
   }
-
+  
   next();
 };
 
@@ -121,7 +121,7 @@ app.use(helmet({
 app.use(compression());
 
 // Enhanced JSON parsing with error handling for PayMe
-app.use(express.json({
+app.use(express.json({ 
   limit: '10mb',
   verify: (req, res, buf, encoding) => {
     // Store raw body for PayMe webhook verification
@@ -147,20 +147,21 @@ app.use((req, res, next) => {
   const timestamp = new Date().toISOString();
   const isPayMeRequest = req.url.includes('/payme') || req.url.includes('/payment');
   const isProgressRequest = req.url.includes('/progress') || req.url.includes('user-progress');
+  
 
-
-
+  
   // Special logging for PayMe requests with loop detection
   if (isPayMeRequest) {
     const userAgent = req.headers['user-agent'] || '';
     const isBrowser = userAgent.includes('Mozilla') || userAgent.includes('Chrome');
-    const isPayMeWebhook = req.headers.authorization?.startsWith('Basic ') &&
-      req.headers['content-type']?.includes('application/json');
-
+    const isPayMeWebhook = req.headers.authorization?.startsWith('Basic ') && 
+                          req.headers['content-type']?.includes('application/json');
+    
 
   }
+  
 
-
+  
   // Log POST/PUT request bodies (excluding sensitive data)
   if (['POST', 'PUT', 'PATCH'].includes(req.method) && req.body && !isPayMeRequest) {
     const logData = { ...req.body };
@@ -170,13 +171,13 @@ app.use((req, res, next) => {
     delete logData.token;
     delete logData.card;
   }
-
+  
   // Log response time
   const start = Date.now();
   res.on('finish', () => {
     const duration = Date.now() - start;
   });
-
+  
   next();
 });
 
@@ -185,24 +186,24 @@ app.use((req, res, next) => {
 // ========================================
 
 // Use environment variable for CORS origins with PayMe domains
-const allowedOrigins = process.env.ALLOWED_ORIGINS
+const allowedOrigins = process.env.ALLOWED_ORIGINS 
   ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
   : [
-    'https://aced.live',
-    'https://www.aced.live',
-    'https://admin.aced.live',
-    'http://localhost:3000',
-    'http://localhost:3001',
-    'http://127.0.0.1:3000',
-    // CRITICAL: PayMe allowed origins
-    'https://checkout.paycom.uz',
-    'https://checkout.test.paycom.uz',
-  ];
+      'https://aced.live',
+      'https://www.aced.live',
+      'https://admin.aced.live',
+      'http://localhost:3000',
+      'http://localhost:3001',
+      'http://127.0.0.1:3000',
+      // CRITICAL: PayMe allowed origins
+      'https://checkout.paycom.uz',
+      'https://checkout.test.paycom.uz',
+    ];
 
 // Add development origins if in dev mode
 if (process.env.NODE_ENV === 'development') {
   allowedOrigins.push(
-    'http://localhost:5173',
+    'http://localhost:5173', 
     'http://localhost:4173',
     'http://localhost:8080',
     'http://127.0.0.1:5173'
@@ -212,12 +213,12 @@ if (process.env.NODE_ENV === 'development') {
 
 app.use(cors({
   origin: (origin, callback) => {
-
+    
     // CRITICAL: Allow requests with no origin (PayMe webhooks, mobile apps, curl)
     if (!origin) {
       return callback(null, true);
     }
-
+    
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
@@ -227,8 +228,8 @@ app.use(cors({
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: [
-    'Content-Type',
-    'Authorization',
+    'Content-Type', 
+    'Authorization', 
     'X-Requested-With',
     'Accept',
     'Origin',
@@ -244,13 +245,13 @@ app.use(cors({
 
 // Handle preflight requests explicitly
 app.options('*', (req, res) => {
-
+  
   res.header('Access-Control-Allow-Origin', req.headers.origin);
   res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH');
   res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin,X-Auth,X-Request-Source,X-User-Agent,X-PayMe-Request');
   res.header('Access-Control-Allow-Credentials', 'true');
   res.header('Access-Control-Max-Age', '86400');
-
+  
   res.status(200).end();
 });
 
@@ -260,75 +261,76 @@ app.options('*', (req, res) => {
 
 const connectDB = async () => {
   try {
-
-
+  
+    
     // Check if MongoDB URI exists
     if (!process.env.MONGO_URI) {
       throw new Error('MONGO_URI environment variable is not set');
     }
-
+    
     // Fixed connection options for Mongoose 8.x
     const connectionOptions = {
       // Timeout settings
       serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000,
       connectTimeoutMS: 10000,
-
+      
       // Pool settings
       maxPoolSize: 10,
       minPoolSize: 2,
-
+      
       // Retry settings
       retryWrites: true,
       retryReads: true,
-
+      
       // Buffer settings - FIXED for Mongoose 8.x
       bufferCommands: false,
-
+      
       // Heartbeat
       heartbeatFrequencyMS: 10000,
-
+      
       // Auto-reconnect settings
       autoIndex: process.env.NODE_ENV !== 'production',
     };
-
-
+    
+ 
     // Attempt connection
     await mongoose.connect(process.env.MONGO_URI, connectionOptions);
+    
 
-
+    
     // Connection event listeners with better error handling
     mongoose.connection.on('connected', () => {
     });
-
+    
     mongoose.connection.on('error', (err) => {
       console.error('❌ MongoDB connection error:', err.message);
       if (err.stack && process.env.NODE_ENV === 'development') {
         console.error('Stack:', err.stack);
       }
     });
-
+    
     mongoose.connection.on('disconnected', () => {
     });
-
+    
     mongoose.connection.on('reconnected', () => {
     });
-
+    
     // Handle connection timeout
     mongoose.connection.on('timeout', () => {
       console.error('⏰ MongoDB connection timeout');
     });
-
+    
     mongoose.connection.on('close', () => {
     });
-
+    
     // Test the connection
     await mongoose.connection.db.admin().ping();
-
+    
   } catch (error) {
     console.error('\n❌ MongoDB connection failed:');
     console.error('Error message:', error.message);
-
+    
     // Detailed error analysis
     const connectionDetails = {
       hasMongoUri: !!process.env.MONGO_URI,
@@ -339,9 +341,9 @@ const connectDB = async () => {
       errorName: error.name,
       errorCode: error.code
     };
-
+    
     console.error('🔍 Connection analysis:', connectionDetails);
-
+    
     // Common error solutions
     if (error.message.includes('ENOTFOUND')) {
       console.error('💡 Solution: Check your MongoDB host/URL');
@@ -354,7 +356,7 @@ const connectDB = async () => {
     } else if (error.message.includes('not supported')) {
       console.error('💡 Solution: Mongoose version incompatibility - check connection options');
     }
-
+    
     if (process.env.NODE_ENV === 'production') {
       console.error('🚨 Exiting in production due to DB failure');
       process.exit(1);
@@ -370,7 +372,7 @@ const connectDB = async () => {
 
 // ✅ CRITICAL FIX: Add the main progress endpoint that's causing 404s
 app.post('/api/user-progress', async (req, res) => {
-
+  
   try {
     const {
       userId,
@@ -391,7 +393,7 @@ app.post('/api/user-progress', async (req, res) => {
 
 
     if (!userId || !lessonId) {
-      return res.status(400).json({
+      return res.status(400).json({ 
         success: false,
         message: '❌ userId and lessonId are required.',
         missing: { userId: !userId, lessonId: !lessonId }
@@ -401,10 +403,10 @@ app.post('/api/user-progress', async (req, res) => {
     // Import UserProgress model
     const UserProgress = require('./models/userProgress');
     const Lesson = require('./models/lesson');
-
+    
     // Validate lessonId format
     if (!mongoose.Types.ObjectId.isValid(lessonId)) {
-      return res.status(400).json({
+      return res.status(400).json({ 
         success: false,
         message: '❌ Invalid lessonId format.',
         received: lessonId
@@ -444,7 +446,7 @@ app.post('/api/user-progress', async (req, res) => {
       updateData.topicId = finalTopicId;
     }
 
-
+  
 
     const updated = await UserProgress.findOneAndUpdate(
       { userId, lessonId },
@@ -462,11 +464,11 @@ app.post('/api/user-progress', async (req, res) => {
 
   } catch (error) {
     console.error('❌ Error in /api/user-progress:', error);
-
+    
     if (error.name === 'CastError') {
-      return res.status(400).json({
+      return res.status(400).json({ 
         success: false,
-        message: '❌ Invalid data format - ObjectId casting failed',
+        message: '❌ Invalid data format - ObjectId casting failed', 
         error: {
           field: error.path,
           receivedValue: error.value,
@@ -479,17 +481,17 @@ app.post('/api/user-progress', async (req, res) => {
         message: e.message,
         value: e.value
       }));
-
-      return res.status(400).json({
+      
+      return res.status(400).json({ 
         success: false,
-        message: '❌ Validation error',
+        message: '❌ Validation error', 
         errors: validationErrors
       });
     }
-
-    res.status(500).json({
+    
+    res.status(500).json({ 
       success: false,
-      message: '❌ Server error',
+      message: '❌ Server error', 
       error: error.message
     });
   }
@@ -497,14 +499,14 @@ app.post('/api/user-progress', async (req, res) => {
 
 // ✅ CRITICAL FIX: Add alternative progress endpoint
 app.post('/api/progress', async (req, res) => {
-
+  
   try {
     // Same logic as above, but handle the endpoint difference
     const progressData = req.body;
-
+    
     // Ensure userId is in the data for this endpoint
     if (!progressData.userId) {
-      return res.status(400).json({
+      return res.status(400).json({ 
         success: false,
         message: '❌ userId is required in request body for /api/progress endpoint'
       });
@@ -531,7 +533,7 @@ app.post('/api/progress', async (req, res) => {
     } = progressData;
 
     if (!userId || !lessonId) {
-      return res.status(400).json({
+      return res.status(400).json({ 
         success: false,
         message: '❌ userId and lessonId are required.'
       });
@@ -539,7 +541,7 @@ app.post('/api/progress', async (req, res) => {
 
     // Validate lessonId
     if (!mongoose.Types.ObjectId.isValid(lessonId)) {
-      return res.status(400).json({
+      return res.status(400).json({ 
         success: false,
         message: '❌ Invalid lessonId format.'
       });
@@ -593,19 +595,19 @@ app.post('/api/progress', async (req, res) => {
 
   } catch (error) {
     console.error('❌ Error in /api/progress:', error);
-
+    
     if (error.name === 'CastError') {
-      return res.status(400).json({
+      return res.status(400).json({ 
         success: false,
-        message: '❌ Invalid data format',
+        message: '❌ Invalid data format', 
         field: error.path,
         value: error.value
       });
     }
-
-    res.status(500).json({
+    
+    res.status(500).json({ 
       success: false,
-      message: '❌ Server error',
+      message: '❌ Server error', 
       error: error.message
     });
   }
@@ -613,20 +615,20 @@ app.post('/api/progress', async (req, res) => {
 
 // ✅ ADD: Quick save endpoint for page unload
 app.post('/api/progress/quick-save', async (req, res) => {
-
+  
   try {
     const { userId, lessonId, progressPercent, currentStep } = req.body;
-
+    
     if (!userId || !lessonId) {
       return res.status(400).json({ success: false, message: 'Missing required fields' });
     }
 
     const UserProgress = require('./models/userProgress');
-
+    
     // Quick update without full validation
     await UserProgress.findOneAndUpdate(
       { userId, lessonId },
-      {
+      { 
         progressPercent: Math.min(100, Math.max(0, Number(progressPercent) || 0)),
         lastAccessedAt: new Date(),
         metadata: { quickSave: true, currentStep, timestamp: Date.now() }
@@ -635,7 +637,7 @@ app.post('/api/progress/quick-save', async (req, res) => {
     );
 
     res.status(200).json({ success: true, message: 'Quick save completed' });
-
+    
   } catch (error) {
     console.error('❌ Quick save error:', error);
     res.status(500).json({ success: false, error: error.message });
@@ -664,7 +666,7 @@ try {
 // ========================================
 
 if (handlePaymeWebhook && initiatePaymePayment) {
-
+  
   // ✅ CRITICAL: PayMe JSON-RPC webhook endpoint (WHERE PAYME SENDS REQUESTS)
   app.post('/api/payments/payme', (req, res, next) => {
     handlePaymeWebhook(req, res, next);
@@ -677,10 +679,10 @@ if (handlePaymeWebhook && initiatePaymePayment) {
 
   // ✅ PayMe return URLs (for success/failure/cancel)
   app.get('/api/payments/payme/return/success', (req, res) => {
-
+    
     const transactionId = req.query.transaction || req.query.id;
     const orderId = req.query.Login;
-
+    
     // Redirect to frontend success page
     const successParams = new URLSearchParams({
       transaction: transactionId || 'unknown',
@@ -688,15 +690,15 @@ if (handlePaymeWebhook && initiatePaymePayment) {
       status: 'success',
       source: 'payme'
     });
-
+    
     res.redirect(`https://aced.live/payment-success?${successParams.toString()}`);
   });
 
   app.get('/api/payments/payme/return/failure', (req, res) => {
-
+    
     const transactionId = req.query.transaction || req.query.id;
     const error = req.query.error || 'payment_failed';
-
+    
     // Redirect to frontend failure page
     const failureParams = new URLSearchParams({
       transaction: transactionId || 'unknown',
@@ -704,14 +706,14 @@ if (handlePaymeWebhook && initiatePaymePayment) {
       status: 'failed',
       source: 'payme'
     });
-
+    
     res.redirect(`https://aced.live/payment-failed?${failureParams.toString()}`);
   });
 
   app.get('/api/payments/payme/return/cancel', (req, res) => {
-
+    
     const transactionId = req.query.transaction || req.query.id;
-
+    
     // Redirect to frontend cancel page
     const cancelParams = new URLSearchParams({
       transaction: transactionId || 'unknown',
@@ -719,7 +721,7 @@ if (handlePaymeWebhook && initiatePaymePayment) {
       status: 'cancelled',
       source: 'payme'
     });
-
+    
     res.redirect(`https://aced.live/payment-failed?${cancelParams.toString()}`);
   });
 
@@ -771,10 +773,10 @@ const PAYMENT_AMOUNTS = {
 app.get('/api/payments/validate-user/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
-
+    
     // Find user
     const User = require('./models/user');
-
+    
     const user = await User.findOne({
       $or: [
         { firebaseId: userId },
@@ -782,7 +784,7 @@ app.get('/api/payments/validate-user/:userId', async (req, res) => {
         { email: userId }
       ]
     });
-
+    
     if (user) {
       res.json({
         success: true,
@@ -820,7 +822,7 @@ app.get('/api/payments/validate-user/:userId', async (req, res) => {
         });
       }
     }
-
+    
   } catch (error) {
     console.error('❌ User validation error:', error);
     res.status(500).json({
@@ -831,11 +833,11 @@ app.get('/api/payments/validate-user/:userId', async (req, res) => {
   }
 });
 
-// ✅ EMERGENCY: Add missing payment status route directly
+// ✅ EMERGENCY: Add missing payment status route directly  
 app.get('/api/payments/status/:transactionId/:userId?', async (req, res) => {
   try {
     const { transactionId, userId } = req.params;
-
+    
     // For development, return a sample response
     if (process.env.NODE_ENV === 'development') {
       res.json({
@@ -854,7 +856,7 @@ app.get('/api/payments/status/:transactionId/:userId?', async (req, res) => {
       try {
         const PaymeTransaction = require('./models/paymeTransaction');
         const transaction = await PaymeTransaction.findByPaymeId(transactionId);
-
+        
         if (transaction) {
           res.json({
             success: true,
@@ -888,7 +890,7 @@ app.get('/api/payments/status/:transactionId/:userId?', async (req, res) => {
         });
       }
     }
-
+    
   } catch (error) {
     console.error('❌ Payment status check error:', error);
     res.status(500).json({
@@ -904,17 +906,17 @@ app.post('/api/payments/initiate', async (req, res) => {
     const { userId, plan, name, phone } = req.body;
 
     if (!userId || !plan) {
-      return res.status(400).json({
+      return res.status(400).json({ 
         success: false,
-        message: '❌ userId and plan are required'
+        message: '❌ userId and plan are required' 
       });
     }
 
     const allowedPlans = ['start', 'pro'];
     if (!allowedPlans.includes(plan)) {
-      return res.status(400).json({
+      return res.status(400).json({ 
         success: false,
-        message: '❌ Invalid plan. Allowed: start, pro'
+        message: '❌ Invalid plan. Allowed: start, pro' 
       });
     }
 
@@ -935,7 +937,7 @@ app.post('/api/payments/initiate', async (req, res) => {
       });
 
       const paymentUrl = `https://checkout.paycom.uz/?${paymeParams.toString()}`;
-
+      
       return res.json({
         success: true,
         message: '✅ Redirecting to PayMe checkout',
@@ -998,44 +1000,44 @@ app.post('/api/payments/initiate', async (req, res) => {
 app.post('/api/payments/promo-code', async (req, res) => {
   try {
     const { userId, plan, promoCode } = req.body;
-
+    
     if (!userId || !plan || !promoCode) {
-      return res.status(400).json({
-        success: false,
-        error: 'Заполните все поля'
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Заполните все поля' 
       });
     }
 
     // ✅ Check if promocode exists in database
     const Promocode = require('./models/promoCode');
-    const promocode = await Promocode.findOne({
+    const promocode = await Promocode.findOne({ 
       code: promoCode.toUpperCase(),
-      isActive: true
+      isActive: true 
     });
 
     if (!promocode) {
-      return res.status(400).json({
-        success: false,
-        error: 'Промокод не найден'
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Промокод не найден' 
       });
     }
 
     // ✅ Check if promocode grants the right plan
     if (promocode.grantsPlan !== plan) {
-      return res.status(400).json({
-        success: false,
-        error: `Этот промокод для плана ${promocode.grantsPlan.toUpperCase()}`
+      return res.status(400).json({ 
+        success: false, 
+        error: `Этот промокод для плана ${promocode.grantsPlan.toUpperCase()}` 
       });
     }
 
     // ✅ SIMPLE: Just update user status
     const User = require('./models/user');
     const user = await User.findOne({ firebaseId: userId });
-
+    
     if (!user) {
-      return res.status(404).json({
-        success: false,
-        error: 'Пользователь не найден'
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Пользователь не найден' 
       });
     }
 
@@ -1055,9 +1057,9 @@ app.post('/api/payments/promo-code', async (req, res) => {
 
   } catch (error) {
     console.error('❌ Promocode error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Ошибка сервера'
+    res.status(500).json({ 
+      success: false, 
+      error: 'Ошибка сервера' 
     });
   }
 });
@@ -1066,8 +1068,8 @@ app.post('/api/payments/promo-code', async (req, res) => {
 app.post('/api/payments/generate-form', async (req, res) => {
   try {
     const { userId, plan, method = 'post', lang = 'ru', style = 'colored', qrWidth = 250 } = req.body;
-
-
+    
+    
     if (!userId || !plan) {
       return res.status(400).json({
         success: false,
@@ -1078,25 +1080,25 @@ app.post('/api/payments/generate-form', async (req, res) => {
     // ✅ IMPROVED: User finding logic with better error handling
     const User = require('./models/user');
     let user = null;
-
+    
     try {
       // Try multiple search strategies
       user = await User.findOne({ firebaseId: userId }) ||
-        await User.findById(userId).catch(() => null) ||
-        await User.findOne({ email: userId }).catch(() => null);
+             await User.findById(userId).catch(() => null) ||
+             await User.findOne({ email: userId }).catch(() => null);
     } catch (dbError) {
       // Create fallback user object
-      user = {
-        firebaseId: userId,
-        name: 'User',
+      user = { 
+        firebaseId: userId, 
+        name: 'User', 
         email: 'user@example.com',
         _id: userId
       };
     }
-
+    
     // If still no user, create fallback
     if (!user) {
-
+    
     }
 
     // ✅ Validate plan and get amount
@@ -1112,12 +1114,12 @@ app.post('/api/payments/generate-form', async (req, res) => {
     const merchantId = process.env.PAYME_MERCHANT_ID || 'test-merchant-id';
     const transactionId = `aced_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const isProduction = process.env.NODE_ENV === 'production';
-    const checkoutUrl = isProduction ?
-      (process.env.PAYME_CHECKOUT_URL || 'https://checkout.paycom.uz') :
+    const checkoutUrl = isProduction ? 
+      (process.env.PAYME_CHECKOUT_URL || 'https://checkout.paycom.uz') : 
       'https://checkout.test.paycom.uz';
-
-
-
+    
+ 
+    
     if (method === 'post') {
       // ✅ CRITICAL FIX: Use account[Login] in POST form
       const detail = {
@@ -1131,7 +1133,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
           package_code: "1"
         }]
       };
-
+      
       let detailBase64 = '';
       try {
         const detailJson = JSON.stringify(detail);
@@ -1140,22 +1142,27 @@ app.post('/api/payments/generate-form', async (req, res) => {
         console.error('❌ Detail encoding failed:', encodingError);
         detailBase64 = '';
       }
-
+      
       const formHtml = `
         <form method="POST" action="${checkoutUrl}/" id="payme-form" style="display: none;">
+          <!-- Required merchant information -->
           <input type="hidden" name="merchant" value="${merchantId}" />
           <input type="hidden" name="amount" value="${amount}" />
           
+          <!-- ✅ CRITICAL FIX: Use Login field instead of Login -->
           <input type="hidden" name="account[Login]" value="${user._id}" />
           
+          <!-- Optional parameters -->
           <input type="hidden" name="lang" value="${lang}" />
           <input type="hidden" name="callback" value="https://api.aced.live/api/payments/payme/return/success?transaction=${transactionId}&userId=${userId}" />
           <input type="hidden" name="callback_timeout" value="15000" />
           <input type="hidden" name="description" value="ACED ${plan.toUpperCase()} Plan Subscription" />
           <input type="hidden" name="currency" value="UZS" />
           
+          <!-- Receipt details -->
           ${detailBase64 ? `<input type="hidden" name="detail" value="${detailBase64}" />` : ''}
           
+          <!-- Submit button (hidden, auto-submit) -->
           <button type="submit" style="display: none;">Pay with PayMe</button>
         </form>
         
@@ -1181,14 +1188,14 @@ app.post('/api/payments/generate-form', async (req, res) => {
           }
         </script>
       `;
-
+      
       return res.json({
         success: true,
         method: 'POST',
         formHtml: formHtml,
-        transaction: {
-          id: transactionId,
-          amount: amount,
+        transaction: { 
+          id: transactionId, 
+          amount: amount, 
           plan: plan,
           accountLogin: user._id
         },
@@ -1199,7 +1206,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
           accountValue: user._id
         }
       });
-
+      
     } else if (method === 'get') {
       // ✅ CRITICAL FIX: Use ac.Login in GET URL
       const params = {
@@ -1208,40 +1215,40 @@ app.post('/api/payments/generate-form', async (req, res) => {
         l: lang,
         cr: 'UZS'
       };
-
+      
       // ✅ CRITICAL FIX: Use Login field instead of Login
       params['ac.Login'] = user._id;
-
+      
       // Add callback URL
       if (req.body.callback) {
         params.c = req.body.callback;
       } else {
         params.c = `https://api.aced.live/api/payments/payme/return/success?transaction=${transactionId}&userId=${userId}`;
       }
-
+      
       params.ct = 15000;
-
+      
       // ✅ Build parameter string with semicolon separator (PayMe requirement)
       const paramString = Object.entries(params)
         .map(([key, value]) => `${key}=${value}`)
         .join(';');
-
-
+      
+      
       // Base64 encode the parameters
       const encodedParams = Buffer.from(paramString, 'utf8').toString('base64');
       const paymentUrl = `${checkoutUrl}/${encodedParams}`;
-
+      
       // Verify encoding
       const decodedCheck = Buffer.from(encodedParams, 'base64').toString('utf8');
-
-
+    
+      
       return res.json({
         success: true,
         method: 'GET',
         paymentUrl: paymentUrl,
-        transaction: {
-          id: transactionId,
-          amount: amount,
+        transaction: { 
+          id: transactionId, 
+          amount: amount, 
           plan: plan,
           accountLogin: user._id
         },
@@ -1253,9 +1260,9 @@ app.post('/api/payments/generate-form', async (req, res) => {
           accountValue: user._id
         }
       });
-
+      
     }
-
+    
     // Invalid method fallback
     return res.status(400).json({
       success: false,
@@ -1263,7 +1270,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
       supportedMethods: ['post', 'get', 'button', 'qr'],
       received: method
     });
-
+    
   } catch (error) {
     console.error('❌ Emergency form generation error:', error);
     res.status(500).json({
@@ -1336,7 +1343,7 @@ const healthCheckHandler = async (req, res) => {
       modelLoaded: true,
       routesMounted: true
     },
-
+    
   };
 
   // Check MongoDB connection
@@ -1353,9 +1360,9 @@ const healthCheckHandler = async (req, res) => {
     healthCheck.database.error = error.message;
   }
 
-  const statusCode = healthCheck.database.status === 'connected' &&
-    healthCheck.payme.emergencyRoutesActive &&
-    healthCheck.progress.emergencyRoutesActive ? 200 : 503;
+  const statusCode = healthCheck.database.status === 'connected' && 
+                     healthCheck.payme.emergencyRoutesActive && 
+                     healthCheck.progress.emergencyRoutesActive ? 200 : 503;
   res.status(statusCode).json(healthCheck);
 };
 
@@ -1373,15 +1380,15 @@ const authTestHandler = async (req, res) => {
     authenticateUser(req, res, (err) => {
       if (err) {
         console.error('🔐 Auth test failed:', err.message);
-        return res.status(401).json({
+        return res.status(401).json({ 
           error: 'Authentication failed',
           message: err.message,
           server: 'api.aced.live',
           timestamp: new Date().toISOString()
         });
       }
-
-      res.json({
+      
+      res.json({ 
         message: `✅ Authentication successful for ${req.user?.email}`,
         uid: req.user?.uid,
         server: 'api.aced.live',
@@ -1410,12 +1417,12 @@ app.get('/api/auth-test', authTestHandler);
 const mountRoute = (path, routeFile, description) => {
   try {
     const route = require(routeFile);
-
+    
     // Add error handling middleware for each route
     app.use(path, (req, res, next) => {
       next();
     }, route);
-
+    
     return true;
   } catch (error) {
     console.error(`❌ Failed to mount ${path}:`, error.message);
@@ -1429,14 +1436,14 @@ const routesToMount = [
   ['/api/payments', './routes/payments', 'Main payment routes (CRITICAL)'],
   ['/api/promocodes', './routes/promocodeRoutes', 'Promocode management routes (ADMIN)'],
 
-
+  
   // PayMe routes (legacy)
   ['/api/payments', './routes/paymeRoutes', 'PayMe payment routes (legacy)'],
-
+  
   // User routes - CRITICAL
   ['/api/users', './routes/userRoutes', 'User management routes (MAIN)'],
   ['/api/user', './routes/userRoutes', 'User management routes (LEGACY)'],
-
+  
   // Other routes
   ['/api/progress', './routes/userProgressRoutes', 'Progress tracking routes'],
   ['/api/lessons', './routes/lessonRoutes', 'Lesson management routes'],
@@ -1447,7 +1454,7 @@ const routesToMount = [
   ['/api/tests', './routes/testRoutes', 'Test/quiz routes'],
   ['/api/analytics', './routes/userAnalytics', 'User analytics routes'],
   ['/api/updated-courses', './routes/updatedCourses', 'Updated Courses routes (MAIN FRONTEND)'],
-
+  
   // NEW: Routes for Guides and Books
   ['/api/guides', './routes/guides', 'Guides routes'],
   ['/api/books', './routes/books', 'Books routes'],
@@ -1477,44 +1484,44 @@ if (failedRoutes.length > 0) {
 
 // ✅ EMERGENCY FIX: Add user save route directly (FIXED VERSION)
 app.post('/api/users/save', async (req, res) => {
-
+  
   const { token, name, subscriptionPlan } = req.body;
-
+  
   if (!token || !name) {
-    return res.status(400).json({
+    return res.status(400).json({ 
       error: '❌ Missing token or name',
       server: 'api.aced.live'
     });
   }
-
+  
   try {
     // ✅ Import Firebase Admin directly, not through config
     const admin = require('firebase-admin');
     const User = require('./models/user');
-
+    
     const decoded = await admin.auth().verifyIdToken(token);
-
-
-
+    
+    
+    
     if (decoded.aud !== 'aced-9cf72') {
-      return res.status(403).json({
+      return res.status(403).json({ 
         error: '❌ Token from wrong Firebase project',
         expected: 'aced-9cf72',
         received: decoded.aud
       });
     }
-
+    
     const firebaseId = decoded.uid;
     const email = decoded.email;
 
     let user = await User.findOne({ firebaseId });
     if (!user) {
-      user = new User({
-        firebaseId,
-        email,
-        name,
+      user = new User({ 
+        firebaseId, 
+        email, 
+        name, 
         Login: email,
-        subscriptionPlan: subscriptionPlan || 'free'
+        subscriptionPlan: subscriptionPlan || 'free' 
       });
     } else {
       user.email = email;
@@ -1524,16 +1531,16 @@ app.post('/api/users/save', async (req, res) => {
     }
 
     await user.save();
-
+    
     res.json({
       ...user.toObject(),
       message: '✅ User saved via emergency route',
       server: 'api.aced.live'
     });
-
+    
   } catch (err) {
     console.error('❌ Emergency save error:', err.message);
-    res.status(401).json({
+    res.status(401).json({ 
       error: '❌ Invalid Firebase token',
       details: err.message,
       server: 'api.aced.live'
@@ -1576,12 +1583,12 @@ app.get('/api/db-health', async (req, res) => {
       name: mongoose.connection.name,
       states: {
         0: 'disconnected',
-        1: 'connected',
+        1: 'connected', 
         2: 'connecting',
         3: 'disconnecting'
       }
     };
-
+    
     if (dbStatus.connected) {
       // Test actual database operation
       try {
@@ -1593,15 +1600,15 @@ app.get('/api/db-health', async (req, res) => {
         dbStatus.pingError = pingError.message;
       }
     }
-
+    
     const statusCode = dbStatus.connected && dbStatus.ping === 'successful' ? 200 : 503;
-
+    
     res.status(statusCode).json({
       database: dbStatus,
       server: 'api.aced.live',
       timestamp: new Date().toISOString()
     });
-
+    
   } catch (error) {
     res.status(500).json({
       database: {
@@ -1655,23 +1662,22 @@ app.get('/api/status', (req, res) => {
       quickSave: '/api/progress/quick-save'
     }
   });
-});
-app.get('/api/admin/users', async (req, res) => {
+});app.get('/api/admin/users', async (req, res) => {
   try {
-
-    const {
-      page = 1,
-      limit = 50,
-      search = '',
-      plan = '',
-      status = ''
+    
+    const { 
+      page = 1, 
+      limit = 50, 
+      search = '', 
+      plan = '', 
+      status = '' 
     } = req.query;
 
     const User = require('./models/user');
-
+    
     // Build filter
     const filter = {};
-
+    
     if (search) {
       filter.$or = [
         { email: { $regex: search, $options: 'i' } },
@@ -1679,11 +1685,11 @@ app.get('/api/admin/users', async (req, res) => {
         { firebaseId: { $regex: search, $options: 'i' } }
       ];
     }
-
+    
     if (plan && plan !== 'all') {
       filter.subscriptionPlan = plan;
     }
-
+    
     if (status === 'active') {
       filter.isBlocked = { $ne: true };
     } else if (status === 'blocked') {
@@ -1691,7 +1697,7 @@ app.get('/api/admin/users', async (req, res) => {
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
-
+    
     const [users, total] = await Promise.all([
       User.find(filter)
         .sort({ createdAt: -1 })
@@ -1751,7 +1757,7 @@ app.get('/api/admin/users', async (req, res) => {
 // ✅ GET /api/users/all - Alternative endpoint
 app.get('/api/users/all', async (req, res) => {
   try {
-
+    
     const User = require('./models/user');
     const users = await User.find({})
       .select('firebaseId email name subscriptionPlan isBlocked createdAt lastLoginAt studyList')
@@ -1785,7 +1791,7 @@ app.get('/api/users/all', async (req, res) => {
 
 app.get('/api/routes', (req, res) => {
   const routes = [];
-
+  
   function extractRoutes(stack, basePath = '') {
     stack.forEach(layer => {
       if (layer.route) {
@@ -1800,7 +1806,7 @@ app.get('/api/routes', (req, res) => {
       }
     });
   }
-
+  
   app._router.stack.forEach(layer => {
     if (layer.route) {
       const methods = Object.keys(layer.route.methods).join(', ').toUpperCase();
@@ -1820,9 +1826,9 @@ app.get('/api/routes', (req, res) => {
       extractRoutes(layer.handle.stack, basePath);
     }
   });
-
+  
   routes.sort((a, b) => a.path.localeCompare(b.path));
-
+  
   const groupedRoutes = {};
   routes.forEach(route => {
     const basePath = route.path.split('/')[1] || 'root';
@@ -1844,7 +1850,7 @@ app.get('/api/routes', (req, res) => {
     { path: '/api/updated-courses/admin/stats', methods: 'GET', description: 'Admin: Get course statistics', status: 'ACTIVE' },
     { path: '/api/updated-courses/admin/bulk-import', methods: 'POST', description: 'Admin: Bulk import courses', status: 'ACTIVE' }
   ];
-
+  
   res.json({
     server: 'api.aced.live',
     totalRoutes: routes.length,
@@ -1884,7 +1890,7 @@ app.get('/api/routes', (req, res) => {
       { path: '/api/users/save', methods: 'POST', description: 'Emergency user save', status: 'ACTIVE' },
       { path: '/api/users/test', methods: 'GET', description: 'User routes test', status: 'ACTIVE' }
     ],
-
+    
     mountedRoutes: mountedRoutes.map(r => r.path),
     failedRoutes: failedRoutes.map(r => ({ path: r.path, reason: 'Module load failed' })),
     timestamp: new Date().toISOString(),
@@ -1917,470 +1923,49 @@ app.get('/api/routes', (req, res) => {
   });
 });
 // ========================================
-// 🖼️ ENHANCED FILE UPLOAD MIDDLEWARE WITH PDF SUPPORT
+// 🖼️ FILE UPLOAD MIDDLEWARE
 // ========================================
 
-// Enhanced storage configuration
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    let uploadDir = 'uploads/';
-
-    // Create type-specific directories
-    if (file.mimetype.startsWith('image/')) {
-      uploadDir = 'uploads/images/';
-    } else if (file.mimetype === 'application/pdf') {
-      uploadDir = 'uploads/pdfs/';
-    } else {
-      uploadDir = 'uploads/files/';
-    }
-
-    // Ensure directory exists
+    const uploadDir = 'uploads/';
     fs.mkdirSync(uploadDir, { recursive: true });
     cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
-    // Generate unique filename with original extension
-    const uniqueName = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const uniqueName = uuidv4();
     const fileExtension = path.extname(file.originalname);
-    const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
-
-    cb(null, `${uniqueName}_${sanitizedName}`);
+    cb(null, uniqueName + fileExtension);
   }
 });
 
-// Enhanced file filter
-const fileFilter = (req, file, cb) => {
-  console.log('📁 File upload filter:', {
-    originalname: file.originalname,
-    mimetype: file.mimetype,
-    size: file.size
-  });
-
-  // Allowed file types
-  const allowedTypes = {
-    'image/jpeg': { maxSize: 10 * 1024 * 1024, category: 'image' }, // 10MB
-    'image/jpg': { maxSize: 10 * 1024 * 1024, category: 'image' },
-    'image/png': { maxSize: 10 * 1024 * 1024, category: 'image' },
-    'image/gif': { maxSize: 5 * 1024 * 1024, category: 'image' }, // 5MB
-    'image/webp': { maxSize: 10 * 1024 * 1024, category: 'image' },
-    'application/pdf': { maxSize: 50 * 1024 * 1024, category: 'pdf' }, // 50MB for PDFs
-    'text/plain': { maxSize: 1 * 1024 * 1024, category: 'text' } // 1MB
-  };
-
-  if (allowedTypes[file.mimetype]) {
-    const fileConfig = allowedTypes[file.mimetype];
-
-    // Check file size
-    if (file.size > fileConfig.maxSize) {
-      const maxSizeMB = Math.round(fileConfig.maxSize / (1024 * 1024));
-      return cb(new Error(`File too large. Maximum size for ${fileConfig.category} files is ${maxSizeMB}MB`), false);
-    }
-
-    req.fileCategory = fileConfig.category;
-    cb(null, true);
-  } else {
-    cb(new Error(`File type ${file.mimetype} not allowed. Allowed: images, PDFs, text files`), false);
-  }
-};
-
-// Create enhanced multer instance
-const fileUpload = multer({
-  storage: storage,
-  fileFilter: fileFilter,
-  limits: {
-    fileSize: 50 * 1024 * 1024, // 50MB max
-    files: 10, // Max 10 files at once
-    fieldSize: 1024 * 1024 // 1MB field size
-  }
-});
+const fileUpload = multer({ storage: storage });
 
 // ========================================
-// 📚 ENHANCED FILE UPLOAD ROUTES
+// 📚 NEW FILE UPLOAD ROUTE
 // ========================================
 
-// Single file upload
 app.post('/api/upload', fileUpload.single('file'), (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        message: 'No file uploaded'
-      });
+      return res.status(400).json({ success: false, message: 'No file uploaded' });
     }
-
-    console.log('✅ File uploaded successfully:', {
-      originalname: req.file.originalname,
-      filename: req.file.filename,
-      size: req.file.size,
-      mimetype: req.file.mimetype,
-      path: req.file.path
-    });
-
-    // Generate accessible URL
     const fileUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
-    const relativePath = req.file.path.replace(/\\/g, '/'); // Normalize path separators
-
-    // Determine file type and category
-    const fileCategory = req.fileCategory || 'unknown';
-    const isImage = req.file.mimetype.startsWith('image/');
-    const isPdf = req.file.mimetype === 'application/pdf';
-
-    const response = {
+    res.json({
       success: true,
       message: 'File uploaded successfully',
-      data: {
-        url: fileUrl,
-        filename: req.file.filename,
-        originalName: req.file.originalname,
-        mimetype: req.file.mimetype,
-        size: req.file.size,
-        category: fileCategory,
-        isImage: isImage,
-        isPdf: isPdf,
-        path: relativePath,
-        uploadedAt: new Date().toISOString()
-      }
-    };
-
-    // Add PDF-specific metadata
-    if (isPdf) {
-      response.data.downloadable = true;
-      response.data.viewerUrl = `${fileUrl}#view=FitH`; // PDF viewer parameter
-    }
-
-    // Add image-specific metadata
-    if (isImage) {
-      response.data.thumbnail = fileUrl; // Could be enhanced with actual thumbnail generation
-    }
-
-    res.json(response);
-
+      url: fileUrl,
+      filename: req.file.filename,
+      mimetype: req.file.mimetype,
+      size: req.file.size
+    });
   } catch (error) {
     console.error('❌ File upload error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'File upload failed',
-      error: error.message
-    });
+    res.status(500).json({ success: false, message: 'File upload failed' });
   }
 });
 
-// Multiple files upload
-app.post('/api/upload-multiple', fileUpload.array('files', 10), (req, res) => {
-  try {
-    if (!req.files || req.files.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'No files uploaded'
-      });
-    }
-
-    console.log(`✅ ${req.files.length} files uploaded successfully`);
-
-    const uploadedFiles = req.files.map(file => {
-      const fileUrl = `${req.protocol}://${req.get('host')}/uploads/${file.filename}`;
-      const isImage = file.mimetype.startsWith('image/');
-      const isPdf = file.mimetype === 'application/pdf';
-
-      return {
-        url: fileUrl,
-        filename: file.filename,
-        originalName: file.originalname,
-        mimetype: file.mimetype,
-        size: file.size,
-        isImage: isImage,
-        isPdf: isPdf,
-        uploadedAt: new Date().toISOString()
-      };
-    });
-
-    res.json({
-      success: true,
-      message: `${req.files.length} files uploaded successfully`,
-      data: {
-        files: uploadedFiles,
-        count: uploadedFiles.length
-      }
-    });
-
-  } catch (error) {
-    console.error('❌ Multiple file upload error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Multiple file upload failed',
-      error: error.message
-    });
-  }
-});
-
-// ========================================
-// 📁 ENHANCED STATIC FILE SERVING
-// ========================================
-
-// Serve uploaded files with proper headers
-app.use('/uploads', (req, res, next) => {
-  const filePath = path.join(__dirname, 'uploads', req.path);
-  const ext = path.extname(req.path).toLowerCase();
-
-  // Set appropriate headers based on file type
-  if (ext === '.pdf') {
-    res.set({
-      'Content-Type': 'application/pdf',
-      'Content-Disposition': 'inline', // Display in browser, not download
-      'Cache-Control': 'public, max-age=31536000', // Cache for 1 year
-      'X-Content-Type-Options': 'nosniff'
-    });
-  } else if (['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(ext)) {
-    res.set({
-      'Cache-Control': 'public, max-age=31536000', // Cache for 1 year
-      'X-Content-Type-Options': 'nosniff'
-    });
-  }
-
-  next();
-}, express.static('uploads', {
-  maxAge: process.env.NODE_ENV === 'production' ? '1y' : 0,
-  etag: true,
-  lastModified: true,
-  setHeaders: (res, path) => {
-    // Additional security headers
-    res.set('X-Content-Type-Options', 'nosniff');
-    res.set('X-Frame-Options', 'SAMEORIGIN');
-  }
-}));
-
-// ========================================
-// 📄 PDF-SPECIFIC ROUTES
-// ========================================
-
-// Get PDF metadata
-app.get('/api/files/pdf/:filename/info', (req, res) => {
-  try {
-    const filename = req.params.filename;
-    const filePath = path.join(__dirname, 'uploads/pdfs', filename);
-
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({
-        success: false,
-        error: 'PDF file not found'
-      });
-    }
-
-    const stats = fs.statSync(filePath);
-    const fileUrl = `${req.protocol}://${req.get('host')}/uploads/pdfs/${filename}`;
-
-    res.json({
-      success: true,
-      data: {
-        filename: filename,
-        size: stats.size,
-        sizeFormatted: formatFileSize(stats.size),
-        url: fileUrl,
-        downloadUrl: `${fileUrl}?download=true`,
-        viewerUrl: `${fileUrl}#view=FitH`,
-        lastModified: stats.mtime,
-        isPdf: true,
-        accessible: true
-      }
-    });
-
-  } catch (error) {
-    console.error('❌ PDF info error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to get PDF information'
-    });
-  }
-});
-
-// Force PDF download
-app.get('/api/files/pdf/:filename/download', (req, res) => {
-  try {
-    const filename = req.params.filename;
-    const filePath = path.join(__dirname, 'uploads/pdfs', filename);
-
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({
-        success: false,
-        error: 'PDF file not found'
-      });
-    }
-
-    res.set({
-      'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="${filename}"`,
-      'Cache-Control': 'no-cache'
-    });
-
-    res.sendFile(path.resolve(filePath));
-
-  } catch (error) {
-    console.error('❌ PDF download error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to download PDF'
-    });
-  }
-});
-
-// ========================================
-// 🔧 UTILITY FUNCTIONS
-// ========================================
-
-function formatFileSize(bytes) {
-  if (bytes === 0) return '0 Bytes';
-  const k = 1024;
-  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
-
-// ========================================
-// 📋 FILE MANAGEMENT ROUTES
-// ========================================
-
-// List uploaded files (admin only)
-app.get('/api/files/list', (req, res) => {
-  try {
-    const { type = 'all', limit = 50, page = 1 } = req.query;
-
-    const uploadsDir = path.join(__dirname, 'uploads');
-    const files = [];
-
-    // Recursively get all files
-    function getFilesRecursively(dir, baseDir = '') {
-      const items = fs.readdirSync(dir);
-
-      items.forEach(item => {
-        const fullPath = path.join(dir, item);
-        const relativePath = path.join(baseDir, item);
-
-        if (fs.statSync(fullPath).isDirectory()) {
-          getFilesRecursively(fullPath, relativePath);
-        } else {
-          const stats = fs.statSync(fullPath);
-          const ext = path.extname(item).toLowerCase();
-          const isImage = ['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(ext);
-          const isPdf = ext === '.pdf';
-
-          // Filter by type if specified
-          if (type === 'images' && !isImage) return;
-          if (type === 'pdfs' && !isPdf) return;
-
-          files.push({
-            filename: item,
-            path: relativePath.replace(/\\/g, '/'),
-            url: `${req.protocol}://${req.get('host')}/uploads/${relativePath.replace(/\\/g, '/')}`,
-            size: stats.size,
-            sizeFormatted: formatFileSize(stats.size),
-            lastModified: stats.mtime,
-            isImage: isImage,
-            isPdf: isPdf,
-            mimetype: getMimeType(ext)
-          });
-        }
-      });
-    }
-
-    if (fs.existsSync(uploadsDir)) {
-      getFilesRecursively(uploadsDir);
-    }
-
-    // Sort by last modified (newest first)
-    files.sort((a, b) => new Date(b.lastModified) - new Date(a.lastModified));
-
-    // Pagination
-    const startIndex = (page - 1) * limit;
-    const endIndex = startIndex + parseInt(limit);
-    const paginatedFiles = files.slice(startIndex, endIndex);
-
-    res.json({
-      success: true,
-      data: {
-        files: paginatedFiles,
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          total: files.length,
-          pages: Math.ceil(files.length / limit)
-        },
-        stats: {
-          total: files.length,
-          images: files.filter(f => f.isImage).length,
-          pdfs: files.filter(f => f.isPdf).length,
-          totalSize: files.reduce((sum, f) => sum + f.size, 0),
-          totalSizeFormatted: formatFileSize(files.reduce((sum, f) => sum + f.size, 0))
-        }
-      }
-    });
-
-  } catch (error) {
-    console.error('❌ File list error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to list files'
-    });
-  }
-});
-
-// Delete uploaded file (admin only)
-app.delete('/api/files/:filename', (req, res) => {
-  try {
-    const filename = req.params.filename;
-
-    // Search for file in all upload directories
-    const searchDirs = ['uploads/images', 'uploads/pdfs', 'uploads/files', 'uploads'];
-    let filePath = null;
-
-    for (const dir of searchDirs) {
-      const testPath = path.join(__dirname, dir, filename);
-      if (fs.existsSync(testPath)) {
-        filePath = testPath;
-        break;
-      }
-    }
-
-    if (!filePath) {
-      return res.status(404).json({
-        success: false,
-        error: 'File not found'
-      });
-    }
-
-    fs.unlinkSync(filePath);
-
-    console.log('✅ File deleted:', filename);
-
-    res.json({
-      success: true,
-      message: 'File deleted successfully',
-      filename: filename
-    });
-
-  } catch (error) {
-    console.error('❌ File deletion error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to delete file'
-    });
-  }
-});
-
-function getMimeType(ext) {
-  const mimeTypes = {
-    '.jpg': 'image/jpeg',
-    '.jpeg': 'image/jpeg',
-    '.png': 'image/png',
-    '.gif': 'image/gif',
-    '.webp': 'image/webp',
-    '.pdf': 'application/pdf',
-    '.txt': 'text/plain'
-  };
-  return mimeTypes[ext] || 'application/octet-stream';
-}
-
-
-console.log('✅ Enhanced file upload system loaded with PDF support');
+app.use('/uploads', express.static('uploads'));
 
 // ========================================
 // 📂 NEW FILE MODELS & ROUTES (CRITICAL)
@@ -2458,10 +2043,10 @@ app.use('/api/books', booksRouter);
 
 // ✅ GET /api/user-progress/user/:userId/lesson/:lessonId
 app.get('/api/user-progress/user/:userId/lesson/:lessonId', async (req, res) => {
-
+  
   try {
     const { userId, lessonId } = req.params;
-
+    
     // Basic validation
     if (!userId || !lessonId) {
       return res.status(400).json({
@@ -2469,24 +2054,24 @@ app.get('/api/user-progress/user/:userId/lesson/:lessonId', async (req, res) => 
         error: 'userId and lessonId are required'
       });
     }
-
+    
     // Import models
     const UserProgress = require('./models/userProgress');
-
+    
     // Find progress
-    const progress = await UserProgress.findOne({
-      userId: userId,
-      lessonId: lessonId
+    const progress = await UserProgress.findOne({ 
+      userId: userId, 
+      lessonId: lessonId 
     }).populate('lessonId', 'title description order')
       .populate('topicId', 'title description order');
-
-
+    
+    
     res.json({
       success: true,
       data: progress || null,
       message: progress ? '✅ Progress found' : '⚠️ No progress found for this lesson'
     });
-
+    
   } catch (error) {
     console.error('❌ Error in user-progress lesson route:', error);
     res.status(500).json({
@@ -2499,11 +2084,11 @@ app.get('/api/user-progress/user/:userId/lesson/:lessonId', async (req, res) => 
 
 // ✅ POST /api/user-progress/user/:userId/lesson/:lessonId
 app.post('/api/user-progress/user/:userId/lesson/:lessonId', async (req, res) => {
-
+  
   try {
     const { userId, lessonId } = req.params;
     const progressData = req.body;
-
+    
     // Basic validation
     if (!userId || !lessonId) {
       return res.status(400).json({
@@ -2511,11 +2096,11 @@ app.post('/api/user-progress/user/:userId/lesson/:lessonId', async (req, res) =>
         error: 'userId and lessonId are required'
       });
     }
-
+    
     // Import models
     const UserProgress = require('./models/userProgress');
     const Lesson = require('./models/lesson');
-
+    
     // Get topicId from lesson if not provided
     let finalTopicId = progressData.topicId;
     if (!finalTopicId) {
@@ -2527,7 +2112,7 @@ app.post('/api/user-progress/user/:userId/lesson/:lessonId', async (req, res) =>
       } catch (lessonError) {
       }
     }
-
+    
     const updateData = {
       userId: userId,
       lessonId: lessonId,
@@ -2544,45 +2129,45 @@ app.post('/api/user-progress/user/:userId/lesson/:lessonId', async (req, res) =>
       submittedHomework: Boolean(progressData.submittedHomework),
       updatedAt: new Date()
     };
-
+    
     // Remove null/undefined fields
     Object.keys(updateData).forEach(key => {
       if (updateData[key] === null || updateData[key] === undefined) {
         delete updateData[key];
       }
     });
-
+    
     const updated = await UserProgress.findOneAndUpdate(
       { userId: userId, lessonId: lessonId },
       updateData,
       { upsert: true, new: true, runValidators: true }
     );
-
-
+    
+    
     res.json({
       success: true,
       data: updated,
       message: '✅ Progress saved successfully'
     });
-
+    
   } catch (error) {
     console.error('❌ Error saving user-progress lesson:', error);
-
+    
     if (error.name === 'CastError') {
-      res.status(400).json({
+      res.status(400).json({ 
         success: false,
         error: 'Invalid data format',
         field: error.path,
         value: error.value
       });
     } else if (error.name === 'ValidationError') {
-      res.status(400).json({
+      res.status(400).json({ 
         success: false,
         error: 'Validation error',
         details: Object.values(error.errors).map(e => e.message)
       });
     } else {
-      res.status(500).json({
+      res.status(500).json({ 
         success: false,
         error: 'Error saving progress',
         details: error.message
@@ -2593,25 +2178,25 @@ app.post('/api/user-progress/user/:userId/lesson/:lessonId', async (req, res) =>
 
 // ✅ GET /api/user-progress (for general user progress queries)
 app.get('/api/user-progress', async (req, res) => {
-
+  
   try {
     const { userId, lessonId } = req.query;
-
+    
     if (!userId) {
       return res.status(400).json({
         success: false,
         error: 'userId is required as query parameter'
       });
     }
-
+    
     const UserProgress = require('./models/userProgress');
-
+    
     if (lessonId) {
       // Get specific lesson progress
       const progress = await UserProgress.findOne({ userId, lessonId })
         .populate('lessonId', 'title description order')
         .populate('topicId', 'title description order');
-
+      
       return res.json({
         success: true,
         data: progress || null,
@@ -2630,7 +2215,7 @@ app.get('/api/user-progress', async (req, res) => {
         message: '✅ All progress loaded'
       });
     }
-
+    
   } catch (error) {
     console.error('❌ Error in user-progress general route:', error);
     res.status(500).json({
@@ -2647,10 +2232,10 @@ app.get('/api/user-progress', async (req, res) => {
 
 // ✅ GET /api/homeworks/user/:userId
 app.get('/api/homeworks/user/:userId', async (req, res) => {
-
+  
   try {
     const { userId } = req.params;
-
+    
     // Try to import models
     let HomeworkProgress, Homework, Lesson;
     try {
@@ -2664,29 +2249,29 @@ app.get('/api/homeworks/user/:userId', async (req, res) => {
         message: 'Homework models not available'
       });
     }
-
+    
     // Get user progress
     const userProgress = await HomeworkProgress.find({ userId })
       .populate('lessonId', 'title lessonName subject homework')
       .sort({ updatedAt: -1 });
-
+    
     // Get standalone homework
     const standaloneHomework = await Homework.find({ isActive: true });
-
+    
     // Get lessons with homework
-    const lessonsWithHomework = await Lesson.find({
-      homework: { $exists: true, $ne: [], $not: { $size: 0 } }
+    const lessonsWithHomework = await Lesson.find({ 
+      homework: { $exists: true, $ne: [], $not: { $size: 0 } } 
     });
-
+    
     const allHomeworks = [];
-
+    
     // Add standalone homework
     for (const hw of standaloneHomework) {
-      const userHwProgress = userProgress.find(up =>
+      const userHwProgress = userProgress.find(up => 
         up.homeworkId?.toString() === hw._id.toString() ||
         up.metadata?.standaloneHomeworkId === hw._id.toString()
       );
-
+      
       allHomeworks.push({
         _id: hw._id,
         title: hw.title,
@@ -2703,11 +2288,11 @@ app.get('/api/homeworks/user/:userId', async (req, res) => {
         hasProgress: !!userHwProgress
       });
     }
-
+    
     // Add lesson-based homework
     for (const lesson of lessonsWithHomework) {
       const userHwProgress = userProgress.find(up => up.lessonId?.toString() === lesson._id.toString());
-
+      
       allHomeworks.push({
         lessonId: lesson._id,
         title: `Домашнее задание: ${lesson.lessonName || lesson.title}`,
@@ -2723,7 +2308,7 @@ app.get('/api/homeworks/user/:userId', async (req, res) => {
         hasProgress: !!userHwProgress
       });
     }
-
+    
     // Sort by priority
     allHomeworks.sort((a, b) => {
       const getStatus = (hw) => {
@@ -2731,24 +2316,24 @@ app.get('/api/homeworks/user/:userId', async (req, res) => {
         if (!hw.completed) return 'in-progress';
         return 'completed';
       };
-
+      
       const statusPriority = { 'in-progress': 0, 'pending': 1, 'completed': 2 };
       const aStatus = getStatus(a);
       const bStatus = getStatus(b);
-
+      
       if (statusPriority[aStatus] !== statusPriority[bStatus]) {
         return statusPriority[aStatus] - statusPriority[bStatus];
       }
-
+      
       return new Date(b.updatedAt) - new Date(a.updatedAt);
     });
-
+    
     res.json({
       success: true,
       data: allHomeworks,
       message: '✅ Homework list retrieved successfully'
     });
-
+    
   } catch (error) {
     console.error('❌ Error fetching user homeworks:', error);
     res.status(500).json({
@@ -2761,17 +2346,17 @@ app.get('/api/homeworks/user/:userId', async (req, res) => {
 
 // ✅ GET /api/homeworks/user/:userId/lesson/:lessonId
 app.get('/api/homeworks/user/:userId/lesson/:lessonId', async (req, res) => {
-
+  
   try {
     const { userId, lessonId } = req.params;
-
+    
     const Lesson = require('./models/lesson');
     let HomeworkProgress;
     try {
       HomeworkProgress = require('./models/homeworkProgress');
     } catch (modelError) {
     }
-
+    
     // Get lesson
     const lesson = await Lesson.findById(lessonId);
     if (!lesson) {
@@ -2780,14 +2365,14 @@ app.get('/api/homeworks/user/:userId/lesson/:lessonId', async (req, res) => {
         error: 'Lesson not found'
       });
     }
-
+    
     if (!lesson.homework || !Array.isArray(lesson.homework) || lesson.homework.length === 0) {
       return res.json({
         success: false,
         error: 'В этом уроке нет домашнего задания'
       });
     }
-
+    
     // Try to get user progress
     let userProgress = null;
     if (HomeworkProgress) {
@@ -2799,7 +2384,7 @@ app.get('/api/homeworks/user/:userId/lesson/:lessonId', async (req, res) => {
       } catch (progressError) {
       }
     }
-
+    
     res.json({
       success: true,
       data: {
@@ -2813,7 +2398,7 @@ app.get('/api/homeworks/user/:userId/lesson/:lessonId', async (req, res) => {
         }
       }
     });
-
+    
   } catch (error) {
     console.error('❌ Error fetching homework by lesson:', error);
     res.status(500).json({
@@ -2843,12 +2428,12 @@ const requireAuth = async (req, res, next) => {
     if (!req.headers.authorization) {
       return res.status(401).json({ success: false, error: 'Authentication required' });
     }
-
+    
     // For now, assume authenticated admin user
-    req.user = {
-      uid: 'admin',
-      email: 'admin@aced.live',
-      name: 'Admin User'
+    req.user = { 
+      uid: 'admin', 
+      email: 'admin@aced.live', 
+      name: 'Admin User' 
     };
     next();
   } catch (error) {
@@ -2859,20 +2444,20 @@ const requireAuth = async (req, res, next) => {
 // ✅ GET /api/promocodes - Get all promocodes with pagination and filtering
 app.get('/api/promocodes', requireAuth, async (req, res) => {
   try {
-
-    const {
-      page = 1,
-      limit = 20,
-      search = '',
-      status = '',
+    
+    const { 
+      page = 1, 
+      limit = 20, 
+      search = '', 
+      status = '', 
       plan = '',
       sortBy = 'createdAt',
       sortOrder = 'desc'
     } = req.query;
-
+    
     // Build filter
     const filter = {};
-
+    
     if (search) {
       filter.$or = [
         { code: { $regex: search, $options: 'i' } },
@@ -2880,11 +2465,11 @@ app.get('/api/promocodes', requireAuth, async (req, res) => {
         { createdByName: { $regex: search, $options: 'i' } }
       ];
     }
-
+    
     if (plan) {
       filter.grantsPlan = plan;
     }
-
+    
     // Status filtering
     const now = new Date();
     if (status === 'active') {
@@ -2900,11 +2485,11 @@ app.get('/api/promocodes', requireAuth, async (req, res) => {
       filter.$expr = { $gte: ['$currentUses', '$maxUses'] };
       filter.maxUses = { $ne: null };
     }
-
+    
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const sort = {};
     sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
-
+    
     const [promocodes, total] = await Promise.all([
       Promocode.find(filter)
         .sort(sort)
@@ -2913,19 +2498,19 @@ app.get('/api/promocodes', requireAuth, async (req, res) => {
         .lean(),
       Promocode.countDocuments(filter)
     ]);
-
+    
     // Add computed fields for frontend
     const enrichedPromocodes = promocodes.map(promo => {
       const isExpired = promo.expiresAt && now > promo.expiresAt;
       const isExhausted = promo.maxUses && promo.currentUses >= promo.maxUses;
       const remainingUses = promo.maxUses ? Math.max(0, promo.maxUses - promo.currentUses) : null;
       const usagePercentage = promo.maxUses ? Math.round((promo.currentUses / promo.maxUses) * 100) : 0;
-
+      
       let computedStatus = 'active';
       if (!promo.isActive) computedStatus = 'inactive';
       else if (isExpired) computedStatus = 'expired';
       else if (isExhausted) computedStatus = 'exhausted';
-
+      
       return {
         ...promo,
         isExpired,
@@ -2935,7 +2520,7 @@ app.get('/api/promocodes', requireAuth, async (req, res) => {
         status: computedStatus
       };
     });
-
+    
     res.json({
       success: true,
       data: enrichedPromocodes,
@@ -2946,8 +2531,8 @@ app.get('/api/promocodes', requireAuth, async (req, res) => {
         pages: Math.ceil(total / parseInt(limit))
       }
     });
-
-
+    
+    
   } catch (error) {
     console.error('❌ Error fetching promocodes:', error);
     res.status(500).json({
@@ -2961,10 +2546,10 @@ app.get('/api/promocodes', requireAuth, async (req, res) => {
 // ✅ GET /api/promocodes/stats - Get promocode statistics
 app.get('/api/promocodes/stats', requireAuth, async (req, res) => {
   try {
-
+    
     const now = new Date();
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-
+    
     const [
       total,
       active,
@@ -2975,14 +2560,14 @@ app.get('/api/promocodes/stats', requireAuth, async (req, res) => {
       planDistribution
     ] = await Promise.all([
       Promocode.countDocuments(),
-      Promocode.countDocuments({
+      Promocode.countDocuments({ 
         isActive: true,
         $or: [
           { expiresAt: null },
           { expiresAt: { $gt: now } }
         ]
       }),
-      Promocode.countDocuments({
+      Promocode.countDocuments({ 
         expiresAt: { $lt: now }
       }),
       Promocode.countDocuments({
@@ -2999,7 +2584,7 @@ app.get('/api/promocodes/stats', requireAuth, async (req, res) => {
         { $group: { _id: '$grantsPlan', count: { $sum: 1 } } }
       ])
     ]);
-
+    
     const stats = {
       total: total || 0,
       active: active || 0,
@@ -3012,13 +2597,13 @@ app.get('/api/promocodes/stats', requireAuth, async (req, res) => {
         return acc;
       }, {})
     };
-
+    
     res.json({
       success: true,
       stats: stats
     });
-
-
+    
+    
   } catch (error) {
     console.error('❌ Error fetching promocode stats:', error);
     res.status(500).json({
@@ -3032,7 +2617,7 @@ app.get('/api/promocodes/stats', requireAuth, async (req, res) => {
 // ✅ POST /api/promocodes - Create new promocode
 app.post('/api/promocodes', requireAuth, async (req, res) => {
   try {
-
+    
     const {
       code,
       grantsPlan,
@@ -3043,7 +2628,7 @@ app.post('/api/promocodes', requireAuth, async (req, res) => {
       generateRandom,
       isActive = true
     } = req.body;
-
+    
     // Validation
     if (!grantsPlan || !['start', 'pro', 'premium'].includes(grantsPlan)) {
       return res.status(400).json({
@@ -3051,21 +2636,21 @@ app.post('/api/promocodes', requireAuth, async (req, res) => {
         error: 'Valid grantsPlan is required (start, pro, premium)'
       });
     }
-
+    
     let finalCode = code?.trim()?.toUpperCase();
-
+    
     // Generate random code if requested or no code provided
     if (generateRandom || !finalCode) {
       const prefix = grantsPlan.toUpperCase().substring(0, 3);
       finalCode = generateRandomCode(prefix, 10);
-
+      
       // Ensure uniqueness
       let attempts = 0;
       while (await Promocode.findOne({ code: finalCode }) && attempts < 10) {
         finalCode = generateRandomCode(prefix, 10);
         attempts++;
       }
-
+      
       if (attempts >= 10) {
         return res.status(500).json({
           success: false,
@@ -3073,14 +2658,14 @@ app.post('/api/promocodes', requireAuth, async (req, res) => {
         });
       }
     }
-
+    
     if (!finalCode || finalCode.length < 4) {
       return res.status(400).json({
         success: false,
         error: 'Code must be at least 4 characters long'
       });
     }
-
+    
     // Check if code already exists
     const existingCode = await Promocode.findOne({ code: finalCode });
     if (existingCode) {
@@ -3089,7 +2674,7 @@ app.post('/api/promocodes', requireAuth, async (req, res) => {
         error: 'Promocode already exists'
       });
     }
-
+    
     // Validate dates
     let parsedExpiresAt = null;
     if (expiresAt) {
@@ -3101,7 +2686,7 @@ app.post('/api/promocodes', requireAuth, async (req, res) => {
         });
       }
     }
-
+    
     // Validate subscription days
     const days = parseInt(subscriptionDays) || 30;
     if (days < 1 || days > 365) {
@@ -3110,7 +2695,7 @@ app.post('/api/promocodes', requireAuth, async (req, res) => {
         error: 'Subscription days must be between 1 and 365'
       });
     }
-
+    
     // Create promocode
     const promocode = new Promocode({
       code: finalCode,
@@ -3124,26 +2709,26 @@ app.post('/api/promocodes', requireAuth, async (req, res) => {
       createdByName: req.user.name || req.user.email || 'Admin',
       createdByEmail: req.user.email || ''
     });
-
+    
     await promocode.save();
-
-
+    
+    
     res.status(201).json({
       success: true,
       data: promocode,
       message: `Promocode ${finalCode} created successfully`
     });
-
+    
   } catch (error) {
     console.error('❌ Error creating promocode:', error);
-
+    
     if (error.code === 11000) {
       return res.status(400).json({
         success: false,
         error: 'Promocode already exists'
       });
     }
-
+    
     res.status(500).json({
       success: false,
       error: 'Failed to create promocode',
@@ -3155,7 +2740,7 @@ app.post('/api/promocodes', requireAuth, async (req, res) => {
 // ✅ PUT /api/promocodes/:id - Update promocode
 app.put('/api/promocodes/:id', requireAuth, async (req, res) => {
   try {
-
+    
     const promocode = await Promocode.findById(req.params.id);
     if (!promocode) {
       return res.status(404).json({
@@ -3163,7 +2748,7 @@ app.put('/api/promocodes/:id', requireAuth, async (req, res) => {
         error: 'Promocode not found'
       });
     }
-
+    
     const {
       description,
       maxUses,
@@ -3171,16 +2756,16 @@ app.put('/api/promocodes/:id', requireAuth, async (req, res) => {
       subscriptionDays,
       isActive
     } = req.body;
-
+    
     // Update fields
     if (description !== undefined) {
       promocode.description = description?.trim() || '';
     }
-
+    
     if (maxUses !== undefined) {
       promocode.maxUses = maxUses && maxUses > 0 ? parseInt(maxUses) : null;
     }
-
+    
     if (expiresAt !== undefined) {
       if (expiresAt) {
         const parsedDate = new Date(expiresAt);
@@ -3195,7 +2780,7 @@ app.put('/api/promocodes/:id', requireAuth, async (req, res) => {
         promocode.expiresAt = null;
       }
     }
-
+    
     if (subscriptionDays !== undefined) {
       const days = parseInt(subscriptionDays);
       if (days < 1 || days > 365) {
@@ -3206,20 +2791,20 @@ app.put('/api/promocodes/:id', requireAuth, async (req, res) => {
       }
       promocode.subscriptionDays = days;
     }
-
+    
     if (isActive !== undefined) {
       promocode.isActive = Boolean(isActive);
     }
-
+    
     await promocode.save();
-
-
+    
+    
     res.json({
       success: true,
       data: promocode,
       message: `Promocode ${promocode.code} updated successfully`
     });
-
+    
   } catch (error) {
     console.error('❌ Error updating promocode:', error);
     res.status(500).json({
@@ -3233,7 +2818,7 @@ app.put('/api/promocodes/:id', requireAuth, async (req, res) => {
 // ✅ DELETE /api/promocodes/:id - Delete promocode
 app.delete('/api/promocodes/:id', requireAuth, async (req, res) => {
   try {
-
+    
     const promocode = await Promocode.findById(req.params.id);
     if (!promocode) {
       return res.status(404).json({
@@ -3241,7 +2826,7 @@ app.delete('/api/promocodes/:id', requireAuth, async (req, res) => {
         error: 'Promocode not found'
       });
     }
-
+    
     // Check if promocode has been used
     if (promocode.currentUses > 0) {
       return res.status(400).json({
@@ -3250,15 +2835,15 @@ app.delete('/api/promocodes/:id', requireAuth, async (req, res) => {
         usageCount: promocode.currentUses
       });
     }
-
+    
     await promocode.deleteOne();
-
-
+    
+    
     res.json({
       success: true,
       message: `Promocode ${promocode.code} deleted successfully`
     });
-
+    
   } catch (error) {
     console.error('❌ Error deleting promocode:', error);
     res.status(500).json({
@@ -3274,11 +2859,11 @@ function generateRandomCode(prefix = '', length = 8) {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let result = prefix.toUpperCase();
   const remainingLength = Math.max(4, length - prefix.length);
-
+  
   for (let i = 0; i < remainingLength; i++) {
     result += chars.charAt(Math.floor(Math.random() * chars.length));
   }
-
+  
   return result;
 }
 
@@ -3286,10 +2871,10 @@ function generateRandomCode(prefix = '', length = 8) {
 
 // ✅ GET /api/homeworks/user/:userId/homework/:homeworkId
 app.get('/api/homeworks/user/:userId/homework/:homeworkId', async (req, res) => {
-
+  
   try {
     const { userId, homeworkId } = req.params;
-
+    
     let Homework, HomeworkProgress;
     try {
       Homework = require('./models/homework');
@@ -3300,7 +2885,7 @@ app.get('/api/homeworks/user/:userId/homework/:homeworkId', async (req, res) => 
         error: 'Homework system not available'
       });
     }
-
+    
     // Get homework
     const homework = await Homework.findById(homeworkId);
     if (!homework) {
@@ -3309,14 +2894,14 @@ app.get('/api/homeworks/user/:userId/homework/:homeworkId', async (req, res) => 
         error: 'Homework not found'
       });
     }
-
+    
     if (!homework.isActive) {
       return res.status(403).json({
         success: false,
         error: 'Homework is not active'
       });
     }
-
+    
     // Get user progress
     let userProgress = null;
     try {
@@ -3330,7 +2915,7 @@ app.get('/api/homeworks/user/:userId/homework/:homeworkId', async (req, res) => 
       });
     } catch (progressError) {
     }
-
+    
     res.json({
       success: true,
       data: {
@@ -3340,7 +2925,7 @@ app.get('/api/homeworks/user/:userId/homework/:homeworkId', async (req, res) => 
       },
       message: '✅ Homework retrieved successfully'
     });
-
+    
   } catch (error) {
     console.error('❌ Error fetching standalone homework:', error);
     res.status(500).json({
@@ -3357,10 +2942,10 @@ app.get('/api/homeworks/user/:userId/homework/:homeworkId', async (req, res) => 
 
 // ✅ GET /api/users/:userId/tests
 app.get('/api/users/:userId/tests', async (req, res) => {
-
+  
   try {
     const { userId } = req.params;
-
+    
     let Test, TestResult;
     try {
       Test = require('./models/Test');
@@ -3372,13 +2957,13 @@ app.get('/api/users/:userId/tests', async (req, res) => {
         message: 'Test models not available'
       });
     }
-
+    
     const tests = await Test.find({ isActive: true }).select('-questions.correctAnswer -questions.explanation');
     const userResults = await TestResult.find({ userId });
-
+    
     const testsWithProgress = tests.map(test => {
       const userResult = userResults.find(result => result.testId.toString() === test._id.toString());
-
+      
       return {
         ...test.toObject(),
         userProgress: userResult ? {
@@ -3392,13 +2977,13 @@ app.get('/api/users/:userId/tests', async (req, res) => {
         }
       };
     });
-
+    
     res.json({
       success: true,
       tests: testsWithProgress,
       message: '✅ Tests retrieved successfully'
     });
-
+    
   } catch (error) {
     console.error('❌ Error fetching user tests:', error);
     res.status(500).json({
@@ -3411,10 +2996,10 @@ app.get('/api/users/:userId/tests', async (req, res) => {
 
 // ✅ GET /api/users/:userId/tests/:testId
 app.get('/api/users/:userId/tests/:testId', async (req, res) => {
-
+  
   try {
     const { testId } = req.params;
-
+    
     let Test;
     try {
       Test = require('./models/Test');
@@ -3424,28 +3009,28 @@ app.get('/api/users/:userId/tests/:testId', async (req, res) => {
         error: 'Test system not available'
       });
     }
-
+    
     const test = await Test.findById(testId).select('-questions.correctAnswer -questions.explanation');
-
+    
     if (!test) {
       return res.status(404).json({
         success: false,
         error: 'Test not found'
       });
     }
-
+    
     if (!test.isActive) {
       return res.status(403).json({
         success: false,
         error: 'Test is not active'
       });
     }
-
+    
     // Randomize questions if enabled
     if (test.randomizeQuestions && test.questions.length > 0) {
       test.questions = test.questions.sort(() => Math.random() - 0.5);
     }
-
+    
     // Randomize options if enabled
     if (test.randomizeOptions) {
       test.questions.forEach(question => {
@@ -3454,13 +3039,13 @@ app.get('/api/users/:userId/tests/:testId', async (req, res) => {
         }
       });
     }
-
+    
     res.json({
       success: true,
       test: test,
       message: '✅ Test retrieved successfully'
     });
-
+    
   } catch (error) {
     console.error('❌ Error fetching test:', error);
     res.status(500).json({
@@ -3480,7 +3065,7 @@ app.get('/api/users/:userId/tests/:testId', async (req, res) => {
 // ✅ Enhanced route debugging endpoint
 app.get('/api/debug/routes', (req, res) => {
   const routes = [];
-
+  
   function extractRoutes(stack, basePath = '') {
     stack.forEach(layer => {
       if (layer.route) {
@@ -3496,7 +3081,7 @@ app.get('/api/debug/routes', (req, res) => {
       }
     });
   }
-
+  
   // Extract all routes
   app._router.stack.forEach(layer => {
     if (layer.route) {
@@ -3518,9 +3103,9 @@ app.get('/api/debug/routes', (req, res) => {
       extractRoutes(layer.handle.stack, basePath);
     }
   });
-
+  
   routes.sort((a, b) => a.path.localeCompare(b.path));
-
+  
   // Group routes by prefix
   const groupedRoutes = {};
   routes.forEach(route => {
@@ -3530,14 +3115,14 @@ app.get('/api/debug/routes', (req, res) => {
     }
     groupedRoutes[prefix].push(route);
   });
-
+  
   res.json({
     server: 'api.aced.live',
     timestamp: new Date().toISOString(),
     totalRoutes: routes.length,
     routeGroups: groupedRoutes,
     allRoutes: routes,
-
+    
     // Specifically check for the routes that were causing 404s
     criticalRoutes: {
       userProgressUserLesson: routes.find(r => r.path.includes('user-progress/user') && r.path.includes('lesson')),
@@ -3546,15 +3131,15 @@ app.get('/api/debug/routes', (req, res) => {
       homeworksUser: routes.find(r => r.path.includes('homeworks/user')),
       usersTests: routes.find(r => r.path.includes('users') && r.path.includes('tests'))
     },
-
+    
     missingRoutes: {
-      'GET /api/user-progress/user/:userId/lesson/:lessonId': !routes.find(r =>
+      'GET /api/user-progress/user/:userId/lesson/:lessonId': !routes.find(r => 
         r.path.includes('user-progress/user') && r.path.includes('lesson') && r.methods.includes('GET')
       ),
-      'POST /api/user-progress/user/:userId/lesson/:lessonId': !routes.find(r =>
+      'POST /api/user-progress/user/:userId/lesson/:lessonId': !routes.find(r => 
         r.path.includes('user-progress/user') && r.path.includes('lesson') && r.methods.includes('POST')
       ),
-      'GET /api/homeworks/user/:userId': !routes.find(r =>
+      'GET /api/homeworks/user/:userId': !routes.find(r => 
         r.path.includes('homeworks/user') && r.methods.includes('GET')
       )
     }
@@ -3572,8 +3157,8 @@ app.use('/api/*', (req, res, next) => {
 // API 404 handler
 app.use('/api/*', (req, res) => {
   console.error(`❌ API Route Not Found: ${req.method} ${req.originalUrl}`);
-
-  res.status(404).json({
+  
+  res.status(404).json({ 
     error: 'API endpoint not found',
     path: req.originalUrl,
     method: req.method,
@@ -3637,12 +3222,12 @@ if (fs.existsSync(distPath)) {
 // SPA Catch-all route (only if frontend exists)
 app.get('*', (req, res) => {
   const indexPath = path.join(distPath, 'index.html');
-
+  
   if (fs.existsSync(indexPath)) {
     res.sendFile(indexPath, (err) => {
       if (err) {
         console.error('❌ Failed to serve index.html:', err.message);
-        res.status(500).json({
+        res.status(500).json({ 
           error: 'Frontend loading error',
           message: 'Unable to serve the application',
           server: 'api.aced.live'
@@ -3680,7 +3265,7 @@ app.get('*', (req, res) => {
 app.use((err, req, res, next) => {
   const errorId = Date.now().toString(36) + Math.random().toString(36).substr(2);
   const timestamp = new Date().toISOString();
-
+  
   console.error(`\n🔥 GLOBAL ERROR [${errorId}] at ${timestamp}:`);
   console.error('📍 URL:', req.originalUrl);
   console.error('🔧 Method:', req.method);
@@ -3688,16 +3273,16 @@ app.use((err, req, res, next) => {
   console.error('🏷️  Name:', err.name);
   console.error('🔢 Code:', err.code);
   console.error('🌐 Server: api.aced.live');
-
+  
   if (process.env.NODE_ENV === 'development') {
     console.error('📚 Stack:', err.stack);
   }
-
+  
   // Handle specific error types
   let statusCode = err.status || err.statusCode || 500;
   let message = 'Internal server error';
   let details = {};
-
+  
   if (err.name === 'ValidationError') {
     statusCode = 400;
     message = 'Validation error';
@@ -3730,14 +3315,13 @@ app.use((err, req, res, next) => {
     statusCode = 500;
     message = 'PayMe integration error';
     details.paymeError = true;
-    details.criticalEndpoints = ['/api/user-progress', '/api/progress'];
   } else if (err.message.includes('progress') || err.message.includes('Progress')) {
     statusCode = 500;
     message = 'Progress saving error';
     details.progressError = true;
     details.criticalEndpoints = ['/api/user-progress', '/api/progress'];
   }
-
+  
   const errorResponse = {
     error: message,
     errorId,
@@ -3746,11 +3330,11 @@ app.use((err, req, res, next) => {
     path: req.originalUrl,
     method: req.method
   };
-
+  
   if (Object.keys(details).length > 0) {
     errorResponse.details = details;
   }
-
+  
   if (process.env.NODE_ENV === 'development') {
     errorResponse.debug = {
       message: err.message,
@@ -3759,7 +3343,7 @@ app.use((err, req, res, next) => {
       stack: err.stack?.split('\n').slice(0, 5)
     };
   }
-
+  
   res.status(statusCode).json(errorResponse);
 });
 
@@ -3771,32 +3355,33 @@ const startServer = async () => {
   try {
     // Connect to database first
     await connectDB();
-
+    
     // Start the server
     const server = app.listen(PORT, () => {
-
-
+      
+      
       if (mountedRoutes.length > 0) {
         mountedRoutes.forEach(route => {
         });
       }
 
+      
 
 
 
 
-
+     
 
       // PayMe Endpoint Summary
       if (handlePaymeWebhook && initiatePaymePayment) {
-
+        
       } else {
-
+    
       }
 
-
+    
     });
-
+    
     // Graceful shutdown
     process.on('SIGTERM', () => {
       server.close(() => {
@@ -3805,7 +3390,7 @@ const startServer = async () => {
         });
       });
     });
-
+    
     process.on('SIGINT', () => {
       server.close(() => {
         mongoose.connection.close(() => {
@@ -3813,7 +3398,7 @@ const startServer = async () => {
         });
       });
     });
-
+    
   } catch (error) {
     console.error('❌ Failed to start server:', error);
     process.exit(1);
@@ -3826,17 +3411,17 @@ app.post('/api/users/:userId/study-list', async (req, res) => {
   try {
     const { userId } = req.params;
     const data = req.body;
-
+    
     if (!data.topicId || !data.topic) {
       return res.status(400).json({
         success: false,
         error: 'topicId and topic are required'
       });
     }
-
+    
     const User = require('./models/user');
     let user = await User.findOne({ firebaseId: userId });
-
+    
     if (!user) {
       user = new User({
         firebaseId: userId,
@@ -3845,7 +3430,7 @@ app.post('/api/users/:userId/study-list', async (req, res) => {
         studyList: []
       });
     }
-
+    
     // Check if already exists
     const exists = user.studyList.some(item => item.topicId === data.topicId);
     if (exists) {
@@ -3854,7 +3439,7 @@ app.post('/api/users/:userId/study-list', async (req, res) => {
         error: 'Topic already exists in study list'
       });
     }
-
+    
     // Add to study list
     user.studyList.push({
       topicId: data.topicId,
@@ -3866,14 +3451,14 @@ app.post('/api/users/:userId/study-list', async (req, res) => {
       type: data.type || 'free',
       addedAt: new Date()
     });
-
+    
     await user.save();
-
+    
     res.json({
       success: true,
       message: 'Topic added to study list'
     });
-
+    
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -3887,16 +3472,16 @@ app.get('/api/users/:userId/study-list', async (req, res) => {
     const { userId } = req.params;
     const User = require('./models/user');
     const user = await User.findOne({ firebaseId: userId });
-
+    
     if (!user) {
       return res.json({ success: true, data: [] });
     }
-
+    
     res.json({
       success: true,
       data: user.studyList || []
     });
-
+    
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -3910,22 +3495,22 @@ app.delete('/api/users/:userId/study-list/:topicId', async (req, res) => {
     const { userId, topicId } = req.params;
     const User = require('./models/user');
     const user = await User.findOne({ firebaseId: userId });
-
+    
     if (!user) {
       return res.status(404).json({
         success: false,
         error: 'User not found'
       });
     }
-
+    
     user.studyList = user.studyList.filter(item => item.topicId !== topicId);
     await user.save();
-
+    
     res.json({
       success: true,
       message: 'Topic removed from study list'
     });
-
+    
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -3941,7 +3526,7 @@ app.delete('/api/users/:userId/study-list/:topicId', async (req, res) => {
 process.on('unhandledRejection', (reason, promise) => {
   console.error('⚠️  Unhandled Rejection at:', promise);
   console.error('⚠️  Reason:', reason);
-
+  
   if (process.env.NODE_ENV === 'production') {
     console.error('🚨 Exiting due to unhandled rejection in production');
     process.exit(1);
