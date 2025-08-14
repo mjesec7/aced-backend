@@ -1,4 +1,4 @@
-// routes/updatedCourses.js - FIXED VERSION WITH PROPER IMAGE/TEXT SUPPORT
+// routes/updatedCourses.js - COMPLETE FIXED VERSION WITH PROPER CONTENT HANDLING
 const express = require('express');
 const router = express.Router();
 const UpdatedCourse = require('../models/updatedCourse');
@@ -20,7 +20,7 @@ router.get('/', async (req, res) => {
       limit = 50,
       page = 1,
       sort = 'newest',
-      type = 'all' // Filter by course or guide
+      type = 'all'
     } = req.query;
 
     // Build filter
@@ -78,15 +78,13 @@ router.get('/', async (req, res) => {
       .select('-seo -metadata.views -createdBy -updatedBy')
       .lean();
 
-    // ✅ FIXED: Ensure proper course data structure for frontend
+    // ✅ Ensure proper course data structure for frontend
     const coursesWithBookmarks = courses.map(course => ({
       ...course,
-      id: course._id.toString(), // ✅ Ensure 'id' field exists
+      id: course._id.toString(),
       _id: course._id.toString(),
-      isBookmarked: false, // Always false for non-tracked users
-      // ✅ Ensure curriculum structure is correct
+      isBookmarked: false,
       curriculum: course.curriculum || [],
-      // ✅ Ensure instructor has proper structure
       instructor: {
         name: course.instructor?.name || 'Unknown Instructor',
         avatar: course.instructor?.avatar || '/default-avatar.jpg',
@@ -149,7 +147,7 @@ router.get('/categories', async (req, res) => {
   }
 });
 
-// ✅ FIXED: Get single course by ID with proper lesson structure
+// ✅ Get single course by ID with proper lesson structure
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -173,7 +171,7 @@ router.get('/:id', async (req, res) => {
     // Increment views
     await course.incrementViews();
 
-    // ✅ FIXED: Structure the response properly for frontend consumption
+    // ✅ Structure the response properly for frontend consumption
     const courseData = {
       ...course.toObject(),
       id: course._id.toString(),
@@ -184,7 +182,7 @@ router.get('/:id', async (req, res) => {
         id: lesson._id?.toString() || `lesson_${index}`,
         _id: lesson._id?.toString() || `lesson_${index}`,
         title: lesson.title,
-        lessonName: lesson.title, // For backward compatibility
+        lessonName: lesson.title,
         description: lesson.description,
         duration: lesson.duration || '30 min',
         order: lesson.order || index,
@@ -196,10 +194,7 @@ router.get('/:id', async (req, res) => {
           content: step.content,
           title: step.title,
           description: step.description,
-          images: step.images || [],
-          // Remove video-related fields
-          videoUrl: undefined,
-          guideVideoUrl: undefined
+          images: step.images || []
         }))
       }))
     };
@@ -218,7 +213,7 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// ✅ FIXED: Get course lessons in proper format
+// ✅ Get course lessons in proper format
 router.get('/:id/lessons', async (req, res) => {
   try {
     const { id } = req.params;
@@ -248,7 +243,7 @@ router.get('/:id/lessons', async (req, res) => {
       description: lesson.description,
       duration: lesson.duration || '30 min',
       order: lesson.order || index,
-      topicId: course._id.toString(), // Link back to course
+      topicId: course._id.toString(),
       subject: course.category || 'General',
       // ✅ Process steps to only include images and text
       steps: (lesson.steps || []).map((step, stepIndex) => {
@@ -301,7 +296,7 @@ router.get('/:id/lessons', async (req, res) => {
     res.json({
       success: true,
       data: lessons,
-      lessons: lessons, // For backward compatibility
+      lessons: lessons,
       source: 'updated-course-curriculum'
     });
 
@@ -316,8 +311,6 @@ router.get('/:id/lessons', async (req, res) => {
 
 // POST /api/updated-courses/:id/bookmark - Toggle bookmark (mock endpoint)
 router.post('/:id/bookmark', (req, res) => {
-  // Since we don't track individual users for updated courses,
-  // this is just a mock endpoint that always returns success
   res.json({
     success: true,
     bookmarked: true,
@@ -444,10 +437,16 @@ router.get('/admin/all', authenticateUser, async (req, res) => {
   }
 });
 
-// POST /api/updated-courses/admin - Create new course
+// ✅ CRITICAL FIX: Enhanced POST route for creating courses
 router.post('/admin', authenticateUser, async (req, res) => {
   try {
     console.log('📤 Admin: Creating new updated course...');
+    console.log('📦 Received course data:', {
+      title: req.body.title,
+      category: req.body.category,
+      curriculumCount: req.body.curriculum?.length || 0,
+      bodySize: JSON.stringify(req.body).length
+    });
     
     const courseData = {
       ...req.body,
@@ -455,7 +454,7 @@ router.post('/admin', authenticateUser, async (req, res) => {
       updatedBy: req.user.uid || req.user.email || 'admin'
     };
 
-    // Validate required fields
+    // ✅ Enhanced validation of required fields
     const requiredFields = ['title', 'description', 'category', 'instructor'];
     const missingFields = requiredFields.filter(field => {
       if (field === 'instructor') {
@@ -465,6 +464,7 @@ router.post('/admin', authenticateUser, async (req, res) => {
     });
 
     if (missingFields.length > 0) {
+      console.error('❌ Missing required fields:', missingFields);
       return res.status(400).json({
         success: false,
         error: 'Missing required fields',
@@ -472,31 +472,191 @@ router.post('/admin', authenticateUser, async (req, res) => {
       });
     }
 
-    // ✅ FIXED: Process curriculum to remove video elements
+    // ✅ CRITICAL FIX: Enhanced curriculum processing with proper content handling
     if (courseData.curriculum && Array.isArray(courseData.curriculum)) {
-      courseData.curriculum = courseData.curriculum.map(lesson => ({
-        ...lesson,
-        steps: (lesson.steps || []).map(step => {
-          const processedStep = { ...step };
-          
-          // Remove video-related fields
-          delete processedStep.videoUrl;
-          delete processedStep.guideVideoUrl;
-          
-          // Only allow specific step types
-          if (!['explanation', 'example', 'reading', 'image', 'practice', 'quiz'].includes(step.type)) {
-            processedStep.type = 'explanation';
-          }
-          
-          return processedStep;
-        })
-      }));
+      console.log('🔍 Processing curriculum with', courseData.curriculum.length, 'lessons');
+      
+      const contentIssues = [];
+      
+      courseData.curriculum = courseData.curriculum.map((lesson, lessonIndex) => {
+        console.log(`🔍 Processing lesson ${lessonIndex + 1}:`, lesson.title);
+        
+        // Validate lesson title
+        if (!lesson.title || !lesson.title.trim()) {
+          contentIssues.push(`Lesson ${lessonIndex + 1}: Title is required`);
+        }
+        
+        const processedLesson = {
+          title: lesson.title || `Lesson ${lessonIndex + 1}`,
+          description: lesson.description || '',
+          duration: lesson.duration || '30 min',
+          order: lesson.order || lessonIndex
+        };
+
+        // ✅ CRITICAL: Process steps with enhanced validation and structure
+        if (lesson.steps && Array.isArray(lesson.steps)) {
+          processedLesson.steps = lesson.steps.map((step, stepIndex) => {
+            console.log(`🔍 Processing step ${stepIndex + 1} of type:`, step.type, 'content length:', step.content?.length || 0);
+            
+            const processedStep = {
+              type: step.type || 'explanation',
+              title: step.title || '',
+              content: step.content || '',
+              description: step.description || '',
+              images: (step.images || []).filter(img => img && img.url),
+              data: {}
+            };
+
+            // ✅ CRITICAL: Structure data field correctly based on step type
+            switch (step.type) {
+              case 'explanation':
+              case 'example':
+              case 'reading':
+                // ✅ CRITICAL: Ensure explanation content is properly structured
+                const explanationContent = step.content || step.data?.content || '';
+                
+                if (!explanationContent.trim()) {
+                  contentIssues.push(`Lesson ${lessonIndex + 1}, Step ${stepIndex + 1}: ${step.type} content is required`);
+                  console.warn(`⚠️ Warning: ${step.type} step in lesson ${lessonIndex + 1} has no content`);
+                }
+                
+                processedStep.data = {
+                  content: explanationContent,
+                  images: processedStep.images || []
+                };
+                
+                console.log(`✅ ${step.type} step processed with content length:`, explanationContent.length);
+                break;
+
+              case 'image':
+                processedStep.data = {
+                  images: processedStep.images || [],
+                  description: step.content || step.description || '',
+                  caption: step.caption || ''
+                };
+                break;
+
+              case 'practice':
+                const practiceInstructions = step.content || step.data?.instructions || step.instructions || '';
+                
+                if (!practiceInstructions.trim()) {
+                  contentIssues.push(`Lesson ${lessonIndex + 1}, Step ${stepIndex + 1}: Practice instructions are required`);
+                }
+                
+                processedStep.data = {
+                  instructions: practiceInstructions,
+                  type: step.data?.type || step.practiceType || 'guided'
+                };
+                
+                // Also set at root level for compatibility
+                processedStep.instructions = practiceInstructions;
+                break;
+
+              case 'quiz':
+                // ✅ Handle quiz data structure
+                let quizData = [];
+                
+                if (step.data && Array.isArray(step.data) && step.data.length > 0) {
+                  // Already structured quiz data
+                  quizData = step.data;
+                } else if (step.question || step.content) {
+                  // Convert from simple question format
+                  const quizQuestion = step.question || step.content || '';
+                  if (!quizQuestion.trim()) {
+                    contentIssues.push(`Lesson ${lessonIndex + 1}, Step ${stepIndex + 1}: Quiz question is required`);
+                  }
+                  
+                  quizData = [{
+                    question: quizQuestion,
+                    type: step.quizType || 'multiple-choice',
+                    options: (step.options || []).map(opt => ({ text: opt.text || opt })),
+                    correctAnswer: parseInt(step.correctAnswer) || 0,
+                    explanation: step.explanation || ''
+                  }];
+                } else if (step.quizzes && Array.isArray(step.quizzes)) {
+                  // Use existing quizzes array
+                  quizData = step.quizzes;
+                }
+                
+                processedStep.data = quizData;
+                processedStep.quizzes = quizData;
+                
+                // Keep root-level quiz fields for compatibility
+                if (quizData.length > 0) {
+                  processedStep.question = quizData[0].question;
+                  processedStep.options = quizData[0].options || [];
+                  processedStep.correctAnswer = quizData[0].correctAnswer || 0;
+                }
+                break;
+
+              default:
+                // ✅ For unknown types, preserve content in data
+                processedStep.data = {
+                  content: step.content || '',
+                  images: processedStep.images || []
+                };
+                console.log(`⚠️ Unknown step type: ${step.type}, using default structure`);
+            }
+
+            console.log(`✅ Processed step ${stepIndex + 1}:`, {
+              type: processedStep.type,
+              hasContent: !!processedStep.content,
+              hasDataContent: !!(processedStep.data && (
+                processedStep.data.content || 
+                processedStep.data.instructions || 
+                processedStep.data.length > 0
+              )),
+              dataKeys: Object.keys(processedStep.data || {})
+            });
+
+            return processedStep;
+          });
+        } else {
+          processedLesson.steps = [];
+        }
+
+        return processedLesson;
+      });
+
+      // ✅ Check for content issues
+      if (contentIssues.length > 0) {
+        console.error('❌ Content validation failed:', contentIssues);
+        return res.status(400).json({
+          success: false,
+          error: 'Course content validation failed',
+          details: contentIssues
+        });
+      }
+
+      // ✅ Log final curriculum structure
+      const curriculumStats = {
+        totalLessons: courseData.curriculum.length,
+        totalSteps: courseData.curriculum.reduce((sum, lesson) => sum + (lesson.steps?.length || 0), 0),
+        explanationSteps: courseData.curriculum.reduce((sum, lesson) => 
+          sum + (lesson.steps?.filter(step => step.type === 'explanation').length || 0), 0
+        ),
+        stepsWithContent: courseData.curriculum.reduce((sum, lesson) => 
+          sum + (lesson.steps?.filter(step => 
+            step.content || (step.data && step.data.content)
+          ).length || 0), 0
+        )
+      };
+      
+      console.log('📊 Final curriculum stats:', curriculumStats);
+    } else {
+      console.log('⚠️ No curriculum provided or curriculum is not an array');
+      courseData.curriculum = [];
     }
 
+    // ✅ Create the course with processed data
     const course = new UpdatedCourse(courseData);
     await course.save();
 
     console.log('✅ Admin: Updated course created:', course.title);
+    console.log('📊 Course saved with curriculum stats:', {
+      lessonsCount: course.curriculum?.length || 0,
+      totalSteps: course.curriculum?.reduce((sum, lesson) => sum + (lesson.steps?.length || 0), 0) || 0
+    });
 
     res.status(201).json({
       success: true,
@@ -530,35 +690,128 @@ router.post('/admin', authenticateUser, async (req, res) => {
   }
 });
 
-// PUT /api/updated-courses/admin/:id - Update course
+// ✅ ENHANCED PUT route for updating courses
 router.put('/admin/:id', authenticateUser, async (req, res) => {
   try {
     console.log('📝 Admin: Updating updated course:', req.params.id);
+    console.log('📦 Update data received:', {
+      title: req.body.title,
+      curriculumCount: req.body.curriculum?.length || 0
+    });
     
     const updateData = {
       ...req.body,
       updatedBy: req.user.uid || req.user.email || 'admin'
     };
 
-    // ✅ FIXED: Process curriculum to remove video elements on update
+    // ✅ ENHANCED: Process curriculum to handle content properly on update
     if (updateData.curriculum && Array.isArray(updateData.curriculum)) {
-      updateData.curriculum = updateData.curriculum.map(lesson => ({
-        ...lesson,
-        steps: (lesson.steps || []).map(step => {
-          const processedStep = { ...step };
-          
-          // Remove video-related fields
-          delete processedStep.videoUrl;
-          delete processedStep.guideVideoUrl;
-          
-          // Only allow specific step types
-          if (!['explanation', 'example', 'reading', 'image', 'practice', 'quiz'].includes(step.type)) {
-            processedStep.type = 'explanation';
-          }
-          
-          return processedStep;
-        })
-      }));
+      console.log('🔍 Processing curriculum update with', updateData.curriculum.length, 'lessons');
+      
+      const contentIssues = [];
+      
+      updateData.curriculum = updateData.curriculum.map((lesson, lessonIndex) => {
+        console.log(`🔍 Updating lesson ${lessonIndex + 1}:`, lesson.title);
+        
+        const processedLesson = {
+          title: lesson.title || `Lesson ${lessonIndex + 1}`,
+          description: lesson.description || '',
+          duration: lesson.duration || '30 min',
+          order: lesson.order || lessonIndex
+        };
+
+        // ✅ Process steps for updates
+        if (lesson.steps && Array.isArray(lesson.steps)) {
+          processedLesson.steps = lesson.steps.map((step, stepIndex) => {
+            console.log(`🔍 Updating step ${stepIndex + 1} of type:`, step.type);
+            
+            const processedStep = {
+              type: step.type || 'explanation',
+              title: step.title || '',
+              content: step.content || '',
+              description: step.description || '',
+              images: (step.images || []).filter(img => img && img.url),
+              data: {}
+            };
+
+            // ✅ Structure data field for updates
+            switch (step.type) {
+              case 'explanation':
+              case 'example':
+              case 'reading':
+                const explanationContent = step.content || step.data?.content || '';
+                
+                processedStep.data = {
+                  content: explanationContent,
+                  images: processedStep.images || []
+                };
+                
+                console.log(`✅ Updated ${step.type} step with content length:`, explanationContent.length);
+                break;
+
+              case 'image':
+                processedStep.data = {
+                  images: processedStep.images || [],
+                  description: step.content || step.description || ''
+                };
+                break;
+
+              case 'practice':
+                const practiceInstructions = step.content || step.data?.instructions || step.instructions || '';
+                
+                processedStep.data = {
+                  instructions: practiceInstructions,
+                  type: step.data?.type || step.practiceType || 'guided'
+                };
+                
+                processedStep.instructions = practiceInstructions;
+                break;
+
+              case 'quiz':
+                let quizData = [];
+                
+                if (step.data && Array.isArray(step.data)) {
+                  quizData = step.data;
+                } else if (step.question || step.content) {
+                  quizData = [{
+                    question: step.question || step.content || '',
+                    type: step.quizType || 'multiple-choice',
+                    options: (step.options || []).map(opt => ({ text: opt.text || opt })),
+                    correctAnswer: parseInt(step.correctAnswer) || 0,
+                    explanation: step.explanation || ''
+                  }];
+                }
+                
+                processedStep.data = quizData;
+                processedStep.quizzes = quizData;
+                
+                if (quizData.length > 0) {
+                  processedStep.question = quizData[0].question;
+                  processedStep.options = quizData[0].options || [];
+                  processedStep.correctAnswer = quizData[0].correctAnswer || 0;
+                }
+                break;
+
+              default:
+                processedStep.data = {
+                  content: step.content || '',
+                  images: processedStep.images || []
+                };
+            }
+
+            return processedStep;
+          });
+        } else {
+          processedLesson.steps = [];
+        }
+
+        return processedLesson;
+      });
+
+      console.log('📊 Updated curriculum stats:', {
+        totalLessons: updateData.curriculum.length,
+        totalSteps: updateData.curriculum.reduce((sum, lesson) => sum + (lesson.steps?.length || 0), 0)
+      });
     }
 
     const course = await UpdatedCourse.findByIdAndUpdate(
@@ -597,6 +850,183 @@ router.put('/admin/:id', authenticateUser, async (req, res) => {
       success: false,
       error: 'Failed to update course',
       details: error.message
+    });
+  }
+});
+
+// ✅ NEW: Debug endpoint to check course content structure
+router.get('/admin/:id/debug', authenticateUser, async (req, res) => {
+  try {
+    const course = await UpdatedCourse.findById(req.params.id);
+    
+    if (!course) {
+      return res.status(404).json({
+        success: false,
+        error: 'Course not found'
+      });
+    }
+
+    const analysis = {
+      courseId: course._id,
+      title: course.title,
+      lessons: []
+    };
+
+    const contentIssues = [];
+    let totalSteps = 0;
+    let stepsWithContent = 0;
+    let explanationSteps = 0;
+
+    course.curriculum?.forEach((lesson, lessonIndex) => {
+      const lessonAnalysis = {
+        lessonIndex,
+        title: lesson.title,
+        totalSteps: lesson.steps?.length || 0,
+        steps: []
+      };
+
+      lesson.steps?.forEach((step, stepIndex) => {
+        totalSteps++;
+        
+        const hasContent = !!(step.content || step.data?.content || step.data?.instructions);
+        const hasDataContent = !!(step.data && (step.data.content || step.data.instructions || step.data.length > 0));
+        
+        if (hasContent) stepsWithContent++;
+        if (step.type === 'explanation') explanationSteps++;
+
+        const stepAnalysis = {
+          stepIndex,
+          type: step.type,
+          title: step.title || 'No title',
+          hasContent,
+          hasDataContent,
+          contentLength: step.content?.length || 0,
+          dataContentLength: step.data?.content?.length || step.data?.instructions?.length || 0,
+          contentPreview: (step.content || step.data?.content || step.data?.instructions || 'No content').substring(0, 100)
+        };
+
+        // Check for issues
+        if (['explanation', 'example', 'reading'].includes(step.type) && !hasContent) {
+          contentIssues.push({
+            lesson: `Lesson ${lessonIndex + 1}`,
+            step: `Step ${stepIndex + 1}`,
+            issue: `${step.type} step has no content`
+          });
+        }
+
+        lessonAnalysis.steps.push(stepAnalysis);
+      });
+
+      analysis.lessons.push(lessonAnalysis);
+    });
+
+    const summary = {
+      totalSteps,
+      stepsWithContent,
+      explanationSteps,
+      contentIssues
+    };
+
+    res.json({
+      success: true,
+      debug: {
+        analysis,
+        summary
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Debug error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to debug course'
+    });
+  }
+});
+
+// ✅ NEW: Fix content endpoint to automatically repair content issues
+router.post('/admin/:id/fix-content', authenticateUser, async (req, res) => {
+  try {
+    const course = await UpdatedCourse.findById(req.params.id);
+    
+    if (!course) {
+      return res.status(404).json({
+        success: false,
+        error: 'Course not found'
+      });
+    }
+
+    let fixesApplied = 0;
+    const fixLog = [];
+
+    course.curriculum?.forEach((lesson, lessonIndex) => {
+      lesson.steps?.forEach((step, stepIndex) => {
+        let fixed = false;
+
+        // Fix explanation steps without content
+        if (['explanation', 'example', 'reading'].includes(step.type)) {
+          if (!step.content && !step.data?.content) {
+            const defaultContent = `This is a ${step.type} step. Content will be added here to explain the concept in detail.`;
+            
+            if (!step.data) step.data = {};
+            step.data.content = defaultContent;
+            step.content = defaultContent;
+            
+            fixed = true;
+            fixLog.push(`Fixed ${step.type} step in lesson ${lessonIndex + 1}, step ${stepIndex + 1}`);
+          } else if (step.content && !step.data?.content) {
+            // Ensure content is in data.content
+            if (!step.data) step.data = {};
+            step.data.content = step.content;
+            fixed = true;
+            fixLog.push(`Synced content to data.content in lesson ${lessonIndex + 1}, step ${stepIndex + 1}`);
+          }
+        }
+
+        // Fix practice steps without instructions
+        if (step.type === 'practice') {
+          const hasInstructions = step.instructions || step.data?.instructions || step.content;
+          if (!hasInstructions) {
+            const defaultInstructions = 'Practice the concepts you have learned in this lesson.';
+            
+            if (!step.data) step.data = {};
+            step.data.instructions = defaultInstructions;
+            step.instructions = defaultInstructions;
+            step.content = defaultInstructions;
+            
+            fixed = true;
+            fixLog.push(`Added default instructions to practice step in lesson ${lessonIndex + 1}, step ${stepIndex + 1}`);
+          }
+        }
+
+        // Ensure data structure exists
+        if (!step.data) {
+          step.data = {};
+          fixed = true;
+        }
+
+        if (fixed) fixesApplied++;
+      });
+    });
+
+    // Save the course with fixes
+    if (fixesApplied > 0) {
+      course.updatedBy = req.user.uid || req.user.email || 'admin';
+      await course.save();
+    }
+
+    res.json({
+      success: true,
+      fixesApplied,
+      fixLog,
+      message: `Applied ${fixesApplied} content fixes`
+    });
+
+  } catch (error) {
+    console.error('❌ Fix content error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fix course content'
     });
   }
 });
@@ -709,66 +1139,85 @@ router.patch('/admin/:id/toggle-premium', authenticateUser, async (req, res) => 
 // GET /api/updated-courses/admin/stats - Get detailed statistics
 router.get('/admin/stats', authenticateUser, async (req, res) => {
   try {
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    
+    const [
+      total,
+      published,
+      draft,
+      archived,
+      premium,
+      free,
+      recentlyCreated,
+      categoryDistribution,
+      difficultyDistribution,
+      topInstructors
+    ] = await Promise.all([
+      UpdatedCourse.countDocuments(),
+      UpdatedCourse.countDocuments({ status: 'published' }),
+      UpdatedCourse.countDocuments({ status: 'draft' }),
+      UpdatedCourse.countDocuments({ status: 'archived' }),
+      UpdatedCourse.countDocuments({ isPremium: true }),
+      UpdatedCourse.countDocuments({ isPremium: false }),
+      UpdatedCourse.countDocuments({ createdAt: { $gte: thirtyDaysAgo } }),
+      UpdatedCourse.aggregate([
+        { $group: { _id: '$category', count: { $sum: 1 } } },
+        { $sort: { count: -1 } }
+      ]),
+      UpdatedCourse.aggregate([
+        { $group: { _id: '$difficulty', count: { $sum: 1 } } },
+        { $sort: { count: -1 } }
+      ]),
+      UpdatedCourse.aggregate([
+        { $match: { status: 'published' } },
+        { $group: { 
+            _id: '$instructor.name', 
+            count: { $sum: 1 },
+            totalStudents: { $sum: '$studentsCount' },
+            averageRating: { $avg: '$rating' }
+          }
+        },
+        { $sort: { count: -1 } },
+        { $limit: 10 }
+      ])
+    ]);
+
     const stats = {
       overview: {
-        total: await UpdatedCourse.countDocuments(),
-        published: await UpdatedCourse.countDocuments({ status: 'published' }),
-        draft: await UpdatedCourse.countDocuments({ status: 'draft' }),
-        archived: await UpdatedCourse.countDocuments({ status: 'archived' })
+        total,
+        published,
+        draft,
+        archived,
+        recentlyCreated
       },
-      byCategory: {},
-      byDifficulty: {},
-      byInstructor: {},
       premium: {
-        total: await UpdatedCourse.countDocuments({ isPremium: true }),
-        free: await UpdatedCourse.countDocuments({ isPremium: false })
+        total: premium,
+        free: free,
+        premiumPercentage: total > 0 ? Math.round((premium / total) * 100) : 0
       },
+      byCategory: categoryDistribution.reduce((acc, item) => {
+        acc[item._id] = item.count;
+        return acc;
+      }, {}),
+      byDifficulty: difficultyDistribution.reduce((acc, item) => {
+        acc[item._id] = item.count;
+        return acc;
+      }, {}),
+      byInstructor: topInstructors,
       engagement: {
         totalViews: await UpdatedCourse.aggregate([
           { $group: { _id: null, total: { $sum: '$metadata.views' } } }
-        ]),
+        ]).then(result => result[0]?.total || 0),
         averageRating: await UpdatedCourse.aggregate([
+          { $match: { rating: { $gt: 0 } } },
           { $group: { _id: null, avg: { $avg: '$rating' } } }
-        ]),
+        ]).then(result => result[0]?.avg || 0),
         totalStudents: await UpdatedCourse.aggregate([
           { $group: { _id: null, total: { $sum: '$studentsCount' } } }
-        ])
+        ]).then(result => result[0]?.total || 0)
       }
     };
-
-    // Category breakdown
-    const categories = await UpdatedCourse.getCategories();
-    for (const category of categories) {
-      stats.byCategory[category] = await UpdatedCourse.countDocuments({ 
-        category, 
-        status: 'published' 
-      });
-    }
-
-    // Difficulty breakdown
-    const difficulties = await UpdatedCourse.getDifficultyLevels();
-    for (const difficulty of difficulties) {
-      stats.byDifficulty[difficulty] = await UpdatedCourse.countDocuments({ 
-        difficulty, 
-        status: 'published' 
-      });
-    }
-
-    // Top instructors
-    const topInstructors = await UpdatedCourse.aggregate([
-      { $match: { status: 'published' } },
-      { $group: { 
-          _id: '$instructor.name', 
-          count: { $sum: 1 },
-          totalStudents: { $sum: '$studentsCount' },
-          averageRating: { $avg: '$rating' }
-        }
-      },
-      { $sort: { count: -1 } },
-      { $limit: 10 }
-    ]);
-
-    stats.byInstructor = topInstructors;
 
     res.json({
       success: true,
@@ -796,9 +1245,11 @@ router.post('/admin/bulk-import', authenticateUser, async (req, res) => {
       });
     }
 
+    console.log(`📦 Admin: Bulk importing ${courses.length} courses`);
+
     const createdBy = req.user.uid || req.user.email || 'admin';
     const coursesWithMeta = courses.map(course => {
-      // ✅ FIXED: Process curriculum to remove video elements during bulk import
+      // ✅ Process curriculum for bulk import
       const processedCourse = {
         ...course,
         createdBy,
@@ -806,23 +1257,37 @@ router.post('/admin/bulk-import', authenticateUser, async (req, res) => {
       };
 
       if (processedCourse.curriculum && Array.isArray(processedCourse.curriculum)) {
-        processedCourse.curriculum = processedCourse.curriculum.map(lesson => ({
-          ...lesson,
-          steps: (lesson.steps || []).map(step => {
-            const processedStep = { ...step };
-            
-            // Remove video-related fields
-            delete processedStep.videoUrl;
-            delete processedStep.guideVideoUrl;
-            
-            // Only allow specific step types
-            if (!['explanation', 'example', 'reading', 'image', 'practice', 'quiz'].includes(step.type)) {
-              processedStep.type = 'explanation';
-            }
-            
-            return processedStep;
-          })
-        }));
+        processedCourse.curriculum = processedCourse.curriculum.map(lesson => {
+          const processedLesson = {
+            ...lesson,
+            steps: (lesson.steps || []).map(step => {
+              const processedStep = { ...step };
+              
+              // Ensure proper data structure for each step type
+              switch (step.type) {
+                case 'explanation':
+                case 'example':
+                case 'reading':
+                  if (!processedStep.data) processedStep.data = {};
+                  if (!processedStep.data.content && processedStep.content) {
+                    processedStep.data.content = processedStep.content;
+                  }
+                  break;
+
+                case 'practice':
+                  if (!processedStep.data) processedStep.data = {};
+                  if (!processedStep.data.instructions && processedStep.content) {
+                    processedStep.data.instructions = processedStep.content;
+                  }
+                  break;
+              }
+              
+              return processedStep;
+            })
+          };
+          
+          return processedLesson;
+        });
       }
 
       return processedCourse;
@@ -831,6 +1296,8 @@ router.post('/admin/bulk-import', authenticateUser, async (req, res) => {
     const result = await UpdatedCourse.insertMany(coursesWithMeta, { 
       ordered: false // Continue on errors
     });
+
+    console.log(`✅ Admin: Successfully imported ${result.length} courses`);
 
     res.json({
       success: true,
@@ -844,6 +1311,214 @@ router.post('/admin/bulk-import', authenticateUser, async (req, res) => {
       success: false,
       error: 'Failed to import courses',
       details: error.message
+    });
+  }
+});
+
+// ✅ NEW: Bulk operation routes for better admin management
+router.post('/admin/bulk-update-status', authenticateUser, async (req, res) => {
+  try {
+    const { courseIds, status } = req.body;
+    
+    if (!Array.isArray(courseIds) || courseIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'No course IDs provided'
+      });
+    }
+
+    if (!['draft', 'published', 'archived'].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid status'
+      });
+    }
+
+    const result = await UpdatedCourse.updateMany(
+      { _id: { $in: courseIds } },
+      { 
+        status,
+        updatedBy: req.user.uid || req.user.email || 'admin',
+        updatedAt: new Date()
+      }
+    );
+
+    res.json({
+      success: true,
+      updated: result.modifiedCount,
+      message: `Updated ${result.modifiedCount} courses to ${status}`
+    });
+
+  } catch (error) {
+    console.error('❌ Admin: Error in bulk status update:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update course statuses'
+    });
+  }
+});
+
+router.post('/admin/bulk-toggle-premium', authenticateUser, async (req, res) => {
+  try {
+    const { courseIds, isPremium } = req.body;
+    
+    if (!Array.isArray(courseIds) || courseIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'No course IDs provided'
+      });
+    }
+
+    const result = await UpdatedCourse.updateMany(
+      { _id: { $in: courseIds } },
+      { 
+        isPremium: Boolean(isPremium),
+        updatedBy: req.user.uid || req.user.email || 'admin',
+        updatedAt: new Date()
+      }
+    );
+
+    res.json({
+      success: true,
+      updated: result.modifiedCount,
+      message: `Updated ${result.modifiedCount} courses to ${isPremium ? 'premium' : 'free'}`
+    });
+
+  } catch (error) {
+    console.error('❌ Admin: Error in bulk premium toggle:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update premium status'
+    });
+  }
+});
+
+router.delete('/admin/bulk-delete', authenticateUser, async (req, res) => {
+  try {
+    const { courseIds } = req.body;
+    
+    if (!Array.isArray(courseIds) || courseIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'No course IDs provided'
+      });
+    }
+
+    const result = await UpdatedCourse.deleteMany({
+      _id: { $in: courseIds }
+    });
+
+    res.json({
+      success: true,
+      deleted: result.deletedCount,
+      message: `Deleted ${result.deletedCount} courses`
+    });
+
+  } catch (error) {
+    console.error('❌ Admin: Error in bulk delete:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete courses'
+    });
+  }
+});
+
+// ✅ NEW: Content validation endpoint
+router.post('/admin/validate-content', authenticateUser, async (req, res) => {
+  try {
+    const { courseData } = req.body;
+    
+    const validationResults = {
+      isValid: true,
+      errors: [],
+      warnings: []
+    };
+
+    // Validate basic course data
+    if (!courseData.title?.trim()) {
+      validationResults.errors.push('Course title is required');
+      validationResults.isValid = false;
+    }
+
+    if (!courseData.description?.trim()) {
+      validationResults.errors.push('Course description is required');
+      validationResults.isValid = false;
+    }
+
+    if (!courseData.category) {
+      validationResults.errors.push('Course category is required');
+      validationResults.isValid = false;
+    }
+
+    if (!courseData.instructor?.name?.trim()) {
+      validationResults.errors.push('Instructor name is required');
+      validationResults.isValid = false;
+    }
+
+    // Validate curriculum if not a guide
+    if (!courseData.isGuide && courseData.curriculum && Array.isArray(courseData.curriculum)) {
+      if (courseData.curriculum.length === 0) {
+        validationResults.errors.push('At least one lesson is required for courses');
+        validationResults.isValid = false;
+      }
+
+      courseData.curriculum.forEach((lesson, lessonIndex) => {
+        if (!lesson.title?.trim()) {
+          validationResults.errors.push(`Lesson ${lessonIndex + 1}: Title is required`);
+          validationResults.isValid = false;
+        }
+
+        if (lesson.steps && lesson.steps.length > 0) {
+          lesson.steps.forEach((step, stepIndex) => {
+            const stepRef = `Lesson ${lessonIndex + 1}, Step ${stepIndex + 1}`;
+            
+            if (['explanation', 'example', 'reading'].includes(step.type)) {
+              const hasContent = step.content?.trim() || step.data?.content?.trim();
+              if (!hasContent) {
+                validationResults.errors.push(`${stepRef}: ${step.type} content is required`);
+                validationResults.isValid = false;
+              } else if (hasContent.length < 50) {
+                validationResults.warnings.push(`${stepRef}: Content is quite short (${hasContent.length} characters)`);
+              }
+            }
+
+            if (step.type === 'practice') {
+              const hasInstructions = step.content?.trim() || step.instructions?.trim() || step.data?.instructions?.trim();
+              if (!hasInstructions) {
+                validationResults.errors.push(`${stepRef}: Practice instructions are required`);
+                validationResults.isValid = false;
+              }
+            }
+
+            if (step.type === 'quiz') {
+              const hasQuestion = step.content?.trim() || step.question?.trim();
+              if (!hasQuestion) {
+                validationResults.errors.push(`${stepRef}: Quiz question is required`);
+                validationResults.isValid = false;
+              }
+
+              if (!step.options || step.options.length < 2) {
+                validationResults.errors.push(`${stepRef}: Quiz needs at least 2 options`);
+                validationResults.isValid = false;
+              }
+            }
+          });
+        } else {
+          validationResults.warnings.push(`Lesson ${lessonIndex + 1}: No steps defined`);
+        }
+      });
+    }
+
+    res.json({
+      success: true,
+      validation: validationResults
+    });
+
+  } catch (error) {
+    console.error('❌ Content validation error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to validate content'
     });
   }
 });
