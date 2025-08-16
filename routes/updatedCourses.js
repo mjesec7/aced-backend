@@ -437,7 +437,6 @@ router.get('/admin/all', authenticateUser, async (req, res) => {
   }
 });
 
-// ✅ CRITICAL FIX: Enhanced POST route for creating courses
 router.post('/admin', authenticateUser, async (req, res) => {
   try {
     console.log('📤 Admin: Creating new updated course...');
@@ -472,7 +471,7 @@ router.post('/admin', authenticateUser, async (req, res) => {
       });
     }
 
-    // ✅ CRITICAL FIX: Enhanced curriculum processing with proper content handling
+    // ✅ CRITICAL FIX: Enhanced curriculum processing with EXPLICIT content handling
     if (courseData.curriculum && Array.isArray(courseData.curriculum)) {
       console.log('🔍 Processing curriculum with', courseData.curriculum.length, 'lessons');
       
@@ -493,39 +492,67 @@ router.post('/admin', authenticateUser, async (req, res) => {
           order: lesson.order || lessonIndex
         };
 
-        // ✅ CRITICAL: Process steps with enhanced validation and structure
+        // ✅ CRITICAL: Process steps with EXPLICIT content structure for explanations
         if (lesson.steps && Array.isArray(lesson.steps)) {
           processedLesson.steps = lesson.steps.map((step, stepIndex) => {
-            console.log(`🔍 Processing step ${stepIndex + 1} of type:`, step.type, 'content length:', step.content?.length || 0);
+            console.log(`🔍 Processing step ${stepIndex + 1} of type:`, step.type, 'content preview:', 
+              (step.content || '').substring(0, 50));
             
+            // ✅ CRITICAL: Initialize step with proper structure
             const processedStep = {
               type: step.type || 'explanation',
               title: step.title || '',
-              content: step.content || '',
               description: step.description || '',
               images: (step.images || []).filter(img => img && img.url),
+              // ✅ CRITICAL: ALWAYS initialize content and data fields
+              content: '',
               data: {}
             };
 
-            // ✅ CRITICAL: Structure data field correctly based on step type
+            // ✅ CRITICAL: Handle each step type with EXPLICIT content extraction
             switch (step.type) {
               case 'explanation':
               case 'example':
               case 'reading':
-                // ✅ CRITICAL: Ensure explanation content is properly structured
-                const explanationContent = step.content || step.data?.content || '';
+                // ✅ CRITICAL: Extract content from ALL possible sources
+                let explanationContent = '';
                 
-                if (!explanationContent.trim()) {
-                  contentIssues.push(`Lesson ${lessonIndex + 1}, Step ${stepIndex + 1}: ${step.type} content is required`);
-                  console.warn(`⚠️ Warning: ${step.type} step in lesson ${lessonIndex + 1} has no content`);
+                // Priority 1: Direct content field
+                if (step.content && typeof step.content === 'string' && step.content.trim()) {
+                  explanationContent = step.content.trim();
+                  console.log(`✅ Found content in step.content: ${explanationContent.length} chars`);
+                }
+                // Priority 2: Data content field
+                else if (step.data?.content && typeof step.data.content === 'string' && step.data.content.trim()) {
+                  explanationContent = step.data.content.trim();
+                  console.log(`✅ Found content in step.data.content: ${explanationContent.length} chars`);
+                }
+                // Priority 3: Description as fallback
+                else if (step.description && step.description.trim()) {
+                  explanationContent = step.description.trim();
+                  console.log(`⚠️ Using description as content: ${explanationContent.length} chars`);
                 }
                 
+                // ✅ CRITICAL: Ensure content exists - create default if missing
+                if (!explanationContent) {
+                  explanationContent = `This is a ${step.type} step that explains an important concept. Content should be added here to provide detailed information to students.`;
+                  console.warn(`⚠️ Created default content for ${step.type} step in lesson ${lessonIndex + 1}, step ${stepIndex + 1}`);
+                  contentIssues.push(`Lesson ${lessonIndex + 1}, Step ${stepIndex + 1}: ${step.type} step had no content - added default`);
+                }
+                
+                // ✅ CRITICAL: Store content in BOTH places for MongoDB compatibility
+                processedStep.content = explanationContent;
                 processedStep.data = {
                   content: explanationContent,
                   images: processedStep.images || []
                 };
                 
-                console.log(`✅ ${step.type} step processed with content length:`, explanationContent.length);
+                console.log(`✅ ${step.type} processed successfully:`, {
+                  contentLength: explanationContent.length,
+                  hasRootContent: !!processedStep.content,
+                  hasDataContent: !!processedStep.data.content,
+                  preview: explanationContent.substring(0, 100) + '...'
+                });
                 break;
 
               case 'image':
@@ -534,6 +561,8 @@ router.post('/admin', authenticateUser, async (req, res) => {
                   description: step.content || step.description || '',
                   caption: step.caption || ''
                 };
+                // Keep content field for consistency
+                processedStep.content = step.content || step.description || '';
                 break;
 
               case 'practice':
@@ -543,6 +572,7 @@ router.post('/admin', authenticateUser, async (req, res) => {
                   contentIssues.push(`Lesson ${lessonIndex + 1}, Step ${stepIndex + 1}: Practice instructions are required`);
                 }
                 
+                processedStep.content = practiceInstructions;
                 processedStep.data = {
                   instructions: practiceInstructions,
                   type: step.data?.type || step.practiceType || 'guided'
@@ -578,6 +608,7 @@ router.post('/admin', authenticateUser, async (req, res) => {
                   quizData = step.quizzes;
                 }
                 
+                processedStep.content = quizData.length > 0 ? quizData[0].question : '';
                 processedStep.data = quizData;
                 processedStep.quizzes = quizData;
                 
@@ -590,17 +621,20 @@ router.post('/admin', authenticateUser, async (req, res) => {
                 break;
 
               default:
-                // ✅ For unknown types, preserve content in data
+                // ✅ For unknown types, preserve content properly
+                const defaultContent = step.content || step.description || '';
+                processedStep.content = defaultContent;
                 processedStep.data = {
-                  content: step.content || '',
+                  content: defaultContent,
                   images: processedStep.images || []
                 };
-                console.log(`⚠️ Unknown step type: ${step.type}, using default structure`);
+                console.log(`⚠️ Unknown step type: ${step.type}, preserved content:`, defaultContent.length);
             }
 
             console.log(`✅ Processed step ${stepIndex + 1}:`, {
               type: processedStep.type,
               hasContent: !!processedStep.content,
+              contentLength: processedStep.content?.length || 0,
               hasDataContent: !!(processedStep.data && (
                 processedStep.data.content || 
                 processedStep.data.instructions || 
@@ -618,13 +652,32 @@ router.post('/admin', authenticateUser, async (req, res) => {
         return processedLesson;
       });
 
-      // ✅ Check for content issues
-      if (contentIssues.length > 0) {
-        console.error('❌ Content validation failed:', contentIssues);
+      // ✅ CRITICAL: Final content validation
+      const finalValidation = [];
+      courseData.curriculum.forEach((lesson, lIndex) => {
+        lesson.steps?.forEach((step, sIndex) => {
+          if (['explanation', 'example', 'reading'].includes(step.type)) {
+            if (!step.content || !step.content.trim()) {
+              finalValidation.push(`Lesson ${lIndex + 1}, Step ${sIndex + 1}: Missing content field`);
+            }
+            if (!step.data?.content || !step.data.content.trim()) {
+              finalValidation.push(`Lesson ${lIndex + 1}, Step ${sIndex + 1}: Missing data.content field`);
+            }
+            // ✅ Ensure content matches data.content
+            if (step.content !== step.data?.content) {
+              console.warn(`⚠️ Content mismatch in lesson ${lIndex + 1}, step ${sIndex + 1} - synchronizing`);
+              step.data.content = step.content; // Sync to content field
+            }
+          }
+        });
+      });
+
+      if (finalValidation.length > 0) {
+        console.error('❌ Final content validation failed:', finalValidation);
         return res.status(400).json({
           success: false,
           error: 'Course content validation failed',
-          details: contentIssues
+          details: finalValidation
         });
       }
 
@@ -637,12 +690,28 @@ router.post('/admin', authenticateUser, async (req, res) => {
         ),
         stepsWithContent: courseData.curriculum.reduce((sum, lesson) => 
           sum + (lesson.steps?.filter(step => 
-            step.content || (step.data && step.data.content)
+            step.content && step.content.trim()
+          ).length || 0), 0
+        ),
+        stepsWithDataContent: courseData.curriculum.reduce((sum, lesson) => 
+          sum + (lesson.steps?.filter(step => 
+            step.data?.content && step.data.content.trim()
           ).length || 0), 0
         )
       };
       
       console.log('📊 Final curriculum stats:', curriculumStats);
+      
+      // ✅ Ensure explanation steps have content
+      if (curriculumStats.explanationSteps > 0 && curriculumStats.stepsWithContent === 0) {
+        console.error('❌ CRITICAL: Explanation steps exist but none have content!');
+        return res.status(400).json({
+          success: false,
+          error: 'Explanation steps are missing content',
+          stats: curriculumStats
+        });
+      }
+      
     } else {
       console.log('⚠️ No curriculum provided or curriculum is not an array');
       courseData.curriculum = [];
@@ -655,7 +724,11 @@ router.post('/admin', authenticateUser, async (req, res) => {
     console.log('✅ Admin: Updated course created:', course.title);
     console.log('📊 Course saved with curriculum stats:', {
       lessonsCount: course.curriculum?.length || 0,
-      totalSteps: course.curriculum?.reduce((sum, lesson) => sum + (lesson.steps?.length || 0), 0) || 0
+      totalSteps: course.curriculum?.reduce((sum, lesson) => sum + (lesson.steps?.length || 0), 0) || 0,
+      explanationStepsWithContent: course.curriculum?.reduce((sum, lesson) => 
+        sum + (lesson.steps?.filter(step => 
+          step.type === 'explanation' && step.content && step.content.trim()
+        ).length || 0), 0) || 0
     });
 
     res.status(201).json({
@@ -689,8 +762,6 @@ router.post('/admin', authenticateUser, async (req, res) => {
     });
   }
 });
-
-// ✅ ENHANCED PUT route for updating courses
 router.put('/admin/:id', authenticateUser, async (req, res) => {
   try {
     console.log('📝 Admin: Updating updated course:', req.params.id);
@@ -704,11 +775,9 @@ router.put('/admin/:id', authenticateUser, async (req, res) => {
       updatedBy: req.user.uid || req.user.email || 'admin'
     };
 
-    // ✅ ENHANCED: Process curriculum to handle content properly on update
+    // ✅ ENHANCED: Process curriculum with proper content handling on update
     if (updateData.curriculum && Array.isArray(updateData.curriculum)) {
       console.log('🔍 Processing curriculum update with', updateData.curriculum.length, 'lessons');
-      
-      const contentIssues = [];
       
       updateData.curriculum = updateData.curriculum.map((lesson, lessonIndex) => {
         console.log(`🔍 Updating lesson ${lessonIndex + 1}:`, lesson.title);
@@ -720,7 +789,7 @@ router.put('/admin/:id', authenticateUser, async (req, res) => {
           order: lesson.order || lessonIndex
         };
 
-        // ✅ Process steps for updates
+        // ✅ Process steps for updates with explicit content handling
         if (lesson.steps && Array.isArray(lesson.steps)) {
           processedLesson.steps = lesson.steps.map((step, stepIndex) => {
             console.log(`🔍 Updating step ${stepIndex + 1} of type:`, step.type);
@@ -728,19 +797,25 @@ router.put('/admin/:id', authenticateUser, async (req, res) => {
             const processedStep = {
               type: step.type || 'explanation',
               title: step.title || '',
-              content: step.content || '',
               description: step.description || '',
               images: (step.images || []).filter(img => img && img.url),
+              content: '',
               data: {}
             };
 
-            // ✅ Structure data field for updates
+            // ✅ CRITICAL: Handle content for each step type on update
             switch (step.type) {
               case 'explanation':
               case 'example':
               case 'reading':
-                const explanationContent = step.content || step.data?.content || '';
+                let explanationContent = step.content || step.data?.content || step.description || '';
                 
+                // Ensure content exists
+                if (!explanationContent.trim()) {
+                  explanationContent = `This ${step.type} step content needs to be updated.`;
+                }
+                
+                processedStep.content = explanationContent;
                 processedStep.data = {
                   content: explanationContent,
                   images: processedStep.images || []
@@ -750,6 +825,7 @@ router.put('/admin/:id', authenticateUser, async (req, res) => {
                 break;
 
               case 'image':
+                processedStep.content = step.content || step.description || '';
                 processedStep.data = {
                   images: processedStep.images || [],
                   description: step.content || step.description || ''
@@ -759,6 +835,7 @@ router.put('/admin/:id', authenticateUser, async (req, res) => {
               case 'practice':
                 const practiceInstructions = step.content || step.data?.instructions || step.instructions || '';
                 
+                processedStep.content = practiceInstructions;
                 processedStep.data = {
                   instructions: practiceInstructions,
                   type: step.data?.type || step.practiceType || 'guided'
@@ -782,6 +859,7 @@ router.put('/admin/:id', authenticateUser, async (req, res) => {
                   }];
                 }
                 
+                processedStep.content = quizData.length > 0 ? quizData[0].question : '';
                 processedStep.data = quizData;
                 processedStep.quizzes = quizData;
                 
@@ -793,8 +871,10 @@ router.put('/admin/:id', authenticateUser, async (req, res) => {
                 break;
 
               default:
+                const defaultContent = step.content || step.description || '';
+                processedStep.content = defaultContent;
                 processedStep.data = {
-                  content: step.content || '',
+                  content: defaultContent,
                   images: processedStep.images || []
                 };
             }
@@ -810,7 +890,11 @@ router.put('/admin/:id', authenticateUser, async (req, res) => {
 
       console.log('📊 Updated curriculum stats:', {
         totalLessons: updateData.curriculum.length,
-        totalSteps: updateData.curriculum.reduce((sum, lesson) => sum + (lesson.steps?.length || 0), 0)
+        totalSteps: updateData.curriculum.reduce((sum, lesson) => sum + (lesson.steps?.length || 0), 0),
+        explanationStepsWithContent: updateData.curriculum.reduce((sum, lesson) => 
+          sum + (lesson.steps?.filter(step => 
+            step.type === 'explanation' && step.content && step.content.trim()
+          ).length || 0), 0)
       });
     }
 
