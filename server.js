@@ -1637,6 +1637,7 @@ app.get('/api/status', (req, res) => {
       emergencyRoutesActive: true
     },
     progress: {
+      criticalEndpointsActive: true,
       mainEndpoint: '/api/user-progress',
       alternativeEndpoint: '/api/progress',
       quickSaveEndpoint: '/api/progress/quick-save',
@@ -3145,6 +3146,982 @@ app.get('/api/debug/routes', (req, res) => {
     }
   });
 });
+// ========================================
+// 🚫 API ERROR HANDLERS
+// ========================================
+
+// API debugging middleware
+app.use('/api/*', (req, res, next) => {
+  next();
+});
+
+// API 404 handler
+app.use('/api/*', (req, res) => {
+  console.error(`❌ API Route Not Found: ${req.method} ${req.originalUrl}`);
+  
+  res.status(404).json({ 
+    error: 'API endpoint not found',
+    path: req.originalUrl,
+    method: req.method,
+    server: 'api.aced.live',
+    timestamp: new Date().toISOString(),
+    availableRoutes: mountedRoutes.map(r => r.path),
+    suggestion: 'Check the route path and method',
+    criticalProgressEndpoints: [
+      'POST /api/user-progress',
+      'POST /api/progress',
+      'POST /api/progress/quick-save'
+    ],
+    emergencyPaymentEndpoints: [
+      'GET /api/payments/validate-user/:userId',
+      'POST /api/payments/initiate',
+      'GET /api/payments/status/:transactionId',
+      'POST /api/payments/promo-code',
+      'POST /api/payments/generate-form'
+    ],
+    paymeEndpoints: [
+      'POST /api/payments/payme',
+      'POST /api/payments/initiate-payme',
+      'GET /api/payments/payme/test'
+    ],
+    allMountedRoutes: [
+      'POST /api/payments/payme',
+      'POST /api/payments/initiate-payme',
+      'GET /api/payments/payme/return/success',
+      'GET /api/payments/payme/return/failure',
+      'GET /api/payments/payme/return/cancel',
+      'POST /api/payments/payme/notify',
+      'GET /api/payments/payme/test',
+      'GET /api/payments/validate-user/:userId (EMERGENCY)',
+      'POST /api/payments/initiate (EMERGENCY)',
+      'GET /api/payments/status/:transactionId (EMERGENCY)',
+      'POST /api/payments/promo-code (EMERGENCY)',
+      'POST /api/payments/generate-form (EMERGENCY)',
+      'POST /api/user-progress (CRITICAL)',
+      'POST /api/progress (CRITICAL)',
+      'POST /api/progress/quick-save (CRITICAL)',
+      ...mountedRoutes.map(r => `${r.path}/*`)
+    ]
+  });
+});
+
+// ========================================
+// 🎨 FRONTEND STATIC FILES (Optional for API server)
+// ========================================
+
+const distPath = path.join(__dirname, 'dist');
+
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath, {
+    maxAge: process.env.NODE_ENV === 'production' ? '1y' : 0,
+    etag: true,
+    lastModified: true
+  }));
+} else {
+}
+
+// SPA Catch-all route (only if frontend exists)
+app.get('*', (req, res) => {
+  const indexPath = path.join(distPath, 'index.html');
+  
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath, (err) => {
+      if (err) {
+        console.error('❌ Failed to serve index.html:', err.message);
+        res.status(500).json({ 
+          error: 'Frontend loading error',
+          message: 'Unable to serve the application',
+          server: 'api.aced.live'
+        });
+      }
+    });
+  } else {
+    // res.status(404).json({
+    //   error: 'API endpoint not found',
+    //   server: 'api.aced.live',
+    //   frontend: 'aced.live',
+    //   api: {
+    //     health: 'https://api.aced.live/health',
+    //     routes: 'https://api.aced.live/api/routes',
+    //     authTest: 'https://api.aced.live/auth-test',
+    //     paymeWebhook: 'https://api.aced.live/api/payments/payme',
+    //     paymeTest: 'https://api.aced.live/api/payments/payme/test',
+    //     validateUser: 'https://api.aced.live/api/payments/validate-user/USER_ID',
+    //     paymentInitiate: 'https://api.aced.live/api/payments/initiate',
+    //     paymentStatus: 'https://api.aced.live/api/payments/status/TRANSACTION_ID',
+    //     generateForm: 'https://api.aced.live/api/payments/generate-form',
+    //     userProgress: 'https://api.aced.live/api/user-progress',
+    //     progress: 'https://api.aced.live/api/progress',
+    //     quickSave: 'https://api.aced.live/api/progress/quick-save'
+    //   },
+    //   timestamp: new Date().toISOString()
+    // });
+  }
+});
+
+// ========================================
+// 🔥 ENHANCED GLOBAL ERROR HANDLER
+// ========================================
+
+app.use((err, req, res, next) => {
+  const errorId = Date.now().toString(36) + Math.random().toString(36).substr(2);
+  const timestamp = new Date().toISOString();
+  
+  console.error(`\n🔥 GLOBAL ERROR [${errorId}] at ${timestamp}:`);
+  console.error('📍 URL:', req.originalUrl);
+  console.error('🔧 Method:', req.method);
+  console.error('💬 Message:', err.message);
+  console.error('🏷️  Name:', err.name);
+  console.error('🔢 Code:', err.code);
+  console.error('🌐 Server: api.aced.live');
+  
+  if (process.env.NODE_ENV === 'development') {
+    console.error('📚 Stack:', err.stack);
+  }
+  
+  // Handle specific error types
+  let statusCode = err.status || err.statusCode || 500;
+  let message = 'Internal server error';
+  let details = {};
+  
+  if (err.name === 'ValidationError') {
+    statusCode = 400;
+    message = 'Validation error';
+    details.validationErrors = Object.values(err.errors).map(e => e.message);
+  } else if (err.name === 'CastError') {
+    statusCode = 400;
+    message = 'Invalid data format';
+    details.field = err.path;
+    details.value = err.value;
+  } else if (err.code === 11000) {
+    statusCode = 409;
+    message = 'Duplicate entry';
+    details.duplicateField = Object.keys(err.keyValue || {})[0];
+  } else if (err.message.includes('CORS')) {
+    statusCode = 403;
+    message = 'CORS policy violation';
+  } else if (err.message.includes('buffering timed out')) {
+    statusCode = 503;
+    message = 'Database connection timeout';
+    details.solution = 'Check database connection';
+  } else if (err.message.includes('Firebase') || err.code?.startsWith('auth/')) {
+    statusCode = 401;
+    message = 'Authentication error';
+    details.firebaseError = err.code || err.message;
+  } else if (err.message.includes('Too many requests')) {
+    statusCode = 429;
+    message = 'Rate limit exceeded';
+    details.preventionActive = true;
+  } else if (err.message.includes('PayMe') || err.message.includes('payme')) {
+    statusCode = 500;
+    message = 'PayMe integration error';
+    details.paymeError = true;
+  } else if (err.message.includes('progress') || err.message.includes('Progress')) {
+    statusCode = 500;
+    message = 'Progress saving error';
+    details.progressError = true;
+    details.criticalEndpoints = ['/api/user-progress', '/api/progress'];
+  }
+  
+  const errorResponse = {
+    error: message,
+    errorId,
+    timestamp,
+    server: 'api.aced.live',
+    path: req.originalUrl,
+    method: req.method
+  };
+  
+  if (Object.keys(details).length > 0) {
+    errorResponse.details = details;
+  }
+  
+  if (process.env.NODE_ENV === 'development') {
+    errorResponse.debug = {
+      message: err.message,
+      name: err.name,
+      code: err.code,
+      stack: err.stack?.split('\n').slice(0, 5)
+    };
+  }
+  
+  res.status(statusCode).json(errorResponse);
+});
+
+// ========================================
+// 🎨 FRONTEND STATIC FILES (Optional for API server)
+// ========================================
+
+const distPath = path.join(__dirname, 'dist');
+
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath, {
+    maxAge: process.env.NODE_ENV === 'production' ? '1y' : 0,
+    etag: true,
+    lastModified: true
+  }));
+} else {
+}
+
+// SPA Catch-all route (only if frontend exists)
+app.get('*', (req, res) => {
+  const indexPath = path.join(distPath, 'index.html');
+  
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath, (err) => {
+      if (err) {
+        console.error('❌ Failed to serve index.html:', err.message);
+        res.status(500).json({ 
+          error: 'Frontend loading error',
+          message: 'Unable to serve the application',
+          server: 'api.aced.live'
+        });
+      }
+    });
+  } else {
+    // res.status(404).json({
+    //   error: 'API endpoint not found',
+    //   server: 'api.aced.live',
+    //   frontend: 'aced.live',
+    //   api: {
+    //     health: 'https://api.aced.live/health',
+    //     routes: 'https://api.aced.live/api/routes',
+    //     authTest: 'https://api.aced.live/auth-test',
+    //     paymeWebhook: 'https://api.aced.live/api/payments/payme',
+    //     paymeTest: 'https://api.aced.live/api/payments/payme/test',
+    //     validateUser: 'https://api.aced.live/api/payments/validate-user/USER_ID',
+    //     paymentInitiate: 'https://api.aced.live/api/payments/initiate',
+    //     paymentStatus: 'https://api.aced.live/api/payments/status/TRANSACTION_ID',
+    //     generateForm: 'https://api.aced.live/api/payments/generate-form',
+    //     userProgress: 'https://api.aced.live/api/user-progress',
+    //     progress: 'https://api.aced.live/api/progress',
+    //     quickSave: 'https://api.aced.live/api/progress/quick-save'
+    //   },
+    //   timestamp: new Date().toISOString()
+    // });
+  }
+});
+
+// ========================================
+// 🔥 ENHANCED GLOBAL ERROR HANDLER
+// ========================================
+
+app.use((err, req, res, next) => {
+  const errorId = Date.now().toString(36) + Math.random().toString(36).substr(2);
+  const timestamp = new Date().toISOString();
+  
+  console.error(`\n🔥 GLOBAL ERROR [${errorId}] at ${timestamp}:`);
+  console.error('📍 URL:', req.originalUrl);
+  console.error('🔧 Method:', req.method);
+  console.error('💬 Message:', err.message);
+  console.error('🏷️  Name:', err.name);
+  console.error('🔢 Code:', err.code);
+  console.error('🌐 Server: api.aced.live');
+  
+  if (process.env.NODE_ENV === 'development') {
+    console.error('📚 Stack:', err.stack);
+  }
+  
+  // Handle specific error types
+  let statusCode = err.status || err.statusCode || 500;
+  let message = 'Internal server error';
+  let details = {};
+  
+  if (err.name === 'ValidationError') {
+    statusCode = 400;
+    message = 'Validation error';
+    details.validationErrors = Object.values(err.errors).map(e => e.message);
+  } else if (err.name === 'CastError') {
+    statusCode = 400;
+    message = 'Invalid data format';
+    details.field = err.path;
+    details.value = err.value;
+  } else if (err.code === 11000) {
+    statusCode = 409;
+    message = 'Duplicate entry';
+    details.duplicateField = Object.keys(err.keyValue || {})[0];
+  } else if (err.message.includes('CORS')) {
+    statusCode = 403;
+    message = 'CORS policy violation';
+  } else if (err.message.includes('buffering timed out')) {
+    statusCode = 503;
+    message = 'Database connection timeout';
+    details.solution = 'Check database connection';
+  } else if (err.message.includes('Firebase') || err.code?.startsWith('auth/')) {
+    statusCode = 401;
+    message = 'Authentication error';
+    details.firebaseError = err.code || err.message;
+  } else if (err.message.includes('Too many requests')) {
+    statusCode = 429;
+    message = 'Rate limit exceeded';
+    details.preventionActive = true;
+  } else if (err.message.includes('PayMe') || err.message.includes('payme')) {
+    statusCode = 500;
+    message = 'PayMe integration error';
+    details.paymeError = true;
+  } else if (err.message.includes('progress') || err.message.includes('Progress')) {
+    statusCode = 500;
+    message = 'Progress saving error';
+    details.progressError = true;
+    details.criticalEndpoints = ['/api/user-progress', '/api/progress'];
+  }
+  
+  const errorResponse = {
+    error: message,
+    errorId,
+    timestamp,
+    server: 'api.aced.live',
+    path: req.originalUrl,
+    method: req.method
+  };
+  
+  if (Object.keys(details).length > 0) {
+    errorResponse.details = details;
+  }
+  
+  if (process.env.NODE_ENV === 'development') {
+    errorResponse.debug = {
+      message: err.message,
+      name: err.name,
+      code: err.code,
+      stack: err.stack?.split('\n').slice(0, 5)
+    };
+  }
+  
+  res.status(statusCode).json(errorResponse);
+});
+
+// ========================================
+// 🎨 FRONTEND STATIC FILES (Optional for API server)
+// ========================================
+
+const distPath = path.join(__dirname, 'dist');
+
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath, {
+    maxAge: process.env.NODE_ENV === 'production' ? '1y' : 0,
+    etag: true,
+    lastModified: true
+  }));
+} else {
+}
+
+// SPA Catch-all route (only if frontend exists)
+app.get('*', (req, res) => {
+  const indexPath = path.join(distPath, 'index.html');
+  
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath, (err) => {
+      if (err) {
+        console.error('❌ Failed to serve index.html:', err.message);
+        res.status(500).json({ 
+          error: 'Frontend loading error',
+          message: 'Unable to serve the application',
+          server: 'api.aced.live'
+        });
+      }
+    });
+  } else {
+    // res.status(404).json({
+    //   error: 'API endpoint not found',
+    //   server: 'api.aced.live',
+    //   frontend: 'aced.live',
+    //   api: {
+    //     health: 'https://api.aced.live/health',
+    //     routes: 'https://api.aced.live/api/routes',
+    //     authTest: 'https://api.aced.live/auth-test',
+    //     paymeWebhook: 'https://api.aced.live/api/payments/payme',
+    //     paymeTest: 'https://api.aced.live/api/payments/payme/test',
+    //     validateUser: 'https://api.aced.live/api/payments/validate-user/USER_ID',
+    //     paymentInitiate: 'https://api.aced.live/api/payments/initiate',
+    //     paymentStatus: 'https://api.aced.live/api/payments/status/TRANSACTION_ID',
+    //     generateForm: 'https://api.aced.live/api/payments/generate-form',
+    //     userProgress: 'https://api.aced.live/api/user-progress',
+    //     progress: 'https://api.aced.live/api/progress',
+    //     quickSave: 'https://api.aced.live/api/progress/quick-save'
+    //   },
+    //   timestamp: new Date().toISOString()
+    // });
+  }
+});
+
+// ========================================
+// 🔥 ENHANCED GLOBAL ERROR HANDLER
+// ========================================
+
+app.use((err, req, res, next) => {
+  const errorId = Date.now().toString(36) + Math.random().toString(36).substr(2);
+  const timestamp = new Date().toISOString();
+  
+  console.error(`\n🔥 GLOBAL ERROR [${errorId}] at ${timestamp}:`);
+  console.error('📍 URL:', req.originalUrl);
+  console.error('🔧 Method:', req.method);
+  console.error('💬 Message:', err.message);
+  console.error('🏷️  Name:', err.name);
+  console.error('🔢 Code:', err.code);
+  console.error('🌐 Server: api.aced.live');
+  
+  if (process.env.NODE_ENV === 'development') {
+    console.error('📚 Stack:', err.stack);
+  }
+  
+  // Handle specific error types
+  let statusCode = err.status || err.statusCode || 500;
+  let message = 'Internal server error';
+  let details = {};
+  
+  if (err.name === 'ValidationError') {
+    statusCode = 400;
+    message = 'Validation error';
+    details.validationErrors = Object.values(err.errors).map(e => e.message);
+  } else if (err.name === 'CastError') {
+    statusCode = 400;
+    message = 'Invalid data format';
+    details.field = err.path;
+    details.value = err.value;
+  } else if (err.code === 11000) {
+    statusCode = 409;
+    message = 'Duplicate entry';
+    details.duplicateField = Object.keys(err.keyValue || {})[0];
+  } else if (err.message.includes('CORS')) {
+    statusCode = 403;
+    message = 'CORS policy violation';
+  } else if (err.message.includes('buffering timed out')) {
+    statusCode = 503;
+    message = 'Database connection timeout';
+    details.solution = 'Check database connection';
+  } else if (err.message.includes('Firebase') || err.code?.startsWith('auth/')) {
+    statusCode = 401;
+    message = 'Authentication error';
+    details.firebaseError = err.code || err.message;
+  } else if (err.message.includes('Too many requests')) {
+    statusCode = 429;
+    message = 'Rate limit exceeded';
+    details.preventionActive = true;
+  } else if (err.message.includes('PayMe') || err.message.includes('payme')) {
+    statusCode = 500;
+    message = 'PayMe integration error';
+    details.paymeError = true;
+  } else if (err.message.includes('progress') || err.message.includes('Progress')) {
+    statusCode = 500;
+    message = 'Progress saving error';
+    details.progressError = true;
+    details.criticalEndpoints = ['/api/user-progress', '/api/progress'];
+  }
+  
+  const errorResponse = {
+    error: message,
+    errorId,
+    timestamp,
+    server: 'api.aced.live',
+    path: req.originalUrl,
+    method: req.method
+  };
+  
+  if (Object.keys(details).length > 0) {
+    errorResponse.details = details;
+  }
+  
+  if (process.env.NODE_ENV === 'development') {
+    errorResponse.debug = {
+      message: err.message,
+      name: err.name,
+      code: err.code,
+      stack: err.stack?.split('\n').slice(0, 5)
+    };
+  }
+  
+  res.status(statusCode).json(errorResponse);
+});
+
+// ========================================
+// 🎨 FRONTEND STATIC FILES (Optional for API server)
+// ========================================
+
+const distPath = path.join(__dirname, 'dist');
+
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath, {
+    maxAge: process.env.NODE_ENV === 'production' ? '1y' : 0,
+    etag: true,
+    lastModified: true
+  }));
+} else {
+}
+
+// SPA Catch-all route (only if frontend exists)
+app.get('*', (req, res) => {
+  const indexPath = path.join(distPath, 'index.html');
+  
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath, (err) => {
+      if (err) {
+        console.error('❌ Failed to serve index.html:', err.message);
+        res.status(500).json({ 
+          error: 'Frontend loading error',
+          message: 'Unable to serve the application',
+          server: 'api.aced.live'
+        });
+      }
+    });
+  } else {
+    // res.status(404).json({
+    //   error: 'API endpoint not found',
+    //   server: 'api.aced.live',
+    //   frontend: 'aced.live',
+    //   api: {
+    //     health: 'https://api.aced.live/health',
+    //     routes: 'https://api.aced.live/api/routes',
+    //     authTest: 'https://api.aced.live/auth-test',
+    //     paymeWebhook: 'https://api.aced.live/api/payments/payme',
+    //     paymeTest: 'https://api.aced.live/api/payments/payme/test',
+    //     validateUser: 'https://api.aced.live/api/payments/validate-user/USER_ID',
+    //     paymentInitiate: 'https://api.aced.live/api/payments/initiate',
+    //     paymentStatus: 'https://api.aced.live/api/payments/status/TRANSACTION_ID',
+    //     generateForm: 'https://api.aced.live/api/payments/generate-form',
+    //     userProgress: 'https://api.aced.live/api/user-progress',
+    //     progress: 'https://api.aced.live/api/progress',
+    //     quickSave: 'https://api.aced.live/api/progress/quick-save'
+    //   },
+    //   timestamp: new Date().toISOString()
+    // });
+  }
+});
+
+// ========================================
+// 🔥 ENHANCED GLOBAL ERROR HANDLER
+// ========================================
+
+app.use((err, req, res, next) => {
+  const errorId = Date.now().toString(36) + Math.random().toString(36).substr(2);
+  const timestamp = new Date().toISOString();
+  
+  console.error(`\n🔥 GLOBAL ERROR [${errorId}] at ${timestamp}:`);
+  console.error('📍 URL:', req.originalUrl);
+  console.error('🔧 Method:', req.method);
+  console.error('💬 Message:', err.message);
+  console.error('🏷️  Name:', err.name);
+  console.error('🔢 Code:', err.code);
+  console.error('🌐 Server: api.aced.live');
+  
+  if (process.env.NODE_ENV === 'development') {
+    console.error('📚 Stack:', err.stack);
+  }
+  
+  // Handle specific error types
+  let statusCode = err.status || err.statusCode || 500;
+  let message = 'Internal server error';
+  let details = {};
+  
+  if (err.name === 'ValidationError') {
+    statusCode = 400;
+    message = 'Validation error';
+    details.validationErrors = Object.values(err.errors).map(e => e.message);
+  } else if (err.name === 'CastError') {
+    statusCode = 400;
+    message = 'Invalid data format';
+    details.field = err.path;
+    details.value = err.value;
+  } else if (err.code === 11000) {
+    statusCode = 409;
+    message = 'Duplicate entry';
+    details.duplicateField = Object.keys(err.keyValue || {})[0];
+  } else if (err.message.includes('CORS')) {
+    statusCode = 403;
+    message = 'CORS policy violation';
+  } else if (err.message.includes('buffering timed out')) {
+    statusCode = 503;
+    message = 'Database connection timeout';
+    details.solution = 'Check database connection';
+  } else if (err.message.includes('Firebase') || err.code?.startsWith('auth/')) {
+    statusCode = 401;
+    message = 'Authentication error';
+    details.firebaseError = err.code || err.message;
+  } else if (err.message.includes('Too many requests')) {
+    statusCode = 429;
+    message = 'Rate limit exceeded';
+    details.preventionActive = true;
+  } else if (err.message.includes('PayMe') || err.message.includes('payme')) {
+    statusCode = 500;
+    message = 'PayMe integration error';
+    details.paymeError = true;
+  } else if (err.message.includes('progress') || err.message.includes('Progress')) {
+    statusCode = 500;
+    message = 'Progress saving error';
+    details.progressError = true;
+    details.criticalEndpoints = ['/api/user-progress', '/api/progress'];
+  }
+  
+  const errorResponse = {
+    error: message,
+    errorId,
+    timestamp,
+    server: 'api.aced.live',
+    path: req.originalUrl,
+    method: req.method
+  };
+  
+  if (Object.keys(details).length > 0) {
+    errorResponse.details = details;
+  }
+  
+  if (process.env.NODE_ENV === 'development') {
+    errorResponse.debug = {
+      message: err.message,
+      name: err.name,
+      code: err.code,
+      stack: err.stack?.split('\n').slice(0, 5)
+    };
+  }
+  
+  res.status(statusCode).json(errorResponse);
+});
+
+// ========================================
+// 🎨 FRONTEND STATIC FILES (Optional for API server)
+// ========================================
+
+const distPath = path.join(__dirname, 'dist');
+
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath, {
+    maxAge: process.env.NODE_ENV === 'production' ? '1y' : 0,
+    etag: true,
+    lastModified: true
+  }));
+} else {
+}
+
+// SPA Catch-all route (only if frontend exists)
+app.get('*', (req, res) => {
+  const indexPath = path.join(distPath, 'index.html');
+  
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath, (err) => {
+      if (err) {
+        console.error('❌ Failed to serve index.html:', err.message);
+        res.status(500).json({ 
+          error: 'Frontend loading error',
+          message: 'Unable to serve the application',
+          server: 'api.aced.live'
+        });
+      }
+    });
+  } else {
+    // res.status(404).json({
+    //   error: 'API endpoint not found',
+    //   server: 'api.aced.live',
+    //   frontend: 'aced.live',
+    //   api: {
+    //     health: 'https://api.aced.live/health',
+    //     routes: 'https://api.aced.live/api/routes',
+    //     authTest: 'https://api.aced.live/auth-test',
+    //     paymeWebhook: 'https://api.aced.live/api/payments/payme',
+    //     paymeTest: 'https://api.aced.live/api/payments/payme/test',
+    //     validateUser: 'https://api.aced.live/api/payments/validate-user/USER_ID',
+    //     paymentInitiate: 'https://api.aced.live/api/payments/initiate',
+    //     paymentStatus: 'https://api.aced.live/api/payments/status/TRANSACTION_ID',
+    //     generateForm: 'https://api.aced.live/api/payments/generate-form',
+    //     userProgress: 'https://api.aced.live/api/user-progress',
+    //     progress: 'https://api.aced.live/api/progress',
+    //     quickSave: 'https://api.aced.live/api/progress/quick-save'
+    //   },
+    //   timestamp: new Date().toISOString()
+    // });
+  }
+});
+
+// ========================================
+// 🔥 ENHANCED GLOBAL ERROR HANDLER
+// ========================================
+
+app.use((err, req, res, next) => {
+  const errorId = Date.now().toString(36) + Math.random().toString(36).substr(2);
+  const timestamp = new Date().toISOString();
+  
+  console.error(`\n🔥 GLOBAL ERROR [${errorId}] at ${timestamp}:`);
+  console.error('📍 URL:', req.originalUrl);
+  console.error('🔧 Method:', req.method);
+  console.error('💬 Message:', err.message);
+  console.error('🏷️  Name:', err.name);
+  console.error('🔢 Code:', err.code);
+  console.error('🌐 Server: api.aced.live');
+  
+  if (process.env.NODE_ENV === 'development') {
+    console.error('📚 Stack:', err.stack);
+  }
+  
+  // Handle specific error types
+  let statusCode = err.status || err.statusCode || 500;
+  let message = 'Internal server error';
+  let details = {};
+  
+  if (err.name === 'ValidationError') {
+    statusCode = 400;
+    message = 'Validation error';
+    details.validationErrors = Object.values(err.errors).map(e => e.message);
+  } else if (err.name === 'CastError') {
+    statusCode = 400;
+    message = 'Invalid data format';
+    details.field = err.path;
+    details.value = err.value;
+  } else if (err.code === 11000) {
+    statusCode = 409;
+    message = 'Duplicate entry';
+    details.duplicateField = Object.keys(err.keyValue || {})[0];
+  } else if (err.message.includes('CORS')) {
+    statusCode = 403;
+    message = 'CORS policy violation';
+  } else if (err.message.includes('buffering timed out')) {
+    statusCode = 503;
+    message = 'Database connection timeout';
+    details.solution = 'Check database connection';
+  } else if (err.message.includes('Firebase') || err.code?.startsWith('auth/')) {
+    statusCode = 401;
+    message = 'Authentication error';
+    details.firebaseError = err.code || err.message;
+  } else if (err.message.includes('Too many requests')) {
+    statusCode = 429;
+    message = 'Rate limit exceeded';
+    details.preventionActive = true;
+  } else if (err.message.includes('PayMe') || err.message.includes('payme')) {
+    statusCode = 500;
+    message = 'PayMe integration error';
+    details.paymeError = true;
+  } else if (err.message.includes('progress') || err.message.includes('Progress')) {
+    statusCode = 500;
+    message = 'Progress saving error';
+    details.progressError = true;
+    details.criticalEndpoints = ['/api/user-progress', '/api/progress'];
+  }
+  
+  const errorResponse = {
+    error: message,
+    errorId,
+    timestamp,
+    server: 'api.aced.live',
+    path: req.originalUrl,
+    method: req.method
+  };
+  
+  if (Object.keys(details).length > 0) {
+    errorResponse.details = details;
+  }
+  
+  if (process.env.NODE_ENV === 'development') {
+    errorResponse.debug = {
+      message: err.message,
+      name: err.name,
+      code: err.code,
+      stack: err.stack?.split('\n').slice(0, 5)
+    };
+  }
+  
+  res.status(statusCode).json(errorResponse);
+});
+
+// ========================================
+// 🚫 API ERROR HANDLERS
+// ========================================
+
+// API debugging middleware
+app.use('/api/*', (req, res, next) => {
+  next();
+});
+
+// API 404 handler
+app.use('/api/*', (req, res) => {
+  console.error(`❌ API Route Not Found: ${req.method} ${req.originalUrl}`);
+  
+  res.status(404).json({ 
+    error: 'API endpoint not found',
+    path: req.originalUrl,
+    method: req.method,
+    server: 'api.aced.live',
+    timestamp: new Date().toISOString(),
+    availableRoutes: mountedRoutes.map(r => r.path),
+    suggestion: 'Check the route path and method',
+    criticalProgressEndpoints: [
+      'POST /api/user-progress',
+      'POST /api/progress',
+      'POST /api/progress/quick-save'
+    ],
+    emergencyPaymentEndpoints: [
+      'GET /api/payments/validate-user/:userId',
+      'POST /api/payments/initiate',
+      'GET /api/payments/status/:transactionId',
+      'POST /api/payments/promo-code',
+      'POST /api/payments/generate-form'
+    ],
+    paymeEndpoints: [
+      'POST /api/payments/payme',
+      'POST /api/payments/initiate-payme',
+      'GET /api/payments/payme/test'
+    ],
+    allMountedRoutes: [
+      'POST /api/payments/payme',
+      'POST /api/payments/initiate-payme',
+      'GET /api/payments/payme/return/success',
+      'GET /api/payments/payme/return/failure',
+      'GET /api/payments/payme/return/cancel',
+      'POST /api/payments/payme/notify',
+      'GET /api/payments/payme/test',
+      'GET /api/payments/validate-user/:userId (EMERGENCY)',
+      'POST /api/payments/initiate (EMERGENCY)',
+      'GET /api/payments/status/:transactionId (EMERGENCY)',
+      'POST /api/payments/promo-code (EMERGENCY)',
+      'POST /api/payments/generate-form (EMERGENCY)',
+      'POST /api/user-progress (CRITICAL)',
+      'POST /api/progress (CRITICAL)',
+      'POST /api/progress/quick-save (CRITICAL)',
+      ...mountedRoutes.map(r => `${r.path}/*`)
+    ]
+  });
+});
+
+// ========================================
+// 🎨 FRONTEND STATIC FILES (Optional for API server)
+// ========================================
+
+const distPath = path.join(__dirname, 'dist');
+
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath, {
+    maxAge: process.env.NODE_ENV === 'production' ? '1y' : 0,
+    etag: true,
+    lastModified: true
+  }));
+} else {
+}
+
+// SPA Catch-all route (only if frontend exists)
+app.get('*', (req, res) => {
+  const indexPath = path.join(distPath, 'index.html');
+  
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath, (err) => {
+      if (err) {
+        console.error('❌ Failed to serve index.html:', err.message);
+        res.status(500).json({ 
+          error: 'Frontend loading error',
+          message: 'Unable to serve the application',
+          server: 'api.aced.live'
+        });
+      }
+    });
+  } else {
+    // res.status(404).json({
+    //   error: 'API endpoint not found',
+    //   server: 'api.aced.live',
+    //   frontend: 'aced.live',
+    //   api: {
+    //     health: 'https://api.aced.live/health',
+    //     routes: 'https://api.aced.live/api/routes',
+    //     authTest: 'https://api.aced.live/auth-test',
+    //     paymeWebhook: 'https://api.aced.live/api/payments/payme',
+    //     paymeTest: 'https://api.aced.live/api/payments/payme/test',
+    //     validateUser: 'https://api.aced.live/api/payments/validate-user/USER_ID',
+    //     paymentInitiate: 'https://api.aced.live/api/payments/initiate',
+    //     paymentStatus: 'https://api.aced.live/api/payments/status/TRANSACTION_ID',
+    //     generateForm: 'https://api.aced.live/api/payments/generate-form',
+    //     userProgress: 'https://api.aced.live/api/user-progress',
+    //     progress: 'https://api.aced.live/api/progress',
+    //     quickSave: 'https://api.aced.live/api/progress/quick-save'
+    //   },
+    //   timestamp: new Date().toISOString()
+    // });
+  }
+});
+
+// ========================================
+// 🔥 ENHANCED GLOBAL ERROR HANDLER
+// ========================================
+
+app.use((err, req, res, next) => {
+  const errorId = Date.now().toString(36) + Math.random().toString(36).substr(2);
+  const timestamp = new Date().toISOString();
+  
+  console.error(`\n🔥 GLOBAL ERROR [${errorId}] at ${timestamp}:`);
+  console.error('📍 URL:', req.originalUrl);
+  console.error('🔧 Method:', req.method);
+  console.error('💬 Message:', err.message);
+  console.error('🏷️  Name:', err.name);
+  console.error('🔢 Code:', err.code);
+  console.error('🌐 Server: api.aced.live');
+  
+  if (process.env.NODE_ENV === 'development') {
+    console.error('📚 Stack:', err.stack);
+  }
+  
+  // Handle specific error types
+  let statusCode = err.status || err.statusCode || 500;
+  let message = 'Internal server error';
+  let details = {};
+  
+  if (err.name === 'ValidationError') {
+    statusCode = 400;
+    message = 'Validation error';
+    details.validationErrors = Object.values(err.errors).map(e => e.message);
+  } else if (err.name === 'CastError') {
+    statusCode = 400;
+    message = 'Invalid data format';
+    details.field = err.path;
+    details.value = err.value;
+  } else if (err.code === 11000) {
+    statusCode = 409;
+    message = 'Duplicate entry';
+    details.duplicateField = Object.keys(err.keyValue || {})[0];
+  } else if (err.message.includes('CORS')) {
+    statusCode = 403;
+    message = 'CORS policy violation';
+  } else if (err.message.includes('buffering timed out')) {
+    statusCode = 503;
+    message = 'Database connection timeout';
+    details.solution = 'Check database connection';
+  } else if (err.message.includes('Firebase') || err.code?.startsWith('auth/')) {
+    statusCode = 401;
+    message = 'Authentication error';
+    details.firebaseError = err.code || err.message;
+  } else if (err.message.includes('Too many requests')) {
+    statusCode = 429;
+    message = 'Rate limit exceeded';
+    details.preventionActive = true;
+  } else if (err.message.includes('PayMe') || err.message.includes('payme')) {
+    statusCode = 500;
+    message = 'PayMe integration error';
+    details.paymeError = true;
+  } else if (err.message.includes('progress') || err.message.includes('Progress')) {
+    statusCode = 500;
+    message = 'Progress saving error';
+    details.progressError = true;
+    details.criticalEndpoints = ['/api/user-progress', '/api/progress'];
+  }
+  
+  const errorResponse = {
+    error: message,
+    errorId,
+    timestamp,
+    server: 'api.aced.live',
+    path: req.originalUrl,
+    method: req.method
+  };
+  
+  if (Object.keys(details).length > 0) {
+    errorResponse.details = details;
+  }
+  
+  if (process.env.NODE_ENV === 'development') {
+    errorResponse.debug = {
+      message: err.message,
+      name: err.name,
+      code: err.code,
+      stack: err.stack?.split('\n').slice(0, 5)
+    };
+  }
+  
+  res.status(statusCode).json(errorResponse);
+});
+
 // ========================================
 // 🚫 API ERROR HANDLERS
 // ========================================
