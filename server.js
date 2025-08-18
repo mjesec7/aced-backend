@@ -645,6 +645,117 @@ app.post('/api/progress/quick-save', async (req, res) => {
 });
 
 
+// ✅ CRITICAL FIX: Add a general status route for all updates
+app.put('/api/users/:userId/status', async (req, res) => {
+  try {
+    console.log('🌐 Server: Updating user status:', req.params.userId, req.body);
+    
+    const { userId } = req.params;
+    const { subscriptionPlan, userStatus, plan, source } = req.body;
+    const finalStatus = subscriptionPlan || userStatus || plan || 'free';
+    
+    // Validate status
+    if (!['free', 'start', 'pro', 'premium'].includes(finalStatus)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid subscription plan'
+      });
+    }
+    
+    const User = require('./models/user');
+    
+    // Find and update user
+    const user = await User.findOneAndUpdate(
+      { 
+        $or: [
+          { firebaseId: userId },
+          { _id: mongoose.Types.ObjectId.isValid(userId) ? userId : null }
+        ]
+      },
+      {
+        subscriptionPlan: finalStatus,
+        userStatus: finalStatus,
+        plan: finalStatus,
+        lastStatusUpdate: new Date(),
+        statusSource: source || 'api'
+      },
+      { new: true, upsert: false }
+    );
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+    
+    console.log('✅ Server: User status updated successfully:', finalStatus);
+    res.json({
+      success: true,
+      user: user,
+      message: `User status updated to ${finalStatus}`,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('❌ Server: User status update failed:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update user status',
+      details: error.message
+    });
+  }
+});
+
+// ✅ ADDED: GET user data route to support new auth flow in main.js
+app.get('/api/users/:userId', async (req, res) => {
+  try {
+    console.log('📡 Server: Fetching user data for:', req.params.userId);
+
+    const { userId } = req.params;
+    const User = require('./models/user');
+
+    // Find user by firebaseId or _id
+    const user = await User.findOne({
+      $or: [
+        { firebaseId: userId },
+        { _id: mongoose.Types.ObjectId.isValid(userId) ? userId : null }
+      ]
+    }).lean();
+
+    if (!user) {
+      console.log('❌ User not found:', userId);
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+    
+    console.log('✅ User found with status:', user.subscriptionPlan);
+    // Return user with all status fields
+    const responseUser = {
+      ...user,
+      userStatus: user.subscriptionPlan || 'free',
+      plan: user.subscriptionPlan || 'free',
+      serverFetch: true,
+      fetchTime: new Date().toISOString()
+    };
+    
+    res.json({
+      success: true,
+      user: responseUser,
+      status: user.subscriptionPlan || 'free',
+      message: 'User data fetched successfully'
+    });
+  } catch (error) {
+    console.error('❌ Server: User fetch error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch user data',
+      details: error.message
+    });
+  }
+});
+
 
 // ========================================
 // 💳 PAYME INTEGRATION - IMPORT CONTROLLERS
@@ -1637,6 +1748,7 @@ app.get('/api/status', (req, res) => {
       emergencyRoutesActive: true
     },
     progress: {
+      criticalEndpointsActive: true,
       mainEndpoint: '/api/user-progress',
       alternativeEndpoint: '/api/progress',
       quickSaveEndpoint: '/api/progress/quick-save',
@@ -3106,14 +3218,13 @@ app.get('/api/debug/routes', (req, res) => {
   
   routes.sort((a, b) => a.path.localeCompare(b.path));
   
-  // Group routes by prefix
   const groupedRoutes = {};
   routes.forEach(route => {
-    const prefix = route.path.split('/')[1] || 'root';
-    if (!groupedRoutes[prefix]) {
-      groupedRoutes[prefix] = [];
+    const basePath = route.path.split('/')[1] || 'root';
+    if (!groupedRoutes[basePath]) {
+      groupedRoutes[basePath] = [];
     }
-    groupedRoutes[prefix].push(route);
+    groupedRoutes[basePath].push(route);
   });
   
   res.json({
