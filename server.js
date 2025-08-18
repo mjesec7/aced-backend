@@ -706,6 +706,56 @@ app.put('/api/users/:userId/status', async (req, res) => {
   }
 });
 
+// ✅ ADDED: GET user data route to support new auth flow in main.js
+app.get('/api/users/:userId', async (req, res) => {
+  try {
+    console.log('📡 Server: Fetching user data for:', req.params.userId);
+
+    const { userId } = req.params;
+    const User = require('./models/user');
+
+    // Find user by firebaseId or _id
+    const user = await User.findOne({
+      $or: [
+        { firebaseId: userId },
+        { _id: mongoose.Types.ObjectId.isValid(userId) ? userId : null }
+      ]
+    }).lean();
+
+    if (!user) {
+      console.log('❌ User not found:', userId);
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+    
+    console.log('✅ User found with status:', user.subscriptionPlan);
+    // Return user with all status fields
+    const responseUser = {
+      ...user,
+      userStatus: user.subscriptionPlan || 'free',
+      plan: user.subscriptionPlan || 'free',
+      serverFetch: true,
+      fetchTime: new Date().toISOString()
+    };
+    
+    res.json({
+      success: true,
+      user: responseUser,
+      status: user.subscriptionPlan || 'free',
+      message: 'User data fetched successfully'
+    });
+  } catch (error) {
+    console.error('❌ Server: User fetch error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch user data',
+      details: error.message
+    });
+  }
+});
+
 
 // ========================================
 // 💳 PAYME INTEGRATION - IMPORT CONTROLLERS
