@@ -69,7 +69,7 @@ const preventInfiniteLoop = (req, res, next) => {
   const isWebhookPath = webhookPaths.some(path => req.url.startsWith(path));
   
   if (isBrowserRequest && isWebhookPath && !req.headers['x-request-source'] && !isPayMeWebhook) {
-   
+    // Block browser access to webhooks to prevent accidental POSTs
   }
   
   // Rate limiting for all requests
@@ -148,19 +148,22 @@ app.use((req, res, next) => {
   const isPayMeRequest = req.url.includes('/payme') || req.url.includes('/payment');
   const isProgressRequest = req.url.includes('/progress') || req.url.includes('user-progress');
   
-
-  
   // Special logging for PayMe requests with loop detection
   if (isPayMeRequest) {
     const userAgent = req.headers['user-agent'] || '';
     const isBrowser = userAgent.includes('Mozilla') || userAgent.includes('Chrome');
     const isPayMeWebhook = req.headers.authorization?.startsWith('Basic ') && 
                           req.headers['content-type']?.includes('application/json');
-    
-
+    console.log(`[${timestamp}] 💳 PayMe Request: ${req.method} ${req.url} | Source: ${isPayMeWebhook ? 'PayMe-Webhook' : isBrowser ? 'Browser' : 'Unknown'}`);
+    if (req.body && Object.keys(req.body).length > 0) {
+      console.log('   Body:', req.body);
+    }
   }
   
-
+  // Log other requests
+  if (!isPayMeRequest) {
+    console.log(`[${timestamp}] 🌐 Request: ${req.method} ${req.url} | IP: ${req.ip}`);
+  }
   
   // Log POST/PUT request bodies (excluding sensitive data)
   if (['POST', 'PUT', 'PATCH'].includes(req.method) && req.body && !isPayMeRequest) {
@@ -170,12 +173,14 @@ app.use((req, res, next) => {
     delete logData.privateKey;
     delete logData.token;
     delete logData.card;
+    console.log('   Body:', logData);
   }
   
   // Log response time
   const start = Date.now();
   res.on('finish', () => {
     const duration = Date.now() - start;
+    console.log(`[${new Date().toISOString()}] ➡️ Response: ${res.statusCode} in ${duration}ms`);
   });
   
   next();
@@ -261,7 +266,7 @@ app.options('*', (req, res) => {
 
 const connectDB = async () => {
   try {
-  
+    console.log('⏳ Connecting to MongoDB...');
     
     // Check if MongoDB URI exists
     if (!process.env.MONGO_URI) {
@@ -293,14 +298,15 @@ const connectDB = async () => {
       autoIndex: process.env.NODE_ENV !== 'production',
     };
     
- 
+    console.log('   Mongoose connection options:', connectionOptions);
     // Attempt connection
     await mongoose.connect(process.env.MONGO_URI, connectionOptions);
     
-
+    console.log('✅ MongoDB connection successful');
     
     // Connection event listeners with better error handling
     mongoose.connection.on('connected', () => {
+      console.log('🟢 MongoDB connected event');
     });
     
     mongoose.connection.on('error', (err) => {
@@ -311,9 +317,11 @@ const connectDB = async () => {
     });
     
     mongoose.connection.on('disconnected', () => {
+      console.log('🔴 MongoDB disconnected');
     });
     
     mongoose.connection.on('reconnected', () => {
+      console.log('🔵 MongoDB reconnected');
     });
     
     // Handle connection timeout
@@ -322,6 +330,7 @@ const connectDB = async () => {
     });
     
     mongoose.connection.on('close', () => {
+      console.log('🚪 MongoDB connection closed');
     });
     
     // Test the connection
@@ -361,6 +370,7 @@ const connectDB = async () => {
       console.error('🚨 Exiting in production due to DB failure');
       process.exit(1);
     } else {
+      console.warn('⚠️ Server running without database connection in development mode');
     }
   }
 };
@@ -372,7 +382,7 @@ const connectDB = async () => {
 
 // ✅ CRITICAL FIX: Add the main progress endpoint that's causing 404s
 app.post('/api/user-progress', async (req, res) => {
-  
+  console.log('✅ CRITICAL ROUTE: POST /api/user-progress called');
   try {
     const {
       userId,
@@ -390,7 +400,7 @@ app.post('/api/user-progress', async (req, res) => {
       submittedHomework = false
     } = req.body;
 
-
+    console.log('   Received data:', { userId, lessonId, progressPercent });
 
     if (!userId || !lessonId) {
       return res.status(400).json({ 
@@ -422,6 +432,7 @@ app.post('/api/user-progress', async (req, res) => {
           finalTopicId = lesson.topicId;
         }
       } catch (error) {
+        console.warn('⚠️ Failed to find lesson to get topicId:', error.message);
       }
     }
 
@@ -446,7 +457,7 @@ app.post('/api/user-progress', async (req, res) => {
       updateData.topicId = finalTopicId;
     }
 
-  
+    console.log('   Saving/updating progress with:', updateData);
 
     const updated = await UserProgress.findOneAndUpdate(
       { userId, lessonId },
@@ -454,7 +465,7 @@ app.post('/api/user-progress', async (req, res) => {
       { upsert: true, new: true, runValidators: true }
     );
 
-
+    console.log('   Update result:', updated ? 'Success' : 'Failed');
     res.status(200).json({
       success: true,
       data: updated,
@@ -499,7 +510,7 @@ app.post('/api/user-progress', async (req, res) => {
 
 // ✅ CRITICAL FIX: Add alternative progress endpoint
 app.post('/api/progress', async (req, res) => {
-  
+  console.log('✅ CRITICAL ROUTE: POST /api/progress called');
   try {
     // Same logic as above, but handle the endpoint difference
     const progressData = req.body;
@@ -556,6 +567,7 @@ app.post('/api/progress', async (req, res) => {
           finalTopicId = lesson.topicId;
         }
       } catch (error) {
+        console.warn('⚠️ Failed to find lesson to get topicId:', error.message);
       }
     }
 
@@ -585,7 +597,7 @@ app.post('/api/progress', async (req, res) => {
       { upsert: true, new: true, runValidators: true }
     );
 
-
+    console.log('   Update result:', updated ? 'Success' : 'Failed');
     res.status(200).json({
       success: true,
       data: updated,
@@ -615,7 +627,7 @@ app.post('/api/progress', async (req, res) => {
 
 // ✅ ADD: Quick save endpoint for page unload
 app.post('/api/progress/quick-save', async (req, res) => {
-  
+  console.log('✅ CRITICAL ROUTE: POST /api/progress/quick-save called');
   try {
     const { userId, lessonId, progressPercent, currentStep } = req.body;
     
@@ -636,6 +648,7 @@ app.post('/api/progress/quick-save', async (req, res) => {
       { upsert: true }
     );
 
+    console.log('   Quick save successful');
     res.status(200).json({ success: true, message: 'Quick save completed' });
     
   } catch (error) {
@@ -790,7 +803,7 @@ if (handlePaymeWebhook && initiatePaymePayment) {
 
   // ✅ PayMe return URLs (for success/failure/cancel)
   app.get('/api/payments/payme/return/success', (req, res) => {
-    
+    console.log('➡️ PayMe return success:', req.query);
     const transactionId = req.query.transaction || req.query.id;
     const orderId = req.query.Login;
     
@@ -806,7 +819,7 @@ if (handlePaymeWebhook && initiatePaymePayment) {
   });
 
   app.get('/api/payments/payme/return/failure', (req, res) => {
-    
+    console.log('➡️ PayMe return failure:', req.query);
     const transactionId = req.query.transaction || req.query.id;
     const error = req.query.error || 'payment_failed';
     
@@ -822,7 +835,7 @@ if (handlePaymeWebhook && initiatePaymePayment) {
   });
 
   app.get('/api/payments/payme/return/cancel', (req, res) => {
-    
+    console.log('➡️ PayMe return cancel:', req.query);
     const transactionId = req.query.transaction || req.query.id;
     
     // Redirect to frontend cancel page
@@ -864,9 +877,10 @@ if (handlePaymeWebhook && initiatePaymePayment) {
     });
   });
 
-
+  console.log('✅ PayMe integration routes loaded.');
 
 } else {
+  console.warn('⚠️ PayMe controllers not found or failed to load. PayMe routes are inactive.');
 }
 
 // ========================================
@@ -1160,7 +1174,7 @@ app.post('/api/payments/promo-code', async (req, res) => {
     promocode.currentUses = (promocode.currentUses || 0) + 1;
     await promocode.save();
 
-
+    console.log(`✅ Promocode ${promoCode} applied to user ${userId} for plan ${plan}`);
     res.json({
       success: true,
       message: `Промокод применён! Активирован план ${plan.toUpperCase()}`
@@ -1180,6 +1194,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
   try {
     const { userId, plan, method = 'post', lang = 'ru', style = 'colored', qrWidth = 250 } = req.body;
     
+    console.log('➡️ Generating PayMe form for user:', userId, 'plan:', plan);
     
     if (!userId || !plan) {
       return res.status(400).json({
@@ -1209,7 +1224,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
     
     // If still no user, create fallback
     if (!user) {
-    
+      console.warn('⚠️ User not found in DB, using fallback object for form generation');
     }
 
     // ✅ Validate plan and get amount
@@ -1229,7 +1244,8 @@ app.post('/api/payments/generate-form', async (req, res) => {
       (process.env.PAYME_CHECKOUT_URL || 'https://checkout.paycom.uz') : 
       'https://checkout.test.paycom.uz';
     
- 
+    console.log('   Using merchantId:', merchantId);
+    console.log('   Using checkoutUrl:', checkoutUrl);
     
     if (method === 'post') {
       // ✅ CRITICAL FIX: Use account[Login] in POST form
@@ -1256,24 +1272,19 @@ app.post('/api/payments/generate-form', async (req, res) => {
       
       const formHtml = `
         <form method="POST" action="${checkoutUrl}/" id="payme-form" style="display: none;">
-          <!-- Required merchant information -->
           <input type="hidden" name="merchant" value="${merchantId}" />
           <input type="hidden" name="amount" value="${amount}" />
           
-          <!-- ✅ CRITICAL FIX: Use Login field instead of Login -->
           <input type="hidden" name="account[Login]" value="${user._id}" />
           
-          <!-- Optional parameters -->
           <input type="hidden" name="lang" value="${lang}" />
           <input type="hidden" name="callback" value="https://api.aced.live/api/payments/payme/return/success?transaction=${transactionId}&userId=${userId}" />
           <input type="hidden" name="callback_timeout" value="15000" />
           <input type="hidden" name="description" value="ACED ${plan.toUpperCase()} Plan Subscription" />
           <input type="hidden" name="currency" value="UZS" />
           
-          <!-- Receipt details -->
           ${detailBase64 ? `<input type="hidden" name="detail" value="${detailBase64}" />` : ''}
           
-          <!-- Submit button (hidden, auto-submit) -->
           <button type="submit" style="display: none;">Pay with PayMe</button>
         </form>
         
@@ -1282,7 +1293,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
           function submitPaymeForm() {
             const form = document.getElementById('payme-form');
             if (form) {
-          
+              console.log('Submitting PayMe form...');
               form.submit();
             } else {
               console.error('❌ PayMe form not found in DOM');
@@ -1344,6 +1355,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
         .map(([key, value]) => `${key}=${value}`)
         .join(';');
       
+      console.log('   Raw parameter string:', paramString);
       
       // Base64 encode the parameters
       const encodedParams = Buffer.from(paramString, 'utf8').toString('base64');
@@ -1351,7 +1363,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
       
       // Verify encoding
       const decodedCheck = Buffer.from(encodedParams, 'base64').toString('utf8');
-    
+      console.log('   Decoded parameter check:', decodedCheck);
       
       return res.json({
         success: true,
@@ -1584,10 +1596,13 @@ routesToMount.forEach(([path, file, description]) => {
   }
 });
 
-
+console.log('✅ Routes mounting complete.');
+console.log('   Mounted routes:', mountedRoutes.map(r => r.path).join(', '));
 
 if (failedRoutes.length > 0) {
+  console.warn('⚠️ Some routes failed to mount:');
   failedRoutes.forEach(({ path, file, description }) => {
+    console.warn(`   - ${path} (${description}) from ${file}`);
   });
 }
 
@@ -1595,6 +1610,7 @@ if (failedRoutes.length > 0) {
 
 // ✅ EMERGENCY FIX: Add user save route directly (FIXED VERSION)
 app.post('/api/users/save', async (req, res) => {
+  console.log('✅ EMERGENCY ROUTE: POST /api/users/save called');
   
   const { token, name, subscriptionPlan } = req.body;
   
@@ -1612,7 +1628,7 @@ app.post('/api/users/save', async (req, res) => {
     
     const decoded = await admin.auth().verifyIdToken(token);
     
-    
+    console.log('   Firebase token decoded successfully:', decoded.uid);
     
     if (decoded.aud !== 'aced-9cf72') {
       return res.status(403).json({ 
@@ -1634,11 +1650,13 @@ app.post('/api/users/save', async (req, res) => {
         Login: email,
         subscriptionPlan: subscriptionPlan || 'free' 
       });
+      console.log('   Creating new user:', user);
     } else {
       user.email = email;
       user.name = name;
       user.Login = email;
       if (subscriptionPlan) user.subscriptionPlan = subscriptionPlan;
+      console.log('   Updating existing user:', user);
     }
 
     await user.save();
@@ -1752,7 +1770,7 @@ app.get('/api/status', (req, res) => {
       mainEndpoint: '/api/user-progress',
       alternativeEndpoint: '/api/progress',
       quickSaveEndpoint: '/api/progress/quick-save',
-      emergencyRoutesActive: true
+      emergencyFix: 'Successfully applied'
     },
     endpoints: {
       health: '/api/health',
@@ -1776,6 +1794,7 @@ app.get('/api/status', (req, res) => {
   });
 });app.get('/api/admin/users', async (req, res) => {
   try {
+    console.log('➡️ Admin route: GET /api/admin/users called');
     
     const { 
       page = 1, 
@@ -1819,7 +1838,7 @@ app.get('/api/status', (req, res) => {
       User.countDocuments(filter)
     ]);
 
-
+    console.log(`✅ Found ${users.length} users with a total of ${total} matching the filter`);
     // Enhance users with computed fields
     const enhancedUsers = users.map(user => ({
       ...user,
@@ -1869,6 +1888,7 @@ app.get('/api/status', (req, res) => {
 // ✅ GET /api/users/all - Alternative endpoint
 app.get('/api/users/all', async (req, res) => {
   try {
+    console.log('➡️ Admin route: GET /api/users/all called');
     
     const User = require('./models/user');
     const users = await User.find({})
@@ -1877,7 +1897,7 @@ app.get('/api/users/all', async (req, res) => {
       .limit(100) // Reasonable limit
       .lean();
 
-
+    console.log(`✅ Fetched ${users.length} users`);
     res.json({
       success: true,
       data: users,
@@ -1919,6 +1939,7 @@ app.get('/api/routes', (req, res) => {
     });
   }
   
+  // Extract all routes
   app._router.stack.forEach(layer => {
     if (layer.route) {
       const methods = Object.keys(layer.route.methods).join(', ').toUpperCase();
@@ -2155,7 +2176,7 @@ app.use('/api/books', booksRouter);
 
 // ✅ GET /api/user-progress/user/:userId/lesson/:lessonId
 app.get('/api/user-progress/user/:userId/lesson/:lessonId', async (req, res) => {
-  
+  console.log('✅ ROUTE: GET /api/user-progress/user/:userId/lesson/:lessonId called');
   try {
     const { userId, lessonId } = req.params;
     
@@ -2177,7 +2198,7 @@ app.get('/api/user-progress/user/:userId/lesson/:lessonId', async (req, res) => 
     }).populate('lessonId', 'title description order')
       .populate('topicId', 'title description order');
     
-    
+    console.log(`   Progress for lesson ${lessonId} found:`, !!progress);
     res.json({
       success: true,
       data: progress || null,
@@ -2196,7 +2217,7 @@ app.get('/api/user-progress/user/:userId/lesson/:lessonId', async (req, res) => 
 
 // ✅ POST /api/user-progress/user/:userId/lesson/:lessonId
 app.post('/api/user-progress/user/:userId/lesson/:lessonId', async (req, res) => {
-  
+  console.log('✅ ROUTE: POST /api/user-progress/user/:userId/lesson/:lessonId called');
   try {
     const { userId, lessonId } = req.params;
     const progressData = req.body;
@@ -2222,6 +2243,7 @@ app.post('/api/user-progress/user/:userId/lesson/:lessonId', async (req, res) =>
           finalTopicId = lesson.topicId;
         }
       } catch (lessonError) {
+        console.warn('⚠️ Failed to find lesson to get topicId:', lessonError.message);
       }
     }
     
@@ -2255,7 +2277,7 @@ app.post('/api/user-progress/user/:userId/lesson/:lessonId', async (req, res) =>
       { upsert: true, new: true, runValidators: true }
     );
     
-    
+    console.log('   Progress saved successfully');
     res.json({
       success: true,
       data: updated,
@@ -2290,6 +2312,7 @@ app.post('/api/user-progress/user/:userId/lesson/:lessonId', async (req, res) =>
 
 // ✅ GET /api/user-progress (for general user progress queries)
 app.get('/api/user-progress', async (req, res) => {
+  console.log('✅ ROUTE: GET /api/user-progress called');
   
   try {
     const { userId, lessonId } = req.query;
@@ -2344,6 +2367,7 @@ app.get('/api/user-progress', async (req, res) => {
 
 // ✅ GET /api/homeworks/user/:userId
 app.get('/api/homeworks/user/:userId', async (req, res) => {
+  console.log('✅ ROUTE: GET /api/homeworks/user/:userId called');
   
   try {
     const { userId } = req.params;
@@ -2355,6 +2379,7 @@ app.get('/api/homeworks/user/:userId', async (req, res) => {
       Homework = require('./models/homework');
       Lesson = require('./models/lesson');
     } catch (modelError) {
+      console.warn('⚠️ Homework models not found, returning empty array');
       return res.json({
         success: true,
         data: [],
@@ -2440,6 +2465,7 @@ app.get('/api/homeworks/user/:userId', async (req, res) => {
       return new Date(b.updatedAt) - new Date(a.updatedAt);
     });
     
+    console.log(`   Found a total of ${allHomeworks.length} homework items`);
     res.json({
       success: true,
       data: allHomeworks,
@@ -2458,6 +2484,7 @@ app.get('/api/homeworks/user/:userId', async (req, res) => {
 
 // ✅ GET /api/homeworks/user/:userId/lesson/:lessonId
 app.get('/api/homeworks/user/:userId/lesson/:lessonId', async (req, res) => {
+  console.log('✅ ROUTE: GET /api/homeworks/user/:userId/lesson/:lessonId called');
   
   try {
     const { userId, lessonId } = req.params;
@@ -2467,6 +2494,7 @@ app.get('/api/homeworks/user/:userId/lesson/:lessonId', async (req, res) => {
     try {
       HomeworkProgress = require('./models/homeworkProgress');
     } catch (modelError) {
+      console.warn('⚠️ HomeworkProgress model not found');
     }
     
     // Get lesson
@@ -2479,6 +2507,7 @@ app.get('/api/homeworks/user/:userId/lesson/:lessonId', async (req, res) => {
     }
     
     if (!lesson.homework || !Array.isArray(lesson.homework) || lesson.homework.length === 0) {
+      console.log('   No homework found in lesson');
       return res.json({
         success: false,
         error: 'В этом уроке нет домашнего задания'
@@ -2494,6 +2523,7 @@ app.get('/api/homeworks/user/:userId/lesson/:lessonId', async (req, res) => {
           lessonId: lessonId
         });
       } catch (progressError) {
+        console.warn('⚠️ Error fetching user homework progress:', progressError.message);
       }
     }
     
@@ -2556,6 +2586,7 @@ const requireAuth = async (req, res, next) => {
 // ✅ GET /api/promocodes - Get all promocodes with pagination and filtering
 app.get('/api/promocodes', requireAuth, async (req, res) => {
   try {
+    console.log('✅ ROUTE: GET /api/promocodes called');
     
     const { 
       page = 1, 
@@ -2658,6 +2689,7 @@ app.get('/api/promocodes', requireAuth, async (req, res) => {
 // ✅ GET /api/promocodes/stats - Get promocode statistics
 app.get('/api/promocodes/stats', requireAuth, async (req, res) => {
   try {
+    console.log('✅ ROUTE: GET /api/promocodes/stats called');
     
     const now = new Date();
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -2729,6 +2761,7 @@ app.get('/api/promocodes/stats', requireAuth, async (req, res) => {
 // ✅ POST /api/promocodes - Create new promocode
 app.post('/api/promocodes', requireAuth, async (req, res) => {
   try {
+    console.log('✅ ROUTE: POST /api/promocodes called');
     
     const {
       code,
@@ -2824,7 +2857,7 @@ app.post('/api/promocodes', requireAuth, async (req, res) => {
     
     await promocode.save();
     
-    
+    console.log(`✅ Promocode ${finalCode} created successfully`);
     res.status(201).json({
       success: true,
       data: promocode,
@@ -2852,6 +2885,7 @@ app.post('/api/promocodes', requireAuth, async (req, res) => {
 // ✅ PUT /api/promocodes/:id - Update promocode
 app.put('/api/promocodes/:id', requireAuth, async (req, res) => {
   try {
+    console.log('✅ ROUTE: PUT /api/promocodes/:id called');
     
     const promocode = await Promocode.findById(req.params.id);
     if (!promocode) {
@@ -2910,7 +2944,7 @@ app.put('/api/promocodes/:id', requireAuth, async (req, res) => {
     
     await promocode.save();
     
-    
+    console.log(`✅ Promocode ${promocode.code} updated successfully`);
     res.json({
       success: true,
       data: promocode,
@@ -2930,6 +2964,7 @@ app.put('/api/promocodes/:id', requireAuth, async (req, res) => {
 // ✅ DELETE /api/promocodes/:id - Delete promocode
 app.delete('/api/promocodes/:id', requireAuth, async (req, res) => {
   try {
+    console.log('✅ ROUTE: DELETE /api/promocodes/:id called');
     
     const promocode = await Promocode.findById(req.params.id);
     if (!promocode) {
@@ -2950,7 +2985,7 @@ app.delete('/api/promocodes/:id', requireAuth, async (req, res) => {
     
     await promocode.deleteOne();
     
-    
+    console.log(`✅ Promocode ${promocode.code} deleted successfully`);
     res.json({
       success: true,
       message: `Promocode ${promocode.code} deleted successfully`
@@ -2983,6 +3018,7 @@ function generateRandomCode(prefix = '', length = 8) {
 
 // ✅ GET /api/homeworks/user/:userId/homework/:homeworkId
 app.get('/api/homeworks/user/:userId/homework/:homeworkId', async (req, res) => {
+  console.log('✅ ROUTE: GET /api/homeworks/user/:userId/homework/:homeworkId called');
   
   try {
     const { userId, homeworkId } = req.params;
@@ -2992,6 +3028,7 @@ app.get('/api/homeworks/user/:userId/homework/:homeworkId', async (req, res) => 
       Homework = require('./models/homework');
       HomeworkProgress = require('./models/homeworkProgress');
     } catch (modelError) {
+      console.warn('⚠️ Homework models not found, returning 404');
       return res.status(404).json({
         success: false,
         error: 'Homework system not available'
@@ -3026,6 +3063,7 @@ app.get('/api/homeworks/user/:userId/homework/:homeworkId', async (req, res) => 
         ]
       });
     } catch (progressError) {
+      console.warn('⚠️ Error fetching homework progress:', progressError.message);
     }
     
     res.json({
@@ -3054,6 +3092,7 @@ app.get('/api/homeworks/user/:userId/homework/:homeworkId', async (req, res) => 
 
 // ✅ GET /api/users/:userId/tests
 app.get('/api/users/:userId/tests', async (req, res) => {
+  console.log('✅ ROUTE: GET /api/users/:userId/tests called');
   
   try {
     const { userId } = req.params;
@@ -3063,6 +3102,7 @@ app.get('/api/users/:userId/tests', async (req, res) => {
       Test = require('./models/Test');
       TestResult = require('./models/TestResult');
     } catch (modelError) {
+      console.warn('⚠️ Test models not found, returning empty array');
       return res.json({
         success: true,
         tests: [],
@@ -3108,6 +3148,7 @@ app.get('/api/users/:userId/tests', async (req, res) => {
 
 // ✅ GET /api/users/:userId/tests/:testId
 app.get('/api/users/:userId/tests/:testId', async (req, res) => {
+  console.log('✅ ROUTE: GET /api/users/:userId/tests/:testId called');
   
   try {
     const { testId } = req.params;
@@ -3116,6 +3157,7 @@ app.get('/api/users/:userId/tests/:testId', async (req, res) => {
     try {
       Test = require('./models/Test');
     } catch (modelError) {
+      console.warn('⚠️ Test model not found, returning 404');
       return res.status(404).json({
         success: false,
         error: 'Test system not available'
@@ -3327,7 +3369,9 @@ if (fs.existsSync(distPath)) {
     etag: true,
     lastModified: true
   }));
+  console.log('✅ Serving static files from /dist directory');
 } else {
+  console.warn('⚠️ No /dist directory found. Static file serving is inactive.');
 }
 
 // SPA Catch-all route (only if frontend exists)
@@ -3426,6 +3470,7 @@ app.use((err, req, res, next) => {
     statusCode = 500;
     message = 'PayMe integration error';
     details.paymeError = true;
+    details.criticalEndpoints = ['/api/user-progress', '/api/progress'];
   } else if (err.message.includes('progress') || err.message.includes('Progress')) {
     statusCode = 500;
     message = 'Progress saving error';
@@ -3469,25 +3514,45 @@ const startServer = async () => {
     
     // Start the server
     const server = app.listen(PORT, () => {
+      console.log(`\n🚀 Server is running on port ${PORT}`);
+      console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`   Base URL:    http://localhost:${PORT}`);
+      console.log(`   Docs/Health: http://localhost:${PORT}/health`);
       
-      
+      // Route Summary
+      console.log('\n📦 Mounted Routes:');
       if (mountedRoutes.length > 0) {
         mountedRoutes.forEach(route => {
+          console.log(`   - ${route.path} (${route.description})`);
+        });
+      }
+      if (failedRoutes.length > 0) {
+        console.warn('⚠️ Some routes failed to mount:');
+        failedRoutes.forEach(({ path, file, description }) => {
+          console.warn(`   - ${path} (${description}) from ${file}`);
         });
       }
 
-      
-
-
-
-
-     
+      console.log('\n🚨 Critical & Emergency Routes:');
+      console.log('   - POST /api/user-progress (Critical Progress Fix)');
+      console.log('   - POST /api/progress (Critical Progress Fix)');
+      console.log('   - POST /api/progress/quick-save (Quick Save Fix)');
+      console.log('   - PUT /api/users/:userId/status (Critical Status Fix)');
+      console.log('   - POST /api/users/save (Emergency User Save)');
+      console.log('   - GET /api/users/:userId (User Data Fetch)');
+      console.log('   - GET /api/payments/validate-user/:userId (Emergency Payment)');
+      console.log('   - POST /api/payments/initiate (Emergency Payment)');
+      console.log('   - GET /api/payments/status/:transactionId/:userId? (Emergency Payment)');
+      console.log('   - POST /api/payments/promo-code (Emergency Payment)');
+      console.log('   - POST /api/payments/generate-form (Emergency Payment)');
 
       // PayMe Endpoint Summary
       if (handlePaymeWebhook && initiatePaymePayment) {
-        
+        console.log('\n💳 PayMe Webhook Routes:');
+        console.log('   - POST /api/payments/payme (Active)');
+        console.log('   - POST /api/payments/initiate-payme (Active)');
       } else {
-    
+        console.warn('\n⚠️ PayMe Webhook Routes are inactive due to missing controllers.');
       }
 
     
