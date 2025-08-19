@@ -36,10 +36,10 @@ const preventInfiniteLoop = (req, res, next) => {
   const clientIP = req.ip || req.connection.remoteAddress;
   const userAgent = req.headers['user-agent'] || '';
   const key = `${clientIP}-${req.url}`;
-  
+
   // Set CORS headers early for all requests
   const origin = req.headers.origin;
-  const allowedOrigins = process.env.ALLOWED_ORIGINS 
+  const allowedOrigins = process.env.ALLOWED_ORIGINS
     ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
     : [
         'https://aced.live',
@@ -52,26 +52,26 @@ const preventInfiniteLoop = (req, res, next) => {
         'https://checkout.paycom.uz',
         'https://checkout.test.paycom.uz',
       ];
-  
+
   if (origin && allowedOrigins.includes(origin)) {
     res.header('Access-Control-Allow-Origin', origin);
     res.header('Access-Control-Allow-Credentials', 'true');
   }
-  
+
   // Check if this is a PayMe webhook vs browser request
-  const isPayMeWebhook = req.headers.authorization?.startsWith('Basic ') && 
+  const isPayMeWebhook = req.headers.authorization?.startsWith('Basic ') &&
                         req.headers['content-type']?.includes('application/json') &&
                         req.url === '/api/payments/payme';
   const isBrowserRequest = userAgent.includes('Mozilla') || userAgent.includes('Chrome');
-  
+
   // Allow PayMe webhooks but block browser requests to webhook endpoints
   const webhookPaths = ['/api/payments/payme'];
   const isWebhookPath = webhookPaths.some(path => req.url.startsWith(path));
-  
+
   if (isBrowserRequest && isWebhookPath && !req.headers['x-request-source'] && !isPayMeWebhook) {
     // Block browser access to webhooks to prevent accidental POSTs
   }
-  
+
   // Rate limiting for all requests
   const now = Date.now();
   if (!requestTracker.has(key)) {
@@ -92,7 +92,7 @@ const preventInfiniteLoop = (req, res, next) => {
       requestTracker.set(key, { count: 1, firstRequest: now });
     }
   }
-  
+
   // Clean old entries
   if (requestTracker.size > 1000) {
     const cutoff = now - RATE_LIMIT_WINDOW;
@@ -102,7 +102,7 @@ const preventInfiniteLoop = (req, res, next) => {
       }
     }
   }
-  
+
   next();
 };
 
@@ -121,7 +121,7 @@ app.use(helmet({
 app.use(compression());
 
 // Enhanced JSON parsing with error handling for PayMe
-app.use(express.json({ 
+app.use(express.json({
   limit: '10mb',
   verify: (req, res, buf, encoding) => {
     // Store raw body for PayMe webhook verification
@@ -147,24 +147,24 @@ app.use((req, res, next) => {
   const timestamp = new Date().toISOString();
   const isPayMeRequest = req.url.includes('/payme') || req.url.includes('/payment');
   const isProgressRequest = req.url.includes('/progress') || req.url.includes('user-progress');
-  
+
   // Special logging for PayMe requests with loop detection
   if (isPayMeRequest) {
     const userAgent = req.headers['user-agent'] || '';
     const isBrowser = userAgent.includes('Mozilla') || userAgent.includes('Chrome');
-    const isPayMeWebhook = req.headers.authorization?.startsWith('Basic ') && 
+    const isPayMeWebhook = req.headers.authorization?.startsWith('Basic ') &&
                           req.headers['content-type']?.includes('application/json');
     console.log(`[${timestamp}] 💳 PayMe Request: ${req.method} ${req.url} | Source: ${isPayMeWebhook ? 'PayMe-Webhook' : isBrowser ? 'Browser' : 'Unknown'}`);
     if (req.body && Object.keys(req.body).length > 0) {
       console.log('   Body:', req.body);
     }
   }
-  
+
   // Log other requests
   if (!isPayMeRequest) {
     console.log(`[${timestamp}] 🌐 Request: ${req.method} ${req.url} | IP: ${req.ip}`);
   }
-  
+
   // Log POST/PUT request bodies (excluding sensitive data)
   if (['POST', 'PUT', 'PATCH'].includes(req.method) && req.body && !isPayMeRequest) {
     const logData = { ...req.body };
@@ -175,14 +175,14 @@ app.use((req, res, next) => {
     delete logData.card;
     console.log('   Body:', logData);
   }
-  
+
   // Log response time
   const start = Date.now();
   res.on('finish', () => {
     const duration = Date.now() - start;
     console.log(`[${new Date().toISOString()}] ➡️ Response: ${res.statusCode} in ${duration}ms`);
   });
-  
+
   next();
 });
 
@@ -191,7 +191,7 @@ app.use((req, res, next) => {
 // ========================================
 
 // Use environment variable for CORS origins with PayMe domains
-const allowedOrigins = process.env.ALLOWED_ORIGINS 
+const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
   : [
       'https://aced.live',
@@ -208,7 +208,7 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
 // Add development origins if in dev mode
 if (process.env.NODE_ENV === 'development') {
   allowedOrigins.push(
-    'http://localhost:5173', 
+    'http://localhost:5173',
     'http://localhost:4173',
     'http://localhost:8080',
     'http://127.0.0.1:5173'
@@ -218,12 +218,12 @@ if (process.env.NODE_ENV === 'development') {
 
 app.use(cors({
   origin: (origin, callback) => {
-    
+
     // CRITICAL: Allow requests with no origin (PayMe webhooks, mobile apps, curl)
     if (!origin) {
       return callback(null, true);
     }
-    
+
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
@@ -233,8 +233,8 @@ app.use(cors({
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: [
-    'Content-Type', 
-    'Authorization', 
+    'Content-Type',
+    'Authorization',
     'X-Requested-With',
     'Accept',
     'Origin',
@@ -250,13 +250,13 @@ app.use(cors({
 
 // Handle preflight requests explicitly
 app.options('*', (req, res) => {
-  
+
   res.header('Access-Control-Allow-Origin', req.headers.origin);
   res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH');
   res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin,X-Auth,X-Request-Source,X-User-Agent,X-PayMe-Request');
   res.header('Access-Control-Allow-Credentials', 'true');
   res.header('Access-Control-Max-Age', '86400');
-  
+
   res.status(200).end();
 });
 
@@ -267,79 +267,79 @@ app.options('*', (req, res) => {
 const connectDB = async () => {
   try {
     console.log('⏳ Connecting to MongoDB...');
-    
+
     // Check if MongoDB URI exists
     if (!process.env.MONGO_URI) {
       throw new Error('MONGO_URI environment variable is not set');
     }
-    
+
     // Fixed connection options for Mongoose 8.x
     const connectionOptions = {
       // Timeout settings
       serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000,
       connectTimeoutMS: 10000,
-      
+
       // Pool settings
       maxPoolSize: 10,
       minPoolSize: 2,
-      
+
       // Retry settings
       retryWrites: true,
       retryReads: true,
-      
+
       // Buffer settings - FIXED for Mongoose 8.x
       bufferCommands: false,
-      
+
       // Heartbeat
       heartbeatFrequencyMS: 10000,
-      
+
       // Auto-reconnect settings
       autoIndex: process.env.NODE_ENV !== 'production',
     };
-    
+
     console.log('   Mongoose connection options:', connectionOptions);
     // Attempt connection
     await mongoose.connect(process.env.MONGO_URI, connectionOptions);
-    
+
     console.log('✅ MongoDB connection successful');
-    
+
     // Connection event listeners with better error handling
     mongoose.connection.on('connected', () => {
       console.log('🟢 MongoDB connected event');
     });
-    
+
     mongoose.connection.on('error', (err) => {
       console.error('❌ MongoDB connection error:', err.message);
       if (err.stack && process.env.NODE_ENV === 'development') {
         console.error('Stack:', err.stack);
       }
     });
-    
+
     mongoose.connection.on('disconnected', () => {
       console.log('🔴 MongoDB disconnected');
     });
-    
+
     mongoose.connection.on('reconnected', () => {
       console.log('🔵 MongoDB reconnected');
     });
-    
+
     // Handle connection timeout
     mongoose.connection.on('timeout', () => {
       console.error('⏰ MongoDB connection timeout');
     });
-    
+
     mongoose.connection.on('close', () => {
       console.log('🚪 MongoDB connection closed');
     });
-    
+
     // Test the connection
     await mongoose.connection.db.admin().ping();
-    
+
   } catch (error) {
     console.error('\n❌ MongoDB connection failed:');
     console.error('Error message:', error.message);
-    
+
     // Detailed error analysis
     const connectionDetails = {
       hasMongoUri: !!process.env.MONGO_URI,
@@ -350,9 +350,9 @@ const connectDB = async () => {
       errorName: error.name,
       errorCode: error.code
     };
-    
+
     console.error('🔍 Connection analysis:', connectionDetails);
-    
+
     // Common error solutions
     if (error.message.includes('ENOTFOUND')) {
       console.error('💡 Solution: Check your MongoDB host/URL');
@@ -365,7 +365,7 @@ const connectDB = async () => {
     } else if (error.message.includes('not supported')) {
       console.error('💡 Solution: Mongoose version incompatibility - check connection options');
     }
-    
+
     if (process.env.NODE_ENV === 'production') {
       console.error('🚨 Exiting in production due to DB failure');
       process.exit(1);
@@ -403,7 +403,7 @@ app.post('/api/user-progress', async (req, res) => {
     console.log('   Received data:', { userId, lessonId, progressPercent });
 
     if (!userId || !lessonId) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
         message: '❌ userId and lessonId are required.',
         missing: { userId: !userId, lessonId: !lessonId }
@@ -413,10 +413,10 @@ app.post('/api/user-progress', async (req, res) => {
     // Import UserProgress model
     const UserProgress = require('./models/userProgress');
     const Lesson = require('./models/lesson');
-    
+
     // Validate lessonId format
     if (!mongoose.Types.ObjectId.isValid(lessonId)) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
         message: '❌ Invalid lessonId format.',
         received: lessonId
@@ -475,11 +475,11 @@ app.post('/api/user-progress', async (req, res) => {
 
   } catch (error) {
     console.error('❌ Error in /api/user-progress:', error);
-    
+
     if (error.name === 'CastError') {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: '❌ Invalid data format - ObjectId casting failed', 
+        message: '❌ Invalid data format - ObjectId casting failed',
         error: {
           field: error.path,
           receivedValue: error.value,
@@ -492,17 +492,17 @@ app.post('/api/user-progress', async (req, res) => {
         message: e.message,
         value: e.value
       }));
-      
-      return res.status(400).json({ 
+
+      return res.status(400).json({
         success: false,
-        message: '❌ Validation error', 
+        message: '❌ Validation error',
         errors: validationErrors
       });
     }
-    
-    res.status(500).json({ 
+
+    res.status(500).json({
       success: false,
-      message: '❌ Server error', 
+      message: '❌ Server error',
       error: error.message
     });
   }
@@ -514,10 +514,10 @@ app.post('/api/progress', async (req, res) => {
   try {
     // Same logic as above, but handle the endpoint difference
     const progressData = req.body;
-    
+
     // Ensure userId is in the data for this endpoint
     if (!progressData.userId) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
         message: '❌ userId is required in request body for /api/progress endpoint'
       });
@@ -544,7 +544,7 @@ app.post('/api/progress', async (req, res) => {
     } = progressData;
 
     if (!userId || !lessonId) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
         message: '❌ userId and lessonId are required.'
       });
@@ -552,7 +552,7 @@ app.post('/api/progress', async (req, res) => {
 
     // Validate lessonId
     if (!mongoose.Types.ObjectId.isValid(lessonId)) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
         message: '❌ Invalid lessonId format.'
       });
@@ -607,19 +607,19 @@ app.post('/api/progress', async (req, res) => {
 
   } catch (error) {
     console.error('❌ Error in /api/progress:', error);
-    
+
     if (error.name === 'CastError') {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: '❌ Invalid data format', 
+        message: '❌ Invalid data format',
         field: error.path,
         value: error.value
       });
     }
-    
-    res.status(500).json({ 
+
+    res.status(500).json({
       success: false,
-      message: '❌ Server error', 
+      message: '❌ Server error',
       error: error.message
     });
   }
@@ -630,17 +630,17 @@ app.post('/api/progress/quick-save', async (req, res) => {
   console.log('✅ CRITICAL ROUTE: POST /api/progress/quick-save called');
   try {
     const { userId, lessonId, progressPercent, currentStep } = req.body;
-    
+
     if (!userId || !lessonId) {
       return res.status(400).json({ success: false, message: 'Missing required fields' });
     }
 
     const UserProgress = require('./models/userProgress');
-    
+
     // Quick update without full validation
     await UserProgress.findOneAndUpdate(
       { userId, lessonId },
-      { 
+      {
         progressPercent: Math.min(100, Math.max(0, Number(progressPercent) || 0)),
         lastAccessedAt: new Date(),
         metadata: { quickSave: true, currentStep, timestamp: Date.now() }
@@ -650,7 +650,7 @@ app.post('/api/progress/quick-save', async (req, res) => {
 
     console.log('   Quick save successful');
     res.status(200).json({ success: true, message: 'Quick save completed' });
-    
+
   } catch (error) {
     console.error('❌ Quick save error:', error);
     res.status(500).json({ success: false, error: error.message });
@@ -662,11 +662,11 @@ app.post('/api/progress/quick-save', async (req, res) => {
 app.put('/api/users/:userId/status', async (req, res) => {
   try {
     console.log('🌐 Server: Updating user status:', req.params.userId, req.body);
-    
+
     const { userId } = req.params;
     const { subscriptionPlan, userStatus, plan, source } = req.body;
     const finalStatus = subscriptionPlan || userStatus || plan || 'free';
-    
+
     // Validate status
     if (!['free', 'start', 'pro', 'premium'].includes(finalStatus)) {
       return res.status(400).json({
@@ -674,12 +674,12 @@ app.put('/api/users/:userId/status', async (req, res) => {
         error: 'Invalid subscription plan'
       });
     }
-    
+
     const User = require('./models/user');
-    
+
     // Find and update user
     const user = await User.findOneAndUpdate(
-      { 
+      {
         $or: [
           { firebaseId: userId },
           { _id: mongoose.Types.ObjectId.isValid(userId) ? userId : null }
@@ -694,14 +694,14 @@ app.put('/api/users/:userId/status', async (req, res) => {
       },
       { new: true, upsert: false }
     );
-    
+
     if (!user) {
       return res.status(404).json({
         success: false,
         error: 'User not found'
       });
     }
-    
+
     console.log('✅ Server: User status updated successfully:', finalStatus);
     res.json({
       success: true,
@@ -742,7 +742,7 @@ app.get('/api/users/:userId', async (req, res) => {
         error: 'User not found'
       });
     }
-    
+
     console.log('✅ User found with status:', user.subscriptionPlan);
     // Return user with all status fields
     const responseUser = {
@@ -752,7 +752,7 @@ app.get('/api/users/:userId', async (req, res) => {
       serverFetch: true,
       fetchTime: new Date().toISOString()
     };
-    
+
     res.json({
       success: true,
       user: responseUser,
@@ -790,7 +790,7 @@ try {
 // ========================================
 
 if (handlePaymeWebhook && initiatePaymePayment) {
-  
+
   // ✅ CRITICAL: PayMe JSON-RPC webhook endpoint (WHERE PAYME SENDS REQUESTS)
   app.post('/api/payments/payme', (req, res, next) => {
     handlePaymeWebhook(req, res, next);
@@ -806,7 +806,7 @@ if (handlePaymeWebhook && initiatePaymePayment) {
     console.log('➡️ PayMe return success:', req.query);
     const transactionId = req.query.transaction || req.query.id;
     const orderId = req.query.Login;
-    
+
     // Redirect to frontend success page
     const successParams = new URLSearchParams({
       transaction: transactionId || 'unknown',
@@ -814,7 +814,7 @@ if (handlePaymeWebhook && initiatePaymePayment) {
       status: 'success',
       source: 'payme'
     });
-    
+
     res.redirect(`https://aced.live/payment-success?${successParams.toString()}`);
   });
 
@@ -822,7 +822,7 @@ if (handlePaymeWebhook && initiatePaymePayment) {
     console.log('➡️ PayMe return failure:', req.query);
     const transactionId = req.query.transaction || req.query.id;
     const error = req.query.error || 'payment_failed';
-    
+
     // Redirect to frontend failure page
     const failureParams = new URLSearchParams({
       transaction: transactionId || 'unknown',
@@ -830,14 +830,14 @@ if (handlePaymeWebhook && initiatePaymePayment) {
       status: 'failed',
       source: 'payme'
     });
-    
+
     res.redirect(`https://aced.live/payment-failed?${failureParams.toString()}`);
   });
 
   app.get('/api/payments/payme/return/cancel', (req, res) => {
     console.log('➡️ PayMe return cancel:', req.query);
     const transactionId = req.query.transaction || req.query.id;
-    
+
     // Redirect to frontend cancel page
     const cancelParams = new URLSearchParams({
       transaction: transactionId || 'unknown',
@@ -845,7 +845,7 @@ if (handlePaymeWebhook && initiatePaymePayment) {
       status: 'cancelled',
       source: 'payme'
     });
-    
+
     res.redirect(`https://aced.live/payment-failed?${cancelParams.toString()}`);
   });
 
@@ -898,10 +898,10 @@ const PAYMENT_AMOUNTS = {
 app.get('/api/payments/validate-user/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
-    
+
     // Find user
     const User = require('./models/user');
-    
+
     const user = await User.findOne({
       $or: [
         { firebaseId: userId },
@@ -909,7 +909,7 @@ app.get('/api/payments/validate-user/:userId', async (req, res) => {
         { email: userId }
       ]
     });
-    
+
     if (user) {
       res.json({
         success: true,
@@ -947,7 +947,7 @@ app.get('/api/payments/validate-user/:userId', async (req, res) => {
         });
       }
     }
-    
+
   } catch (error) {
     console.error('❌ User validation error:', error);
     res.status(500).json({
@@ -958,11 +958,11 @@ app.get('/api/payments/validate-user/:userId', async (req, res) => {
   }
 });
 
-// ✅ EMERGENCY: Add missing payment status route directly  
+// ✅ EMERGENCY: Add missing payment status route directly
 app.get('/api/payments/status/:transactionId/:userId?', async (req, res) => {
   try {
     const { transactionId, userId } = req.params;
-    
+
     // For development, return a sample response
     if (process.env.NODE_ENV === 'development') {
       res.json({
@@ -981,7 +981,7 @@ app.get('/api/payments/status/:transactionId/:userId?', async (req, res) => {
       try {
         const PaymeTransaction = require('./models/paymeTransaction');
         const transaction = await PaymeTransaction.findByPaymeId(transactionId);
-        
+
         if (transaction) {
           res.json({
             success: true,
@@ -1015,7 +1015,7 @@ app.get('/api/payments/status/:transactionId/:userId?', async (req, res) => {
         });
       }
     }
-    
+
   } catch (error) {
     console.error('❌ Payment status check error:', error);
     res.status(500).json({
@@ -1031,17 +1031,17 @@ app.post('/api/payments/initiate', async (req, res) => {
     const { userId, plan, name, phone } = req.body;
 
     if (!userId || !plan) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: '❌ userId and plan are required' 
+        message: '❌ userId and plan are required'
       });
     }
 
     const allowedPlans = ['start', 'pro'];
     if (!allowedPlans.includes(plan)) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: '❌ Invalid plan. Allowed: start, pro' 
+        message: '❌ Invalid plan. Allowed: start, pro'
       });
     }
 
@@ -1062,7 +1062,7 @@ app.post('/api/payments/initiate', async (req, res) => {
       });
 
       const paymentUrl = `https://checkout.paycom.uz/?${paymeParams.toString()}`;
-      
+
       return res.json({
         success: true,
         message: '✅ Redirecting to PayMe checkout',
@@ -1125,44 +1125,44 @@ app.post('/api/payments/initiate', async (req, res) => {
 app.post('/api/payments/promo-code', async (req, res) => {
   try {
     const { userId, plan, promoCode } = req.body;
-    
+
     if (!userId || !plan || !promoCode) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Заполните все поля' 
+      return res.status(400).json({
+        success: false,
+        error: 'Заполните все поля'
       });
     }
 
     // ✅ Check if promocode exists in database
     const Promocode = require('./models/promoCode');
-    const promocode = await Promocode.findOne({ 
+    const promocode = await Promocode.findOne({
       code: promoCode.toUpperCase(),
-      isActive: true 
+      isActive: true
     });
 
     if (!promocode) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Промокод не найден' 
+      return res.status(400).json({
+        success: false,
+        error: 'Промокод не найден'
       });
     }
 
     // ✅ Check if promocode grants the right plan
     if (promocode.grantsPlan !== plan) {
-      return res.status(400).json({ 
-        success: false, 
-        error: `Этот промокод для плана ${promocode.grantsPlan.toUpperCase()}` 
+      return res.status(400).json({
+        success: false,
+        error: `Этот промокод для плана ${promocode.grantsPlan.toUpperCase()}`
       });
     }
 
     // ✅ SIMPLE: Just update user status
     const User = require('./models/user');
     const user = await User.findOne({ firebaseId: userId });
-    
+
     if (!user) {
-      return res.status(404).json({ 
-        success: false, 
-        error: 'Пользователь не найден' 
+      return res.status(404).json({
+        success: false,
+        error: 'Пользователь не найден'
       });
     }
 
@@ -1182,9 +1182,9 @@ app.post('/api/payments/promo-code', async (req, res) => {
 
   } catch (error) {
     console.error('❌ Promocode error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Ошибка сервера' 
+    res.status(500).json({
+      success: false,
+      error: 'Ошибка сервера'
     });
   }
 });
@@ -1193,9 +1193,9 @@ app.post('/api/payments/promo-code', async (req, res) => {
 app.post('/api/payments/generate-form', async (req, res) => {
   try {
     const { userId, plan, method = 'post', lang = 'ru', style = 'colored', qrWidth = 250 } = req.body;
-    
+
     console.log('➡️ Generating PayMe form for user:', userId, 'plan:', plan);
-    
+
     if (!userId || !plan) {
       return res.status(400).json({
         success: false,
@@ -1206,7 +1206,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
     // ✅ IMPROVED: User finding logic with better error handling
     const User = require('./models/user');
     let user = null;
-    
+
     try {
       // Try multiple search strategies
       user = await User.findOne({ firebaseId: userId }) ||
@@ -1214,14 +1214,14 @@ app.post('/api/payments/generate-form', async (req, res) => {
              await User.findOne({ email: userId }).catch(() => null);
     } catch (dbError) {
       // Create fallback user object
-      user = { 
-        firebaseId: userId, 
-        name: 'User', 
+      user = {
+        firebaseId: userId,
+        name: 'User',
         email: 'user@example.com',
         _id: userId
       };
     }
-    
+
     // If still no user, create fallback
     if (!user) {
       console.warn('⚠️ User not found in DB, using fallback object for form generation');
@@ -1240,13 +1240,13 @@ app.post('/api/payments/generate-form', async (req, res) => {
     const merchantId = process.env.PAYME_MERCHANT_ID || 'test-merchant-id';
     const transactionId = `aced_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const isProduction = process.env.NODE_ENV === 'production';
-    const checkoutUrl = isProduction ? 
-      (process.env.PAYME_CHECKOUT_URL || 'https://checkout.paycom.uz') : 
+    const checkoutUrl = isProduction ?
+      (process.env.PAYME_CHECKOUT_URL || 'https://checkout.paycom.uz') :
       'https://checkout.test.paycom.uz';
-    
+
     console.log('   Using merchantId:', merchantId);
     console.log('   Using checkoutUrl:', checkoutUrl);
-    
+
     if (method === 'post') {
       // ✅ CRITICAL FIX: Use account[Login] in POST form
       const detail = {
@@ -1260,7 +1260,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
           package_code: "1"
         }]
       };
-      
+
       let detailBase64 = '';
       try {
         const detailJson = JSON.stringify(detail);
@@ -1269,27 +1269,27 @@ app.post('/api/payments/generate-form', async (req, res) => {
         console.error('❌ Detail encoding failed:', encodingError);
         detailBase64 = '';
       }
-      
+
       const formHtml = `
         <form method="POST" action="${checkoutUrl}/" id="payme-form" style="display: none;">
           <input type="hidden" name="merchant" value="${merchantId}" />
           <input type="hidden" name="amount" value="${amount}" />
-          
+
           <input type="hidden" name="account[Login]" value="${user._id}" />
-          
+
           <input type="hidden" name="lang" value="${lang}" />
           <input type="hidden" name="callback" value="https://api.aced.live/api/payments/payme/return/success?transaction=${transactionId}&userId=${userId}" />
           <input type="hidden" name="callback_timeout" value="15000" />
           <input type="hidden" name="description" value="ACED ${plan.toUpperCase()} Plan Subscription" />
           <input type="hidden" name="currency" value="UZS" />
-          
+
           ${detailBase64 ? `<input type="hidden" name="detail" value="${detailBase64}" />` : ''}
-          
+
           <button type="submit" style="display: none;">Pay with PayMe</button>
         </form>
-        
+
         <script>
-          
+
           function submitPaymeForm() {
             const form = document.getElementById('payme-form');
             if (form) {
@@ -1299,7 +1299,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
               console.error('❌ PayMe form not found in DOM');
             }
           }
-          
+
           // Auto-submit after page loads
           if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', function() {
@@ -1310,14 +1310,14 @@ app.post('/api/payments/generate-form', async (req, res) => {
           }
         </script>
       `;
-      
+
       return res.json({
         success: true,
         method: 'POST',
         formHtml: formHtml,
-        transaction: { 
-          id: transactionId, 
-          amount: amount, 
+        transaction: {
+          id: transactionId,
+          amount: amount,
           plan: plan,
           accountLogin: user._id
         },
@@ -1328,7 +1328,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
           accountValue: user._id
         }
       });
-      
+
     } else if (method === 'get') {
       // ✅ CRITICAL FIX: Use ac.Login in GET URL
       const params = {
@@ -1337,41 +1337,41 @@ app.post('/api/payments/generate-form', async (req, res) => {
         l: lang,
         cr: 'UZS'
       };
-      
+
       // ✅ CRITICAL FIX: Use Login field instead of Login
       params['ac.Login'] = user._id;
-      
+
       // Add callback URL
       if (req.body.callback) {
         params.c = req.body.callback;
       } else {
         params.c = `https://api.aced.live/api/payments/payme/return/success?transaction=${transactionId}&userId=${userId}`;
       }
-      
+
       params.ct = 15000;
-      
+
       // ✅ Build parameter string with semicolon separator (PayMe requirement)
       const paramString = Object.entries(params)
         .map(([key, value]) => `${key}=${value}`)
         .join(';');
-      
+
       console.log('   Raw parameter string:', paramString);
-      
+
       // Base64 encode the parameters
       const encodedParams = Buffer.from(paramString, 'utf8').toString('base64');
       const paymentUrl = `${checkoutUrl}/${encodedParams}`;
-      
+
       // Verify encoding
       const decodedCheck = Buffer.from(encodedParams, 'base64').toString('utf8');
       console.log('   Decoded parameter check:', decodedCheck);
-      
+
       return res.json({
         success: true,
         method: 'GET',
         paymentUrl: paymentUrl,
-        transaction: { 
-          id: transactionId, 
-          amount: amount, 
+        transaction: {
+          id: transactionId,
+          amount: amount,
           plan: plan,
           accountLogin: user._id
         },
@@ -1383,9 +1383,9 @@ app.post('/api/payments/generate-form', async (req, res) => {
           accountValue: user._id
         }
       });
-      
+
     }
-    
+
     // Invalid method fallback
     return res.status(400).json({
       success: false,
@@ -1393,7 +1393,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
       supportedMethods: ['post', 'get', 'button', 'qr'],
       received: method
     });
-    
+
   } catch (error) {
     console.error('❌ Emergency form generation error:', error);
     res.status(500).json({
@@ -1466,7 +1466,7 @@ const healthCheckHandler = async (req, res) => {
       modelLoaded: true,
       routesMounted: true
     },
-    
+
   };
 
   // Check MongoDB connection
@@ -1483,8 +1483,8 @@ const healthCheckHandler = async (req, res) => {
     healthCheck.database.error = error.message;
   }
 
-  const statusCode = healthCheck.database.status === 'connected' && 
-                     healthCheck.payme.emergencyRoutesActive && 
+  const statusCode = healthCheck.database.status === 'connected' &&
+                     healthCheck.payme.emergencyRoutesActive &&
                      healthCheck.progress.emergencyRoutesActive ? 200 : 503;
   res.status(statusCode).json(healthCheck);
 };
@@ -1503,15 +1503,15 @@ const authTestHandler = async (req, res) => {
     authenticateUser(req, res, (err) => {
       if (err) {
         console.error('🔐 Auth test failed:', err.message);
-        return res.status(401).json({ 
+        return res.status(401).json({
           error: 'Authentication failed',
           message: err.message,
           server: 'api.aced.live',
           timestamp: new Date().toISOString()
         });
       }
-      
-      res.json({ 
+
+      res.json({
         message: `✅ Authentication successful for ${req.user?.email}`,
         uid: req.user?.uid,
         server: 'api.aced.live',
@@ -1532,9 +1532,9 @@ const authTestHandler = async (req, res) => {
 app.post('/api/lessons/generate-ai', async (req, res) => {
   try {
     const headers = await getAuthHeader(); // Your existing auth
-    
+
     console.log('🤖 AI Lesson generation request received:', req.body);
-    
+
     const {
       subject,
       level,
@@ -1554,7 +1554,7 @@ app.post('/api/lessons/generate-ai', async (req, res) => {
 
     // Import OpenAI
     const { OpenAI } = require('openai');
-    
+
     const openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY // Use your backend env var
     });
@@ -1585,7 +1585,7 @@ app.post('/api/lessons/generate-ai', async (req, res) => {
     });
 
     const generatedContent = JSON.parse(response.choices[0].message.content);
-    
+
     console.log('✅ OpenAI response received, formatting for API...');
 
     // Format for your existing addLesson API
@@ -1600,9 +1600,9 @@ app.post('/api/lessons/generate-ai', async (req, res) => {
 
   } catch (error) {
     console.error('❌ AI lesson generation failed:', error);
-    
+
     let errorMessage = 'AI lesson generation failed';
-    
+
     if (error.message?.includes('API key')) {
       errorMessage = 'OpenAI API key not configured properly';
     } else if (error.message?.includes('rate limit')) {
@@ -1622,9 +1622,9 @@ app.post('/api/lessons/generate-ai', async (req, res) => {
 // Helper functions for AI generation
 function createLessonPrompt(request) {
   const { subject, level, topic, lessonName, description, options = {} } = request;
-  
+
   const levelNames = {
-    1: 'Beginner', 2: 'Elementary', 3: 'Intermediate', 
+    1: 'Beginner', 2: 'Elementary', 3: 'Intermediate',
     4: 'Upper Intermediate', 5: 'Advanced'
   };
 
@@ -1660,7 +1660,7 @@ Generate a JSON object with this structure:
       }
     },
     {
-      "type": "example", 
+      "type": "example",
       "data": {
         "content": "Practical example demonstrating ${topic}..."
       }
@@ -1720,9 +1720,9 @@ function formatLessonForAPI(generatedContent, originalRequest) {
     relatedSubjects: [],
     translations: {},
     createHomework: originalRequest.options?.createHomework || false,
-    homeworkTitle: originalRequest.options?.createHomework ? 
+    homeworkTitle: originalRequest.options?.createHomework ?
       `Homework: ${originalRequest.lessonName}` : '',
-    homeworkInstructions: originalRequest.options?.createHomework ? 
+    homeworkInstructions: originalRequest.options?.createHomework ?
       'Complete the assigned exercises.' : '',
     isDraft: false,
     isActive: true,
@@ -1741,12 +1741,12 @@ app.get('/api/auth-test', authTestHandler);
 const mountRoute = (path, routeFile, description) => {
   try {
     const route = require(routeFile);
-    
+
     // Add error handling middleware for each route
     app.use(path, (req, res, next) => {
       next();
     }, route);
-    
+
     return true;
   } catch (error) {
     console.error(`❌ Failed to mount ${path}:`, error.message);
@@ -1760,14 +1760,14 @@ const routesToMount = [
   ['/api/payments', './routes/payments', 'Main payment routes (CRITICAL)'],
   ['/api/promocodes', './routes/promocodeRoutes', 'Promocode management routes (ADMIN)'],
 
-  
+
   // PayMe routes (legacy)
   ['/api/payments', './routes/paymeRoutes', 'PayMe payment routes (legacy)'],
-  
+
   // User routes - CRITICAL
   ['/api/users', './routes/userRoutes', 'User management routes (MAIN)'],
   ['/api/user', './routes/userRoutes', 'User management routes (LEGACY)'],
-  
+
   // Other routes
   ['/api/progress', './routes/userProgressRoutes', 'Progress tracking routes'],
   ['/api/lessons', './routes/lessonRoutes', 'Lesson management routes'],
@@ -1778,7 +1778,7 @@ const routesToMount = [
   ['/api/tests', './routes/testRoutes', 'Test/quiz routes'],
   ['/api/analytics', './routes/userAnalytics', 'User analytics routes'],
   ['/api/updated-courses', './routes/updatedCourses', 'Updated Courses routes (MAIN FRONTEND)'],
-  
+
   // NEW: Routes for Guides and Books
   ['/api/guides', './routes/guides', 'Guides routes'],
   ['/api/books', './routes/books', 'Books routes'],
@@ -1812,44 +1812,44 @@ if (failedRoutes.length > 0) {
 // ✅ EMERGENCY FIX: Add user save route directly (FIXED VERSION)
 app.post('/api/users/save', async (req, res) => {
   console.log('✅ EMERGENCY ROUTE: POST /api/users/save called');
-  
+
   const { token, name, subscriptionPlan } = req.body;
-  
+
   if (!token || !name) {
-    return res.status(400).json({ 
+    return res.status(400).json({
       error: '❌ Missing token or name',
       server: 'api.aced.live'
     });
   }
-  
+
   try {
     // ✅ Import Firebase Admin directly, not through config
     const admin = require('firebase-admin');
     const User = require('./models/user');
-    
+
     const decoded = await admin.auth().verifyIdToken(token);
-    
+
     console.log('   Firebase token decoded successfully:', decoded.uid);
-    
+
     if (decoded.aud !== 'aced-9cf72') {
-      return res.status(403).json({ 
+      return res.status(403).json({
         error: '❌ Token from wrong Firebase project',
         expected: 'aced-9cf72',
         received: decoded.aud
       });
     }
-    
+
     const firebaseId = decoded.uid;
     const email = decoded.email;
 
     let user = await User.findOne({ firebaseId });
     if (!user) {
-      user = new User({ 
-        firebaseId, 
-        email, 
-        name, 
+      user = new User({
+        firebaseId,
+        email,
+        name,
         Login: email,
-        subscriptionPlan: subscriptionPlan || 'free' 
+        subscriptionPlan: subscriptionPlan || 'free'
       });
       console.log('   Creating new user:', user);
     } else {
@@ -1861,16 +1861,16 @@ app.post('/api/users/save', async (req, res) => {
     }
 
     await user.save();
-    
+
     res.json({
       ...user.toObject(),
       message: '✅ User saved via emergency route',
       server: 'api.aced.live'
     });
-    
+
   } catch (err) {
     console.error('❌ Emergency save error:', err.message);
-    res.status(401).json({ 
+    res.status(401).json({
       error: '❌ Invalid Firebase token',
       details: err.message,
       server: 'api.aced.live'
@@ -1913,12 +1913,12 @@ app.get('/api/db-health', async (req, res) => {
       name: mongoose.connection.name,
       states: {
         0: 'disconnected',
-        1: 'connected', 
+        1: 'connected',
         2: 'connecting',
         3: 'disconnecting'
       }
     };
-    
+
     if (dbStatus.connected) {
       // Test actual database operation
       try {
@@ -1930,15 +1930,15 @@ app.get('/api/db-health', async (req, res) => {
         dbStatus.pingError = pingError.message;
       }
     }
-    
+
     const statusCode = dbStatus.connected && dbStatus.ping === 'successful' ? 200 : 503;
-    
+
     res.status(statusCode).json({
       database: dbStatus,
       server: 'api.aced.live',
       timestamp: new Date().toISOString()
     });
-    
+
   } catch (error) {
     res.status(500).json({
       database: {
@@ -1996,20 +1996,20 @@ app.get('/api/status', (req, res) => {
 });app.get('/api/admin/users', async (req, res) => {
   try {
     console.log('➡️ Admin route: GET /api/admin/users called');
-    
-    const { 
-      page = 1, 
-      limit = 50, 
-      search = '', 
-      plan = '', 
-      status = '' 
+
+    const {
+      page = 1,
+      limit = 50,
+      search = '',
+      plan = '',
+      status = ''
     } = req.query;
 
     const User = require('./models/user');
-    
+
     // Build filter
     const filter = {};
-    
+
     if (search) {
       filter.$or = [
         { email: { $regex: search, $options: 'i' } },
@@ -2017,11 +2017,11 @@ app.get('/api/status', (req, res) => {
         { firebaseId: { $regex: search, $options: 'i' } }
       ];
     }
-    
+
     if (plan && plan !== 'all') {
       filter.subscriptionPlan = plan;
     }
-    
+
     if (status === 'active') {
       filter.isBlocked = { $ne: true };
     } else if (status === 'blocked') {
@@ -2029,7 +2029,7 @@ app.get('/api/status', (req, res) => {
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    
+
     const [users, total] = await Promise.all([
       User.find(filter)
         .sort({ createdAt: -1 })
@@ -2090,7 +2090,7 @@ app.get('/api/status', (req, res) => {
 app.get('/api/users/all', async (req, res) => {
   try {
     console.log('➡️ Admin route: GET /api/users/all called');
-    
+
     const User = require('./models/user');
     const users = await User.find({})
       .select('firebaseId email name subscriptionPlan isBlocked createdAt lastLoginAt studyList')
@@ -2124,7 +2124,7 @@ app.get('/api/users/all', async (req, res) => {
 
 app.get('/api/routes', (req, res) => {
   const routes = [];
-  
+
   function extractRoutes(stack, basePath = '') {
     stack.forEach(layer => {
       if (layer.route) {
@@ -2139,7 +2139,7 @@ app.get('/api/routes', (req, res) => {
       }
     });
   }
-  
+
   // Extract all routes
   app._router.stack.forEach(layer => {
     if (layer.route) {
@@ -2160,9 +2160,9 @@ app.get('/api/routes', (req, res) => {
       extractRoutes(layer.handle.stack, basePath);
     }
   });
-  
+
   routes.sort((a, b) => a.path.localeCompare(b.path));
-  
+
   const groupedRoutes = {};
   routes.forEach(route => {
     const basePath = route.path.split('/')[1] || 'root';
@@ -2184,7 +2184,7 @@ app.get('/api/routes', (req, res) => {
     { path: '/api/updated-courses/admin/stats', methods: 'GET', description: 'Admin: Get course statistics', status: 'ACTIVE' },
     { path: '/api/updated-courses/admin/bulk-import', methods: 'POST', description: 'Admin: Bulk import courses', status: 'ACTIVE' }
   ];
-  
+
   res.json({
     server: 'api.aced.live',
     totalRoutes: routes.length,
@@ -2224,7 +2224,7 @@ app.get('/api/routes', (req, res) => {
       { path: '/api/users/save', methods: 'POST', description: 'Emergency user save', status: 'ACTIVE' },
       { path: '/api/users/test', methods: 'GET', description: 'User routes test', status: 'ACTIVE' }
     ],
-    
+
     mountedRoutes: mountedRoutes.map(r => r.path),
     failedRoutes: failedRoutes.map(r => ({ path: r.path, reason: 'Module load failed' })),
     timestamp: new Date().toISOString(),
@@ -2380,7 +2380,7 @@ app.get('/api/user-progress/user/:userId/lesson/:lessonId', async (req, res) => 
   console.log('✅ ROUTE: GET /api/user-progress/user/:userId/lesson/:lessonId called');
   try {
     const { userId, lessonId } = req.params;
-    
+
     // Basic validation
     if (!userId || !lessonId) {
       return res.status(400).json({
@@ -2388,24 +2388,24 @@ app.get('/api/user-progress/user/:userId/lesson/:lessonId', async (req, res) => 
         error: 'userId and lessonId are required'
       });
     }
-    
+
     // Import models
     const UserProgress = require('./models/userProgress');
-    
+
     // Find progress
-    const progress = await UserProgress.findOne({ 
-      userId: userId, 
-      lessonId: lessonId 
+    const progress = await UserProgress.findOne({
+      userId: userId,
+      lessonId: lessonId
     }).populate('lessonId', 'title description order')
       .populate('topicId', 'title description order');
-    
+
     console.log(`   Progress for lesson ${lessonId} found:`, !!progress);
     res.json({
       success: true,
       data: progress || null,
       message: progress ? '✅ Progress found' : '⚠️ No progress found for this lesson'
     });
-    
+
   } catch (error) {
     console.error('❌ Error in user-progress lesson route:', error);
     res.status(500).json({
@@ -2422,7 +2422,7 @@ app.post('/api/user-progress/user/:userId/lesson/:lessonId', async (req, res) =>
   try {
     const { userId, lessonId } = req.params;
     const progressData = req.body;
-    
+
     // Basic validation
     if (!userId || !lessonId) {
       return res.status(400).json({
@@ -2430,11 +2430,11 @@ app.post('/api/user-progress/user/:userId/lesson/:lessonId', async (req, res) =>
         error: 'userId and lessonId are required'
       });
     }
-    
+
     // Import models
     const UserProgress = require('./models/userProgress');
     const Lesson = require('./models/lesson');
-    
+
     // Get topicId from lesson if not provided
     let finalTopicId = progressData.topicId;
     if (!finalTopicId) {
@@ -2447,7 +2447,7 @@ app.post('/api/user-progress/user/:userId/lesson/:lessonId', async (req, res) =>
         console.warn('⚠️ Failed to find lesson to get topicId:', lessonError.message);
       }
     }
-    
+
     const updateData = {
       userId: userId,
       lessonId: lessonId,
@@ -2464,45 +2464,45 @@ app.post('/api/user-progress/user/:userId/lesson/:lessonId', async (req, res) =>
       submittedHomework: Boolean(progressData.submittedHomework),
       updatedAt: new Date()
     };
-    
+
     // Remove null/undefined fields
     Object.keys(updateData).forEach(key => {
       if (updateData[key] === null || updateData[key] === undefined) {
         delete updateData[key];
       }
     });
-    
+
     const updated = await UserProgress.findOneAndUpdate(
       { userId: userId, lessonId: lessonId },
       updateData,
       { upsert: true, new: true, runValidators: true }
     );
-    
+
     console.log('   Progress saved successfully');
     res.json({
       success: true,
       data: updated,
       message: '✅ Progress saved successfully'
     });
-    
+
   } catch (error) {
     console.error('❌ Error saving user-progress lesson:', error);
-    
+
     if (error.name === 'CastError') {
-      res.status(400).json({ 
+      res.status(400).json({
         success: false,
         error: 'Invalid data format',
         field: error.path,
         value: error.value
       });
     } else if (error.name === 'ValidationError') {
-      res.status(400).json({ 
+      res.status(400).json({
         success: false,
         error: 'Validation error',
         details: Object.values(error.errors).map(e => e.message)
       });
     } else {
-      res.status(500).json({ 
+      res.status(500).json({
         success: false,
         error: 'Error saving progress',
         details: error.message
@@ -2514,25 +2514,25 @@ app.post('/api/user-progress/user/:userId/lesson/:lessonId', async (req, res) =>
 // ✅ GET /api/user-progress (for general user progress queries)
 app.get('/api/user-progress', async (req, res) => {
   console.log('✅ ROUTE: GET /api/user-progress called');
-  
+
   try {
     const { userId, lessonId } = req.query;
-    
+
     if (!userId) {
       return res.status(400).json({
         success: false,
         error: 'userId is required as query parameter'
       });
     }
-    
+
     const UserProgress = require('./models/userProgress');
-    
+
     if (lessonId) {
       // Get specific lesson progress
       const progress = await UserProgress.findOne({ userId, lessonId })
         .populate('lessonId', 'title description order')
         .populate('topicId', 'title description order');
-      
+
       return res.json({
         success: true,
         data: progress || null,
@@ -2551,7 +2551,7 @@ app.get('/api/user-progress', async (req, res) => {
         message: '✅ All progress loaded'
       });
     }
-    
+
   } catch (error) {
     console.error('❌ Error in user-progress general route:', error);
     res.status(500).json({
@@ -2569,10 +2569,10 @@ app.get('/api/user-progress', async (req, res) => {
 // ✅ GET /api/homeworks/user/:userId
 app.get('/api/homeworks/user/:userId', async (req, res) => {
   console.log('✅ ROUTE: GET /api/homeworks/user/:userId called');
-  
+
   try {
     const { userId } = req.params;
-    
+
     // Try to import models
     let HomeworkProgress, Homework, Lesson;
     try {
@@ -2587,29 +2587,29 @@ app.get('/api/homeworks/user/:userId', async (req, res) => {
         message: 'Homework models not available'
       });
     }
-    
+
     // Get user progress
     const userProgress = await HomeworkProgress.find({ userId })
       .populate('lessonId', 'title lessonName subject homework')
       .sort({ updatedAt: -1 });
-    
+
     // Get standalone homework
     const standaloneHomework = await Homework.find({ isActive: true });
-    
+
     // Get lessons with homework
-    const lessonsWithHomework = await Lesson.find({ 
-      homework: { $exists: true, $ne: [], $not: { $size: 0 } } 
+    const lessonsWithHomework = await Lesson.find({
+      homework: { $exists: true, $ne: [], $not: { $size: 0 } }
     });
-    
+
     const allHomeworks = [];
-    
+
     // Add standalone homework
     for (const hw of standaloneHomework) {
-      const userHwProgress = userProgress.find(up => 
+      const userHwProgress = userProgress.find(up =>
         up.homeworkId?.toString() === hw._id.toString() ||
         up.metadata?.standaloneHomeworkId === hw._id.toString()
       );
-      
+
       allHomeworks.push({
         _id: hw._id,
         title: hw.title,
@@ -2626,11 +2626,11 @@ app.get('/api/homeworks/user/:userId', async (req, res) => {
         hasProgress: !!userHwProgress
       });
     }
-    
+
     // Add lesson-based homework
     for (const lesson of lessonsWithHomework) {
       const userHwProgress = userProgress.find(up => up.lessonId?.toString() === lesson._id.toString());
-      
+
       allHomeworks.push({
         lessonId: lesson._id,
         title: `Домашнее задание: ${lesson.lessonName || lesson.title}`,
@@ -2646,7 +2646,7 @@ app.get('/api/homeworks/user/:userId', async (req, res) => {
         hasProgress: !!userHwProgress
       });
     }
-    
+
     // Sort by priority
     allHomeworks.sort((a, b) => {
       const getStatus = (hw) => {
@@ -2654,25 +2654,25 @@ app.get('/api/homeworks/user/:userId', async (req, res) => {
         if (!hw.completed) return 'in-progress';
         return 'completed';
       };
-      
+
       const statusPriority = { 'in-progress': 0, 'pending': 1, 'completed': 2 };
       const aStatus = getStatus(a);
       const bStatus = getStatus(b);
-      
+
       if (statusPriority[aStatus] !== statusPriority[bStatus]) {
         return statusPriority[aStatus] - statusPriority[bStatus];
       }
-      
+
       return new Date(b.updatedAt) - new Date(a.updatedAt);
     });
-    
+
     console.log(`   Found a total of ${allHomeworks.length} homework items`);
     res.json({
       success: true,
       data: allHomeworks,
       message: '✅ Homework list retrieved successfully'
     });
-    
+
   } catch (error) {
     console.error('❌ Error fetching user homeworks:', error);
     res.status(500).json({
@@ -2686,10 +2686,10 @@ app.get('/api/homeworks/user/:userId', async (req, res) => {
 // ✅ GET /api/homeworks/user/:userId/lesson/:lessonId
 app.get('/api/homeworks/user/:userId/lesson/:lessonId', async (req, res) => {
   console.log('✅ ROUTE: GET /api/homeworks/user/:userId/lesson/:lessonId called');
-  
+
   try {
     const { userId, lessonId } = req.params;
-    
+
     const Lesson = require('./models/lesson');
     let HomeworkProgress;
     try {
@@ -2697,7 +2697,7 @@ app.get('/api/homeworks/user/:userId/lesson/:lessonId', async (req, res) => {
     } catch (modelError) {
       console.warn('⚠️ HomeworkProgress model not found');
     }
-    
+
     // Get lesson
     const lesson = await Lesson.findById(lessonId);
     if (!lesson) {
@@ -2706,7 +2706,7 @@ app.get('/api/homeworks/user/:userId/lesson/:lessonId', async (req, res) => {
         error: 'Lesson not found'
       });
     }
-    
+
     if (!lesson.homework || !Array.isArray(lesson.homework) || lesson.homework.length === 0) {
       console.log('   No homework found in lesson');
       return res.json({
@@ -2714,7 +2714,7 @@ app.get('/api/homeworks/user/:userId/lesson/:lessonId', async (req, res) => {
         error: 'В этом уроке нет домашнего задания'
       });
     }
-    
+
     // Try to get user progress
     let userProgress = null;
     if (HomeworkProgress) {
@@ -2727,7 +2727,7 @@ app.get('/api/homeworks/user/:userId/lesson/:lessonId', async (req, res) => {
         console.warn('⚠️ Error fetching user homework progress:', progressError.message);
       }
     }
-    
+
     res.json({
       success: true,
       data: {
@@ -2741,7 +2741,7 @@ app.get('/api/homeworks/user/:userId/lesson/:lessonId', async (req, res) => {
         }
       }
     });
-    
+
   } catch (error) {
     console.error('❌ Error fetching homework by lesson:', error);
     res.status(500).json({
@@ -2771,12 +2771,12 @@ const requireAuth = async (req, res, next) => {
     if (!req.headers.authorization) {
       return res.status(401).json({ success: false, error: 'Authentication required' });
     }
-    
+
     // For now, assume authenticated admin user
-    req.user = { 
-      uid: 'admin', 
-      email: 'admin@aced.live', 
-      name: 'Admin User' 
+    req.user = {
+      uid: 'admin',
+      email: 'admin@aced.live',
+      name: 'Admin User'
     };
     next();
   } catch (error) {
@@ -2788,20 +2788,20 @@ const requireAuth = async (req, res, next) => {
 app.get('/api/promocodes', requireAuth, async (req, res) => {
   try {
     console.log('✅ ROUTE: GET /api/promocodes called');
-    
-    const { 
-      page = 1, 
-      limit = 20, 
-      search = '', 
-      status = '', 
+
+    const {
+      page = 1,
+      limit = 20,
+      search = '',
+      status = '',
       plan = '',
       sortBy = 'createdAt',
       sortOrder = 'desc'
     } = req.query;
-    
+
     // Build filter
     const filter = {};
-    
+
     if (search) {
       filter.$or = [
         { code: { $regex: search, $options: 'i' } },
@@ -2809,11 +2809,11 @@ app.get('/api/promocodes', requireAuth, async (req, res) => {
         { createdByName: { $regex: search, $options: 'i' } }
       ];
     }
-    
+
     if (plan) {
       filter.grantsPlan = plan;
     }
-    
+
     // Status filtering
     const now = new Date();
     if (status === 'active') {
@@ -2829,11 +2829,11 @@ app.get('/api/promocodes', requireAuth, async (req, res) => {
       filter.$expr = { $gte: ['$currentUses', '$maxUses'] };
       filter.maxUses = { $ne: null };
     }
-    
+
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const sort = {};
     sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
-    
+
     const [promocodes, total] = await Promise.all([
       Promocode.find(filter)
         .sort(sort)
@@ -2842,19 +2842,19 @@ app.get('/api/promocodes', requireAuth, async (req, res) => {
         .lean(),
       Promocode.countDocuments(filter)
     ]);
-    
+
     // Add computed fields for frontend
     const enrichedPromocodes = promocodes.map(promo => {
       const isExpired = promo.expiresAt && now > promo.expiresAt;
       const isExhausted = promo.maxUses && promo.currentUses >= promo.maxUses;
       const remainingUses = promo.maxUses ? Math.max(0, promo.maxUses - promo.currentUses) : null;
       const usagePercentage = promo.maxUses ? Math.round((promo.currentUses / promo.maxUses) * 100) : 0;
-      
+
       let computedStatus = 'active';
       if (!promo.isActive) computedStatus = 'inactive';
       else if (isExpired) computedStatus = 'expired';
       else if (isExhausted) computedStatus = 'exhausted';
-      
+
       return {
         ...promo,
         isExpired,
@@ -2864,7 +2864,7 @@ app.get('/api/promocodes', requireAuth, async (req, res) => {
         status: computedStatus
       };
     });
-    
+
     res.json({
       success: true,
       data: enrichedPromocodes,
@@ -2875,8 +2875,8 @@ app.get('/api/promocodes', requireAuth, async (req, res) => {
         pages: Math.ceil(total / parseInt(limit))
       }
     });
-    
-    
+
+
   } catch (error) {
     console.error('❌ Error fetching promocodes:', error);
     res.status(500).json({
@@ -2891,10 +2891,10 @@ app.get('/api/promocodes', requireAuth, async (req, res) => {
 app.get('/api/promocodes/stats', requireAuth, async (req, res) => {
   try {
     console.log('✅ ROUTE: GET /api/promocodes/stats called');
-    
+
     const now = new Date();
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    
+
     const [
       total,
       active,
@@ -2905,14 +2905,14 @@ app.get('/api/promocodes/stats', requireAuth, async (req, res) => {
       planDistribution
     ] = await Promise.all([
       Promocode.countDocuments(),
-      Promocode.countDocuments({ 
+      Promocode.countDocuments({
         isActive: true,
         $or: [
           { expiresAt: null },
           { expiresAt: { $gt: now } }
         ]
       }),
-      Promocode.countDocuments({ 
+      Promocode.countDocuments({
         expiresAt: { $lt: now }
       }),
       Promocode.countDocuments({
@@ -2929,7 +2929,7 @@ app.get('/api/promocodes/stats', requireAuth, async (req, res) => {
         { $group: { _id: '$grantsPlan', count: { $sum: 1 } } }
       ])
     ]);
-    
+
     const stats = {
       total: total || 0,
       active: active || 0,
@@ -2942,13 +2942,13 @@ app.get('/api/promocodes/stats', requireAuth, async (req, res) => {
         return acc;
       }, {})
     };
-    
+
     res.json({
       success: true,
       stats: stats
     });
-    
-    
+
+
   } catch (error) {
     console.error('❌ Error fetching promocode stats:', error);
     res.status(500).json({
@@ -2963,7 +2963,7 @@ app.get('/api/promocodes/stats', requireAuth, async (req, res) => {
 app.post('/api/promocodes', requireAuth, async (req, res) => {
   try {
     console.log('✅ ROUTE: POST /api/promocodes called');
-    
+
     const {
       code,
       grantsPlan,
@@ -2974,7 +2974,7 @@ app.post('/api/promocodes', requireAuth, async (req, res) => {
       generateRandom,
       isActive = true
     } = req.body;
-    
+
     // Validation
     if (!grantsPlan || !['start', 'pro', 'premium'].includes(grantsPlan)) {
       return res.status(400).json({
@@ -2982,21 +2982,21 @@ app.post('/api/promocodes', requireAuth, async (req, res) => {
         error: 'Valid grantsPlan is required (start, pro, premium)'
       });
     }
-    
+
     let finalCode = code?.trim()?.toUpperCase();
-    
+
     // Generate random code if requested or no code provided
     if (generateRandom || !finalCode) {
       const prefix = grantsPlan.toUpperCase().substring(0, 3);
       finalCode = generateRandomCode(prefix, 10);
-      
+
       // Ensure uniqueness
       let attempts = 0;
       while (await Promocode.findOne({ code: finalCode }) && attempts < 10) {
         finalCode = generateRandomCode(prefix, 10);
         attempts++;
       }
-      
+
       if (attempts >= 10) {
         return res.status(500).json({
           success: false,
@@ -3004,14 +3004,14 @@ app.post('/api/promocodes', requireAuth, async (req, res) => {
         });
       }
     }
-    
+
     if (!finalCode || finalCode.length < 4) {
       return res.status(400).json({
         success: false,
         error: 'Code must be at least 4 characters long'
       });
     }
-    
+
     // Check if code already exists
     const existingCode = await Promocode.findOne({ code: finalCode });
     if (existingCode) {
@@ -3020,7 +3020,7 @@ app.post('/api/promocodes', requireAuth, async (req, res) => {
         error: 'Promocode already exists'
       });
     }
-    
+
     // Validate dates
     let parsedExpiresAt = null;
     if (expiresAt) {
@@ -3032,7 +3032,7 @@ app.post('/api/promocodes', requireAuth, async (req, res) => {
         });
       }
     }
-    
+
     // Validate subscription days
     const days = parseInt(subscriptionDays) || 30;
     if (days < 1 || days > 365) {
@@ -3041,7 +3041,7 @@ app.post('/api/promocodes', requireAuth, async (req, res) => {
         error: 'Subscription days must be between 1 and 365'
       });
     }
-    
+
     // Create promocode
     const promocode = new Promocode({
       code: finalCode,
@@ -3055,26 +3055,26 @@ app.post('/api/promocodes', requireAuth, async (req, res) => {
       createdByName: req.user.name || req.user.email || 'Admin',
       createdByEmail: req.user.email || ''
     });
-    
+
     await promocode.save();
-    
+
     console.log(`✅ Promocode ${finalCode} created successfully`);
     res.status(201).json({
       success: true,
       data: promocode,
       message: `Promocode ${finalCode} created successfully`
     });
-    
+
   } catch (error) {
     console.error('❌ Error creating promocode:', error);
-    
+
     if (error.code === 11000) {
       return res.status(400).json({
         success: false,
         error: 'Promocode already exists'
       });
     }
-    
+
     res.status(500).json({
       success: false,
       error: 'Failed to create promocode',
@@ -3087,7 +3087,7 @@ app.post('/api/promocodes', requireAuth, async (req, res) => {
 app.put('/api/promocodes/:id', requireAuth, async (req, res) => {
   try {
     console.log('✅ ROUTE: PUT /api/promocodes/:id called');
-    
+
     const promocode = await Promocode.findById(req.params.id);
     if (!promocode) {
       return res.status(404).json({
@@ -3095,7 +3095,7 @@ app.put('/api/promocodes/:id', requireAuth, async (req, res) => {
         error: 'Promocode not found'
       });
     }
-    
+
     const {
       description,
       maxUses,
@@ -3103,16 +3103,16 @@ app.put('/api/promocodes/:id', requireAuth, async (req, res) => {
       subscriptionDays,
       isActive
     } = req.body;
-    
+
     // Update fields
     if (description !== undefined) {
       promocode.description = description?.trim() || '';
     }
-    
+
     if (maxUses !== undefined) {
       promocode.maxUses = maxUses && maxUses > 0 ? parseInt(maxUses) : null;
     }
-    
+
     if (expiresAt !== undefined) {
       if (expiresAt) {
         const parsedDate = new Date(expiresAt);
@@ -3127,7 +3127,7 @@ app.put('/api/promocodes/:id', requireAuth, async (req, res) => {
         promocode.expiresAt = null;
       }
     }
-    
+
     if (subscriptionDays !== undefined) {
       const days = parseInt(subscriptionDays);
       if (days < 1 || days > 365) {
@@ -3138,20 +3138,20 @@ app.put('/api/promocodes/:id', requireAuth, async (req, res) => {
       }
       promocode.subscriptionDays = days;
     }
-    
+
     if (isActive !== undefined) {
       promocode.isActive = Boolean(isActive);
     }
-    
+
     await promocode.save();
-    
+
     console.log(`✅ Promocode ${promocode.code} updated successfully`);
     res.json({
       success: true,
       data: promocode,
       message: `Promocode ${promocode.code} updated successfully`
     });
-    
+
   } catch (error) {
     console.error('❌ Error updating promocode:', error);
     res.status(500).json({
@@ -3166,7 +3166,7 @@ app.put('/api/promocodes/:id', requireAuth, async (req, res) => {
 app.delete('/api/promocodes/:id', requireAuth, async (req, res) => {
   try {
     console.log('✅ ROUTE: DELETE /api/promocodes/:id called');
-    
+
     const promocode = await Promocode.findById(req.params.id);
     if (!promocode) {
       return res.status(404).json({
@@ -3174,7 +3174,7 @@ app.delete('/api/promocodes/:id', requireAuth, async (req, res) => {
         error: 'Promocode not found'
       });
     }
-    
+
     // Check if promocode has been used
     if (promocode.currentUses > 0) {
       return res.status(400).json({
@@ -3183,15 +3183,15 @@ app.delete('/api/promocodes/:id', requireAuth, async (req, res) => {
         usageCount: promocode.currentUses
       });
     }
-    
+
     await promocode.deleteOne();
-    
+
     console.log(`✅ Promocode ${promocode.code} deleted successfully`);
     res.json({
       success: true,
       message: `Promocode ${promocode.code} deleted successfully`
     });
-    
+
   } catch (error) {
     console.error('❌ Error deleting promocode:', error);
     res.status(500).json({
@@ -3207,11 +3207,11 @@ function generateRandomCode(prefix = '', length = 8) {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let result = prefix.toUpperCase();
   const remainingLength = Math.max(4, length - prefix.length);
-  
+
   for (let i = 0; i < remainingLength; i++) {
     result += chars.charAt(Math.floor(Math.random() * chars.length));
   }
-  
+
   return result;
 }
 
@@ -3220,10 +3220,10 @@ function generateRandomCode(prefix = '', length = 8) {
 // ✅ GET /api/homeworks/user/:userId/homework/:homeworkId
 app.get('/api/homeworks/user/:userId/homework/:homeworkId', async (req, res) => {
   console.log('✅ ROUTE: GET /api/homeworks/user/:userId/homework/:homeworkId called');
-  
+
   try {
     const { userId, homeworkId } = req.params;
-    
+
     let Homework, HomeworkProgress;
     try {
       Homework = require('./models/homework');
@@ -3235,7 +3235,7 @@ app.get('/api/homeworks/user/:userId/homework/:homeworkId', async (req, res) => 
         error: 'Homework system not available'
       });
     }
-    
+
     // Get homework
     const homework = await Homework.findById(homeworkId);
     if (!homework) {
@@ -3244,14 +3244,14 @@ app.get('/api/homeworks/user/:userId/homework/:homeworkId', async (req, res) => 
         error: 'Homework not found'
       });
     }
-    
+
     if (!homework.isActive) {
       return res.status(403).json({
         success: false,
         error: 'Homework is not active'
       });
     }
-    
+
     // Get user progress
     let userProgress = null;
     try {
@@ -3266,7 +3266,7 @@ app.get('/api/homeworks/user/:userId/homework/:homeworkId', async (req, res) => 
     } catch (progressError) {
       console.warn('⚠️ Error fetching homework progress:', progressError.message);
     }
-    
+
     res.json({
       success: true,
       data: {
@@ -3276,7 +3276,7 @@ app.get('/api/homeworks/user/:userId/homework/:homeworkId', async (req, res) => 
       },
       message: '✅ Homework retrieved successfully'
     });
-    
+
   } catch (error) {
     console.error('❌ Error fetching standalone homework:', error);
     res.status(500).json({
@@ -3294,10 +3294,10 @@ app.get('/api/homeworks/user/:userId/homework/:homeworkId', async (req, res) => 
 // ✅ GET /api/users/:userId/tests
 app.get('/api/users/:userId/tests', async (req, res) => {
   console.log('✅ ROUTE: GET /api/users/:userId/tests called');
-  
+
   try {
     const { userId } = req.params;
-    
+
     let Test, TestResult;
     try {
       Test = require('./models/Test');
@@ -3310,13 +3310,13 @@ app.get('/api/users/:userId/tests', async (req, res) => {
         message: 'Test models not available'
       });
     }
-    
+
     const tests = await Test.find({ isActive: true }).select('-questions.correctAnswer -questions.explanation');
     const userResults = await TestResult.find({ userId });
-    
+
     const testsWithProgress = tests.map(test => {
       const userResult = userResults.find(result => result.testId.toString() === test._id.toString());
-      
+
       return {
         ...test.toObject(),
         userProgress: userResult ? {
@@ -3330,13 +3330,13 @@ app.get('/api/users/:userId/tests', async (req, res) => {
         }
       };
     });
-    
+
     res.json({
       success: true,
       tests: testsWithProgress,
       message: '✅ Tests retrieved successfully'
     });
-    
+
   } catch (error) {
     console.error('❌ Error fetching user tests:', error);
     res.status(500).json({
@@ -3350,10 +3350,10 @@ app.get('/api/users/:userId/tests', async (req, res) => {
 // ✅ GET /api/users/:userId/tests/:testId
 app.get('/api/users/:userId/tests/:testId', async (req, res) => {
   console.log('✅ ROUTE: GET /api/users/:userId/tests/:testId called');
-  
+
   try {
     const { testId } = req.params;
-    
+
     let Test;
     try {
       Test = require('./models/Test');
@@ -3364,28 +3364,28 @@ app.get('/api/users/:userId/tests/:testId', async (req, res) => {
         error: 'Test system not available'
       });
     }
-    
+
     const test = await Test.findById(testId).select('-questions.correctAnswer -questions.explanation');
-    
+
     if (!test) {
       return res.status(404).json({
         success: false,
         error: 'Test not found'
       });
     }
-    
+
     if (!test.isActive) {
       return res.status(403).json({
         success: false,
         error: 'Test is not active'
       });
     }
-    
+
     // Randomize questions if enabled
     if (test.randomizeQuestions && test.questions.length > 0) {
       test.questions = test.questions.sort(() => Math.random() - 0.5);
     }
-    
+
     // Randomize options if enabled
     if (test.randomizeOptions) {
       test.questions.forEach(question => {
@@ -3394,13 +3394,13 @@ app.get('/api/users/:userId/tests/:testId', async (req, res) => {
         }
       });
     }
-    
+
     res.json({
       success: true,
       test: test,
       message: '✅ Test retrieved successfully'
     });
-    
+
   } catch (error) {
     console.error('❌ Error fetching test:', error);
     res.status(500).json({
@@ -3420,7 +3420,7 @@ app.get('/api/users/:userId/tests/:testId', async (req, res) => {
 // ✅ Enhanced route debugging endpoint
 app.get('/api/debug/routes', (req, res) => {
   const routes = [];
-  
+
   function extractRoutes(stack, basePath = '') {
     stack.forEach(layer => {
       if (layer.route) {
@@ -3436,7 +3436,7 @@ app.get('/api/debug/routes', (req, res) => {
       }
     });
   }
-  
+
   // Extract all routes
   app._router.stack.forEach(layer => {
     if (layer.route) {
@@ -3458,9 +3458,9 @@ app.get('/api/debug/routes', (req, res) => {
       extractRoutes(layer.handle.stack, basePath);
     }
   });
-  
+
   routes.sort((a, b) => a.path.localeCompare(b.path));
-  
+
   const groupedRoutes = {};
   routes.forEach(route => {
     const basePath = route.path.split('/')[1] || 'root';
@@ -3469,14 +3469,14 @@ app.get('/api/debug/routes', (req, res) => {
     }
     groupedRoutes[basePath].push(route);
   });
-  
+
   res.json({
     server: 'api.aced.live',
     timestamp: new Date().toISOString(),
     totalRoutes: routes.length,
     routeGroups: groupedRoutes,
     allRoutes: routes,
-    
+
     // Specifically check for the routes that were causing 404s
     criticalRoutes: {
       userProgressUserLesson: routes.find(r => r.path.includes('user-progress/user') && r.path.includes('lesson')),
@@ -3485,15 +3485,15 @@ app.get('/api/debug/routes', (req, res) => {
       homeworksUser: routes.find(r => r.path.includes('homeworks/user')),
       usersTests: routes.find(r => r.path.includes('users') && r.path.includes('tests'))
     },
-    
+
     missingRoutes: {
-      'GET /api/user-progress/user/:userId/lesson/:lessonId': !routes.find(r => 
+      'GET /api/user-progress/user/:userId/lesson/:lessonId': !routes.find(r =>
         r.path.includes('user-progress/user') && r.path.includes('lesson') && r.methods.includes('GET')
       ),
-      'POST /api/user-progress/user/:userId/lesson/:lessonId': !routes.find(r => 
+      'POST /api/user-progress/user/:userId/lesson/:lessonId': !routes.find(r =>
         r.path.includes('user-progress/user') && r.path.includes('lesson') && r.methods.includes('POST')
       ),
-      'GET /api/homeworks/user/:userId': !routes.find(r => 
+      'GET /api/homeworks/user/:userId': !routes.find(r =>
         r.path.includes('homeworks/user') && r.methods.includes('GET')
       )
     }
@@ -3511,8 +3511,8 @@ app.use('/api/*', (req, res, next) => {
 // API 404 handler
 app.use('/api/*', (req, res) => {
   console.error(`❌ API Route Not Found: ${req.method} ${req.originalUrl}`);
-  
-  res.status(404).json({ 
+
+  res.status(404).json({
     error: 'API endpoint not found',
     path: req.originalUrl,
     method: req.method,
@@ -3578,12 +3578,12 @@ if (fs.existsSync(distPath)) {
 // SPA Catch-all route (only if frontend exists)
 app.get('*', (req, res) => {
   const indexPath = path.join(distPath, 'index.html');
-  
+
   if (fs.existsSync(indexPath)) {
     res.sendFile(indexPath, (err) => {
       if (err) {
         console.error('❌ Failed to serve index.html:', err.message);
-        res.status(500).json({ 
+        res.status(500).json({
           error: 'Frontend loading error',
           message: 'Unable to serve the application',
           server: 'api.aced.live'
@@ -3621,7 +3621,7 @@ app.get('*', (req, res) => {
 app.use((err, req, res, next) => {
   const errorId = Date.now().toString(36) + Math.random().toString(36).substr(2);
   const timestamp = new Date().toISOString();
-  
+
   console.error(`\n🔥 GLOBAL ERROR [${errorId}] at ${timestamp}:`);
   console.error('📍 URL:', req.originalUrl);
   console.error('🔧 Method:', req.method);
@@ -3629,16 +3629,16 @@ app.use((err, req, res, next) => {
   console.error('🏷️  Name:', err.name);
   console.error('🔢 Code:', err.code);
   console.error('🌐 Server: api.aced.live');
-  
+
   if (process.env.NODE_ENV === 'development') {
     console.error('📚 Stack:', err.stack);
   }
-  
+
   // Handle specific error types
   let statusCode = err.status || err.statusCode || 500;
   let message = 'Internal server error';
   let details = {};
-  
+
   if (err.name === 'ValidationError') {
     statusCode = 400;
     message = 'Validation error';
@@ -3678,7 +3678,7 @@ app.use((err, req, res, next) => {
     details.progressError = true;
     details.criticalEndpoints = ['/api/user-progress', '/api/progress'];
   }
-  
+
   const errorResponse = {
     error: message,
     errorId,
@@ -3687,11 +3687,11 @@ app.use((err, req, res, next) => {
     path: req.originalUrl,
     method: req.method
   };
-  
+
   if (Object.keys(details).length > 0) {
     errorResponse.details = details;
   }
-  
+
   if (process.env.NODE_ENV === 'development') {
     errorResponse.debug = {
       message: err.message,
@@ -3700,7 +3700,7 @@ app.use((err, req, res, next) => {
       stack: err.stack?.split('\n').slice(0, 5)
     };
   }
-  
+
   res.status(statusCode).json(errorResponse);
 });
 
@@ -3712,14 +3712,14 @@ const startServer = async () => {
   try {
     // Connect to database first
     await connectDB();
-    
+
     // Start the server
     const server = app.listen(PORT, () => {
       console.log(`\n🚀 Server is running on port ${PORT}`);
       console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`);
       console.log(`   Base URL:    http://localhost:${PORT}`);
       console.log(`   Docs/Health: http://localhost:${PORT}/health`);
-      
+
       // Route Summary
       console.log('\n📦 Mounted Routes:');
       if (mountedRoutes.length > 0) {
@@ -3756,9 +3756,9 @@ const startServer = async () => {
         console.warn('\n⚠️ PayMe Webhook Routes are inactive due to missing controllers.');
       }
 
-    
+
     });
-    
+
     // Graceful shutdown
     process.on('SIGTERM', () => {
       server.close(() => {
@@ -3767,7 +3767,7 @@ const startServer = async () => {
         });
       });
     });
-    
+
     process.on('SIGINT', () => {
       server.close(() => {
         mongoose.connection.close(() => {
@@ -3775,7 +3775,7 @@ const startServer = async () => {
         });
       });
     });
-    
+
   } catch (error) {
     console.error('❌ Failed to start server:', error);
     process.exit(1);
@@ -3788,17 +3788,17 @@ app.post('/api/users/:userId/study-list', async (req, res) => {
   try {
     const { userId } = req.params;
     const data = req.body;
-    
+
     if (!data.topicId || !data.topic) {
       return res.status(400).json({
         success: false,
         error: 'topicId and topic are required'
       });
     }
-    
+
     const User = require('./models/user');
     let user = await User.findOne({ firebaseId: userId });
-    
+
     if (!user) {
       user = new User({
         firebaseId: userId,
@@ -3807,7 +3807,7 @@ app.post('/api/users/:userId/study-list', async (req, res) => {
         studyList: []
       });
     }
-    
+
     // Check if already exists
     const exists = user.studyList.some(item => item.topicId === data.topicId);
     if (exists) {
@@ -3816,7 +3816,7 @@ app.post('/api/users/:userId/study-list', async (req, res) => {
         error: 'Topic already exists in study list'
       });
     }
-    
+
     // Add to study list
     user.studyList.push({
       topicId: data.topicId,
@@ -3828,14 +3828,14 @@ app.post('/api/users/:userId/study-list', async (req, res) => {
       type: data.type || 'free',
       addedAt: new Date()
     });
-    
+
     await user.save();
-    
+
     res.json({
       success: true,
       message: 'Topic added to study list'
     });
-    
+
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -3849,16 +3849,16 @@ app.get('/api/users/:userId/study-list', async (req, res) => {
     const { userId } = req.params;
     const User = require('./models/user');
     const user = await User.findOne({ firebaseId: userId });
-    
+
     if (!user) {
       return res.json({ success: true, data: [] });
     }
-    
+
     res.json({
       success: true,
       data: user.studyList || []
     });
-    
+
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -3872,22 +3872,22 @@ app.delete('/api/users/:userId/study-list/:topicId', async (req, res) => {
     const { userId, topicId } = req.params;
     const User = require('./models/user');
     const user = await User.findOne({ firebaseId: userId });
-    
+
     if (!user) {
       return res.status(404).json({
         success: false,
         error: 'User not found'
       });
     }
-    
+
     user.studyList = user.studyList.filter(item => item.topicId !== topicId);
     await user.save();
-    
+
     res.json({
       success: true,
       message: 'Topic removed from study list'
     });
-    
+
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -3903,7 +3903,7 @@ app.delete('/api/users/:userId/study-list/:topicId', async (req, res) => {
 process.on('unhandledRejection', (reason, promise) => {
   console.error('⚠️  Unhandled Rejection at:', promise);
   console.error('⚠️  Reason:', reason);
-  
+
   if (process.env.NODE_ENV === 'production') {
     console.error('🚨 Exiting due to unhandled rejection in production');
     process.exit(1);
@@ -3918,5 +3918,209 @@ process.on('uncaughtException', (error) => {
 
 // Start the server
 startServer();
+// ========================================
+// 🤖 AI LESSON GENERATION ROUTES
+// ========================================
 
+// Test connection endpoint
+app.get('/api/ai/test-connection', async (req, res) => {
+  try {
+    console.log('🔍 Testing OpenAI connection...');
+
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(400).json({
+        success: false,
+        error: 'OpenAI API key not configured',
+        configured: false
+      });
+    }
+
+    // Try importing OpenAI
+    try {
+      const { OpenAI } = require('openai');
+
+      const openai = new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY
+      });
+
+      // Test with a simple request
+      const response = await openai.chat.completions.create({
+        model: 'gpt-3.5-turbo',
+        messages: [{ role: 'user', content: 'Say "Connection successful"' }],
+        max_tokens: 10
+      });
+
+      console.log('✅ OpenAI connection successful');
+
+      res.json({
+        success: true,
+        configured: true,
+        model: 'gpt-3.5-turbo',
+        response: response.choices[0].message.content,
+        usage: response.usage
+      });
+
+    } catch (openaiError) {
+      console.error('❌ OpenAI API error:', openaiError);
+
+      let errorMessage = 'OpenAI API error';
+      if (openaiError.message?.includes('API key')) {
+        errorMessage = 'Invalid OpenAI API key';
+      } else if (openaiError.message?.includes('rate limit')) {
+        errorMessage = 'Rate limit exceeded';
+      } else if (openaiError.message?.includes('insufficient')) {
+        errorMessage = 'Insufficient credits';
+      }
+
+      res.status(400).json({
+        success: false,
+        configured: true,
+        error: errorMessage
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ AI test connection failed:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Server error during AI test',
+      details: error.message
+    });
+  }
+});
+
+// Lesson generation endpoint
+app.post('/api/ai/generate-lesson', async (req, res) => {
+  try {
+    console.log('🤖 AI Lesson generation request received');
+
+    const {
+      subject,
+      level,
+      topic,
+      lessonName,
+      description,
+      options = {}
+    } = req.body;
+
+    // Validation
+    if (!subject || !level || !topic || !lessonName) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: subject, level, topic, lessonName'
+      });
+    }
+
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(400).json({
+        success: false,
+        error: 'OpenAI API key not configured'
+      });
+    }
+
+    const { OpenAI } = require('openai');
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY
+    });
+
+    // Create prompt
+    const prompt = createLessonPrompt(req.body);
+
+    console.log('📤 Sending lesson generation request to OpenAI...');
+
+    const response = await openai.chat.completions.create({
+      model: options.model || 'gpt-3.5-turbo',
+      messages: [
+        {
+          role: 'system',
+          content: `You are an expert educational content creator. Create structured, engaging lessons. Respond with valid JSON only.`
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      max_tokens: 6000,
+      temperature: 0.7,
+      response_format: { type: "json_object" }
+    });
+
+    const generatedContent = JSON.parse(response.choices[0].message.content);
+    const formattedLesson = formatLessonForAPI(generatedContent, req.body);
+
+    console.log('✅ Lesson generated successfully');
+
+    res.json({
+      success: true,
+      lesson: formattedLesson,
+      usage: response.usage,
+      model: options.model || 'gpt-3.5-turbo'
+    });
+
+  } catch (error) {
+    console.error('❌ AI lesson generation failed:', error);
+
+    let errorMessage = 'AI lesson generation failed';
+    if (error.message?.includes('API key')) {
+      errorMessage = 'OpenAI API key issue';
+    } else if (error.message?.includes('rate limit')) {
+      errorMessage = 'OpenAI rate limit exceeded';
+    }
+
+    res.status(500).json({
+      success: false,
+      error: errorMessage,
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Helper functions
+function createLessonPrompt(request) {
+  const { subject, level, topic, lessonName, description, options = {} } = request;
+
+  return `Create a comprehensive lesson for:
+Subject: ${subject}
+Level: ${level}
+Topic: ${topic}
+Name: ${lessonName}
+Description: ${description}
+
+Generate JSON with this structure:
+{
+  "subject": "${subject}",
+  "level": ${level},
+  "topic": "${topic}",
+  "lessonName": "${lessonName}",
+  "description": "${description}",
+  "steps": [
+    {
+      "type": "explanation",
+      "data": {
+        "content": "Detailed explanation about ${topic}..."
+      }
+    }
+  ]
+}`;
+}
+
+function formatLessonForAPI(generatedContent, originalRequest) {
+  return {
+    subject: generatedContent.subject || originalRequest.subject,
+    level: generatedContent.level || originalRequest.level,
+    type: 'free',
+    topic: generatedContent.topic || originalRequest.topic,
+    topicDescription: generatedContent.topicDescription || originalRequest.description,
+    lessonName: generatedContent.lessonName || originalRequest.lessonName,
+    description: generatedContent.description || originalRequest.description,
+    steps: generatedContent.steps || [],
+    explanations: [],
+    relatedSubjects: [],
+    translations: {},
+    createHomework: originalRequest.options?.createHomework || false,
+    isDraft: false,
+    isActive: true
+  };
+}
 module.exports = app;
+
