@@ -1528,208 +1528,6 @@ const authTestHandler = async (req, res) => {
     });
   }
 };
-
-app.post('/api/lessons/generate-ai', async (req, res) => {
-  try {
-    const headers = await getAuthHeader(); // Your existing auth
-
-    console.log('🤖 AI Lesson generation request received:', req.body);
-
-    const {
-      subject,
-      level,
-      topic,
-      lessonName,
-      description,
-      options = {}
-    } = req.body;
-
-    // Validation
-    if (!subject || !level || !topic || !lessonName) {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing required fields: subject, level, topic, lessonName'
-      });
-    }
-
-    // Import OpenAI
-    const { OpenAI } = require('openai');
-
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY // Use your backend env var
-    });
-
-    // Create educational prompt
-    const prompt = createLessonPrompt({
-      subject, level, topic, lessonName, description, options
-    });
-
-    console.log('📤 Sending request to OpenAI...');
-
-    // Call OpenAI
-    const response = await openai.chat.completions.create({
-      model: options.model || 'gpt-3.5-turbo',
-      messages: [
-        {
-          role: 'system',
-          content: `You are an expert educational content creator. Create structured, engaging lessons that follow proper educational methodology. You must respond with valid JSON only.`
-        },
-        {
-          role: 'user',
-          content: prompt
-        }
-      ],
-      max_tokens: 6000,
-      temperature: 0.7,
-      response_format: { type: "json_object" }
-    });
-
-    const generatedContent = JSON.parse(response.choices[0].message.content);
-
-    console.log('✅ OpenAI response received, formatting for API...');
-
-    // Format for your existing addLesson API
-    const formattedLesson = formatLessonForAPI(generatedContent, req.body);
-
-    res.json({
-      success: true,
-      lesson: formattedLesson,
-      usage: response.usage,
-      model: options.model || 'gpt-3.5-turbo'
-    });
-
-  } catch (error) {
-    console.error('❌ AI lesson generation failed:', error);
-
-    let errorMessage = 'AI lesson generation failed';
-
-    if (error.message?.includes('API key')) {
-      errorMessage = 'OpenAI API key not configured properly';
-    } else if (error.message?.includes('rate limit')) {
-      errorMessage = 'OpenAI rate limit exceeded. Please try again later.';
-    } else if (error.message?.includes('insufficient')) {
-      errorMessage = 'Insufficient OpenAI credits';
-    }
-
-    res.status(500).json({
-      success: false,
-      error: errorMessage,
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-});
-
-// Helper functions for AI generation
-function createLessonPrompt(request) {
-  const { subject, level, topic, lessonName, description, options = {} } = request;
-
-  const levelNames = {
-    1: 'Beginner', 2: 'Elementary', 3: 'Intermediate',
-    4: 'Upper Intermediate', 5: 'Advanced'
-  };
-
-  return `Create a comprehensive educational lesson with the following specifications:
-
-LESSON DETAILS:
-- Subject: ${subject}
-- Level: ${levelNames[level]} (Level ${level})
-- Topic: ${topic}
-- Lesson Name: ${lessonName}
-- Description: ${description}
-
-CONTENT REQUIREMENTS:
-${options.includeExercises ? '✓ Include practice exercises' : '✗ No exercises'}
-${options.includeQuizzes ? '✓ Include quiz questions' : '✗ No quizzes'}
-${options.includeVocabulary ? '✓ Include vocabulary' : '✗ No vocabulary'}
-${options.createHomework ? '✓ Mark for homework' : '✗ No homework'}
-
-Generate a JSON object with this structure:
-{
-  "subject": "${subject}",
-  "level": ${level},
-  "type": "free",
-  "topic": "${topic}",
-  "topicDescription": "Brief description of ${topic}",
-  "lessonName": "${lessonName}",
-  "description": "${description}",
-  "steps": [
-    {
-      "type": "explanation",
-      "data": {
-        "content": "Rich explanation of ${topic} with 3-4 paragraphs..."
-      }
-    },
-    {
-      "type": "example",
-      "data": {
-        "content": "Practical example demonstrating ${topic}..."
-      }
-    }${options.includeExercises ? `,
-    {
-      "type": "exercise",
-      "data": [
-        {
-          "question": "Practice question about ${topic}",
-          "answer": "Detailed answer with explanation",
-          "correctAnswer": "Same as answer",
-          "type": "short-answer",
-          "points": 1,
-          "includeInHomework": ${options.createHomework || false}
-        }
-      ]
-    }` : ''}${options.includeQuizzes ? `,
-    {
-      "type": "quiz",
-      "data": [
-        {
-          "question": "Quiz question about ${topic}",
-          "type": "multiple-choice",
-          "options": ["Correct answer", "Wrong option 1", "Wrong option 2", "Wrong option 3"],
-          "correctAnswer": 0,
-          "explanation": "Why this answer is correct..."
-        }
-      ]
-    }` : ''}${options.includeVocabulary ? `,
-    {
-      "type": "vocabulary",
-      "data": [
-        {
-          "term": "Key term from ${topic}",
-          "definition": "Clear definition",
-          "example": "Example usage"
-        }
-      ]
-    }` : ''}
-  ]
-}`;
-}
-
-function formatLessonForAPI(generatedContent, originalRequest) {
-  return {
-    subject: generatedContent.subject || originalRequest.subject,
-    level: generatedContent.level || originalRequest.level,
-    type: 'free',
-    topic: generatedContent.topic || originalRequest.topic,
-    topicDescription: generatedContent.topicDescription || originalRequest.description,
-    lessonName: generatedContent.lessonName || originalRequest.lessonName,
-    description: generatedContent.description || originalRequest.description,
-    steps: generatedContent.steps || [],
-    explanations: (generatedContent.steps || [])
-      .filter(step => step.type === 'explanation')
-      .map(step => step.data?.content || ''),
-    relatedSubjects: [],
-    translations: {},
-    createHomework: originalRequest.options?.createHomework || false,
-    homeworkTitle: originalRequest.options?.createHomework ?
-      `Homework: ${originalRequest.lessonName}` : '',
-    homeworkInstructions: originalRequest.options?.createHomework ?
-      'Complete the assigned exercises.' : '',
-    isDraft: false,
-    isActive: true,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  };
-}
 // Auth test endpoints - both /auth-test and /api/auth-test
 app.get('/auth-test', authTestHandler);
 app.get('/api/auth-test', authTestHandler);
@@ -3412,7 +3210,6 @@ app.get('/api/users/:userId/tests/:testId', async (req, res) => {
 });
 
 
-
 // ========================================
 // 📊 ADD ROUTE DEBUGGING ENDPOINT
 // ========================================
@@ -3498,6 +3295,300 @@ app.get('/api/debug/routes', (req, res) => {
       )
     }
   });
+});
+
+// ========================================
+// 🤖 AI LESSON GENERATION ROUTES
+// ========================================
+
+// Test connection endpoint
+app.get('/api/ai/test-connection', async (req, res) => {
+  try {
+    console.log('🔍 Testing OpenAI connection...');
+
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(400).json({
+        success: false,
+        error: 'OpenAI API key not configured',
+        configured: false
+      });
+    }
+
+    // Try importing OpenAI
+    try {
+      const { OpenAI } = require('openai');
+
+      const openai = new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY
+      });
+
+      // Test with a simple request
+      const response = await openai.chat.completions.create({
+        model: 'gpt-3.5-turbo',
+        messages: [{ role: 'user', content: 'Say "Connection successful"' }],
+        max_tokens: 10
+      });
+
+      console.log('✅ OpenAI connection successful');
+
+      res.json({
+        success: true,
+        configured: true,
+        model: 'gpt-3.5-turbo',
+        response: response.choices[0].message.content,
+        usage: response.usage
+      });
+
+    } catch (openaiError) {
+      console.error('❌ OpenAI API error:', openaiError);
+
+      let errorMessage = 'OpenAI API error';
+      if (openaiError.message?.includes('API key')) {
+        errorMessage = 'Invalid OpenAI API key';
+      } else if (openaiError.message?.includes('rate limit')) {
+        errorMessage = 'Rate limit exceeded';
+      } else if (openaiError.message?.includes('insufficient')) {
+        errorMessage = 'Insufficient credits';
+      }
+
+      res.status(400).json({
+        success: false,
+        configured: true,
+        error: errorMessage
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ AI test connection failed:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Server error during AI test',
+      details: error.message
+    });
+  }
+});
+
+// Lesson generation endpoint
+app.post('/api/ai/generate-lesson', async (req, res) => {
+  try {
+    console.log('🤖 AI Lesson generation request received');
+
+    const {
+      subject,
+      level,
+      topic,
+      lessonName,
+      description,
+      options = {}
+    } = req.body;
+
+    // Validation
+    if (!subject || !level || !topic || !lessonName) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: subject, level, topic, lessonName'
+      });
+    }
+
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(400).json({
+        success: false,
+        error: 'OpenAI API key not configured'
+      });
+    }
+
+    const { OpenAI } = require('openai');
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY
+    });
+
+    // Create prompt
+    const prompt = createLessonPrompt(req.body);
+
+    console.log('📤 Sending lesson generation request to OpenAI...');
+
+    const response = await openai.chat.completions.create({
+      model: options.model || 'gpt-3.5-turbo',
+      messages: [
+        {
+          role: 'system',
+          content: `You are an expert educational content creator. Create structured, engaging lessons. Respond with valid JSON only.`
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      max_tokens: 6000,
+      temperature: 0.7,
+      response_format: { type: "json_object" }
+    });
+
+    const generatedContent = JSON.parse(response.choices[0].message.content);
+    const formattedLesson = formatLessonForAPI(generatedContent, req.body);
+
+    console.log('✅ Lesson generated successfully');
+
+    res.json({
+      success: true,
+      lesson: formattedLesson,
+      usage: response.usage,
+      model: options.model || 'gpt-3.5-turbo'
+    });
+
+  } catch (error) {
+    console.error('❌ AI lesson generation failed:', error);
+
+    let errorMessage = 'AI lesson generation failed';
+    if (error.message?.includes('API key')) {
+      errorMessage = 'OpenAI API key issue';
+    } else if (error.message?.includes('rate limit')) {
+      errorMessage = 'OpenAI rate limit exceeded';
+    }
+
+    res.status(500).json({
+      success: false,
+      error: errorMessage,
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Helper functions
+function createLessonPrompt(request) {
+  const { subject, level, topic, lessonName, description, options = {} } = request;
+
+  return `Create a comprehensive lesson for:
+Subject: ${subject}
+Level: ${level}
+Topic: ${topic}
+Name: ${lessonName}
+Description: ${description}
+
+Generate JSON with this structure:
+{
+  "subject": "${subject}",
+  "level": ${level},
+  "topic": "${topic}",
+  "lessonName": "${lessonName}",
+  "description": "${description}",
+  "steps": [
+    {
+      "type": "explanation",
+      "data": {
+        "content": "Detailed explanation about ${topic}..."
+      }
+    }
+  ]
+}`;
+}
+
+function formatLessonForAPI(generatedContent, originalRequest) {
+  return {
+    subject: generatedContent.subject || originalRequest.subject,
+    level: generatedContent.level || originalRequest.level,
+    type: 'free',
+    topic: generatedContent.topic || originalRequest.topic,
+    topicDescription: generatedContent.topicDescription || originalRequest.description,
+    lessonName: generatedContent.lessonName || originalRequest.lessonName,
+    description: generatedContent.description || originalRequest.description,
+    steps: generatedContent.steps || [],
+    explanations: [],
+    relatedSubjects: [],
+    translations: {},
+    createHomework: originalRequest.options?.createHomework || false,
+    isDraft: false,
+    isActive: true
+  };
+}
+app.post('/api/lessons/generate-ai', async (req, res) => {
+  try {
+    const headers = await getAuthHeader(); // Your existing auth
+
+    console.log('🤖 AI Lesson generation request received:', req.body);
+
+    const {
+      subject,
+      level,
+      topic,
+      lessonName,
+      description,
+      options = {}
+    } = req.body;
+
+    // Validation
+    if (!subject || !level || !topic || !lessonName) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: subject, level, topic, lessonName'
+      });
+    }
+
+    // Import OpenAI
+    const { OpenAI } = require('openai');
+
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY // Use your backend env var
+    });
+
+    // Create educational prompt
+    const prompt = createLessonPrompt({
+      subject, level, topic, lessonName, description, options
+    });
+
+    console.log('📤 Sending request to OpenAI...');
+
+    // Call OpenAI
+    const response = await openai.chat.completions.create({
+      model: options.model || 'gpt-3.5-turbo',
+      messages: [
+        {
+          role: 'system',
+          content: `You are an expert educational content creator. Create structured, engaging lessons that follow proper educational methodology. You must respond with valid JSON only.`
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      max_tokens: 6000,
+      temperature: 0.7,
+      response_format: { type: "json_object" }
+    });
+
+    const generatedContent = JSON.parse(response.choices[0].message.content);
+
+    console.log('✅ OpenAI response received, formatting for API...');
+
+    // Format for your existing addLesson API
+    const formattedLesson = formatLessonForAPI(generatedContent, req.body);
+
+    res.json({
+      success: true,
+      lesson: formattedLesson,
+      usage: response.usage,
+      model: options.model || 'gpt-3.5-turbo'
+    });
+
+  } catch (error) {
+    console.error('❌ AI lesson generation failed:', error);
+
+    let errorMessage = 'AI lesson generation failed';
+
+    if (error.message?.includes('API key')) {
+      errorMessage = 'OpenAI API key not configured properly';
+    } else if (error.message?.includes('rate limit')) {
+      errorMessage = 'OpenAI rate limit exceeded. Please try again later.';
+    } else if (error.message?.includes('insufficient')) {
+      errorMessage = 'Insufficient OpenAI credits';
+    }
+
+    res.status(500).json({
+      success: false,
+      error: errorMessage,
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
 });
 // ========================================
 // 🚫 API ERROR HANDLERS
@@ -3918,209 +4009,4 @@ process.on('uncaughtException', (error) => {
 
 // Start the server
 startServer();
-// ========================================
-// 🤖 AI LESSON GENERATION ROUTES
-// ========================================
-
-// Test connection endpoint
-app.get('/api/ai/test-connection', async (req, res) => {
-  try {
-    console.log('🔍 Testing OpenAI connection...');
-
-    if (!process.env.OPENAI_API_KEY) {
-      return res.status(400).json({
-        success: false,
-        error: 'OpenAI API key not configured',
-        configured: false
-      });
-    }
-
-    // Try importing OpenAI
-    try {
-      const { OpenAI } = require('openai');
-
-      const openai = new OpenAI({
-        apiKey: process.env.OPENAI_API_KEY
-      });
-
-      // Test with a simple request
-      const response = await openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
-        messages: [{ role: 'user', content: 'Say "Connection successful"' }],
-        max_tokens: 10
-      });
-
-      console.log('✅ OpenAI connection successful');
-
-      res.json({
-        success: true,
-        configured: true,
-        model: 'gpt-3.5-turbo',
-        response: response.choices[0].message.content,
-        usage: response.usage
-      });
-
-    } catch (openaiError) {
-      console.error('❌ OpenAI API error:', openaiError);
-
-      let errorMessage = 'OpenAI API error';
-      if (openaiError.message?.includes('API key')) {
-        errorMessage = 'Invalid OpenAI API key';
-      } else if (openaiError.message?.includes('rate limit')) {
-        errorMessage = 'Rate limit exceeded';
-      } else if (openaiError.message?.includes('insufficient')) {
-        errorMessage = 'Insufficient credits';
-      }
-
-      res.status(400).json({
-        success: false,
-        configured: true,
-        error: errorMessage
-      });
-    }
-
-  } catch (error) {
-    console.error('❌ AI test connection failed:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Server error during AI test',
-      details: error.message
-    });
-  }
-});
-
-// Lesson generation endpoint
-app.post('/api/ai/generate-lesson', async (req, res) => {
-  try {
-    console.log('🤖 AI Lesson generation request received');
-
-    const {
-      subject,
-      level,
-      topic,
-      lessonName,
-      description,
-      options = {}
-    } = req.body;
-
-    // Validation
-    if (!subject || !level || !topic || !lessonName) {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing required fields: subject, level, topic, lessonName'
-      });
-    }
-
-    if (!process.env.OPENAI_API_KEY) {
-      return res.status(400).json({
-        success: false,
-        error: 'OpenAI API key not configured'
-      });
-    }
-
-    const { OpenAI } = require('openai');
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY
-    });
-
-    // Create prompt
-    const prompt = createLessonPrompt(req.body);
-
-    console.log('📤 Sending lesson generation request to OpenAI...');
-
-    const response = await openai.chat.completions.create({
-      model: options.model || 'gpt-3.5-turbo',
-      messages: [
-        {
-          role: 'system',
-          content: `You are an expert educational content creator. Create structured, engaging lessons. Respond with valid JSON only.`
-        },
-        {
-          role: 'user',
-          content: prompt
-        }
-      ],
-      max_tokens: 6000,
-      temperature: 0.7,
-      response_format: { type: "json_object" }
-    });
-
-    const generatedContent = JSON.parse(response.choices[0].message.content);
-    const formattedLesson = formatLessonForAPI(generatedContent, req.body);
-
-    console.log('✅ Lesson generated successfully');
-
-    res.json({
-      success: true,
-      lesson: formattedLesson,
-      usage: response.usage,
-      model: options.model || 'gpt-3.5-turbo'
-    });
-
-  } catch (error) {
-    console.error('❌ AI lesson generation failed:', error);
-
-    let errorMessage = 'AI lesson generation failed';
-    if (error.message?.includes('API key')) {
-      errorMessage = 'OpenAI API key issue';
-    } else if (error.message?.includes('rate limit')) {
-      errorMessage = 'OpenAI rate limit exceeded';
-    }
-
-    res.status(500).json({
-      success: false,
-      error: errorMessage,
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-});
-
-// Helper functions
-function createLessonPrompt(request) {
-  const { subject, level, topic, lessonName, description, options = {} } = request;
-
-  return `Create a comprehensive lesson for:
-Subject: ${subject}
-Level: ${level}
-Topic: ${topic}
-Name: ${lessonName}
-Description: ${description}
-
-Generate JSON with this structure:
-{
-  "subject": "${subject}",
-  "level": ${level},
-  "topic": "${topic}",
-  "lessonName": "${lessonName}",
-  "description": "${description}",
-  "steps": [
-    {
-      "type": "explanation",
-      "data": {
-        "content": "Detailed explanation about ${topic}..."
-      }
-    }
-  ]
-}`;
-}
-
-function formatLessonForAPI(generatedContent, originalRequest) {
-  return {
-    subject: generatedContent.subject || originalRequest.subject,
-    level: generatedContent.level || originalRequest.level,
-    type: 'free',
-    topic: generatedContent.topic || originalRequest.topic,
-    topicDescription: generatedContent.topicDescription || originalRequest.description,
-    lessonName: generatedContent.lessonName || originalRequest.lessonName,
-    description: generatedContent.description || originalRequest.description,
-    steps: generatedContent.steps || [],
-    explanations: [],
-    relatedSubjects: [],
-    translations: {},
-    createHomework: originalRequest.options?.createHomework || false,
-    isDraft: false,
-    isActive: true
-  };
-}
 module.exports = app;
-
