@@ -723,11 +723,19 @@ router.put('/admin/:id', authenticateUser, async (req, res) => {
       updatedBy: req.user.uid || req.user.email || 'admin'
     };
 
-    // Process curriculum with image handling
+    // ✅ Process curriculum with advanced image handling
     if (updateData.curriculum && Array.isArray(updateData.curriculum)) {
       console.log('🔍 Processing curriculum update with image support...');
       
+      const contentIssues = [];
+      
       updateData.curriculum = updateData.curriculum.map((lesson, lessonIndex) => {
+        console.log(`🔍 Processing lesson ${lessonIndex + 1}:`, lesson.title);
+        
+        if (!lesson.title || !lesson.title.trim()) {
+          contentIssues.push(`Lesson ${lessonIndex + 1}: Title is required`);
+        }
+        
         const processedLesson = {
           title: lesson.title || `Lesson ${lessonIndex + 1}`,
           description: lesson.description || '',
@@ -737,6 +745,8 @@ router.put('/admin/:id', authenticateUser, async (req, res) => {
 
         if (lesson.steps && Array.isArray(lesson.steps)) {
           processedLesson.steps = lesson.steps.map((step, stepIndex) => {
+            console.log(`🔍 Processing step ${stepIndex + 1} of type:`, step.type);
+            
             const processedStep = {
               type: step.type || 'explanation',
               title: step.title || '',
@@ -746,14 +756,14 @@ router.put('/admin/:id', authenticateUser, async (req, res) => {
               images: processImages(step.images || [], lessonIndex, stepIndex)
             };
 
-            // Handle step content based on type
             switch (step.type) {
               case 'explanation':
               case 'example':
               case 'reading':
                 let explanationContent = extractContent(step);
-                if (!explanationContent.trim()) {
-                  explanationContent = `This ${step.type} step content has been updated.`;
+                if (!explanationContent) {
+                  explanationContent = `This is an updated ${step.type} step. Content will be added here.`;
+                  console.warn(`⚠️ Created default content for updated ${step.type} step`);
                 }
                 
                 processedStep.content = explanationContent;
@@ -764,20 +774,22 @@ router.put('/admin/:id', authenticateUser, async (req, res) => {
                 break;
 
               case 'image':
-                processedStep.content = step.content || step.description || '';
+                const imageDescription = step.content || step.description || '';
+                processedStep.content = imageDescription;
                 processedStep.data = {
                   images: processedStep.images,
-                  description: step.content || step.description || '',
-                  imageConfig: step.imageConfig || {
-                    layout: 'single',
-                    size: 'medium',
-                    alignment: 'center'
-                  }
+                  description: imageDescription
                 };
+                if (processedStep.images.length === 0) {
+                  contentIssues.push(`Lesson ${lessonIndex + 1}, Step ${stepIndex + 1}: Image step requires at least one image`);
+                }
                 break;
 
               case 'practice':
                 const practiceInstructions = extractContent(step) || step.instructions || '';
+                if (!practiceInstructions.trim()) {
+                  contentIssues.push(`Lesson ${lessonIndex + 1}, Step ${stepIndex + 1}: Practice instructions are required`);
+                }
                 processedStep.content = practiceInstructions;
                 processedStep.data = {
                   instructions: practiceInstructions,
@@ -792,7 +804,6 @@ router.put('/admin/:id', authenticateUser, async (req, res) => {
                 processedStep.content = quizData.length > 0 ? quizData[0].question : '';
                 processedStep.data = quizData;
                 processedStep.quizzes = quizData;
-                
                 if (quizData.length > 0) {
                   processedStep.question = quizData[0].question;
                   processedStep.options = quizData[0].options || [];
@@ -807,7 +818,20 @@ router.put('/admin/:id', authenticateUser, async (req, res) => {
                   content: defaultContent,
                   images: processedStep.images
                 };
+                console.log(`⚠️ Unknown step type: ${step.type}, preserved content`);
             }
+            
+            console.log(`✅ Processed step ${stepIndex + 1}:`, {
+              type: processedStep.type,
+              hasContent: !!processedStep.content,
+              contentLength: processedStep.content?.length || 0,
+              imageCount: processedStep.images.length,
+              hasDataContent: !!(processedStep.data && (
+                processedStep.data.content || 
+                processedStep.data.instructions || 
+                processedStep.data.length > 0
+              ))
+            });
 
             return processedStep;
           });
@@ -818,11 +842,23 @@ router.put('/admin/:id', authenticateUser, async (req, res) => {
         return processedLesson;
       });
 
-      // Log update stats
+      // ✅ Enhanced validation with image checks
+      const finalValidation = validateCourseContent(updateData.curriculum);
+      
+      if (finalValidation.length > 0) {
+        console.error('❌ Final content validation failed:', finalValidation);
+        return res.status(400).json({
+          success: false,
+          error: 'Course content validation failed',
+          details: finalValidation
+        });
+      }
+      
       const updateStats = generateCurriculumStats(updateData.curriculum);
       console.log('📊 Updated curriculum stats:', updateStats);
     }
-
+    
+    // ✅ Use findByIdAndUpdate to replace the document
     const course = await UpdatedCourse.findByIdAndUpdate(
       req.params.id,
       updateData,
