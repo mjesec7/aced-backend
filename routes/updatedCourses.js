@@ -3,6 +3,47 @@ const express = require('express');
 const router = express.Router();
 const UpdatedCourse = require('../models/updatedCourse');
 const authenticateUser = require('../middlewares/authMiddleware');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const { v4: uuidv4 } = require('uuid');
+
+// ========================================
+// 🖼️ ENHANCED IMAGE UPLOAD MIDDLEWARE
+// ========================================
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadType = req.body.uploadType || 'course-images';
+    const uploadDir = path.join('uploads', uploadType);
+    fs.mkdirSync(uploadDir, { recursive: true });
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const timestamp = Date.now();
+    const uniqueName = uuidv4();
+    const fileExtension = path.extname(file.originalname);
+    cb(null, `${timestamp}_${uniqueName}${fileExtension}`);
+  }
+});
+
+const imageFilter = (req, file, cb) => {
+  const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+  if (allowedTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error('Invalid file type. Only images are allowed.'), false);
+  }
+};
+
+const upload = multer({
+  storage: storage,
+  fileFilter: imageFilter,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB
+    files: 20 // Max 20 files
+  }
+});
 
 // ========================================
 // 📚 PUBLIC ROUTES (for main frontend)
@@ -147,10 +188,11 @@ router.get('/categories', async (req, res) => {
   }
 });
 
-// ✅ Get single course by ID with proper lesson structure
+// ✅ Get single course by ID with proper lesson structure and optimized images
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    const { imageSize = 'medium' } = req.query;
     
     const course = await UpdatedCourse.findOne({
       $or: [
@@ -171,14 +213,17 @@ router.get('/:id', async (req, res) => {
     // Increment views
     await course.incrementViews();
 
+    // Optimize images based on request
+    const optimizedCourse = optimizeImagesForResponse(course.toObject(), imageSize);
+
     // ✅ Structure the response properly for frontend consumption
     const courseData = {
-      ...course.toObject(),
-      id: course._id.toString(),
-      _id: course._id.toString(),
+      ...optimizedCourse,
+      id: optimizedCourse._id.toString(),
+      _id: optimizedCourse._id.toString(),
       isBookmarked: false,
       // ✅ Convert curriculum to lessons format for frontend compatibility
-      lessons: course.curriculum.map((lesson, index) => ({
+      lessons: optimizedCourse.curriculum.map((lesson, index) => ({
         id: lesson._id?.toString() || `lesson_${index}`,
         _id: lesson._id?.toString() || `lesson_${index}`,
         title: lesson.title,
@@ -437,9 +482,10 @@ router.get('/admin/all', authenticateUser, async (req, res) => {
   }
 });
 
+// POST /api/updated-courses/admin - Create new course with enhanced image support
 router.post('/admin', authenticateUser, async (req, res) => {
   try {
-    console.log('📤 Admin: Creating new updated course...');
+    console.log('📤 Admin: Creating new updated course with enhanced image support...');
     console.log('📦 Received course data:', {
       title: req.body.title,
       category: req.body.category,
@@ -471,16 +517,15 @@ router.post('/admin', authenticateUser, async (req, res) => {
       });
     }
 
-    // ✅ CRITICAL FIX: Enhanced curriculum processing with EXPLICIT content handling
+    // ✅ ENHANCED: Process curriculum with advanced image handling
     if (courseData.curriculum && Array.isArray(courseData.curriculum)) {
-      console.log('🔍 Processing curriculum with', courseData.curriculum.length, 'lessons');
+      console.log('🔍 Processing curriculum with enhanced image support...');
       
       const contentIssues = [];
       
       courseData.curriculum = courseData.curriculum.map((lesson, lessonIndex) => {
         console.log(`🔍 Processing lesson ${lessonIndex + 1}:`, lesson.title);
         
-        // Validate lesson title
         if (!lesson.title || !lesson.title.trim()) {
           contentIssues.push(`Lesson ${lessonIndex + 1}: Title is required`);
         }
@@ -492,77 +537,61 @@ router.post('/admin', authenticateUser, async (req, res) => {
           order: lesson.order || lessonIndex
         };
 
-        // ✅ CRITICAL: Process steps with EXPLICIT content structure for explanations
+        // ✅ ENHANCED: Process steps with advanced image handling
         if (lesson.steps && Array.isArray(lesson.steps)) {
           processedLesson.steps = lesson.steps.map((step, stepIndex) => {
-            console.log(`🔍 Processing step ${stepIndex + 1} of type:`, step.type, 'content preview:', 
-              (step.content || '').substring(0, 50));
+            console.log(`🔍 Processing step ${stepIndex + 1} of type:`, step.type);
             
-            // ✅ CRITICAL: Initialize step with proper structure
             const processedStep = {
               type: step.type || 'explanation',
               title: step.title || '',
               description: step.description || '',
-              images: (step.images || []).filter(img => img && img.url),
-              // ✅ CRITICAL: ALWAYS initialize content and data fields
               content: '',
-              data: {}
+              data: {},
+              // ✅ ENHANCED: Advanced image processing
+              images: processImages(step.images || [], lessonIndex, stepIndex)
             };
 
-            // ✅ CRITICAL: Handle each step type with EXPLICIT content extraction
+            // ✅ ENHANCED: Handle each step type with image integration
             switch (step.type) {
               case 'explanation':
               case 'example':
               case 'reading':
-                // ✅ CRITICAL: Extract content from ALL possible sources
-                let explanationContent = '';
+                let explanationContent = extractContent(step);
                 
-                // Priority 1: Direct content field
-                if (step.content && typeof step.content === 'string' && step.content.trim()) {
-                  explanationContent = step.content.trim();
-                  console.log(`✅ Found content in step.content: ${explanationContent.length} chars`);
-                }
-                // Priority 2: Data content field
-                else if (step.data?.content && typeof step.data.content === 'string' && step.data.content.trim()) {
-                  explanationContent = step.data.content.trim();
-                  console.log(`✅ Found content in step.data.content: ${explanationContent.length} chars`);
-                }
-                // Priority 3: Description as fallback
-                else if (step.description && step.description.trim()) {
-                  explanationContent = step.description.trim();
-                  console.log(`⚠️ Using description as content: ${explanationContent.length} chars`);
-                }
-                
-                // ✅ CRITICAL: Ensure content exists - create default if missing
                 if (!explanationContent) {
                   explanationContent = `This is a ${step.type} step that explains an important concept. Content should be added here to provide detailed information to students.`;
-                  console.warn(`⚠️ Created default content for ${step.type} step in lesson ${lessonIndex + 1}, step ${stepIndex + 1}`);
+                  console.warn(`⚠️ Created default content for ${step.type} step`);
                   contentIssues.push(`Lesson ${lessonIndex + 1}, Step ${stepIndex + 1}: ${step.type} step had no content - added default`);
                 }
                 
-                // ✅ CRITICAL: Store content in BOTH places for MongoDB compatibility
                 processedStep.content = explanationContent;
                 processedStep.data = {
                   content: explanationContent,
-                  images: processedStep.images || []
+                  images: processedStep.images
                 };
-                
-                console.log(`✅ ${step.type} processed successfully:`, {
-                  contentLength: explanationContent.length,
-                  hasRootContent: !!processedStep.content,
-                  hasDataContent: !!processedStep.data.content,
-                  preview: explanationContent.substring(0, 100) + '...'
-                });
                 break;
 
               case 'image':
+                // ✅ ENHANCED: Image-specific step handling
+                const imageDescription = step.content || step.description || '';
+                
+                processedStep.content = imageDescription;
                 processedStep.data = {
-                  images: processedStep.images || [],
-                  description: step.content || step.description || '',
-                  caption: step.caption || ''
+                  images: processedStep.images,
+                  description: imageDescription,
+                  caption: step.caption || '',
+                  imageConfig: {
+                    layout: step.imageLayout || 'single',
+                    size: step.imageSize || 'medium',
+                    alignment: step.imageAlignment || 'center'
+                  }
                 };
-                // Keep content field for consistency
-                processedStep.content = step.content || step.description || '';
+
+                // Validate that image step has images
+                if (processedStep.images.length === 0) {
+                  contentIssues.push(`Lesson ${lessonIndex + 1}, Step ${stepIndex + 1}: Image step requires at least one image`);
+                }
                 break;
 
               case 'practice':
@@ -575,44 +604,19 @@ router.post('/admin', authenticateUser, async (req, res) => {
                 processedStep.content = practiceInstructions;
                 processedStep.data = {
                   instructions: practiceInstructions,
-                  type: step.data?.type || step.practiceType || 'guided'
+                  type: step.data?.type || step.practiceType || 'guided',
+                  images: processedStep.images
                 };
-                
-                // Also set at root level for compatibility
                 processedStep.instructions = practiceInstructions;
                 break;
 
               case 'quiz':
-                // ✅ Handle quiz data structure
-                let quizData = [];
-                
-                if (step.data && Array.isArray(step.data) && step.data.length > 0) {
-                  // Already structured quiz data
-                  quizData = step.data;
-                } else if (step.question || step.content) {
-                  // Convert from simple question format
-                  const quizQuestion = step.question || step.content || '';
-                  if (!quizQuestion.trim()) {
-                    contentIssues.push(`Lesson ${lessonIndex + 1}, Step ${stepIndex + 1}: Quiz question is required`);
-                  }
-                  
-                  quizData = [{
-                    question: quizQuestion,
-                    type: step.quizType || 'multiple-choice',
-                    options: (step.options || []).map(opt => ({ text: opt.text || opt })),
-                    correctAnswer: parseInt(step.correctAnswer) || 0,
-                    explanation: step.explanation || ''
-                  }];
-                } else if (step.quizzes && Array.isArray(step.quizzes)) {
-                  // Use existing quizzes array
-                  quizData = step.quizzes;
-                }
+                let quizData = processQuizData(step);
                 
                 processedStep.content = quizData.length > 0 ? quizData[0].question : '';
                 processedStep.data = quizData;
                 processedStep.quizzes = quizData;
                 
-                // Keep root-level quiz fields for compatibility
                 if (quizData.length > 0) {
                   processedStep.question = quizData[0].question;
                   processedStep.options = quizData[0].options || [];
@@ -621,26 +625,26 @@ router.post('/admin', authenticateUser, async (req, res) => {
                 break;
 
               default:
-                // ✅ For unknown types, preserve content properly
                 const defaultContent = step.content || step.description || '';
                 processedStep.content = defaultContent;
                 processedStep.data = {
                   content: defaultContent,
-                  images: processedStep.images || []
+                  images: processedStep.images
                 };
-                console.log(`⚠️ Unknown step type: ${step.type}, preserved content:`, defaultContent.length);
+                console.log(`⚠️ Unknown step type: ${step.type}, preserved content`);
             }
 
+            // ✅ Log processed step with image info
             console.log(`✅ Processed step ${stepIndex + 1}:`, {
               type: processedStep.type,
               hasContent: !!processedStep.content,
               contentLength: processedStep.content?.length || 0,
+              imageCount: processedStep.images.length,
               hasDataContent: !!(processedStep.data && (
                 processedStep.data.content || 
                 processedStep.data.instructions || 
                 processedStep.data.length > 0
-              )),
-              dataKeys: Object.keys(processedStep.data || {})
+              ))
             });
 
             return processedStep;
@@ -652,26 +656,9 @@ router.post('/admin', authenticateUser, async (req, res) => {
         return processedLesson;
       });
 
-      // ✅ CRITICAL: Final content validation
-      const finalValidation = [];
-      courseData.curriculum.forEach((lesson, lIndex) => {
-        lesson.steps?.forEach((step, sIndex) => {
-          if (['explanation', 'example', 'reading'].includes(step.type)) {
-            if (!step.content || !step.content.trim()) {
-              finalValidation.push(`Lesson ${lIndex + 1}, Step ${sIndex + 1}: Missing content field`);
-            }
-            if (!step.data?.content || !step.data.content.trim()) {
-              finalValidation.push(`Lesson ${lIndex + 1}, Step ${sIndex + 1}: Missing data.content field`);
-            }
-            // ✅ Ensure content matches data.content
-            if (step.content !== step.data?.content) {
-              console.warn(`⚠️ Content mismatch in lesson ${lIndex + 1}, step ${sIndex + 1} - synchronizing`);
-              step.data.content = step.content; // Sync to content field
-            }
-          }
-        });
-      });
-
+      // ✅ Enhanced validation with image checks
+      const finalValidation = validateCourseContent(courseData.curriculum);
+      
       if (finalValidation.length > 0) {
         console.error('❌ Final content validation failed:', finalValidation);
         return res.status(400).json({
@@ -681,39 +668,12 @@ router.post('/admin', authenticateUser, async (req, res) => {
         });
       }
 
-      // ✅ Log final curriculum structure
-      const curriculumStats = {
-        totalLessons: courseData.curriculum.length,
-        totalSteps: courseData.curriculum.reduce((sum, lesson) => sum + (lesson.steps?.length || 0), 0),
-        explanationSteps: courseData.curriculum.reduce((sum, lesson) => 
-          sum + (lesson.steps?.filter(step => step.type === 'explanation').length || 0), 0
-        ),
-        stepsWithContent: courseData.curriculum.reduce((sum, lesson) => 
-          sum + (lesson.steps?.filter(step => 
-            step.content && step.content.trim()
-          ).length || 0), 0
-        ),
-        stepsWithDataContent: courseData.curriculum.reduce((sum, lesson) => 
-          sum + (lesson.steps?.filter(step => 
-            step.data?.content && step.data.content.trim()
-          ).length || 0), 0
-        )
-      };
-      
+      // ✅ Log final curriculum stats with image info
+      const curriculumStats = generateCurriculumStats(courseData.curriculum);
       console.log('📊 Final curriculum stats:', curriculumStats);
       
-      // ✅ Ensure explanation steps have content
-      if (curriculumStats.explanationSteps > 0 && curriculumStats.stepsWithContent === 0) {
-        console.error('❌ CRITICAL: Explanation steps exist but none have content!');
-        return res.status(400).json({
-          success: false,
-          error: 'Explanation steps are missing content',
-          stats: curriculumStats
-        });
-      }
-      
     } else {
-      console.log('⚠️ No curriculum provided or curriculum is not an array');
+      console.log('⚠️ No curriculum provided');
       courseData.curriculum = [];
     }
 
@@ -721,20 +681,12 @@ router.post('/admin', authenticateUser, async (req, res) => {
     const course = new UpdatedCourse(courseData);
     await course.save();
 
-    console.log('✅ Admin: Updated course created:', course.title);
-    console.log('📊 Course saved with curriculum stats:', {
-      lessonsCount: course.curriculum?.length || 0,
-      totalSteps: course.curriculum?.reduce((sum, lesson) => sum + (lesson.steps?.length || 0), 0) || 0,
-      explanationStepsWithContent: course.curriculum?.reduce((sum, lesson) => 
-        sum + (lesson.steps?.filter(step => 
-          step.type === 'explanation' && step.content && step.content.trim()
-        ).length || 0), 0) || 0
-    });
+    console.log('✅ Admin: Updated course created with image support:', course.title);
 
     res.status(201).json({
       success: true,
       course: course,
-      message: 'Course created successfully'
+      message: 'Course created successfully with image support'
     });
 
   } catch (error) {
@@ -764,24 +716,18 @@ router.post('/admin', authenticateUser, async (req, res) => {
 });
 router.put('/admin/:id', authenticateUser, async (req, res) => {
   try {
-    console.log('📝 Admin: Updating updated course:', req.params.id);
-    console.log('📦 Update data received:', {
-      title: req.body.title,
-      curriculumCount: req.body.curriculum?.length || 0
-    });
+    console.log('📝 Admin: Updating course with enhanced image support:', req.params.id);
     
     const updateData = {
       ...req.body,
       updatedBy: req.user.uid || req.user.email || 'admin'
     };
 
-    // ✅ ENHANCED: Process curriculum with proper content handling on update
+    // Process curriculum with image handling
     if (updateData.curriculum && Array.isArray(updateData.curriculum)) {
-      console.log('🔍 Processing curriculum update with', updateData.curriculum.length, 'lessons');
+      console.log('🔍 Processing curriculum update with image support...');
       
       updateData.curriculum = updateData.curriculum.map((lesson, lessonIndex) => {
-        console.log(`🔍 Updating lesson ${lessonIndex + 1}:`, lesson.title);
-        
         const processedLesson = {
           title: lesson.title || `Lesson ${lessonIndex + 1}`,
           description: lesson.description || '',
@@ -789,76 +735,60 @@ router.put('/admin/:id', authenticateUser, async (req, res) => {
           order: lesson.order || lessonIndex
         };
 
-        // ✅ Process steps for updates with explicit content handling
         if (lesson.steps && Array.isArray(lesson.steps)) {
           processedLesson.steps = lesson.steps.map((step, stepIndex) => {
-            console.log(`🔍 Updating step ${stepIndex + 1} of type:`, step.type);
-            
             const processedStep = {
               type: step.type || 'explanation',
               title: step.title || '',
               description: step.description || '',
-              images: (step.images || []).filter(img => img && img.url),
               content: '',
-              data: {}
+              data: {},
+              images: processImages(step.images || [], lessonIndex, stepIndex)
             };
 
-            // ✅ CRITICAL: Handle content for each step type on update
+            // Handle step content based on type
             switch (step.type) {
               case 'explanation':
               case 'example':
               case 'reading':
-                let explanationContent = step.content || step.data?.content || step.description || '';
-                
-                // Ensure content exists
+                let explanationContent = extractContent(step);
                 if (!explanationContent.trim()) {
-                  explanationContent = `This ${step.type} step content needs to be updated.`;
+                  explanationContent = `This ${step.type} step content has been updated.`;
                 }
                 
                 processedStep.content = explanationContent;
                 processedStep.data = {
                   content: explanationContent,
-                  images: processedStep.images || []
+                  images: processedStep.images
                 };
-                
-                console.log(`✅ Updated ${step.type} step with content length:`, explanationContent.length);
                 break;
 
               case 'image':
                 processedStep.content = step.content || step.description || '';
                 processedStep.data = {
-                  images: processedStep.images || [],
-                  description: step.content || step.description || ''
+                  images: processedStep.images,
+                  description: step.content || step.description || '',
+                  imageConfig: step.imageConfig || {
+                    layout: 'single',
+                    size: 'medium',
+                    alignment: 'center'
+                  }
                 };
                 break;
 
               case 'practice':
-                const practiceInstructions = step.content || step.data?.instructions || step.instructions || '';
-                
+                const practiceInstructions = extractContent(step) || step.instructions || '';
                 processedStep.content = practiceInstructions;
                 processedStep.data = {
                   instructions: practiceInstructions,
-                  type: step.data?.type || step.practiceType || 'guided'
+                  type: step.data?.type || step.practiceType || 'guided',
+                  images: processedStep.images
                 };
-                
                 processedStep.instructions = practiceInstructions;
                 break;
 
               case 'quiz':
-                let quizData = [];
-                
-                if (step.data && Array.isArray(step.data)) {
-                  quizData = step.data;
-                } else if (step.question || step.content) {
-                  quizData = [{
-                    question: step.question || step.content || '',
-                    type: step.quizType || 'multiple-choice',
-                    options: (step.options || []).map(opt => ({ text: opt.text || opt })),
-                    correctAnswer: parseInt(step.correctAnswer) || 0,
-                    explanation: step.explanation || ''
-                  }];
-                }
-                
+                let quizData = processQuizData(step);
                 processedStep.content = quizData.length > 0 ? quizData[0].question : '';
                 processedStep.data = quizData;
                 processedStep.quizzes = quizData;
@@ -871,11 +801,11 @@ router.put('/admin/:id', authenticateUser, async (req, res) => {
                 break;
 
               default:
-                const defaultContent = step.content || step.description || '';
+                const defaultContent = extractContent(step);
                 processedStep.content = defaultContent;
                 processedStep.data = {
                   content: defaultContent,
-                  images: processedStep.images || []
+                  images: processedStep.images
                 };
             }
 
@@ -888,14 +818,9 @@ router.put('/admin/:id', authenticateUser, async (req, res) => {
         return processedLesson;
       });
 
-      console.log('📊 Updated curriculum stats:', {
-        totalLessons: updateData.curriculum.length,
-        totalSteps: updateData.curriculum.reduce((sum, lesson) => sum + (lesson.steps?.length || 0), 0),
-        explanationStepsWithContent: updateData.curriculum.reduce((sum, lesson) => 
-          sum + (lesson.steps?.filter(step => 
-            step.type === 'explanation' && step.content && step.content.trim()
-          ).length || 0), 0)
-      });
+      // Log update stats
+      const updateStats = generateCurriculumStats(updateData.curriculum);
+      console.log('📊 Updated curriculum stats:', updateStats);
     }
 
     const course = await UpdatedCourse.findByIdAndUpdate(
@@ -911,16 +836,16 @@ router.put('/admin/:id', authenticateUser, async (req, res) => {
       });
     }
 
-    console.log('✅ Admin: Updated course updated:', course.title);
+    console.log('✅ Admin: Course updated with image support:', course.title);
 
     res.json({
       success: true,
       course: course,
-      message: 'Course updated successfully'
+      message: 'Course updated successfully with image support'
     });
 
   } catch (error) {
-    console.error('❌ Admin: Error updating updated course:', error);
+    console.error('❌ Admin: Error updating course:', error);
     
     if (error.name === 'ValidationError') {
       return res.status(400).json({
@@ -1606,5 +1531,378 @@ router.post('/admin/validate-content', authenticateUser, async (req, res) => {
     });
   }
 });
+
+// ========================================
+// 🖼️ IMAGE-SPECIFIC ENDPOINTS
+// ========================================
+
+// Upload images for course steps
+router.post('/admin/upload-images', authenticateUser, upload.array('images', 20), async (req, res) => {
+  try {
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'No images uploaded'
+      });
+    }
+
+    const { courseId, lessonIndex, stepIndex, uploadType = 'step-images' } = req.body;
+    
+    const baseUrl = process.env.NODE_ENV === 'production'
+      ? 'https://api.aced.live'
+      : `${req.protocol}://${req.get('host')}`;
+
+    const uploadedImages = req.files.map((file, index) => ({
+      id: `img_${Date.now()}_${index}`,
+      url: `${baseUrl}/uploads/${uploadType}/${file.filename}`,
+      filename: file.filename,
+      originalName: file.originalname,
+      mimetype: file.mimetype,
+      size: file.size,
+      caption: '',
+      alt: file.originalname,
+      order: index,
+      uploadedAt: new Date(),
+      uploadedBy: req.user.uid || req.user.email
+    }));
+
+    console.log(`✅ Uploaded ${req.files.length} images for course step`);
+
+    res.json({
+      success: true,
+      images: uploadedImages,
+      message: `${req.files.length} images uploaded successfully`
+    });
+
+  } catch (error) {
+    console.error('❌ Image upload error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Image upload failed',
+      details: error.message
+    });
+  }
+});
+
+// Convert base64 images to files
+router.post('/admin/convert-base64', authenticateUser, async (req, res) => {
+  try {
+    const { images, uploadType = 'converted-images' } = req.body;
+    
+    if (!Array.isArray(images) || images.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'No base64 images provided'
+      });
+    }
+
+    const convertedImages = [];
+    const uploadDir = path.join('uploads', uploadType);
+    fs.mkdirSync(uploadDir, { recursive: true });
+
+    const baseUrl = process.env.NODE_ENV === 'production'
+      ? 'https://api.aced.live'
+      : `${req.protocol}://${req.get('host')}`;
+
+    for (let i = 0; i < images.length; i++) {
+      const imageData = images[i];
+      
+      if (!imageData.base64) {
+        console.warn(`⚠️ Skipping image ${i}: No base64 data`);
+        continue;
+      }
+
+      try {
+        // Parse base64
+        const matches = imageData.base64.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+        if (!matches) {
+          console.warn(`⚠️ Skipping image ${i}: Invalid base64 format`);
+          continue;
+        }
+
+        const mimeType = matches[1];
+        const base64Content = matches[2];
+        
+        // Generate filename
+        const extension = mimeType.split('/')[1];
+        const filename = `${Date.now()}_${uuidv4()}.${extension}`;
+        const filePath = path.join(uploadDir, filename);
+
+        // Save file
+        fs.writeFileSync(filePath, base64Content, 'base64');
+
+        convertedImages.push({
+          id: imageData.id || `converted_${i}`,
+          url: `${baseUrl}/uploads/${uploadType}/${filename}`,
+          filename: filename,
+          mimetype: mimeType,
+          caption: imageData.caption || '',
+          alt: imageData.alt || `Converted image ${i + 1}`,
+          order: imageData.order || i,
+          originalBase64: false // Remove base64 from response
+        });
+
+      } catch (conversionError) {
+        console.error(`❌ Failed to convert image ${i}:`, conversionError);
+      }
+    }
+
+    console.log(`✅ Converted ${convertedImages.length} base64 images to files`);
+
+    res.json({
+      success: true,
+      images: convertedImages,
+      message: `${convertedImages.length} images converted successfully`
+    });
+
+  } catch (error) {
+    console.error('❌ Base64 conversion error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Base64 conversion failed',
+      details: error.message
+    });
+  }
+});
+
+// Delete uploaded image
+router.delete('/admin/images/:filename', authenticateUser, async (req, res) => {
+  try {
+    const { filename } = req.params;
+    const { uploadType = 'step-images' } = req.query;
+    
+    const filePath = path.join('uploads', uploadType, filename);
+    
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+      console.log(`✅ Deleted image: ${filename}`);
+      
+      res.json({
+        success: true,
+        message: 'Image deleted successfully'
+      });
+    } else {
+      res.status(404).json({
+        success: false,
+        error: 'Image not found'
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ Image deletion error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Image deletion failed',
+      details: error.message
+    });
+  }
+});
+
+// ========================================
+// 🖼️ IMAGE PROCESSING HELPER FUNCTIONS
+// ========================================
+
+/**
+ * Process and validate images array
+ */
+function processImages(images, lessonIndex, stepIndex) {
+  if (!Array.isArray(images)) return [];
+  
+  return images
+    .filter(img => img && (img.url || img.base64))
+    .map((img, imgIndex) => {
+      // Handle both URL and base64 images
+      const processedImage = {
+        id: img.id || `img_${lessonIndex}_${stepIndex}_${imgIndex}`,
+        url: img.url || '',
+        caption: img.caption || '',
+        filename: img.filename || `image_${imgIndex}`,
+        size: img.size || 0,
+        alt: img.alt || img.caption || `Image ${imgIndex + 1}`,
+        order: img.order || imgIndex
+      };
+
+      // Handle base64 images (convert to URL if needed)
+      if (img.base64 && !img.url) {
+        processedImage.base64 = img.base64;
+        processedImage.needsConversion = true;
+      }
+
+      // Image display options
+      if (img.displayOptions) {
+        processedImage.displayOptions = {
+          width: img.displayOptions.width || 'auto',
+          height: img.displayOptions.height || 'auto',
+          alignment: img.displayOptions.alignment || 'center',
+          zoom: img.displayOptions.zoom || false
+        };
+      }
+
+      return processedImage;
+    })
+    .sort((a, b) => (a.order || 0) - (b.order || 0));
+}
+
+/**
+ * Extract content from step object
+ */
+function extractContent(step) {
+  // Priority order: content -> data.content -> description
+  if (step.content && typeof step.content === 'string' && step.content.trim()) {
+    return step.content.trim();
+  }
+  
+  if (step.data?.content && typeof step.data.content === 'string' && step.data.content.trim()) {
+    return step.data.content.trim();
+  }
+  
+  if (step.description && step.description.trim()) {
+    return step.description.trim();
+  }
+  
+  return '';
+}
+
+/**
+ * Process quiz data with image support
+ */
+function processQuizData(step) {
+  let quizData = [];
+  
+  if (step.data && Array.isArray(step.data) && step.data.length > 0) {
+    quizData = step.data;
+  } else if (step.question || step.content) {
+    const quizQuestion = step.question || step.content || '';
+    
+    quizData = [{
+      question: quizQuestion,
+      type: step.quizType || 'multiple-choice',
+      options: (step.options || []).map(opt => ({ text: opt.text || opt })),
+      correctAnswer: parseInt(step.correctAnswer) || 0,
+      explanation: step.explanation || '',
+      images: processImages(step.questionImages || [], 0, 0)
+    }];
+  } else if (step.quizzes && Array.isArray(step.quizzes)) {
+    quizData = step.quizzes.map(quiz => ({
+      ...quiz,
+      images: processImages(quiz.images || [], 0, 0)
+    }));
+  }
+  
+  return quizData;
+}
+
+/**
+ * Validate course content including images
+ */
+function validateCourseContent(curriculum) {
+  const issues = [];
+  
+  curriculum.forEach((lesson, lIndex) => {
+    lesson.steps?.forEach((step, sIndex) => {
+      const stepRef = `Lesson ${lIndex + 1}, Step ${sIndex + 1}`;
+      
+      // Content validation
+      if (['explanation', 'example', 'reading'].includes(step.type)) {
+        if (!step.content || !step.content.trim()) {
+          issues.push(`${stepRef}: Missing content field`);
+        }
+        if (!step.data?.content || !step.data.content.trim()) {
+          issues.push(`${stepRef}: Missing data.content field`);
+        }
+        if (step.content !== step.data?.content) {
+          step.data.content = step.content; // Auto-fix
+        }
+      }
+      
+      // Image validation
+      if (step.type === 'image') {
+        if (!step.images || step.images.length === 0) {
+          issues.push(`${stepRef}: Image step requires at least one image`);
+        } else {
+          step.images.forEach((img, imgIndex) => {
+            if (!img.url && !img.base64) {
+              issues.push(`${stepRef}, Image ${imgIndex + 1}: Missing URL or base64 data`);
+            }
+          });
+        }
+      }
+      
+      // Quiz validation
+      if (step.type === 'quiz') {
+        if (!step.data || step.data.length === 0) {
+          issues.push(`${stepRef}: Quiz step requires questions`);
+        }
+      }
+    });
+  });
+  
+  return issues;
+}
+
+/**
+ * Generate curriculum statistics including image info
+ */
+function generateCurriculumStats(curriculum) {
+  return {
+    totalLessons: curriculum.length,
+    totalSteps: curriculum.reduce((sum, lesson) => sum + (lesson.steps?.length || 0), 0),
+    totalImages: curriculum.reduce((sum, lesson) => 
+      sum + (lesson.steps?.reduce((stepSum, step) => 
+        stepSum + (step.images?.length || 0), 0) || 0), 0),
+    explanationSteps: curriculum.reduce((sum, lesson) => 
+      sum + (lesson.steps?.filter(step => step.type === 'explanation').length || 0), 0),
+    imageSteps: curriculum.reduce((sum, lesson) => 
+      sum + (lesson.steps?.filter(step => step.type === 'image').length || 0), 0),
+    stepsWithContent: curriculum.reduce((sum, lesson) => 
+      sum + (lesson.steps?.filter(step => 
+        step.content && step.content.trim()
+      ).length || 0), 0),
+    stepsWithImages: curriculum.reduce((sum, lesson) => 
+      sum + (lesson.steps?.filter(step => 
+        step.images && step.images.length > 0
+      ).length || 0), 0)
+  };
+}
+
+/**
+ * Optimize images in course response
+ */
+function optimizeImagesForResponse(course, imageSize) {
+  const sizeMap = {
+    small: { width: 400, height: 300 },
+    medium: { width: 800, height: 600 },
+    large: { width: 1200, height: 900 },
+    original: null
+  };
+
+  const targetSize = sizeMap[imageSize] || sizeMap.medium;
+
+  if (course.curriculum) {
+    course.curriculum.forEach(lesson => {
+      if (lesson.steps) {
+        lesson.steps.forEach(step => {
+          if (step.images && step.images.length > 0) {
+            step.images.forEach(image => {
+              // Add size parameters to URL if needed
+              if (targetSize && image.url && !image.url.includes('?')) {
+                image.optimizedUrl = `${image.url}?w=${targetSize.width}&h=${targetSize.height}&fit=cover`;
+              }
+              
+              // Add responsive image URLs
+              image.responsive = {
+                small: `${image.url}?w=400&h=300&fit=cover`,
+                medium: `${image.url}?w=800&h=600&fit=cover`,
+                large: `${image.url}?w=1200&h=900&fit=cover`
+              };
+            });
+          }
+        });
+      }
+    });
+  }
+
+  return course;
+}
 
 module.exports = router;

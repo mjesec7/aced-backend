@@ -2060,40 +2060,193 @@ app.get('/api/routes', (req, res) => {
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const uploadDir = 'uploads/';
+    const uploadType = req.body.type || 'general';
+    const uploadDir = path.join('uploads', uploadType);
+
+    // Create directory if it doesn't exist
     fs.mkdirSync(uploadDir, { recursive: true });
     cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
     const uniqueName = uuidv4();
     const fileExtension = path.extname(file.originalname);
-    cb(null, uniqueName + fileExtension);
+    const timestamp = Date.now();
+    cb(null, `${timestamp}_${uniqueName}${fileExtension}`);
   }
 });
 
-const fileUpload = multer({ storage: storage });
+// File filter for images
+const imageFilter = (req, file, cb) => {
+  const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
 
-// ========================================
-// 📚 NEW FILE UPLOAD ROUTE
-// ========================================
+  if (allowedTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error('Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.'), false);
+  }
+};
 
-app.post('/api/upload', fileUpload.single('file'), (req, res) => {
+// Enhanced multer configuration
+const upload = multer({
+  storage: storage,
+  fileFilter: imageFilter,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+    files: 10 // Max 10 files at once
+  }
+});
+
+// ✅ ENHANCED UPLOAD ENDPOINT
+app.post('/api/upload', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ success: false, message: 'No file uploaded' });
+      return res.status(400).json({
+        success: false,
+        message: 'No file uploaded'
+      });
     }
-    const fileUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+    const { type = 'general' } = req.body;
+
+    // Generate public URL
+    const baseUrl = process.env.NODE_ENV === 'production'
+       ? 'https://api.aced.live'
+       : `${req.protocol}://${req.get('host')}`;
+
+    const fileUrl = `${baseUrl}/uploads/${type}/${req.file.filename}`;
+    // Optional: Convert to base64 if requested
+    let base64Data = null;
+    if (req.query.includeBase64 === 'true') {
+      const fileBuffer = fs.readFileSync(req.file.path);
+      base64Data = `data:${req.file.mimetype};base64,${fileBuffer.toString('base64')}`;
+    }
+    console.log('✅ File uploaded successfully:', req.file.filename);
     res.json({
       success: true,
       message: 'File uploaded successfully',
-      url: fileUrl,
-      filename: req.file.filename,
-      mimetype: req.file.mimetype,
-      size: req.file.size
+      data: {
+        url: fileUrl,
+        filename: req.file.filename,
+        originalName: req.file.originalname,
+        mimetype: req.file.mimetype,
+        size: req.file.size,
+        type: type,
+        base64: base64Data
+      }
     });
   } catch (error) {
     console.error('❌ File upload error:', error);
-    res.status(500).json({ success: false, message: 'File upload failed' });
+
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({
+        success: false,
+        message: 'File too large. Maximum size is 10MB.'
+      });
+    }
+    res.status(500).json({
+      success: false,
+      message: 'File upload failed',
+      error: error.message
+    });
+  }
+});
+
+// ✅ MULTIPLE FILES UPLOAD
+app.post('/api/upload/multiple', upload.array('files', 10), async (req, res) => {
+  try {
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No files uploaded'
+      });
+    }
+    const { type = 'general' } = req.body;
+    const baseUrl = process.env.NODE_ENV === 'production'
+       ? 'https://api.aced.live'
+       : `${req.protocol}://${req.get('host')}`;
+    const uploadedFiles = req.files.map(file => ({
+      url: `${baseUrl}/uploads/${type}/${file.filename}`,
+      filename: file.filename,
+      originalName: file.originalname,
+      mimetype: file.mimetype,
+      size: file.size,
+      type: type
+    }));
+    console.log(`✅ ${req.files.length} files uploaded successfully`);
+    res.json({
+      success: true,
+      message: `${req.files.length} files uploaded successfully`,
+      data: uploadedFiles
+    });
+  } catch (error) {
+    console.error('❌ Multiple file upload error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Multiple file upload failed',
+      error: error.message
+    });
+  }
+});
+
+// ✅ BASE64 TO FILE CONVERSION ENDPOINT
+app.post('/api/upload/base64', async (req, res) => {
+  try {
+    const { base64Data, filename, type = 'general' } = req.body;
+    if (!base64Data) {
+      return res.status(400).json({
+        success: false,
+        message: 'Base64 data is required'
+      });
+    }
+    // Parse base64 data
+    const matches = base64Data.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+    if (!matches) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid base64 format'
+      });
+    }
+    const mimeType = matches[1];
+    const base64Content = matches[2];
+    // Validate image type
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+    if (!allowedTypes.includes(mimeType)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid image type'
+      });
+    }
+    // Generate filename
+    const extension = mimeType.split('/')[1];
+    const finalFilename = filename || `${Date.now()}_${uuidv4()}.${extension}`;
+    // Create directory
+    const uploadDir = path.join('uploads', type);
+    fs.mkdirSync(uploadDir, { recursive: true });
+    // Save file
+    const filePath = path.join(uploadDir, finalFilename);
+    fs.writeFileSync(filePath, base64Content, 'base64');
+    const baseUrl = process.env.NODE_ENV === 'production'
+       ? 'https://api.aced.live'
+       : 'http://localhost:5000';
+
+    const fileUrl = `${baseUrl}/uploads/${type}/${finalFilename}`;
+    console.log('✅ Base64 file saved:', finalFilename);
+    res.json({
+      success: true,
+      message: 'Base64 file saved successfully',
+      data: {
+        url: fileUrl,
+        filename: finalFilename,
+        mimetype: mimeType,
+        type: type
+      }
+    });
+  } catch (error) {
+    console.error('❌ Base64 upload error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Base64 upload failed',
+      error: error.message
+    });
   }
 });
 
@@ -3837,6 +3990,9 @@ const startServer = async () => {
       console.log('   - GET /api/payments/status/:transactionId/:userId? (Emergency Payment)');
       console.log('   - POST /api/payments/promo-code (Emergency Payment)');
       console.log('   - POST /api/payments/generate-form (Emergency Payment)');
+      console.log('   - POST /api/upload (File Upload)');
+      console.log('   - POST /api/upload/multiple (Multiple File Upload)');
+      console.log('   - POST /api/upload/base64 (Base64 Upload)');
 
       // PayMe Endpoint Summary
       if (handlePaymeWebhook && initiatePaymePayment) {
