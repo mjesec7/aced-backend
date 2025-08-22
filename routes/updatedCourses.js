@@ -1,4 +1,4 @@
-// routes/updatedCourses.js - COMPLETE FIXED VERSION WITH PROPER CONTENT HANDLING
+// routes/updatedCourses.js - FINAL FIXED VERSION WITH ATOMIC UPDATES AND PROPER CONTENT HANDLING
 const express = require('express');
 const router = express.Router();
 const UpdatedCourse = require('../models/updatedCourse');
