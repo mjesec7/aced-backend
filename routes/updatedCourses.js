@@ -714,28 +714,30 @@ router.post('/admin', authenticateUser, async (req, res) => {
     });
   }
 });
+
+// ✅ FINAL FIX: Refactored and improved PUT /admin/:id route handler
 router.put('/admin/:id', authenticateUser, async (req, res) => {
   try {
     console.log('📝 Admin: Updating course with enhanced image support:', req.params.id);
     
-    const updateData = {
-      ...req.body,
-      updatedBy: req.user.uid || req.user.email || 'admin'
-    };
+    // Step 1: Find the existing course document
+    const course = await UpdatedCourse.findById(req.params.id);
+    if (!course) {
+      return res.status(404).json({
+        success: false,
+        error: 'Course not found'
+      });
+    }
 
-    // ✅ Process curriculum with advanced image handling
-    if (updateData.curriculum && Array.isArray(updateData.curriculum)) {
+    // Step 2: Apply top-level updates directly to the document
+    Object.assign(course, req.body);
+    course.updatedBy = req.user.uid || req.user.email || 'admin';
+    
+    // Step 3: Process and validate the curriculum separately
+    if (req.body.curriculum && Array.isArray(req.body.curriculum)) {
       console.log('🔍 Processing curriculum update with image support...');
       
-      const contentIssues = [];
-      
-      updateData.curriculum = updateData.curriculum.map((lesson, lessonIndex) => {
-        console.log(`🔍 Processing lesson ${lessonIndex + 1}:`, lesson.title);
-        
-        if (!lesson.title || !lesson.title.trim()) {
-          contentIssues.push(`Lesson ${lessonIndex + 1}: Title is required`);
-        }
-        
+      const processedCurriculum = req.body.curriculum.map((lesson, lessonIndex) => {
         const processedLesson = {
           title: lesson.title || `Lesson ${lessonIndex + 1}`,
           description: lesson.description || '',
@@ -745,8 +747,6 @@ router.put('/admin/:id', authenticateUser, async (req, res) => {
 
         if (lesson.steps && Array.isArray(lesson.steps)) {
           processedLesson.steps = lesson.steps.map((step, stepIndex) => {
-            console.log(`🔍 Processing step ${stepIndex + 1} of type:`, step.type);
-            
             const processedStep = {
               type: step.type || 'explanation',
               title: step.title || '',
@@ -760,47 +760,23 @@ router.put('/admin/:id', authenticateUser, async (req, res) => {
               case 'explanation':
               case 'example':
               case 'reading':
-                let explanationContent = extractContent(step);
-                if (!explanationContent) {
-                  explanationContent = `This is an updated ${step.type} step. Content will be added here.`;
-                  console.warn(`⚠️ Created default content for updated ${step.type} step`);
-                }
-                
+                const explanationContent = extractContent(step);
                 processedStep.content = explanationContent;
-                processedStep.data = {
-                  content: explanationContent,
-                  images: processedStep.images
-                };
+                processedStep.data = { content: explanationContent, images: processedStep.images };
                 break;
-
               case 'image':
                 const imageDescription = step.content || step.description || '';
                 processedStep.content = imageDescription;
-                processedStep.data = {
-                  images: processedStep.images,
-                  description: imageDescription
-                };
-                if (processedStep.images.length === 0) {
-                  contentIssues.push(`Lesson ${lessonIndex + 1}, Step ${stepIndex + 1}: Image step requires at least one image`);
-                }
+                processedStep.data = { images: processedStep.images, description: imageDescription };
                 break;
-
               case 'practice':
                 const practiceInstructions = extractContent(step) || step.instructions || '';
-                if (!practiceInstructions.trim()) {
-                  contentIssues.push(`Lesson ${lessonIndex + 1}, Step ${stepIndex + 1}: Practice instructions are required`);
-                }
                 processedStep.content = practiceInstructions;
-                processedStep.data = {
-                  instructions: practiceInstructions,
-                  type: step.data?.type || step.practiceType || 'guided',
-                  images: processedStep.images
-                };
+                processedStep.data = { instructions: practiceInstructions, type: step.data?.type || step.practiceType || 'guided', images: processedStep.images };
                 processedStep.instructions = practiceInstructions;
                 break;
-
               case 'quiz':
-                let quizData = processQuizData(step);
+                const quizData = processQuizData(step);
                 processedStep.content = quizData.length > 0 ? quizData[0].question : '';
                 processedStep.data = quizData;
                 processedStep.quizzes = quizData;
@@ -810,67 +786,38 @@ router.put('/admin/:id', authenticateUser, async (req, res) => {
                   processedStep.correctAnswer = quizData[0].correctAnswer || 0;
                 }
                 break;
-
               default:
                 const defaultContent = extractContent(step);
                 processedStep.content = defaultContent;
-                processedStep.data = {
-                  content: defaultContent,
-                  images: processedStep.images
-                };
-                console.log(`⚠️ Unknown step type: ${step.type}, preserved content`);
+                processedStep.data = { content: defaultContent, images: processedStep.images };
             }
-            
-            console.log(`✅ Processed step ${stepIndex + 1}:`, {
-              type: processedStep.type,
-              hasContent: !!processedStep.content,
-              contentLength: processedStep.content?.length || 0,
-              imageCount: processedStep.images.length,
-              hasDataContent: !!(processedStep.data && (
-                processedStep.data.content || 
-                processedStep.data.instructions || 
-                processedStep.data.length > 0
-              ))
-            });
-
             return processedStep;
           });
         } else {
           processedLesson.steps = [];
         }
-
         return processedLesson;
       });
 
-      // ✅ Enhanced validation with image checks
-      const finalValidation = validateCourseContent(updateData.curriculum);
-      
-      if (finalValidation.length > 0) {
-        console.error('❌ Final content validation failed:', finalValidation);
+      // Update the document's curriculum
+      course.curriculum = processedCurriculum;
+
+      const validationIssues = validateCourseContent(course.curriculum);
+      if (validationIssues.length > 0) {
+        console.error('❌ Final content validation failed:', validationIssues);
         return res.status(400).json({
           success: false,
           error: 'Course content validation failed',
-          details: finalValidation
+          details: validationIssues
         });
       }
       
-      const updateStats = generateCurriculumStats(updateData.curriculum);
+      const updateStats = generateCurriculumStats(course.curriculum);
       console.log('📊 Updated curriculum stats:', updateStats);
     }
     
-    // ✅ Use findByIdAndUpdate to replace the document
-    const course = await UpdatedCourse.findByIdAndUpdate(
-      req.params.id,
-      updateData,
-      { new: true, runValidators: true }
-    );
-
-    if (!course) {
-      return res.status(404).json({
-        success: false,
-        error: 'Course not found'
-      });
-    }
+    // Step 4: Save the entire, updated document
+    await course.save();
 
     console.log('✅ Admin: Course updated with image support:', course.title);
 
