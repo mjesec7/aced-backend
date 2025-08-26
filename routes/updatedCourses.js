@@ -52,7 +52,6 @@ const upload = multer({
 // GET /api/updated-courses - Get all updated courses (public, for main website)
 router.get('/', async (req, res) => {
   try {
-    console.log('📥 Fetching updated courses for main website...');
     
     const {
       category,
@@ -135,7 +134,6 @@ router.get('/', async (req, res) => {
 
     const total = await UpdatedCourse.countDocuments(filter);
 
-    console.log(`✅ Found ${courses.length} updated courses for frontend`);
 
     res.json({
       success: true,
@@ -379,7 +377,6 @@ router.delete('/:id/bookmark', (req, res) => {
 // GET /api/updated-courses/admin/all - Get all courses for admin (with full data)
 router.get('/admin/all', authenticateUser, async (req, res) => {
   try {
-    console.log('📥 Admin: Fetching all updated courses...');
     
     const {
       category,
@@ -451,7 +448,6 @@ router.get('/admin/all', authenticateUser, async (req, res) => {
 
     const total = await UpdatedCourse.countDocuments(filter);
 
-    console.log(`✅ Admin: Found ${courses.length} updated courses`);
 
     res.json({
       success: true,
@@ -485,13 +481,7 @@ router.get('/admin/all', authenticateUser, async (req, res) => {
 // POST /api/updated-courses/admin - Create new course with enhanced image support
 router.post('/admin', authenticateUser, async (req, res) => {
   try {
-    console.log('📤 Admin: Creating new updated course with enhanced image support...');
-    console.log('📦 Received course data:', {
-      title: req.body.title,
-      category: req.body.category,
-      curriculumCount: req.body.curriculum?.length || 0,
-      bodySize: JSON.stringify(req.body).length
-    });
+
     
     const courseData = {
       ...req.body,
@@ -519,12 +509,10 @@ router.post('/admin', authenticateUser, async (req, res) => {
 
     // ✅ ENHANCED: Process curriculum with advanced image handling
     if (courseData.curriculum && Array.isArray(courseData.curriculum)) {
-      console.log('🔍 Processing curriculum with enhanced image support...');
       
       const contentIssues = [];
       
       courseData.curriculum = courseData.curriculum.map((lesson, lessonIndex) => {
-        console.log(`🔍 Processing lesson ${lessonIndex + 1}:`, lesson.title);
         
         if (!lesson.title || !lesson.title.trim()) {
           contentIssues.push(`Lesson ${lessonIndex + 1}: Title is required`);
@@ -540,7 +528,6 @@ router.post('/admin', authenticateUser, async (req, res) => {
         // ✅ ENHANCED: Process steps with advanced image handling
         if (lesson.steps && Array.isArray(lesson.steps)) {
           processedLesson.steps = lesson.steps.map((step, stepIndex) => {
-            console.log(`🔍 Processing step ${stepIndex + 1} of type:`, step.type);
             
             const processedStep = {
               type: step.type || 'explanation',
@@ -631,21 +618,9 @@ router.post('/admin', authenticateUser, async (req, res) => {
                   content: defaultContent,
                   images: processedStep.images
                 };
-                console.log(`⚠️ Unknown step type: ${step.type}, preserved content`);
             }
 
-            // ✅ Log processed step with image info
-            console.log(`✅ Processed step ${stepIndex + 1}:`, {
-              type: processedStep.type,
-              hasContent: !!processedStep.content,
-              contentLength: processedStep.content?.length || 0,
-              imageCount: processedStep.images.length,
-              hasDataContent: !!(processedStep.data && (
-                processedStep.data.content || 
-                processedStep.data.instructions || 
-                processedStep.data.length > 0
-              ))
-            });
+         
 
             return processedStep;
           });
@@ -670,10 +645,8 @@ router.post('/admin', authenticateUser, async (req, res) => {
 
       // ✅ Log final curriculum stats with image info
       const curriculumStats = generateCurriculumStats(courseData.curriculum);
-      console.log('📊 Final curriculum stats:', curriculumStats);
       
     } else {
-      console.log('⚠️ No curriculum provided');
       courseData.curriculum = [];
     }
 
@@ -681,7 +654,6 @@ router.post('/admin', authenticateUser, async (req, res) => {
     const course = new UpdatedCourse(courseData);
     await course.save();
 
-    console.log('✅ Admin: Updated course created with image support:', course.title);
 
     res.status(201).json({
       success: true,
@@ -718,7 +690,6 @@ router.post('/admin', authenticateUser, async (req, res) => {
 // ✅ FINAL FIX: Refactored and improved PUT /admin/:id route handler
 router.put('/admin/:id', authenticateUser, async (req, res) => {
   try {
-    console.log('📝 Admin: Updating course with enhanced image support:', req.params.id);
     
     // Step 1: Find the existing course document
     const course = await UpdatedCourse.findById(req.params.id);
@@ -735,7 +706,6 @@ router.put('/admin/:id', authenticateUser, async (req, res) => {
     
     // Step 3: Process and validate the curriculum separately
     if (req.body.curriculum && Array.isArray(req.body.curriculum)) {
-      console.log('🔍 Processing curriculum update with image support...');
       
       const processedCurriculum = req.body.curriculum.map((lesson, lessonIndex) => {
         const processedLesson = {
@@ -813,20 +783,13 @@ router.put('/admin/:id', authenticateUser, async (req, res) => {
       }
       
       const updateStats = generateCurriculumStats(course.curriculum);
-      console.log('📊 Updated curriculum stats:', updateStats);
     }
     
     // Step 4: Save the entire, updated document
     await course.save();
 
-    console.log('✅ Admin: Course updated with image support:', course.title);
 
-    res.json({
-      success: true,
-      course: course,
-      message: 'Course updated successfully with image support'
-    });
-
+ 
   } catch (error) {
     console.error('❌ Admin: Error updating course:', error);
     
@@ -1026,7 +989,6 @@ router.post('/admin/:id/fix-content', authenticateUser, async (req, res) => {
 // DELETE /api/updated-courses/admin/:id - Delete course
 router.delete('/admin/:id', authenticateUser, async (req, res) => {
   try {
-    console.log('🗑️ Admin: Deleting updated course:', req.params.id);
     
     const course = await UpdatedCourse.findByIdAndDelete(req.params.id);
 
@@ -1037,7 +999,6 @@ router.delete('/admin/:id', authenticateUser, async (req, res) => {
       });
     }
 
-    console.log('✅ Admin: Updated course deleted:', course.title);
 
     res.json({
       success: true,
@@ -1237,7 +1198,6 @@ router.post('/admin/bulk-import', authenticateUser, async (req, res) => {
       });
     }
 
-    console.log(`📦 Admin: Bulk importing ${courses.length} courses`);
 
     const createdBy = req.user.uid || req.user.email || 'admin';
     const coursesWithMeta = courses.map(course => {
@@ -1289,7 +1249,6 @@ router.post('/admin/bulk-import', authenticateUser, async (req, res) => {
       ordered: false // Continue on errors
     });
 
-    console.log(`✅ Admin: Successfully imported ${result.length} courses`);
 
     res.json({
       success: true,
@@ -1549,7 +1508,6 @@ router.post('/admin/upload-images', authenticateUser, upload.array('images', 20)
       uploadedBy: req.user.uid || req.user.email
     }));
 
-    console.log(`✅ Uploaded ${req.files.length} images for course step`);
 
     res.json({
       success: true,
@@ -1630,7 +1588,6 @@ router.post('/admin/convert-base64', authenticateUser, async (req, res) => {
       }
     }
 
-    console.log(`✅ Converted ${convertedImages.length} base64 images to files`);
 
     res.json({
       success: true,
@@ -1658,7 +1615,6 @@ router.delete('/admin/images/:filename', authenticateUser, async (req, res) => {
     
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
-      console.log(`✅ Deleted image: ${filename}`);
       
       res.json({
         success: true,

@@ -154,15 +154,12 @@ app.use((req, res, next) => {
     const isBrowser = userAgent.includes('Mozilla') || userAgent.includes('Chrome');
     const isPayMeWebhook = req.headers.authorization?.startsWith('Basic ') &&
                           req.headers['content-type']?.includes('application/json');
-    console.log(`[${timestamp}] 💳 PayMe Request: ${req.method} ${req.url} | Source: ${isPayMeWebhook ? 'PayMe-Webhook' : isBrowser ? 'Browser' : 'Unknown'}`);
     if (req.body && Object.keys(req.body).length > 0) {
-      console.log('   Body:', req.body);
     }
   }
 
   // Log other requests
   if (!isPayMeRequest) {
-    console.log(`[${timestamp}] 🌐 Request: ${req.method} ${req.url} | IP: ${req.ip}`);
   }
 
   // Log POST/PUT request bodies (excluding sensitive data)
@@ -173,14 +170,12 @@ app.use((req, res, next) => {
     delete logData.privateKey;
     delete logData.token;
     delete logData.card;
-    console.log('   Body:', logData);
   }
 
   // Log response time
   const start = Date.now();
   res.on('finish', () => {
     const duration = Date.now() - start;
-    console.log(`[${new Date().toISOString()}] ➡️ Response: ${res.statusCode} in ${duration}ms`);
   });
 
   next();
@@ -266,7 +261,6 @@ app.options('*', (req, res) => {
 
 const connectDB = async () => {
   try {
-    console.log('⏳ Connecting to MongoDB...');
 
     // Check if MongoDB URI exists
     if (!process.env.MONGO_URI) {
@@ -298,15 +292,12 @@ const connectDB = async () => {
       autoIndex: process.env.NODE_ENV !== 'production',
     };
 
-    console.log('   Mongoose connection options:', connectionOptions);
     // Attempt connection
     await mongoose.connect(process.env.MONGO_URI, connectionOptions);
 
-    console.log('✅ MongoDB connection successful');
 
     // Connection event listeners with better error handling
     mongoose.connection.on('connected', () => {
-      console.log('🟢 MongoDB connected event');
     });
 
     mongoose.connection.on('error', (err) => {
@@ -317,11 +308,9 @@ const connectDB = async () => {
     });
 
     mongoose.connection.on('disconnected', () => {
-      console.log('🔴 MongoDB disconnected');
     });
 
     mongoose.connection.on('reconnected', () => {
-      console.log('🔵 MongoDB reconnected');
     });
 
     // Handle connection timeout
@@ -330,7 +319,6 @@ const connectDB = async () => {
     });
 
     mongoose.connection.on('close', () => {
-      console.log('🚪 MongoDB connection closed');
     });
 
     // Test the connection
@@ -382,7 +370,6 @@ const connectDB = async () => {
 
 // ✅ CRITICAL FIX: Add the main progress endpoint that's causing 404s
 app.post('/api/user-progress', async (req, res) => {
-  console.log('✅ CRITICAL ROUTE: POST /api/user-progress called');
   try {
     const {
       userId,
@@ -400,7 +387,6 @@ app.post('/api/user-progress', async (req, res) => {
       submittedHomework = false
     } = req.body;
 
-    console.log('   Received data:', { userId, lessonId, progressPercent });
 
     if (!userId || !lessonId) {
       return res.status(400).json({
@@ -457,7 +443,6 @@ app.post('/api/user-progress', async (req, res) => {
       updateData.topicId = finalTopicId;
     }
 
-    console.log('   Saving/updating progress with:', updateData);
 
     const updated = await UserProgress.findOneAndUpdate(
       { userId, lessonId },
@@ -465,7 +450,6 @@ app.post('/api/user-progress', async (req, res) => {
       { upsert: true, new: true, runValidators: true }
     );
 
-    console.log('   Update result:', updated ? 'Success' : 'Failed');
     res.status(200).json({
       success: true,
       data: updated,
@@ -510,7 +494,6 @@ app.post('/api/user-progress', async (req, res) => {
 
 // ✅ CRITICAL FIX: Add alternative progress endpoint
 app.post('/api/progress', async (req, res) => {
-  console.log('✅ CRITICAL ROUTE: POST /api/progress called');
   try {
     // Same logic as above, but handle the endpoint difference
     const progressData = req.body;
@@ -597,7 +580,6 @@ app.post('/api/progress', async (req, res) => {
       { upsert: true, new: true, runValidators: true }
     );
 
-    console.log('   Update result:', updated ? 'Success' : 'Failed');
     res.status(200).json({
       success: true,
       data: updated,
@@ -627,7 +609,6 @@ app.post('/api/progress', async (req, res) => {
 
 // ✅ ADD: Quick save endpoint for page unload
 app.post('/api/progress/quick-save', async (req, res) => {
-  console.log('✅ CRITICAL ROUTE: POST /api/progress/quick-save called');
   try {
     const { userId, lessonId, progressPercent, currentStep } = req.body;
 
@@ -648,7 +629,6 @@ app.post('/api/progress/quick-save', async (req, res) => {
       { upsert: true }
     );
 
-    console.log('   Quick save successful');
     res.status(200).json({ success: true, message: 'Quick save completed' });
 
   } catch (error) {
@@ -661,7 +641,6 @@ app.post('/api/progress/quick-save', async (req, res) => {
 // ✅ CRITICAL FIX: Add a general status route for all updates
 app.put('/api/users/:userId/status', async (req, res) => {
   try {
-    console.log('🌐 Server: Updating user status:', req.params.userId, req.body);
 
     const { userId } = req.params;
     const { subscriptionPlan, userStatus, plan, source } = req.body;
@@ -702,7 +681,6 @@ app.put('/api/users/:userId/status', async (req, res) => {
       });
     }
 
-    console.log('✅ Server: User status updated successfully:', finalStatus);
     res.json({
       success: true,
       user: user,
@@ -722,7 +700,6 @@ app.put('/api/users/:userId/status', async (req, res) => {
 // ✅ ADDED: GET user data route to support new auth flow in main.js
 app.get('/api/users/:userId', async (req, res) => {
   try {
-    console.log('📡 Server: Fetching user data for:', req.params.userId);
 
     const { userId } = req.params;
     const User = require('./models/user');
@@ -736,14 +713,12 @@ app.get('/api/users/:userId', async (req, res) => {
     }).lean();
 
     if (!user) {
-      console.log('❌ User not found:', userId);
       return res.status(404).json({
         success: false,
         error: 'User not found'
       });
     }
 
-    console.log('✅ User found with status:', user.subscriptionPlan);
     // Return user with all status fields
     const responseUser = {
       ...user,
@@ -803,7 +778,6 @@ if (handlePaymeWebhook && initiatePaymePayment) {
 
   // ✅ PayMe return URLs (for success/failure/cancel)
   app.get('/api/payments/payme/return/success', (req, res) => {
-    console.log('➡️ PayMe return success:', req.query);
     const transactionId = req.query.transaction || req.query.id;
     const orderId = req.query.Login;
 
@@ -819,7 +793,6 @@ if (handlePaymeWebhook && initiatePaymePayment) {
   });
 
   app.get('/api/payments/payme/return/failure', (req, res) => {
-    console.log('➡️ PayMe return failure:', req.query);
     const transactionId = req.query.transaction || req.query.id;
     const error = req.query.error || 'payment_failed';
 
@@ -835,7 +808,6 @@ if (handlePaymeWebhook && initiatePaymePayment) {
   });
 
   app.get('/api/payments/payme/return/cancel', (req, res) => {
-    console.log('➡️ PayMe return cancel:', req.query);
     const transactionId = req.query.transaction || req.query.id;
 
     // Redirect to frontend cancel page
@@ -877,7 +849,6 @@ if (handlePaymeWebhook && initiatePaymePayment) {
     });
   });
 
-  console.log('✅ PayMe integration routes loaded.');
 
 } else {
   console.warn('⚠️ PayMe controllers not found or failed to load. PayMe routes are inactive.');
@@ -1174,7 +1145,6 @@ app.post('/api/payments/promo-code', async (req, res) => {
     promocode.currentUses = (promocode.currentUses || 0) + 1;
     await promocode.save();
 
-    console.log(`✅ Promocode ${promoCode} applied to user ${userId} for plan ${plan}`);
     res.json({
       success: true,
       message: `Промокод применён! Активирован план ${plan.toUpperCase()}`
@@ -1194,7 +1164,6 @@ app.post('/api/payments/generate-form', async (req, res) => {
   try {
     const { userId, plan, method = 'post', lang = 'ru', style = 'colored', qrWidth = 250 } = req.body;
 
-    console.log('➡️ Generating PayMe form for user:', userId, 'plan:', plan);
 
     if (!userId || !plan) {
       return res.status(400).json({
@@ -1244,8 +1213,7 @@ app.post('/api/payments/generate-form', async (req, res) => {
       (process.env.PAYME_CHECKOUT_URL || 'https://checkout.paycom.uz') :
       'https://checkout.test.paycom.uz';
 
-    console.log('   Using merchantId:', merchantId);
-    console.log('   Using checkoutUrl:', checkoutUrl);
+
 
     if (method === 'post') {
       // ✅ CRITICAL FIX: Use account[Login] in POST form
@@ -1293,7 +1261,6 @@ app.post('/api/payments/generate-form', async (req, res) => {
           function submitPaymeForm() {
             const form = document.getElementById('payme-form');
             if (form) {
-              console.log('Submitting PayMe form...');
               form.submit();
             } else {
               console.error('❌ PayMe form not found in DOM');
@@ -1355,7 +1322,6 @@ app.post('/api/payments/generate-form', async (req, res) => {
         .map(([key, value]) => `${key}=${value}`)
         .join(';');
 
-      console.log('   Raw parameter string:', paramString);
 
       // Base64 encode the parameters
       const encodedParams = Buffer.from(paramString, 'utf8').toString('base64');
@@ -1363,7 +1329,6 @@ app.post('/api/payments/generate-form', async (req, res) => {
 
       // Verify encoding
       const decodedCheck = Buffer.from(encodedParams, 'base64').toString('utf8');
-      console.log('   Decoded parameter check:', decodedCheck);
 
       return res.json({
         success: true,
@@ -1595,8 +1560,6 @@ routesToMount.forEach(([path, file, description]) => {
   }
 });
 
-console.log('✅ Routes mounting complete.');
-console.log('   Mounted routes:', mountedRoutes.map(r => r.path).join(', '));
 
 if (failedRoutes.length > 0) {
   console.warn('⚠️ Some routes failed to mount:');
@@ -1609,7 +1572,6 @@ if (failedRoutes.length > 0) {
 
 // ✅ EMERGENCY FIX: Add user save route directly (FIXED VERSION)
 app.post('/api/users/save', async (req, res) => {
-  console.log('✅ EMERGENCY ROUTE: POST /api/users/save called');
 
   const { token, name, subscriptionPlan } = req.body;
 
@@ -1627,7 +1589,6 @@ app.post('/api/users/save', async (req, res) => {
 
     const decoded = await admin.auth().verifyIdToken(token);
 
-    console.log('   Firebase token decoded successfully:', decoded.uid);
 
     if (decoded.aud !== 'aced-9cf72') {
       return res.status(403).json({
@@ -1649,13 +1610,11 @@ app.post('/api/users/save', async (req, res) => {
         Login: email,
         subscriptionPlan: subscriptionPlan || 'free'
       });
-      console.log('   Creating new user:', user);
     } else {
       user.email = email;
       user.name = name;
       user.Login = email;
       if (subscriptionPlan) user.subscriptionPlan = subscriptionPlan;
-      console.log('   Updating existing user:', user);
     }
 
     await user.save();
@@ -1794,7 +1753,6 @@ app.get('/api/status', (req, res) => {
 });
 app.get('/api/admin/users', async (req, res) => {
   try {
-    console.log('➡️ Admin route: GET /api/admin/users called');
 
     const {
       page = 1,
@@ -1838,7 +1796,6 @@ app.get('/api/admin/users', async (req, res) => {
       User.countDocuments(filter)
     ]);
 
-    console.log(`✅ Found ${users.length} users with a total of ${total} matching the filter`);
     // Enhance users with computed fields
     const enhancedUsers = users.map(user => ({
       ...user,
@@ -1888,7 +1845,6 @@ app.get('/api/admin/users', async (req, res) => {
 // ✅ GET /api/users/all - Alternative endpoint
 app.get('/api/users/all', async (req, res) => {
   try {
-    console.log('➡️ Admin route: GET /api/users/all called');
 
     const User = require('./models/user');
     const users = await User.find({})
@@ -1897,7 +1853,6 @@ app.get('/api/users/all', async (req, res) => {
       .limit(100) // Reasonable limit
       .lean();
 
-    console.log(`✅ Fetched ${users.length} users`);
     res.json({
       success: true,
       data: users,
@@ -2120,7 +2075,6 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
       const fileBuffer = fs.readFileSync(req.file.path);
       base64Data = `data:${req.file.mimetype};base64,${fileBuffer.toString('base64')}`;
     }
-    console.log('✅ File uploaded successfully:', req.file.filename);
     res.json({
       success: true,
       message: 'File uploaded successfully',
@@ -2172,7 +2126,6 @@ app.post('/api/upload/multiple', upload.array('files', 10), async (req, res) => 
       size: file.size,
       type: type
     }));
-    console.log(`✅ ${req.files.length} files uploaded successfully`);
     res.json({
       success: true,
       message: `${req.files.length} files uploaded successfully`,
@@ -2230,7 +2183,6 @@ app.post('/api/upload/base64', async (req, res) => {
        : 'http://localhost:5000';
 
     const fileUrl = `${baseUrl}/uploads/${type}/${finalFilename}`;
-    console.log('✅ Base64 file saved:', finalFilename);
     res.json({
       success: true,
       message: 'Base64 file saved successfully',
@@ -2329,7 +2281,6 @@ app.use('/api/books', booksRouter);
 
 // ✅ GET /api/user-progress/user/:userId/lesson/:lessonId
 app.get('/api/user-progress/user/:userId/lesson/:lessonId', async (req, res) => {
-  console.log('✅ ROUTE: GET /api/user-progress/user/:userId/lesson/:lessonId called');
   try {
     const { userId, lessonId } = req.params;
 
@@ -2351,7 +2302,6 @@ app.get('/api/user-progress/user/:userId/lesson/:lessonId', async (req, res) => 
     }).populate('lessonId', 'title description order')
       .populate('topicId', 'title description order');
 
-    console.log(`   Progress for lesson ${lessonId} found:`, !!progress);
     res.json({
       success: true,
       data: progress || null,
@@ -2370,7 +2320,7 @@ app.get('/api/user-progress/user/:userId/lesson/:lessonId', async (req, res) => 
 
 // ✅ POST /api/user-progress/user/:userId/lesson/:lessonId
 app.post('/api/user-progress/user/:userId/lesson/:lessonId', async (req, res) => {
-  console.log('✅ ROUTE: POST /api/user-progress/user/:userId/lesson/:lessonId called');
+  ('✅ ROUTE: POST /api/user-progress/user/:userId/lesson/:lessonId called');
   try {
     const { userId, lessonId } = req.params;
     const progressData = req.body;
@@ -2430,7 +2380,6 @@ app.post('/api/user-progress/user/:userId/lesson/:lessonId', async (req, res) =>
       { upsert: true, new: true, runValidators: true }
     );
 
-    console.log('   Progress saved successfully');
     res.json({
       success: true,
       data: updated,
@@ -2438,7 +2387,6 @@ app.post('/api/user-progress/user/:userId/lesson/:lessonId', async (req, res) =>
     });
 
   } catch (error) {
-    console.error('❌ Error saving user-progress lesson:', error);
 
     if (error.name === 'CastError') {
       res.status(400).json({
@@ -2465,7 +2413,6 @@ app.post('/api/user-progress/user/:userId/lesson/:lessonId', async (req, res) =>
 
 // ✅ GET /api/user-progress (for general user progress queries)
 app.get('/api/user-progress', async (req, res) => {
-  console.log('✅ ROUTE: GET /api/user-progress called');
 
   try {
     const { userId, lessonId } = req.query;
@@ -2520,7 +2467,6 @@ app.get('/api/user-progress', async (req, res) => {
 
 // ✅ GET /api/homeworks/user/:userId
 app.get('/api/homeworks/user/:userId', async (req, res) => {
-  console.log('✅ ROUTE: GET /api/homeworks/user/:userId called');
 
   try {
     const { userId } = req.params;
@@ -2618,7 +2564,6 @@ app.get('/api/homeworks/user/:userId', async (req, res) => {
       return new Date(b.updatedAt) - new Date(a.updatedAt);
     });
 
-    console.log(`   Found a total of ${allHomeworks.length} homework items`);
     res.json({
       success: true,
       data: allHomeworks,
@@ -2637,7 +2582,6 @@ app.get('/api/homeworks/user/:userId', async (req, res) => {
 
 // ✅ GET /api/homeworks/user/:userId/lesson/:lessonId
 app.get('/api/homeworks/user/:userId/lesson/:lessonId', async (req, res) => {
-  console.log('✅ ROUTE: GET /api/homeworks/user/:userId/lesson/:lessonId called');
 
   try {
     const { userId, lessonId } = req.params;
@@ -2660,7 +2604,6 @@ app.get('/api/homeworks/user/:userId/lesson/:lessonId', async (req, res) => {
     }
 
     if (!lesson.homework || !Array.isArray(lesson.homework) || lesson.homework.length === 0) {
-      console.log('   No homework found in lesson');
       return res.json({
         success: false,
         error: 'В этом уроке нет домашнего задания'
@@ -2739,7 +2682,6 @@ const requireAuth = async (req, res, next) => {
 // ✅ GET /api/promocodes - Get all promocodes with pagination and filtering
 app.get('/api/promocodes', requireAuth, async (req, res) => {
   try {
-    console.log('✅ ROUTE: GET /api/promocodes called');
 
     const {
       page = 1,
@@ -2842,7 +2784,6 @@ app.get('/api/promocodes', requireAuth, async (req, res) => {
 // ✅ GET /api/promocodes/stats - Get promocode statistics
 app.get('/api/promocodes/stats', requireAuth, async (req, res) => {
   try {
-    console.log('✅ ROUTE: GET /api/promocodes/stats called');
 
     const now = new Date();
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -2914,7 +2855,6 @@ app.get('/api/promocodes/stats', requireAuth, async (req, res) => {
 // ✅ POST /api/promocodes - Create new promocode
 app.post('/api/promocodes', requireAuth, async (req, res) => {
   try {
-    console.log('✅ ROUTE: POST /api/promocodes called');
 
     const {
       code,
@@ -3010,11 +2950,9 @@ app.post('/api/promocodes', requireAuth, async (req, res) => {
 
     await promocode.save();
 
-    console.log(`✅ Promocode ${finalCode} created successfully`);
     res.status(201).json({
       success: true,
       data: promocode,
-      message: `Promocode ${finalCode} created successfully`
     });
 
   } catch (error) {
@@ -3038,7 +2976,6 @@ app.post('/api/promocodes', requireAuth, async (req, res) => {
 // ✅ PUT /api/promocodes/:id - Update promocode
 app.put('/api/promocodes/:id', requireAuth, async (req, res) => {
   try {
-    console.log('✅ ROUTE: PUT /api/promocodes/:id called');
 
     const promocode = await Promocode.findById(req.params.id);
     if (!promocode) {
@@ -3097,7 +3034,6 @@ app.put('/api/promocodes/:id', requireAuth, async (req, res) => {
 
     await promocode.save();
 
-    console.log(`✅ Promocode ${promocode.code} updated successfully`);
     res.json({
       success: true,
       data: promocode,
@@ -3117,7 +3053,6 @@ app.put('/api/promocodes/:id', requireAuth, async (req, res) => {
 // ✅ DELETE /api/promocodes/:id - Delete promocode
 app.delete('/api/promocodes/:id', requireAuth, async (req, res) => {
   try {
-    console.log('✅ ROUTE: DELETE /api/promocodes/:id called');
 
     const promocode = await Promocode.findById(req.params.id);
     if (!promocode) {
@@ -3138,7 +3073,6 @@ app.delete('/api/promocodes/:id', requireAuth, async (req, res) => {
 
     await promocode.deleteOne();
 
-    console.log(`✅ Promocode ${promocode.code} deleted successfully`);
     res.json({
       success: true,
       message: `Promocode ${promocode.code} deleted successfully`
@@ -3171,7 +3105,6 @@ function generateRandomCode(prefix = '', length = 8) {
 
 // ✅ GET /api/homeworks/user/:userId/homework/:homeworkId
 app.get('/api/homeworks/user/:userId/homework/:homeworkId', async (req, res) => {
-  console.log('✅ ROUTE: GET /api/homeworks/user/:userId/homework/:homeworkId called');
 
   try {
     const { userId, homeworkId } = req.params;
@@ -3245,7 +3178,6 @@ app.get('/api/homeworks/user/:userId/homework/:homeworkId', async (req, res) => 
 
 // ✅ GET /api/users/:userId/tests
 app.get('/api/users/:userId/tests', async (req, res) => {
-  console.log('✅ ROUTE: GET /api/users/:userId/tests called');
 
   try {
     const { userId } = req.params;
@@ -3301,7 +3233,6 @@ app.get('/api/users/:userId/tests', async (req, res) => {
 
 // ✅ GET /api/users/:userId/tests/:testId
 app.get('/api/users/:userId/tests/:testId', async (req, res) => {
-  console.log('✅ ROUTE: GET /api/users/:userId/tests/:testId called');
 
   try {
     const { testId } = req.params;
@@ -3458,7 +3389,6 @@ app.get('/api/debug/routes', (req, res) => {
 // Test connection endpoint
 app.get('/api/ai/test-connection', async (req, res) => {
   try {
-    console.log('🔍 Testing OpenAI connection...');
 
     if (!process.env.OPENAI_API_KEY) {
       return res.status(400).json({
@@ -3483,7 +3413,6 @@ app.get('/api/ai/test-connection', async (req, res) => {
         max_tokens: 10
       });
 
-      console.log('✅ OpenAI connection successful');
 
       res.json({
         success: true,
@@ -3525,7 +3454,6 @@ app.get('/api/ai/test-connection', async (req, res) => {
 // Lesson generation endpoint
 app.post('/api/ai/generate-lesson', async (req, res) => {
   try {
-    console.log('🤖 AI Lesson generation request received');
 
     const {
       subject,
@@ -3559,7 +3487,6 @@ app.post('/api/ai/generate-lesson', async (req, res) => {
     // Create prompt
     const prompt = createLessonPrompt(req.body);
 
-    console.log('📤 Sending lesson generation request to OpenAI...');
 
     const response = await openai.chat.completions.create({
       model: options.model || 'gpt-3.5-turbo',
@@ -3581,7 +3508,6 @@ app.post('/api/ai/generate-lesson', async (req, res) => {
     const generatedContent = JSON.parse(response.choices[0].message.content);
     const formattedLesson = formatLessonForAPI(generatedContent, req.body);
 
-    console.log('✅ Lesson generated successfully');
 
     res.json({
       success: true,
@@ -3659,7 +3585,6 @@ app.post('/api/lessons/generate-ai', async (req, res) => {
   try {
     const headers = await getAuthHeader(); // Your existing auth
 
-    console.log('🤖 AI Lesson generation request received:', req.body);
 
     const {
       subject,
@@ -3690,7 +3615,6 @@ app.post('/api/lessons/generate-ai', async (req, res) => {
       subject, level, topic, lessonName, description, options
     });
 
-    console.log('📤 Sending request to OpenAI...');
 
     // Call OpenAI
     const response = await openai.chat.completions.create({
@@ -3712,7 +3636,6 @@ app.post('/api/lessons/generate-ai', async (req, res) => {
 
     const generatedContent = JSON.parse(response.choices[0].message.content);
 
-    console.log('✅ OpenAI response received, formatting for API...');
 
     // Format for your existing addLesson API
     const formattedLesson = formatLessonForAPI(generatedContent, req.body);
@@ -3815,7 +3738,6 @@ if (fs.existsSync(distPath)) {
     etag: true,
     lastModified: true
   }));
-  console.log('✅ Serving static files from /dist directory');
 } else {
   console.warn('⚠️ No /dist directory found. Static file serving is inactive.');
 }
@@ -3960,16 +3882,11 @@ const startServer = async () => {
 
     // Start the server
     const server = app.listen(PORT, () => {
-      console.log(`\n🚀 Server is running on port ${PORT}`);
-      console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`);
-      console.log(`   Base URL:    http://localhost:${PORT}`);
-      console.log(`   Docs/Health: http://localhost:${PORT}/health`);
+
 
       // Route Summary
-      console.log('\n📦 Mounted Routes:');
       if (mountedRoutes.length > 0) {
         mountedRoutes.forEach(route => {
-          console.log(`   - ${route.path} (${route.description})`);
         });
       }
       if (failedRoutes.length > 0) {
@@ -3979,27 +3896,10 @@ const startServer = async () => {
         });
       }
 
-      console.log('\n🚨 Critical & Emergency Routes:');
-      console.log('   - POST /api/user-progress (Critical Progress Fix)');
-      console.log('   - POST /api/progress (Critical Progress Fix)');
-      console.log('   - POST /api/progress/quick-save (Quick Save Fix)');
-      console.log('   - PUT /api/users/:userId/status (Critical Status Fix)');
-      console.log('   - POST /api/users/save (Emergency User Save)');
-      console.log('   - GET /api/users/:userId (User Data Fetch)');
-      console.log('   - GET /api/payments/validate-user/:userId (Emergency Payment)');
-      console.log('   - POST /api/payments/initiate (Emergency Payment)');
-      console.log('   - GET /api/payments/status/:transactionId/:userId? (Emergency Payment)');
-      console.log('   - POST /api/payments/promo-code (Emergency Payment)');
-      console.log('   - POST /api/payments/generate-form (Emergency Payment)');
-      console.log('   - POST /api/upload (File Upload)');
-      console.log('   - POST /api/upload/multiple (Multiple File Upload)');
-      console.log('   - POST /api/upload/base64 (Base64 Upload)');
 
       // PayMe Endpoint Summary
       if (handlePaymeWebhook && initiatePaymePayment) {
-        console.log('\n💳 PayMe Webhook Routes:');
-        console.log('   - POST /api/payments/payme (Active)');
-        console.log('   - POST /api/payments/initiate-payme (Active)');
+
       } else {
         console.warn('\n⚠️ PayMe Webhook Routes are inactive due to missing controllers.');
       }
@@ -4180,7 +4080,6 @@ module.exports = app;
 function processImages(images, lessonIndex, stepIndex) {
   if (!Array.isArray(images)) return [];
   
-  console.log(`🖼️ Processing ${images.length} images for lesson ${lessonIndex}, step ${stepIndex}`);
   
   return images
     .filter(img => img && (img.url || img.base64))
@@ -4202,7 +4101,6 @@ function processImages(images, lessonIndex, stepIndex) {
         processedImage.needsConversion = true;
         // For now, use base64 as URL (backend can convert this later)
         processedImage.url = img.base64;
-        console.log(`📷 Base64 image detected: ${img.base64.substring(0, 50)}...`);
       }
 
       // Image display options
@@ -4352,7 +4250,6 @@ function generateCurriculumStats(curriculum) {
 let UpdatedCourse;
 try {
   UpdatedCourse = require('./models/updatedCourse');
-  console.log('✅ UpdatedCourse model loaded successfully');
 } catch (modelError) {
   console.error('❌ Failed to load UpdatedCourse model:', modelError.message);
 }
@@ -4360,7 +4257,6 @@ try {
 // ✅ GET /api/updated-courses/admin/all - Get all courses for admin
 app.get('/api/updated-courses/admin/all', async (req, res) => {
   try {
-    console.log('📥 Admin: Fetching all updated courses...');
     
     if (!UpdatedCourse) {
       return res.status(500).json({
@@ -4411,7 +4307,6 @@ app.get('/api/updated-courses/admin/all', async (req, res) => {
 
     const total = await UpdatedCourse.countDocuments(filter);
 
-    console.log(`✅ Admin: Found ${courses.length} updated courses`);
 
     res.json({
       success: true,
@@ -4437,7 +4332,6 @@ app.get('/api/updated-courses/admin/all', async (req, res) => {
 // ✅ PUT /api/updated-courses/admin/:id - Update course (THIS IS THE CRITICAL ONE)
 app.put('/api/updated-courses/admin/:id', async (req, res) => {
   try {
-    console.log('📝 Admin: Updating course with enhanced image support:', req.params.id);
     
     if (!UpdatedCourse) {
       return res.status(500).json({
@@ -4461,7 +4355,6 @@ app.put('/api/updated-courses/admin/:id', async (req, res) => {
     
     // Step 3: Process and validate the curriculum separately
     if (req.body.curriculum && Array.isArray(req.body.curriculum)) {
-      console.log('🔍 Processing curriculum update with image support...');
       
       const processedCurriculum = req.body.curriculum.map((lesson, lessonIndex) => {
         const processedLesson = {
@@ -4535,13 +4428,11 @@ app.put('/api/updated-courses/admin/:id', async (req, res) => {
       }
       
       const updateStats = generateCurriculumStats(course.curriculum);
-      console.log('📊 Updated curriculum stats:', updateStats);
     }
     
     // Step 4: Save the entire, updated document
     await course.save();
 
-    console.log('✅ Admin: Course updated with image support:', course.title);
 
     res.json({
       success: true,
@@ -4571,7 +4462,6 @@ app.put('/api/updated-courses/admin/:id', async (req, res) => {
 // ✅ POST /api/updated-courses/admin - Create new course
 app.post('/api/updated-courses/admin', async (req, res) => {
   try {
-    console.log('📤 Admin: Creating new updated course...');
     
     if (!UpdatedCourse) {
       return res.status(500).json({
@@ -4606,7 +4496,6 @@ app.post('/api/updated-courses/admin', async (req, res) => {
 
     // Process curriculum with image handling
     if (courseData.curriculum && Array.isArray(courseData.curriculum)) {
-      console.log('🔍 Processing curriculum with image support...');
       
       courseData.curriculum = courseData.curriculum.map((lesson, lessonIndex) => {
         const processedLesson = {
@@ -4618,7 +4507,6 @@ app.post('/api/updated-courses/admin', async (req, res) => {
 
         if (lesson.steps && Array.isArray(lesson.steps)) {
           processedLesson.steps = lesson.steps.map((step, stepIndex) => {
-            console.log(`🔍 Processing step ${stepIndex + 1} of type:`, step.type);
             
             const processedStep = {
               type: step.type || 'explanation',
@@ -4697,7 +4585,6 @@ app.post('/api/updated-courses/admin', async (req, res) => {
     const course = new UpdatedCourse(courseData);
     await course.save();
 
-    console.log('✅ Admin: Updated course created:', course.title);
 
     res.status(201).json({
       success: true,
@@ -4724,12 +4611,6 @@ app.post('/api/updated-courses/admin', async (req, res) => {
   }
 });
 
-console.log('✅ Updated Courses emergency routes loaded directly in server.js');
-// Add this to your server.js file, right after the mongoose connection setup
-
-// ========================================
-// 📚 UPDATED COURSE MODEL (IF MISSING)
-// ========================================
 
 // Define the UpdatedCourse schema if it doesn't exist
 const updatedCourseSchema = new mongoose.Schema({
@@ -4836,5 +4717,4 @@ updatedCourseSchema.methods.togglePremium = function() {
 // Create the model if it doesn't exist
 if (!mongoose.models.UpdatedCourse) {
   mongoose.model('UpdatedCourse', updatedCourseSchema);
-  console.log('✅ UpdatedCourse model created in server.js');
 }
