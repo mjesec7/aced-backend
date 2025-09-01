@@ -3583,8 +3583,6 @@ function formatLessonForAPI(generatedContent, originalRequest) {
 }
 app.post('/api/lessons/generate-ai', async (req, res) => {
   try {
-    const headers = await getAuthHeader(); // Your existing auth
-
 
     const {
       subject,
@@ -3667,6 +3665,913 @@ app.post('/api/lessons/generate-ai', async (req, res) => {
     });
   }
 });
+
+// ✅ STUDY LIST ROUTES - SIMPLE AND WORKING
+app.post('/api/users/:userId/study-list', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const data = req.body;
+
+    if (!data.topicId || !data.topic) {
+      return res.status(400).json({
+        success: false,
+        error: 'topicId and topic are required'
+      });
+    }
+
+    const User = require('./models/user');
+    let user = await User.findOne({ firebaseId: userId });
+
+    if (!user) {
+      user = new User({
+        firebaseId: userId,
+        email: 'user@example.com',
+        name: 'User',
+        studyList: []
+      });
+    }
+
+    // Check if already exists
+    const exists = user.studyList.some(item => item.topicId === data.topicId);
+    if (exists) {
+      return res.status(400).json({
+        success: false,
+        error: 'Topic already exists in study list'
+      });
+    }
+
+    // Add to study list
+    user.studyList.push({
+      topicId: data.topicId,
+      topic: data.topic,
+      subject: data.subject || 'General',
+      level: data.level || 1,
+      lessonCount: data.lessonCount || 0,
+      totalTime: data.totalTime || 10,
+      type: data.type || 'free',
+      addedAt: new Date()
+    });
+
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'Topic added to study list'
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+app.get('/api/users/:userId/study-list', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const User = require('./models/user');
+    const user = await User.findOne({ firebaseId: userId });
+
+    if (!user) {
+      return res.json({ success: true, data: [] });
+    }
+
+    res.json({
+      success: true,
+      data: user.studyList || []
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+app.delete('/api/users/:userId/study-list/:topicId', async (req, res) => {
+  try {
+    const { userId, topicId } = req.params;
+    const User = require('./models/user');
+    const user = await User.findOne({ firebaseId: userId });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    user.studyList = user.studyList.filter(item => item.topicId !== topicId);
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'Topic removed from study list'
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+
+// ========================================
+// 🖼️ IMAGE PROCESSING HELPER FUNCTIONS FOR COURSES
+// ========================================
+
+/**
+ * Process and validate images array for course steps
+ */
+function processImages(images, lessonIndex, stepIndex) {
+  if (!Array.isArray(images)) return [];
+
+
+  return images
+    .filter(img => img && (img.url || img.base64))
+    .map((img, imgIndex) => {
+      // Handle both URL and base64 images
+      const processedImage = {
+        id: img.id || `img_${lessonIndex}_${stepIndex}_${imgIndex}`,
+        url: img.url || '',
+        caption: img.caption || '',
+        filename: img.filename || `image_${imgIndex}`,
+        size: img.size || 0,
+        alt: img.alt || img.caption || `Image ${imgIndex + 1}`,
+        order: img.order || imgIndex
+      };
+
+      // Handle base64 images (convert to URL if needed)
+      if (img.base64 && !img.url) {
+        processedImage.base64 = img.base64;
+        processedImage.needsConversion = true;
+        // For now, use base64 as URL (backend can convert this later)
+        processedImage.url = img.base64;
+      }
+
+      // Image display options
+      if (img.displayOptions) {
+        processedImage.displayOptions = {
+          width: img.displayOptions.width || 'auto',
+          height: img.displayOptions.height || 'auto',
+          alignment: img.displayOptions.alignment || 'center',
+          zoom: img.displayOptions.zoom || false
+        };
+      }
+
+      return processedImage;
+    })
+    .sort((a, b) => (a.order || 0) - (b.order || 0));
+}
+
+/**
+ * Extract content from step object
+ */
+function extractContent(step) {
+  // Priority order: content -> data.content -> description
+  if (step.content && typeof step.content === 'string' && step.content.trim()) {
+    return step.content.trim();
+  }
+
+  if (step.data?.content && typeof step.data.content === 'string' && step.data.content.trim()) {
+    return step.data.content.trim();
+  }
+
+  if (step.description && step.description.trim()) {
+    return step.description.trim();
+  }
+
+  return '';
+}
+
+/**
+ * Process quiz data with image support
+ */
+function processQuizData(step) {
+  let quizData = [];
+
+  if (step.data && Array.isArray(step.data) && step.data.length > 0) {
+    quizData = step.data;
+  } else if (step.question || step.content) {
+    const quizQuestion = step.question || step.content || '';
+
+    quizData = [{
+      question: quizQuestion,
+      type: step.quizType || 'multiple-choice',
+      options: (step.options || []).map(opt => ({ text: opt.text || opt })),
+      correctAnswer: parseInt(step.correctAnswer) || 0,
+      explanation: step.explanation || '',
+      images: processImages(step.questionImages || [], 0, 0)
+    }];
+  } else if (step.quizzes && Array.isArray(step.quizzes)) {
+    quizData = step.quizzes.map(quiz => ({
+      ...quiz,
+      images: processImages(quiz.images || [], 0, 0)
+    }));
+  }
+
+  return quizData;
+}
+
+/**
+ * Validate course content including images
+ */
+function validateCourseContent(curriculum) {
+  const issues = [];
+
+  curriculum.forEach((lesson, lIndex) => {
+    lesson.steps?.forEach((step, sIndex) => {
+      const stepRef = `Lesson ${lIndex + 1}, Step ${sIndex + 1}`;
+
+      // Content validation
+      if (['explanation', 'example', 'reading'].includes(step.type)) {
+        if (!step.content || !step.content.trim()) {
+          issues.push(`${stepRef}: Missing content field`);
+        }
+        if (!step.data?.content || !step.data.content.trim()) {
+          issues.push(`${stepRef}: Missing data.content field`);
+        }
+        if (step.content !== step.data?.content) {
+          step.data.content = step.content; // Auto-fix
+        }
+      }
+
+      // Image validation
+      if (step.type === 'image') {
+        if (!step.images || step.images.length === 0) {
+          issues.push(`${stepRef}: Image step requires at least one image`);
+        } else {
+          step.images.forEach((img, imgIndex) => {
+            if (!img.url && !img.base64) {
+              issues.push(`${stepRef}, Image ${imgIndex + 1}: Missing URL or base64 data`);
+            }
+          });
+        }
+      }
+
+      // Quiz validation
+      if (step.type === 'quiz') {
+        if (!step.data || step.data.length === 0) {
+          issues.push(`${stepRef}: Quiz step requires questions`);
+        }
+      }
+    });
+  });
+
+  return issues;
+}
+
+/**
+ * Generate curriculum statistics including image info
+ */
+function generateCurriculumStats(curriculum) {
+  return {
+    totalLessons: curriculum.length,
+    totalSteps: curriculum.reduce((sum, lesson) => sum + (lesson.steps?.length || 0), 0),
+    totalImages: curriculum.reduce((sum, lesson) =>
+      sum + (lesson.steps?.reduce((stepSum, step) =>
+        stepSum + (step.images?.length || 0), 0) || 0), 0),
+    explanationSteps: curriculum.reduce((sum, lesson) =>
+      sum + (lesson.steps?.filter(step => step.type === 'explanation').length || 0), 0),
+    imageSteps: curriculum.reduce((sum, lesson) =>
+      sum + (lesson.steps?.filter(step => step.type === 'image').length || 0), 0),
+    stepsWithContent: curriculum.reduce((sum, lesson) =>
+      sum + (lesson.steps?.filter(step =>
+        step.content && step.content.trim()
+      ).length || 0), 0),
+    stepsWithImages: curriculum.reduce((sum, lesson) =>
+      sum + (lesson.steps?.filter(step =>
+        step.images && step.images.length > 0
+      ).length || 0), 0)
+  };
+}
+
+/**
+ * Helper to ensure image URLs are absolute
+ */
+function processImageUrl(url) {
+    if (!url) return '';
+    if (url.startsWith('http') || url.startsWith('data:image')) return url;
+    const baseUrl = process.env.NODE_ENV === 'production' ? 'https://api.aced.live' : 'http://localhost:5000';
+    return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
+}
+
+/**
+* Helper to convert course data to a structured format for SEO or specific API responses.
+*/
+function convertCourseToStructuredFormat(course) {
+    return {
+        '@context': 'https://schema.org',
+        '@type': 'Course',
+        'id': course._id,
+        'name': course.title,
+        'description': course.description,
+        'provider': {
+            '@type': 'Organization',
+            'name': 'ACED.live',
+            'logo': processImageUrl('/logo.png')
+        },
+        'instructor': {
+            '@type': 'Person',
+            'name': course.instructor?.name || 'ACED Instructor'
+        },
+        'learningResourceType': 'Course',
+        'isAccessibleForFree': !course.isPremium,
+        'hasCourseInstance': course.curriculum?.map(lesson => ({
+            '@type': 'CourseInstance',
+            'courseMode': 'online',
+            'name': lesson.title,
+            'description': lesson.description
+        })) || []
+    };
+}
+
+/**
+ * Helper for backward compatibility to process curriculum into lessons
+ */
+function processLessonsFromCurriculum(curriculum) {
+    if (!curriculum) return [];
+    return curriculum.map(lesson => ({
+        ...lesson,
+        steps: lesson.steps || []
+    }));
+}
+
+/**
+ * Helper for backward compatibility from a different lessons structure
+ */
+function processLessonsFromStructured(lessons) {
+    if (!lessons) return [];
+    return lessons.map(lesson => ({
+        ...lesson,
+        steps: lesson.steps || []
+    }));
+}
+
+
+// ========================================
+// 📚 UPDATED COURSES SCHEMA AND MODEL DEFINITION
+// ========================================
+
+const updatedCourseSchema = new mongoose.Schema({
+  title: { type: String, required: true, trim: true },
+  description: { type: String, required: true, trim: true },
+  fullDescription: { type: String, trim: true },
+  category: { type: String, required: true },
+  difficulty: { type: String, enum: ['Начинающий', 'Средний', 'Продвинутый'], default: 'Начинающий' },
+  duration: { type: String, default: '10 hours' },
+  thumbnail: { type: String },
+  isPremium: { type: Boolean, default: false },
+  isActive: { type: Boolean, default: true },
+  status: { type: String, enum: ['draft', 'published', 'archived'], default: 'published' },
+  studentsCount: { type: Number, default: 0 },
+  rating: { type: Number, default: 0, min: 0, max: 5 },
+
+  instructor: {
+    name: { type: String, required: true },
+    avatar: { type: String },
+    bio: { type: String }
+  },
+
+  tools: [{ type: String }],
+  tags: [{ type: String }],
+
+  curriculum: [{
+    title: { type: String, required: true },
+    description: { type: String },
+    duration: { type: String, default: '30 min' },
+    order: { type: Number, default: 0 },
+    steps: [{
+      type: { type: String, enum: ['explanation', 'example', 'practice', 'exercise', 'vocabulary', 'quiz', 'video', 'audio', 'reading', 'writing', 'image'], required: true },
+      title: { type: String },
+      description: { type: String },
+      content: { type: String },
+      data: { type: mongoose.Schema.Types.Mixed },
+      images: [{
+        id: { type: String },
+        url: { type: String },
+        caption: { type: String },
+        alt: { type: String },
+        order: { type: Number, default: 0 },
+        base64: { type: String },
+        needsConversion: { type: Boolean, default: false }
+      }],
+      order: { type: Number, default: 0 }
+    }]
+  }],
+
+  requirements: [{ type: String }],
+  learningOutcomes: [{ type: String }],
+  targetAudience: [{ type: String }],
+  certificateOffered: { type: Boolean, default: false },
+
+  estimatedTime: {
+    hours: { type: Number, default: 10 },
+    weeks: { type: Number, default: 2 }
+  },
+
+  isGuide: { type: Boolean, default: false },
+  guidePdfUrl: { type: String },
+
+  createdBy: { type: String },
+  updatedBy: { type: String },
+
+  metadata: {
+    views: { type: Number, default: 0 },
+    lastViewed: { type: Date }
+  }
+}, {
+  timestamps: true,
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
+});
+
+// Add text index for search
+updatedCourseSchema.index({
+  title: 'text',
+  description: 'text',
+  'instructor.name': 'text'
+});
+
+// Static methods
+updatedCourseSchema.statics.getCategories = function() {
+  return this.distinct('category');
+};
+
+updatedCourseSchema.statics.getDifficultyLevels = function() {
+  return ['Начинающий', 'Средний', 'Продвинутый'];
+};
+
+// Instance methods
+updatedCourseSchema.methods.incrementViews = function() {
+  this.metadata.views = (this.metadata.views || 0) + 1;
+  this.metadata.lastViewed = new Date();
+  return this.save();
+};
+
+updatedCourseSchema.methods.togglePremium = function() {
+  this.isPremium = !this.isPremium;
+  return this;
+};
+
+// Create the model, ensuring it's only defined once
+const UpdatedCourse = mongoose.models.UpdatedCourse || mongoose.model('UpdatedCourse', updatedCourseSchema);
+
+
+// ========================================
+// 📚 UPDATED COURSES ROUTES (EMERGENCY - DIRECT IMPLEMENTATION)
+// ========================================
+
+// ✅ GET /api/updated-courses - Get public courses with structured format support
+app.get('/api/updated-courses', async (req, res) => {
+  try {
+    const {
+      category,
+      difficulty,
+      search,
+      limit = 50,
+      page = 1,
+      sort = 'newest',
+      type = 'all',
+      format = 'standard' // 'standard' or 'structured'
+    } = req.query;
+
+    const filter = {
+      isActive: true,
+      status: 'published'
+    };
+
+    if (category && category !== 'all') filter.category = category;
+    if (difficulty && difficulty !== 'all') filter.difficulty = difficulty;
+    if (search) {
+      filter.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } },
+        { tools: { $regex: search, $options: 'i' } },
+        { tags: { $regex: search, $options: 'i' } }
+      ];
+    }
+    if (type === 'courses') {
+      filter.isGuide = { $ne: true };
+    } else if (type === 'guides') {
+      filter.isGuide = true;
+    }
+
+    let sortQuery = {};
+    switch (sort) {
+      case 'popular': sortQuery = { studentsCount: -1 }; break;
+      case 'rating': sortQuery = { rating: -1 }; break;
+      case 'duration': sortQuery = { 'estimatedTime.hours': 1 }; break;
+      case 'newest':
+      default: sortQuery = { createdAt: -1 };
+    }
+
+    const courses = await UpdatedCourse.find(filter)
+      .sort(sortQuery)
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit))
+      .select('-seo -metadata.views -createdBy -updatedBy')
+      .lean();
+
+    const processedCourses = courses.map(course => {
+      const baseCourse = {
+        ...course,
+        id: course._id.toString(),
+        _id: course._id.toString(),
+        isBookmarked: false,
+        instructor: {
+          name: course.instructor?.name || 'Unknown Instructor',
+          avatar: processImageUrl(course.instructor?.avatar),
+          bio: course.instructor?.bio || ''
+        },
+        thumbnail: processImageUrl(course.thumbnail)
+      };
+
+      if (format === 'structured') {
+        return {
+          ...baseCourse,
+          structuredData: convertCourseToStructuredFormat(course),
+          format: 'structured'
+        };
+      }
+
+      return {
+        ...baseCourse,
+        curriculum: course.curriculum || course.lessons || [],
+        format: 'standard'
+      };
+    });
+
+    const total = await UpdatedCourse.countDocuments(filter);
+
+    res.json({
+      success: true,
+      courses: processedCourses,
+      format: format,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit))
+      },
+      categories: await UpdatedCourse.getCategories(),
+      difficulties: await UpdatedCourse.getDifficultyLevels()
+    });
+  } catch (error) {
+    console.error('❌ Error fetching updated courses:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch courses',
+      details: error.message
+    });
+  }
+});
+
+// ✅ NEW: Add dedicated structured endpoint
+app.get('/api/updated-courses/structured', async (req, res) => {
+  try {
+    const {
+      category,
+      difficulty,
+      search,
+      limit = 20,
+      page = 1
+    } = req.query;
+
+    const filter = {
+      isActive: true,
+      status: 'published'
+    };
+
+    if (category && category !== 'all') filter.category = category;
+    if (difficulty && difficulty !== 'all') filter.difficulty = difficulty;
+    if (search) {
+      filter.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    const courses = await UpdatedCourse.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit))
+      .lean();
+
+    const structuredCourses = courses.map(course =>
+      convertCourseToStructuredFormat(course)
+    );
+
+    const total = await UpdatedCourse.countDocuments(filter);
+
+    res.json({
+      success: true,
+      format: 'structured',
+      courses: structuredCourses,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit))
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error fetching structured courses:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch structured courses',
+      details: error.message
+    });
+  }
+});
+
+
+// ✅ GET /api/updated-courses/:id - Enhanced single course route
+app.get('/api/updated-courses/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { format = 'standard' } = req.query; // Support format query
+
+    const course = await UpdatedCourse.findOne({
+      $or: [
+        { _id: mongoose.Types.ObjectId.isValid(id) ? id : null },
+        { 'seo.slug': id }
+      ],
+      isActive: true,
+      status: 'published'
+    }).select('-createdBy -updatedBy');
+
+
+    if (!course) {
+      return res.status(404).json({
+        success: false,
+        error: 'Course not found'
+      });
+    }
+
+    await course.incrementViews();
+    let courseData;
+
+    if (format === 'structured') {
+      courseData = convertCourseToStructuredFormat(course.toObject());
+    } else {
+      courseData = {
+        ...course.toObject(),
+        id: course._id.toString(),
+        _id: course._id.toString(),
+        isBookmarked: false,
+        lessons: course.curriculum ? processLessonsFromCurriculum(course.curriculum) : [],
+        thumbnail: processImageUrl(course.thumbnail),
+        instructor: {
+          ...course.instructor,
+          avatar: processImageUrl(course.instructor?.avatar)
+        }
+      };
+    }
+
+    res.json({
+      success: true,
+      course: courseData,
+      format: format
+    });
+  } catch (error) {
+    console.error('❌ Error fetching course:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch course'
+    });
+  }
+});
+
+
+// ✅ GET /api/updated-courses/admin/all - Get all courses for admin
+app.get('/api/updated-courses/admin/all', async (req, res) => {
+  try {
+    const {
+      category,
+      difficulty,
+      status,
+      search,
+      limit = 20,
+      page = 1,
+      sort = 'newest'
+    } = req.query;
+
+    const filter = {};
+    if (category && category !== 'all') filter.category = category;
+    if (difficulty && difficulty !== 'all') filter.difficulty = difficulty;
+    if (status && status !== 'all') filter.status = status;
+    if (search) {
+      filter.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    let sortQuery = {};
+    switch (sort) {
+      case 'newest': sortQuery = { createdAt: -1 }; break;
+      case 'updated': sortQuery = { updatedAt: -1 }; break;
+      default: sortQuery = { createdAt: -1 };
+    }
+
+    const courses = await UpdatedCourse.find(filter)
+      .sort(sortQuery)
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit));
+    const total = await UpdatedCourse.countDocuments(filter);
+
+    res.json({
+      success: true,
+      courses: courses,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit))
+      }
+    });
+  } catch (error) {
+    console.error('❌ Admin: Error fetching updated courses:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch updated courses', details: error.message });
+  }
+});
+
+// ✅ PUT /api/updated-courses/admin/:id - Update course
+app.put('/api/updated-courses/admin/:id', async (req, res) => {
+  try {
+    const course = await UpdatedCourse.findById(req.params.id);
+    if (!course) {
+      return res.status(404).json({ success: false, error: 'Course not found' });
+    }
+
+    Object.assign(course, req.body);
+    course.updatedBy = 'admin';
+
+    if (req.body.curriculum && Array.isArray(req.body.curriculum)) {
+      const processedCurriculum = req.body.curriculum.map((lesson, lessonIndex) => {
+        const processedLesson = {
+          title: lesson.title || `Lesson ${lessonIndex + 1}`,
+          description: lesson.description || '',
+          duration: lesson.duration || '30 min',
+          order: lesson.order || lessonIndex,
+          steps: []
+        };
+        if (lesson.steps && Array.isArray(lesson.steps)) {
+          processedLesson.steps = lesson.steps.map((step, stepIndex) => {
+            const processedStep = {
+              type: step.type || 'explanation',
+              title: step.title || '',
+              description: step.description || '',
+              content: '',
+              data: {},
+              images: processImages(step.images || [], lessonIndex, stepIndex)
+            };
+            switch (step.type) {
+              case 'explanation':
+              case 'example':
+              case 'reading':
+                const explanationContent = extractContent(step);
+                processedStep.content = explanationContent;
+                processedStep.data = { content: explanationContent, images: processedStep.images };
+                break;
+              case 'image':
+                const imageDescription = step.content || step.description || '';
+                processedStep.content = imageDescription;
+                processedStep.data = { images: processedStep.images, description: imageDescription };
+                break;
+              case 'practice':
+                const practiceInstructions = extractContent(step) || step.instructions || '';
+                processedStep.content = practiceInstructions;
+                processedStep.data = { instructions: practiceInstructions, type: step.data?.type || step.practiceType || 'guided', images: processedStep.images };
+                processedStep.instructions = practiceInstructions;
+                break;
+              case 'quiz':
+                const quizData = processQuizData(step);
+                processedStep.content = quizData.length > 0 ? quizData[0].question : '';
+                processedStep.data = quizData;
+                processedStep.quizzes = quizData;
+                if (quizData.length > 0) {
+                  processedStep.question = quizData[0].question;
+                  processedStep.options = quizData[0].options || [];
+                  processedStep.correctAnswer = quizData[0].correctAnswer || 0;
+                }
+                break;
+              default:
+                const defaultContent = extractContent(step);
+                processedStep.content = defaultContent;
+                processedStep.data = { content: defaultContent, images: processedStep.images };
+            }
+            return processedStep;
+          });
+        }
+        return processedLesson;
+      });
+      course.curriculum = processedCurriculum;
+      const validationIssues = validateCourseContent(course.curriculum);
+      if (validationIssues.length > 0) {
+        console.warn('⚠️ Validation issues found:', validationIssues);
+      }
+    }
+
+    await course.save();
+    res.json({ success: true, course: course, message: 'Course updated successfully with image support' });
+  } catch (error) {
+    console.error('❌ Admin: Error updating course:', error);
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({ success: false, error: 'Validation error', details: Object.values(error.errors).map(err => err.message) });
+    }
+    res.status(500).json({ success: false, error: 'Failed to update course', details: error.message });
+  }
+});
+
+// ✅ POST /api/updated-courses/admin - Create new course
+app.post('/api/updated-courses/admin', async (req, res) => {
+  try {
+    const courseData = { ...req.body, createdBy: 'admin', updatedBy: 'admin' };
+    const requiredFields = ['title', 'description', 'category', 'instructor'];
+    const missingFields = requiredFields.filter(field => {
+      if (field === 'instructor') return !courseData.instructor || !courseData.instructor.name;
+      return !courseData[field];
+    });
+
+    if (missingFields.length > 0) {
+      return res.status(400).json({ success: false, error: 'Missing required fields', missingFields });
+    }
+
+    if (courseData.curriculum && Array.isArray(courseData.curriculum)) {
+      courseData.curriculum = courseData.curriculum.map((lesson, lessonIndex) => {
+        const processedLesson = {
+          title: lesson.title || `Lesson ${lessonIndex + 1}`,
+          description: lesson.description || '',
+          duration: lesson.duration || '30 min',
+          order: lesson.order || lessonIndex,
+          steps: []
+        };
+        if (lesson.steps && Array.isArray(lesson.steps)) {
+          processedLesson.steps = lesson.steps.map((step, stepIndex) => {
+            const processedStep = {
+              type: step.type || 'explanation',
+              title: step.title || '',
+              description: step.description || '',
+              content: '',
+              data: {},
+              images: processImages(step.images || [], lessonIndex, stepIndex)
+            };
+            switch (step.type) {
+              case 'explanation':
+              case 'example':
+              case 'reading':
+                let explanationContent = extractContent(step) || `This is a ${step.type} step that explains an important concept.`;
+                processedStep.content = explanationContent;
+                processedStep.data = { content: explanationContent, images: processedStep.images };
+                break;
+              case 'image':
+                const imageDescription = step.content || step.description || '';
+                processedStep.content = imageDescription;
+                processedStep.data = { images: processedStep.images, description: imageDescription };
+                break;
+              case 'practice':
+                const practiceInstructions = step.content || step.data?.instructions || step.instructions || '';
+                processedStep.content = practiceInstructions;
+                processedStep.data = { instructions: practiceInstructions, type: step.data?.type || step.practiceType || 'guided', images: processedStep.images };
+                processedStep.instructions = practiceInstructions;
+                break;
+              case 'quiz':
+                let quizData = processQuizData(step);
+                processedStep.content = quizData.length > 0 ? quizData[0].question : '';
+                processedStep.data = quizData;
+                processedStep.quizzes = quizData;
+                break;
+              default:
+                const defaultContent = step.content || step.description || '';
+                processedStep.content = defaultContent;
+                processedStep.data = { content: defaultContent, images: processedStep.images };
+            }
+            return processedStep;
+          });
+        }
+        return processedLesson;
+      });
+    }
+
+    const course = new UpdatedCourse(courseData);
+    await course.save();
+    res.status(201).json({ success: true, course: course, message: 'Course created successfully' });
+  } catch (error) {
+    console.error('❌ Admin: Error creating updated course:', error);
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({ success: false, error: 'Validation error', details: Object.values(error.errors).map(err => err.message) });
+    }
+    res.status(500).json({ success: false, error: 'Failed to create course', details: error.message });
+  }
+});
+
+
 // ========================================
 // 🚫 API ERROR HANDLERS
 // ========================================
@@ -3929,120 +4834,7 @@ const startServer = async () => {
     process.exit(1);
   }
 };
-// ADD THIS TO YOUR SERVER.JS FILE RIGHT AFTER YOUR EXISTING ROUTES
 
-// ✅ STUDY LIST ROUTES - SIMPLE AND WORKING
-app.post('/api/users/:userId/study-list', async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const data = req.body;
-
-    if (!data.topicId || !data.topic) {
-      return res.status(400).json({
-        success: false,
-        error: 'topicId and topic are required'
-      });
-    }
-
-    const User = require('./models/user');
-    let user = await User.findOne({ firebaseId: userId });
-
-    if (!user) {
-      user = new User({
-        firebaseId: userId,
-        email: 'user@example.com',
-        name: 'User',
-        studyList: []
-      });
-    }
-
-    // Check if already exists
-    const exists = user.studyList.some(item => item.topicId === data.topicId);
-    if (exists) {
-      return res.status(400).json({
-        success: false,
-        error: 'Topic already exists in study list'
-      });
-    }
-
-    // Add to study list
-    user.studyList.push({
-      topicId: data.topicId,
-      topic: data.topic,
-      subject: data.subject || 'General',
-      level: data.level || 1,
-      lessonCount: data.lessonCount || 0,
-      totalTime: data.totalTime || 10,
-      type: data.type || 'free',
-      addedAt: new Date()
-    });
-
-    await user.save();
-
-    res.json({
-      success: true,
-      message: 'Topic added to study list'
-    });
-
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-app.get('/api/users/:userId/study-list', async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const User = require('./models/user');
-    const user = await User.findOne({ firebaseId: userId });
-
-    if (!user) {
-      return res.json({ success: true, data: [] });
-    }
-
-    res.json({
-      success: true,
-      data: user.studyList || []
-    });
-
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-app.delete('/api/users/:userId/study-list/:topicId', async (req, res) => {
-  try {
-    const { userId, topicId } = req.params;
-    const User = require('./models/user');
-    const user = await User.findOne({ firebaseId: userId });
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        error: 'User not found'
-      });
-    }
-
-    user.studyList = user.studyList.filter(item => item.topicId !== topicId);
-    await user.save();
-
-    res.json({
-      success: true,
-      message: 'Topic removed from study list'
-    });
-
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
 
 // ========================================
 // 🛡️ PROCESS ERROR HANDLERS
@@ -4067,654 +4859,3 @@ process.on('uncaughtException', (error) => {
 // Start the server
 startServer();
 module.exports = app;
-
-// Add this section to your server.js file, right after the existing route definitions and before the error handlers
-
-// ========================================
-// 🖼️ IMAGE PROCESSING HELPER FUNCTIONS FOR COURSES
-// ========================================
-
-/**
- * Process and validate images array for course steps
- */
-function processImages(images, lessonIndex, stepIndex) {
-  if (!Array.isArray(images)) return [];
-  
-  
-  return images
-    .filter(img => img && (img.url || img.base64))
-    .map((img, imgIndex) => {
-      // Handle both URL and base64 images
-      const processedImage = {
-        id: img.id || `img_${lessonIndex}_${stepIndex}_${imgIndex}`,
-        url: img.url || '',
-        caption: img.caption || '',
-        filename: img.filename || `image_${imgIndex}`,
-        size: img.size || 0,
-        alt: img.alt || img.caption || `Image ${imgIndex + 1}`,
-        order: img.order || imgIndex
-      };
-
-      // Handle base64 images (convert to URL if needed)
-      if (img.base64 && !img.url) {
-        processedImage.base64 = img.base64;
-        processedImage.needsConversion = true;
-        // For now, use base64 as URL (backend can convert this later)
-        processedImage.url = img.base64;
-      }
-
-      // Image display options
-      if (img.displayOptions) {
-        processedImage.displayOptions = {
-          width: img.displayOptions.width || 'auto',
-          height: img.displayOptions.height || 'auto',
-          alignment: img.displayOptions.alignment || 'center',
-          zoom: img.displayOptions.zoom || false
-        };
-      }
-
-      return processedImage;
-    })
-    .sort((a, b) => (a.order || 0) - (b.order || 0));
-}
-
-/**
- * Extract content from step object
- */
-function extractContent(step) {
-  // Priority order: content -> data.content -> description
-  if (step.content && typeof step.content === 'string' && step.content.trim()) {
-    return step.content.trim();
-  }
-  
-  if (step.data?.content && typeof step.data.content === 'string' && step.data.content.trim()) {
-    return step.data.content.trim();
-  }
-  
-  if (step.description && step.description.trim()) {
-    return step.description.trim();
-  }
-  
-  return '';
-}
-
-/**
- * Process quiz data with image support
- */
-function processQuizData(step) {
-  let quizData = [];
-  
-  if (step.data && Array.isArray(step.data) && step.data.length > 0) {
-    quizData = step.data;
-  } else if (step.question || step.content) {
-    const quizQuestion = step.question || step.content || '';
-    
-    quizData = [{
-      question: quizQuestion,
-      type: step.quizType || 'multiple-choice',
-      options: (step.options || []).map(opt => ({ text: opt.text || opt })),
-      correctAnswer: parseInt(step.correctAnswer) || 0,
-      explanation: step.explanation || '',
-      images: processImages(step.questionImages || [], 0, 0)
-    }];
-  } else if (step.quizzes && Array.isArray(step.quizzes)) {
-    quizData = step.quizzes.map(quiz => ({
-      ...quiz,
-      images: processImages(quiz.images || [], 0, 0)
-    }));
-  }
-  
-  return quizData;
-}
-
-/**
- * Validate course content including images
- */
-function validateCourseContent(curriculum) {
-  const issues = [];
-  
-  curriculum.forEach((lesson, lIndex) => {
-    lesson.steps?.forEach((step, sIndex) => {
-      const stepRef = `Lesson ${lIndex + 1}, Step ${sIndex + 1}`;
-      
-      // Content validation
-      if (['explanation', 'example', 'reading'].includes(step.type)) {
-        if (!step.content || !step.content.trim()) {
-          issues.push(`${stepRef}: Missing content field`);
-        }
-        if (!step.data?.content || !step.data.content.trim()) {
-          issues.push(`${stepRef}: Missing data.content field`);
-        }
-        if (step.content !== step.data?.content) {
-          step.data.content = step.content; // Auto-fix
-        }
-      }
-      
-      // Image validation
-      if (step.type === 'image') {
-        if (!step.images || step.images.length === 0) {
-          issues.push(`${stepRef}: Image step requires at least one image`);
-        } else {
-          step.images.forEach((img, imgIndex) => {
-            if (!img.url && !img.base64) {
-              issues.push(`${stepRef}, Image ${imgIndex + 1}: Missing URL or base64 data`);
-            }
-          });
-        }
-      }
-      
-      // Quiz validation
-      if (step.type === 'quiz') {
-        if (!step.data || step.data.length === 0) {
-          issues.push(`${stepRef}: Quiz step requires questions`);
-        }
-      }
-    });
-  });
-  
-  return issues;
-}
-
-/**
- * Generate curriculum statistics including image info
- */
-function generateCurriculumStats(curriculum) {
-  return {
-    totalLessons: curriculum.length,
-    totalSteps: curriculum.reduce((sum, lesson) => sum + (lesson.steps?.length || 0), 0),
-    totalImages: curriculum.reduce((sum, lesson) => 
-      sum + (lesson.steps?.reduce((stepSum, step) => 
-        stepSum + (step.images?.length || 0), 0) || 0), 0),
-    explanationSteps: curriculum.reduce((sum, lesson) => 
-      sum + (lesson.steps?.filter(step => step.type === 'explanation').length || 0), 0),
-    imageSteps: curriculum.reduce((sum, lesson) => 
-      sum + (lesson.steps?.filter(step => step.type === 'image').length || 0), 0),
-    stepsWithContent: curriculum.reduce((sum, lesson) => 
-      sum + (lesson.steps?.filter(step => 
-        step.content && step.content.trim()
-      ).length || 0), 0),
-    stepsWithImages: curriculum.reduce((sum, lesson) => 
-      sum + (lesson.steps?.filter(step => 
-        step.images && step.images.length > 0
-      ).length || 0), 0)
-  };
-}
-
-// Add this section to your server.js file, right after the image processing functions
-
-// ========================================
-// 📚 UPDATED COURSES ROUTES (EMERGENCY - DIRECT IMPLEMENTATION)
-// ========================================
-
-// Import UpdatedCourse model
-let UpdatedCourse;
-try {
-  UpdatedCourse = require('./models/updatedCourse');
-} catch (modelError) {
-  console.error('❌ Failed to load UpdatedCourse model:', modelError.message);
-}
-
-// ✅ GET /api/updated-courses/admin/all - Get all courses for admin
-app.get('/api/updated-courses/admin/all', async (req, res) => {
-  try {
-    
-    if (!UpdatedCourse) {
-      return res.status(500).json({
-        success: false,
-        error: 'UpdatedCourse model not available'
-      });
-    }
-
-    const {
-      category,
-      difficulty,
-      status,
-      search,
-      limit = 20,
-      page = 1,
-      sort = 'newest'
-    } = req.query;
-
-    // Build filter
-    const filter = {};
-    if (category && category !== 'all') filter.category = category;
-    if (difficulty && difficulty !== 'all') filter.difficulty = difficulty;
-    if (status && status !== 'all') filter.status = status;
-    if (search) {
-      filter.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } }
-      ];
-    }
-
-    // Build sort
-    let sortQuery = {};
-    switch (sort) {
-      case 'newest':
-        sortQuery = { createdAt: -1 };
-        break;
-      case 'updated':
-        sortQuery = { updatedAt: -1 };
-        break;
-      default:
-        sortQuery = { createdAt: -1 };
-    }
-
-    const courses = await UpdatedCourse.find(filter)
-      .sort(sortQuery)
-      .limit(parseInt(limit))
-      .skip((parseInt(page) - 1) * parseInt(limit));
-
-    const total = await UpdatedCourse.countDocuments(filter);
-
-
-    res.json({
-      success: true,
-      courses: courses,
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total,
-        pages: Math.ceil(total / parseInt(limit))
-      }
-    });
-
-  } catch (error) {
-    console.error('❌ Admin: Error fetching updated courses:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch updated courses',
-      details: error.message
-    });
-  }
-});
-
-// ✅ PUT /api/updated-courses/admin/:id - Update course (THIS IS THE CRITICAL ONE)
-app.put('/api/updated-courses/admin/:id', async (req, res) => {
-  try {
-    
-    if (!UpdatedCourse) {
-      return res.status(500).json({
-        success: false,
-        error: 'UpdatedCourse model not available'
-      });
-    }
-
-    // Step 1: Find the existing course document
-    const course = await UpdatedCourse.findById(req.params.id);
-    if (!course) {
-      return res.status(404).json({
-        success: false,
-        error: 'Course not found'
-      });
-    }
-
-    // Step 2: Apply top-level updates directly to the document
-    Object.assign(course, req.body);
-    course.updatedBy = 'admin'; // You can enhance this with proper auth
-    
-    // Step 3: Process and validate the curriculum separately
-    if (req.body.curriculum && Array.isArray(req.body.curriculum)) {
-      
-      const processedCurriculum = req.body.curriculum.map((lesson, lessonIndex) => {
-        const processedLesson = {
-          title: lesson.title || `Lesson ${lessonIndex + 1}`,
-          description: lesson.description || '',
-          duration: lesson.duration || '30 min',
-          order: lesson.order || lessonIndex
-        };
-
-        if (lesson.steps && Array.isArray(lesson.steps)) {
-          processedLesson.steps = lesson.steps.map((step, stepIndex) => {
-            const processedStep = {
-              type: step.type || 'explanation',
-              title: step.title || '',
-              description: step.description || '',
-              content: '',
-              data: {},
-              images: processImages(step.images || [], lessonIndex, stepIndex)
-            };
-
-            switch (step.type) {
-              case 'explanation':
-              case 'example':
-              case 'reading':
-                const explanationContent = extractContent(step);
-                processedStep.content = explanationContent;
-                processedStep.data = { content: explanationContent, images: processedStep.images };
-                break;
-              case 'image':
-                const imageDescription = step.content || step.description || '';
-                processedStep.content = imageDescription;
-                processedStep.data = { images: processedStep.images, description: imageDescription };
-                break;
-              case 'practice':
-                const practiceInstructions = extractContent(step) || step.instructions || '';
-                processedStep.content = practiceInstructions;
-                processedStep.data = { instructions: practiceInstructions, type: step.data?.type || step.practiceType || 'guided', images: processedStep.images };
-                processedStep.instructions = practiceInstructions;
-                break;
-              case 'quiz':
-                const quizData = processQuizData(step);
-                processedStep.content = quizData.length > 0 ? quizData[0].question : '';
-                processedStep.data = quizData;
-                processedStep.quizzes = quizData;
-                if (quizData.length > 0) {
-                  processedStep.question = quizData[0].question;
-                  processedStep.options = quizData[0].options || [];
-                  processedStep.correctAnswer = quizData[0].correctAnswer || 0;
-                }
-                break;
-              default:
-                const defaultContent = extractContent(step);
-                processedStep.content = defaultContent;
-                processedStep.data = { content: defaultContent, images: processedStep.images };
-            }
-            return processedStep;
-          });
-        } else {
-          processedLesson.steps = [];
-        }
-        return processedLesson;
-      });
-
-      // Update the document's curriculum
-      course.curriculum = processedCurriculum;
-
-      const validationIssues = validateCourseContent(course.curriculum);
-      if (validationIssues.length > 0) {
-        console.warn('⚠️ Validation issues found:', validationIssues);
-        // Don't block the update for minor validation issues, just log them
-      }
-      
-      const updateStats = generateCurriculumStats(course.curriculum);
-    }
-    
-    // Step 4: Save the entire, updated document
-    await course.save();
-
-
-    res.json({
-      success: true,
-      course: course,
-      message: 'Course updated successfully with image support'
-    });
-
-  } catch (error) {
-    console.error('❌ Admin: Error updating course:', error);
-    
-    if (error.name === 'ValidationError') {
-      return res.status(400).json({
-        success: false,
-        error: 'Validation error',
-        details: Object.values(error.errors).map(err => err.message)
-      });
-    }
-
-    res.status(500).json({
-      success: false,
-      error: 'Failed to update course',
-      details: error.message
-    });
-  }
-});
-
-// ✅ POST /api/updated-courses/admin - Create new course
-app.post('/api/updated-courses/admin', async (req, res) => {
-  try {
-    
-    if (!UpdatedCourse) {
-      return res.status(500).json({
-        success: false,
-        error: 'UpdatedCourse model not available'
-      });
-    }
-
-    const courseData = {
-      ...req.body,
-      createdBy: 'admin',
-      updatedBy: 'admin'
-    };
-
-    // Enhanced validation of required fields
-    const requiredFields = ['title', 'description', 'category', 'instructor'];
-    const missingFields = requiredFields.filter(field => {
-      if (field === 'instructor') {
-        return !courseData.instructor || !courseData.instructor.name;
-      }
-      return !courseData[field];
-    });
-
-    if (missingFields.length > 0) {
-      console.error('❌ Missing required fields:', missingFields);
-      return res.status(400).json({
-        success: false,
-        error: 'Missing required fields',
-        missingFields
-      });
-    }
-
-    // Process curriculum with image handling
-    if (courseData.curriculum && Array.isArray(courseData.curriculum)) {
-      
-      courseData.curriculum = courseData.curriculum.map((lesson, lessonIndex) => {
-        const processedLesson = {
-          title: lesson.title || `Lesson ${lessonIndex + 1}`,
-          description: lesson.description || '',
-          duration: lesson.duration || '30 min',
-          order: lesson.order || lessonIndex
-        };
-
-        if (lesson.steps && Array.isArray(lesson.steps)) {
-          processedLesson.steps = lesson.steps.map((step, stepIndex) => {
-            
-            const processedStep = {
-              type: step.type || 'explanation',
-              title: step.title || '',
-              description: step.description || '',
-              content: '',
-              data: {},
-              images: processImages(step.images || [], lessonIndex, stepIndex)
-            };
-
-            switch (step.type) {
-              case 'explanation':
-              case 'example':
-              case 'reading':
-                let explanationContent = extractContent(step);
-                
-                if (!explanationContent) {
-                  explanationContent = `This is a ${step.type} step that explains an important concept.`;
-                  console.warn(`⚠️ Created default content for ${step.type} step`);
-                }
-                
-                processedStep.content = explanationContent;
-                processedStep.data = {
-                  content: explanationContent,
-                  images: processedStep.images
-                };
-                break;
-
-              case 'image':
-                const imageDescription = step.content || step.description || '';
-                processedStep.content = imageDescription;
-                processedStep.data = {
-                  images: processedStep.images,
-                  description: imageDescription
-                };
-                break;
-
-              case 'practice':
-                const practiceInstructions = step.content || step.data?.instructions || step.instructions || '';
-                processedStep.content = practiceInstructions;
-                processedStep.data = {
-                  instructions: practiceInstructions,
-                  type: step.data?.type || step.practiceType || 'guided',
-                  images: processedStep.images
-                };
-                processedStep.instructions = practiceInstructions;
-                break;
-
-              case 'quiz':
-                let quizData = processQuizData(step);
-                processedStep.content = quizData.length > 0 ? quizData[0].question : '';
-                processedStep.data = quizData;
-                processedStep.quizzes = quizData;
-                break;
-
-              default:
-                const defaultContent = step.content || step.description || '';
-                processedStep.content = defaultContent;
-                processedStep.data = {
-                  content: defaultContent,
-                  images: processedStep.images
-                };
-            }
-
-            return processedStep;
-          });
-        } else {
-          processedLesson.steps = [];
-        }
-
-        return processedLesson;
-      });
-    }
-
-    // Create the course
-    const course = new UpdatedCourse(courseData);
-    await course.save();
-
-
-    res.status(201).json({
-      success: true,
-      course: course,
-      message: 'Course created successfully'
-    });
-
-  } catch (error) {
-    console.error('❌ Admin: Error creating updated course:', error);
-    
-    if (error.name === 'ValidationError') {
-      return res.status(400).json({
-        success: false,
-        error: 'Validation error',
-        details: Object.values(error.errors).map(err => err.message)
-      });
-    }
-
-    res.status(500).json({
-      success: false,
-      error: 'Failed to create course',
-      details: error.message
-    });
-  }
-});
-
-
-// Define the UpdatedCourse schema if it doesn't exist
-const updatedCourseSchema = new mongoose.Schema({
-  title: { type: String, required: true, trim: true },
-  description: { type: String, required: true, trim: true },
-  fullDescription: { type: String, trim: true },
-  category: { type: String, required: true },
-  difficulty: { type: String, enum: ['Начинающий', 'Средний', 'Продвинутый'], default: 'Начинающий' },
-  duration: { type: String, default: '10 hours' },
-  thumbnail: { type: String },
-  isPremium: { type: Boolean, default: false },
-  isActive: { type: Boolean, default: true },
-  status: { type: String, enum: ['draft', 'published', 'archived'], default: 'published' },
-  studentsCount: { type: Number, default: 0 },
-  rating: { type: Number, default: 0, min: 0, max: 5 },
-  
-  instructor: {
-    name: { type: String, required: true },
-    avatar: { type: String },
-    bio: { type: String }
-  },
-
-  tools: [{ type: String }],
-  tags: [{ type: String }],
-  
-  curriculum: [{
-    title: { type: String, required: true },
-    description: { type: String },
-    duration: { type: String, default: '30 min' },
-    order: { type: Number, default: 0 },
-    steps: [{
-      type: { type: String, enum: ['explanation', 'example', 'practice', 'exercise', 'vocabulary', 'quiz', 'video', 'audio', 'reading', 'writing', 'image'], required: true },
-      title: { type: String },
-      description: { type: String },
-      content: { type: String },
-      data: { type: mongoose.Schema.Types.Mixed },
-      images: [{
-        id: { type: String },
-        url: { type: String },
-        caption: { type: String },
-        alt: { type: String },
-        order: { type: Number, default: 0 },
-        base64: { type: String },
-        needsConversion: { type: Boolean, default: false }
-      }],
-      order: { type: Number, default: 0 }
-    }]
-  }],
-
-  requirements: [{ type: String }],
-  learningOutcomes: [{ type: String }],
-  targetAudience: [{ type: String }],
-  certificateOffered: { type: Boolean, default: false },
-  
-  estimatedTime: {
-    hours: { type: Number, default: 10 },
-    weeks: { type: Number, default: 2 }
-  },
-
-  isGuide: { type: Boolean, default: false },
-  guidePdfUrl: { type: String },
-
-  createdBy: { type: String },
-  updatedBy: { type: String },
-  
-  metadata: {
-    views: { type: Number, default: 0 },
-    lastViewed: { type: Date }
-  }
-}, { 
-  timestamps: true,
-  toJSON: { virtuals: true },
-  toObject: { virtuals: true }
-});
-
-// Add text index for search
-updatedCourseSchema.index({
-  title: 'text',
-  description: 'text',
-  'instructor.name': 'text'
-});
-
-// Static methods
-updatedCourseSchema.statics.getCategories = function() {
-  return this.distinct('category');
-};
-
-updatedCourseSchema.statics.getDifficultyLevels = function() {
-  return ['Начинающий', 'Средний', 'Продвинутый'];
-};
-
-// Instance methods
-updatedCourseSchema.methods.incrementViews = function() {
-  this.metadata.views = (this.metadata.views || 0) + 1;
-  this.metadata.lastViewed = new Date();
-  return this.save();
-};
-
-updatedCourseSchema.methods.togglePremium = function() {
-  this.isPremium = !this.isPremium;
-  return this;
-};
-
-// Create the model if it doesn't exist
-if (!mongoose.models.UpdatedCourse) {
-  mongoose.model('UpdatedCourse', updatedCourseSchema);
-}
