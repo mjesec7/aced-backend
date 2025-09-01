@@ -4570,7 +4570,89 @@ app.post('/api/updated-courses/admin', async (req, res) => {
     res.status(500).json({ success: false, error: 'Failed to create course', details: error.message });
   }
 });
+// ✅ ADD: Missing endpoint that frontend is looking for
+app.get('/api/updated-courses/format/:format', async (req, res) => {
+  try {
+    const { format } = req.params;
+    const { category, difficulty, search, limit = 50, page = 1 } = req.query;
 
+    console.log(`📚 Fetching courses in ${format} format`);
+
+    if (!['standard', 'structured'].includes(format)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid format. Must be "standard" or "structured"'
+      });
+    }
+
+    // Build filter
+    const filter = { 
+      isActive: true,
+      status: 'published'
+    };
+
+    if (category && category !== 'all') filter.category = category;
+    if (difficulty && difficulty !== 'all') filter.difficulty = difficulty;
+    if (search) {
+      filter.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    const courses = await UpdatedCourse.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit))
+      .lean();
+
+    let processedCourses;
+    
+    if (format === 'structured') {
+      // Convert to structured format
+      processedCourses = courses.map(course => 
+        convertCourseToStructuredFormat(course)
+      );
+    } else {
+      // Standard format
+      processedCourses = courses.map(course => ({
+        ...course,
+        id: course._id.toString(),
+        _id: course._id.toString(),
+        isBookmarked: false,
+        instructor: {
+          name: course.instructor?.name || 'Unknown Instructor',
+          avatar: processImageUrl(course.instructor?.avatar),
+          bio: course.instructor?.bio || ''
+        },
+        thumbnail: processImageUrl(course.thumbnail),
+        curriculum: course.curriculum || course.lessons || []
+      }));
+    }
+
+    const total = await UpdatedCourse.countDocuments(filter);
+
+    res.json({
+      success: true,
+      format: format,
+      courses: processedCourses,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit))
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching courses by format:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch courses',
+      details: error.message
+    });
+  }
+});
 
 // ========================================
 // 🚫 API ERROR HANDLERS
