@@ -460,6 +460,7 @@ router.get('/format/:format', async (req, res) => {
     });
   }
 });
+
 // ========================================
 // 🛡️ ENHANCED ADMIN ROUTES
 // ========================================
@@ -1041,6 +1042,641 @@ router.post('/admin/validate-structured', authenticateUser, async (req, res) => 
 
 // [Rest of the existing routes remain unchanged...]
 
+// DELETE /api/updated-courses/admin/:id
+router.delete('/admin/:id', authenticateUser, async (req, res) => {
+  try {
+    const course = await UpdatedCourse.findByIdAndDelete(req.params.id);
+
+    if (!course) {
+      return res.status(404).json({
+        success: false,
+        error: 'Course not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Course deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ Admin: Error deleting course:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete course',
+      details: error.message
+    });
+  }
+});
+
+// PATCH /api/updated-courses/admin/:id/status
+router.patch('/admin/:id/status', authenticateUser, async (req, res) => {
+  try {
+    const { status } = req.body;
+    
+    if (!['draft', 'published', 'archived'].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid status. Must be: draft, published, or archived'
+      });
+    }
+
+    const course = await UpdatedCourse.findByIdAndUpdate(
+      req.params.id,
+      { 
+        status,
+        updatedBy: req.user.uid || req.user.email || 'admin'
+      },
+      { new: true }
+    );
+
+    if (!course) {
+      return res.status(404).json({
+        success: false,
+        error: 'Course not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      course: course,
+      message: `Course status updated to ${status}`
+    });
+
+  } catch (error) {
+    console.error('❌ Admin: Error updating course status:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update course status'
+    });
+  }
+});
+
+// PATCH /api/updated-courses/admin/:id/toggle-premium
+router.patch('/admin/:id/toggle-premium', authenticateUser, async (req, res) => {
+  try {
+    const course = await UpdatedCourse.findById(req.params.id);
+
+    if (!course) {
+      return res.status(404).json({
+        success: false,
+        error: 'Course not found'
+      });
+    }
+
+    await course.togglePremium();
+    course.updatedBy = req.user.uid || req.user.email || 'admin';
+    await course.save();
+
+    res.json({
+      success: true,
+      course: course,
+      message: `Course is now ${course.isPremium ? 'premium' : 'free'}`
+    });
+
+  } catch (error) {
+    console.error('❌ Admin: Error toggling premium status:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to toggle premium status'
+    });
+  }
+});
+
+// GET /api/updated-courses/admin/stats
+router.get('/admin/stats', authenticateUser, async (req, res) => {
+  try {
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    
+    const [
+      total,
+      published,
+      draft,
+      archived,
+      premium,
+      free,
+      recentlyCreated,
+      structured,
+      traditional
+    ] = await Promise.all([
+      UpdatedCourse.countDocuments(),
+      UpdatedCourse.countDocuments({ status: 'published' }),
+      UpdatedCourse.countDocuments({ status: 'draft' }),
+      UpdatedCourse.countDocuments({ status: 'archived' }),
+      UpdatedCourse.countDocuments({ isPremium: true }),
+      UpdatedCourse.countDocuments({ isPremium: false }),
+      UpdatedCourse.countDocuments({ createdAt: { $gte: thirtyDaysAgo } }),
+      UpdatedCourse.countDocuments({ 'lessons.0': { $exists: true } }),
+      UpdatedCourse.countDocuments({ 'curriculum.0': { $exists: true } })
+    ]);
+
+    const stats = {
+      overview: {
+        total,
+        published,
+        draft,
+        archived,
+        recentlyCreated
+      },
+      premium: {
+        total: premium,
+        free: free,
+        premiumPercentage: total > 0 ? Math.round((premium / total) * 100) : 0
+      },
+      format: {
+        structured: structured,
+        traditional: traditional,
+        mixed: total - structured - traditional
+      }
+    };
+
+    res.json({
+      success: true,
+      stats
+    });
+
+  } catch (error) {
+    console.error('❌ Admin: Error fetching statistics:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch statistics'
+    });
+  }
+});
+
+// ✅ NEW: Add individual lesson to existing course
+router.post('/admin/:courseId/lessons', authenticateUser, async (req, res) => {
+  try {
+    console.log(`📖 Adding lesson to course ${req.params.courseId}`);
+    
+    const course = await UpdatedCourse.findById(req.params.courseId);
+    if (!course) {
+      return res.status(404).json({
+        success: false,
+        error: 'Course not found'
+      });
+    }
+
+    const { lesson } = req.body;
+    
+    // Validate lesson data
+    if (!lesson.title || !lesson.title.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Lesson title is required'
+      });
+    }
+
+    // Process lesson steps with proper structure
+    const processedSteps = (lesson.steps || []).map((step, stepIndex) => {
+      const processedStep = {
+        type: step.type || 'explanation',
+        title: step.title || '',
+        description: step.description || '',
+        content: '',
+        data: {},
+        images: processImages(step.images || [], course.curriculum.length, stepIndex)
+      };
+
+      // Process step content based on type
+      switch (step.type) {
+        case 'explanation':
+        case 'example':
+        case 'reading':
+          const explanationContent = extractContent(step);
+          processedStep.content = explanationContent;
+          processedStep.data = {
+            content: explanationContent,
+            images: processedStep.images
+          };
+          break;
+
+        case 'image':
+          const imageDescription = step.content || step.description || '';
+          processedStep.content = imageDescription;
+          processedStep.data = {
+            images: processedStep.images,
+            description: imageDescription
+          };
+          break;
+
+        case 'practice':
+          const practiceInstructions = extractContent(step) || step.instructions || '';
+          processedStep.content = practiceInstructions;
+          processedStep.data = {
+            instructions: practiceInstructions,
+            type: step.data?.type || 'guided',
+            images: processedStep.images
+          };
+          processedStep.instructions = practiceInstructions;
+          break;
+
+        case 'quiz':
+          const quizData = processQuizData(step);
+          processedStep.content = quizData.length > 0 ? quizData[0].question : '';
+          processedStep.data = quizData;
+          processedStep.quizzes = quizData;
+          if (quizData.length > 0) {
+            processedStep.question = quizData[0].question;
+            processedStep.options = quizData[0].options || [];
+            processedStep.correctAnswer = quizData[0].correctAnswer || 0;
+          }
+          break;
+
+        default:
+          const defaultContent = extractContent(step);
+          processedStep.content = defaultContent;
+          processedStep.data = { content: defaultContent, images: processedStep.images };
+      }
+
+      return processedStep;
+    });
+
+    // Create new lesson with proper structure
+    const newLesson = {
+      title: lesson.title.trim(),
+      description: lesson.description?.trim() || '',
+      duration: lesson.duration || '30 min',
+      order: course.curriculum.length,
+      steps: processedSteps
+    };
+
+    // Add lesson to course curriculum
+    course.curriculum.push(newLesson);
+    course.updatedBy = req.user.uid || req.user.email || 'admin';
+    
+    await course.save();
+
+    console.log('✅ Lesson added successfully');
+
+    res.json({
+      success: true,
+      course: course,
+      lesson: newLesson,
+      message: 'Lesson added successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ Error adding lesson to course:', error);
+    
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({
+        success: false,
+        error: 'Validation error',
+        details: Object.values(error.errors).map(err => err.message)
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: 'Failed to add lesson to course',
+      details: error.message
+    });
+  }
+});
+
+// ✅ NEW: Update individual lesson in existing course
+router.put('/admin/:courseId/lessons/:lessonId', authenticateUser, async (req, res) => {
+  try {
+    console.log(`📖 Updating lesson ${req.params.lessonId} in course ${req.params.courseId}`);
+    
+    const course = await UpdatedCourse.findById(req.params.courseId);
+    if (!course) {
+      return res.status(404).json({
+        success: false,
+        error: 'Course not found'
+      });
+    }
+
+    const { lesson } = req.body;
+    const lessonIndex = course.curriculum.findIndex(l => 
+      l._id.toString() === req.params.lessonId
+    );
+
+    if (lessonIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        error: 'Lesson not found'
+      });
+    }
+
+    // Process lesson steps with proper structure
+    const processedSteps = (lesson.steps || []).map((step, stepIndex) => {
+      const processedStep = {
+        _id: step._id || step.id,
+        type: step.type || 'explanation',
+        title: step.title || '',
+        description: step.description || '',
+        content: '',
+        data: {},
+        images: processImages(step.images || [], lessonIndex, stepIndex),
+        order: step.order !== undefined ? step.order : stepIndex
+      };
+
+      // Process step content based on type (same logic as above)
+      switch (step.type) {
+        case 'explanation':
+        case 'example':
+        case 'reading':
+          const explanationContent = extractContent(step);
+          processedStep.content = explanationContent;
+          processedStep.data = {
+            content: explanationContent,
+            images: processedStep.images
+          };
+          break;
+
+        case 'image':
+          const imageDescription = step.content || step.description || '';
+          processedStep.content = imageDescription;
+          processedStep.data = {
+            images: processedStep.images,
+            description: imageDescription
+          };
+          break;
+
+        case 'practice':
+          const practiceInstructions = extractContent(step) || step.instructions || '';
+          processedStep.content = practiceInstructions;
+          processedStep.data = {
+            instructions: practiceInstructions,
+            type: step.data?.type || 'guided',
+            images: processedStep.images
+          };
+          processedStep.instructions = practiceInstructions;
+          break;
+
+        case 'quiz':
+          const quizData = processQuizData(step);
+          processedStep.content = quizData.length > 0 ? quizData[0].question : '';
+          processedStep.data = quizData;
+          processedStep.quizzes = quizData;
+          if (quizData.length > 0) {
+            processedStep.question = quizData[0].question;
+            processedStep.options = quizData[0].options || [];
+            processedStep.correctAnswer = quizData[0].correctAnswer || 0;
+          }
+          break;
+
+        default:
+          const defaultContent = extractContent(step);
+          processedStep.content = defaultContent;
+          processedStep.data = { content: defaultContent, images: processedStep.images };
+      }
+
+      return processedStep;
+    });
+
+    // Update the lesson
+    course.curriculum[lessonIndex] = {
+      ...course.curriculum[lessonIndex],
+      title: lesson.title.trim(),
+      description: lesson.description?.trim() || '',
+      duration: lesson.duration || '30 min',
+      steps: processedSteps,
+      updatedAt: new Date().toISOString()
+    };
+
+    course.updatedBy = req.user.uid || req.user.email || 'admin';
+    await course.save();
+
+    console.log('✅ Lesson updated successfully');
+
+    res.json({
+      success: true,
+      course: course,
+      lesson: course.curriculum[lessonIndex],
+      message: 'Lesson updated successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ Error updating lesson:', error);
+    
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({
+        success: false,
+        error: 'Validation error',
+        details: Object.values(error.errors).map(err => err.message)
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update lesson',
+      details: error.message
+    });
+  }
+});
+
+// ✅ NEW: Delete individual lesson from existing course
+router.delete('/admin/:courseId/lessons/:lessonId', authenticateUser, async (req, res) => {
+  try {
+    console.log(`🗑️ Deleting lesson ${req.params.lessonId} from course ${req.params.courseId}`);
+    
+    const course = await UpdatedCourse.findById(req.params.courseId);
+    if (!course) {
+      return res.status(404).json({
+        success: false,
+        error: 'Course not found'
+      });
+    }
+
+    const lessonIndex = course.curriculum.findIndex(l => 
+      l._id.toString() === req.params.lessonId
+    );
+
+    if (lessonIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        error: 'Lesson not found'
+      });
+    }
+
+    // Remove the lesson and reorder remaining lessons
+    course.curriculum.splice(lessonIndex, 1);
+    course.curriculum = course.curriculum.map((lesson, index) => ({
+      ...lesson,
+      order: index
+    }));
+
+    course.updatedBy = req.user.uid || req.user.email || 'admin';
+    await course.save();
+
+    console.log('✅ Lesson deleted successfully');
+
+    res.json({
+      success: true,
+      course: course,
+      message: 'Lesson deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ Error deleting lesson:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete lesson',
+      details: error.message
+    });
+  }
+});
+
+// ✅ NEW: Bulk create course with lessons (import full course structure)
+router.post('/admin/bulk-create', authenticateUser, async (req, res) => {
+  try {
+    console.log('📦 Bulk creating course with lessons');
+    
+    const { courseData } = req.body;
+    
+    if (!courseData || !courseData.title || !courseData.lessons) {
+      return res.status(400).json({
+        success: false,
+        error: 'Course data with title and lessons is required'
+      });
+    }
+
+    // Process the full course curriculum
+    const processedCurriculum = (courseData.lessons || []).map((lesson, lessonIndex) => {
+      const processedLesson = {
+        title: lesson.title || `Lesson ${lessonIndex + 1}`,
+        description: lesson.description || '',
+        duration: lesson.duration || '30 min',
+        order: lessonIndex
+      };
+
+      if (lesson.steps && lesson.steps.length > 0) {
+        processedLesson.steps = lesson.steps.map((step, stepIndex) => {
+          const processedStep = {
+            type: step.type || 'explanation',
+            title: step.title || '',
+            description: step.description || '',
+            content: '',
+            data: {},
+            images: processImages(step.images || [], lessonIndex, stepIndex)
+          };
+
+          // Process step content (same logic as individual lesson creation)
+          switch (step.type) {
+            case 'explanation':
+            case 'example':
+            case 'reading':
+              const explanationContent = extractContent(step) || 
+                `This is a ${step.type} step that explains an important concept.`;
+              processedStep.content = explanationContent;
+              processedStep.data = {
+                content: explanationContent,
+                images: processedStep.images
+              };
+              break;
+
+            case 'image':
+              const imageDescription = step.content || step.description || '';
+              processedStep.content = imageDescription;
+              processedStep.data = {
+                images: processedStep.images,
+                description: imageDescription
+              };
+              break;
+
+            case 'practice':
+              const practiceInstructions = extractContent(step) || step.instructions || '';
+              processedStep.content = practiceInstructions;
+              processedStep.data = {
+                instructions: practiceInstructions,
+                type: step.data?.type || 'guided',
+                images: processedStep.images
+              };
+              processedStep.instructions = practiceInstructions;
+              break;
+
+            case 'quiz':
+              const quizData = processQuizData(step);
+              processedStep.content = quizData.length > 0 ? quizData[0].question : '';
+              processedStep.data = quizData;
+              processedStep.quizzes = quizData;
+              break;
+
+            default:
+              const defaultContent = extractContent(step);
+              processedStep.content = defaultContent;
+              processedStep.data = { content: defaultContent, images: processedStep.images };
+          }
+
+          return processedStep;
+        });
+      } else {
+        processedLesson.steps = [];
+      }
+
+      return processedLesson;
+    });
+
+    // Create the course with all lessons
+    const fullCourseData = {
+      title: courseData.title.trim(),
+      description: courseData.description?.trim() || '',
+      fullDescription: courseData.fullDescription?.trim() || '',
+      category: courseData.category || 'General',
+      difficulty: courseData.difficulty || 'Начинающий',
+      duration: courseData.duration || '10 hours',
+      thumbnail: courseData.thumbnail || '',
+      isPremium: Boolean(courseData.isPremium),
+      isActive: Boolean(courseData.isActive !== false),
+      status: courseData.status || 'published',
+      instructor: {
+        name: courseData.instructor?.name?.trim() || 'Instructor',
+        avatar: courseData.instructor?.avatar?.trim() || '',
+        bio: courseData.instructor?.bio?.trim() || ''
+      },
+      curriculum: processedCurriculum,
+      tools: Array.isArray(courseData.tools) ? courseData.tools : [],
+      tags: Array.isArray(courseData.tags) ? courseData.tags : [],
+      requirements: Array.isArray(courseData.requirements) ? courseData.requirements : [],
+      learningOutcomes: Array.isArray(courseData.learningOutcomes) ? courseData.learningOutcomes : [],
+      targetAudience: Array.isArray(courseData.targetAudience) ? courseData.targetAudience : [],
+      certificateOffered: Boolean(courseData.certificateOffered),
+      estimatedTime: {
+        hours: parseInt(courseData.estimatedTime?.hours) || 10,
+        weeks: parseInt(courseData.estimatedTime?.weeks) || 2
+      },
+      isGuide: Boolean(courseData.isGuide),
+      guidePdfUrl: courseData.guidePdfUrl || '',
+      createdBy: req.user.uid || req.user.email || 'admin',
+      updatedBy: req.user.uid || req.user.email || 'admin'
+    };
+
+    const course = new UpdatedCourse(fullCourseData);
+    await course.save();
+
+    console.log('✅ Bulk course created successfully with', processedCurriculum.length, 'lessons');
+
+    res.status(201).json({
+      success: true,
+      course: course,
+      lessonsCreated: processedCurriculum.length,
+      message: `Course created successfully with ${processedCurriculum.length} lessons`
+    });
+
+  } catch (error) {
+    console.error('❌ Error bulk creating course:', error);
+    
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({
+        success: false,
+        error: 'Validation error',
+        details: Object.values(error.errors).map(err => err.message)
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: 'Failed to bulk create course',
+      details: error.message
+    });
+  }
+});
+
+
 // ========================================
 // 🔧 HELPER FUNCTIONS FOR STRUCTURED FORMAT
 // ========================================
@@ -1416,169 +2052,5 @@ function generateCurriculumStats(curriculum) {
   };
 }
 
-// [Include remaining existing routes: DELETE, PATCH, GET stats, bulk operations, etc.]
-
-// DELETE /api/updated-courses/admin/:id
-router.delete('/admin/:id', authenticateUser, async (req, res) => {
-  try {
-    const course = await UpdatedCourse.findByIdAndDelete(req.params.id);
-
-    if (!course) {
-      return res.status(404).json({
-        success: false,
-        error: 'Course not found'
-      });
-    }
-
-    res.json({
-      success: true,
-      message: 'Course deleted successfully'
-    });
-
-  } catch (error) {
-    console.error('❌ Admin: Error deleting course:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to delete course',
-      details: error.message
-    });
-  }
-});
-
-// PATCH /api/updated-courses/admin/:id/status
-router.patch('/admin/:id/status', authenticateUser, async (req, res) => {
-  try {
-    const { status } = req.body;
-    
-    if (!['draft', 'published', 'archived'].includes(status)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid status. Must be: draft, published, or archived'
-      });
-    }
-
-    const course = await UpdatedCourse.findByIdAndUpdate(
-      req.params.id,
-      { 
-        status,
-        updatedBy: req.user.uid || req.user.email || 'admin'
-      },
-      { new: true }
-    );
-
-    if (!course) {
-      return res.status(404).json({
-        success: false,
-        error: 'Course not found'
-      });
-    }
-
-    res.json({
-      success: true,
-      course: course,
-      message: `Course status updated to ${status}`
-    });
-
-  } catch (error) {
-    console.error('❌ Admin: Error updating course status:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to update course status'
-    });
-  }
-});
-
-// PATCH /api/updated-courses/admin/:id/toggle-premium
-router.patch('/admin/:id/toggle-premium', authenticateUser, async (req, res) => {
-  try {
-    const course = await UpdatedCourse.findById(req.params.id);
-
-    if (!course) {
-      return res.status(404).json({
-        success: false,
-        error: 'Course not found'
-      });
-    }
-
-    await course.togglePremium();
-    course.updatedBy = req.user.uid || req.user.email || 'admin';
-    await course.save();
-
-    res.json({
-      success: true,
-      course: course,
-      message: `Course is now ${course.isPremium ? 'premium' : 'free'}`
-    });
-
-  } catch (error) {
-    console.error('❌ Admin: Error toggling premium status:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to toggle premium status'
-    });
-  }
-});
-
-// GET /api/updated-courses/admin/stats
-router.get('/admin/stats', authenticateUser, async (req, res) => {
-  try {
-    const now = new Date();
-    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    
-    const [
-      total,
-      published,
-      draft,
-      archived,
-      premium,
-      free,
-      recentlyCreated,
-      structured,
-      traditional
-    ] = await Promise.all([
-      UpdatedCourse.countDocuments(),
-      UpdatedCourse.countDocuments({ status: 'published' }),
-      UpdatedCourse.countDocuments({ status: 'draft' }),
-      UpdatedCourse.countDocuments({ status: 'archived' }),
-      UpdatedCourse.countDocuments({ isPremium: true }),
-      UpdatedCourse.countDocuments({ isPremium: false }),
-      UpdatedCourse.countDocuments({ createdAt: { $gte: thirtyDaysAgo } }),
-      UpdatedCourse.countDocuments({ 'lessons.0': { $exists: true } }),
-      UpdatedCourse.countDocuments({ 'curriculum.0': { $exists: true } })
-    ]);
-
-    const stats = {
-      overview: {
-        total,
-        published,
-        draft,
-        archived,
-        recentlyCreated
-      },
-      premium: {
-        total: premium,
-        free: free,
-        premiumPercentage: total > 0 ? Math.round((premium / total) * 100) : 0
-      },
-      format: {
-        structured: structured,
-        traditional: traditional,
-        mixed: total - structured - traditional
-      }
-    };
-
-    res.json({
-      success: true,
-      stats
-    });
-
-  } catch (error) {
-    console.error('❌ Admin: Error fetching statistics:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch statistics'
-    });
-  }
-});
 
 module.exports = router;
