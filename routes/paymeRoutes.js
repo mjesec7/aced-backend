@@ -2,6 +2,7 @@
 
 const express = require('express');
 const router = express.Router();
+const User = require('../models/user'); // ✅ User model imported at the top
 const { 
   applyPromoCode, 
   initiatePaymePayment, 
@@ -69,7 +70,6 @@ router.post('/generate-form', async (req, res) => {
       });
     }
 
-    const User = require('../models/user');
     const user = await User.findOne({ firebaseId: userId });
     
     if (!user) {
@@ -156,7 +156,6 @@ router.post('/generate-button', async (req, res) => {
   try {
     const { userId, plan, type = 'button', style = 'colored', lang = 'ru' } = req.body;
     
-    const User = require('../models/user');
     const user = await User.findOne({ firebaseId: userId });
     
     if (!user) {
@@ -249,7 +248,6 @@ router.get('/payme/return/success', async (req, res) => {
       // Update user subscription if transaction is valid
       if (transaction.account?.user_id) {
         try {
-          const User = require('../models/user');
           const user = await User.findOne({ firebaseId: transaction.account.user_id });
           
           if (user && transaction.plan) {
@@ -418,7 +416,6 @@ router.post('/initiate-payme', async (req, res) => {
     }
 
     // Find user
-    const User = require('../models/user');
     let user = await User.findOne({ firebaseId: userId }).catch(() => null) ||
                await User.findById(userId).catch(() => null) ||
                await User.findOne({ email: userId }).catch(() => null);
@@ -622,15 +619,11 @@ router.post('/complete', async (req, res) => {
   try {
     const { transactionId, userId, plan } = req.body;
     
-    
-    // Find user and update subscription
-    const User = require('../models/user');
     let user = await User.findOne({ firebaseId: userId });
     
     if (!user) {
-      // Try other search methods
-      user = await User.findById(userId).catch(() => null) ||
-             await User.findOne({ email: userId }).catch(() => null);
+      // Try finding by MongoDB _id as a fallback
+      user = await User.findById(userId).catch(() => null);
     }
     
     if (!user) {
@@ -640,19 +633,20 @@ router.post('/complete', async (req, res) => {
       });
     }
     
-    // Update subscription
-    user.subscriptionPlan = plan;
+    // ✅ FIX: Grant a 365-day subscription for the successful payment.
+    // This correctly sets the plan, expiry date, and source in the database.
+    await user.grantSubscription(plan, 365, 'payment');
+    
+    // Update other payment-related fields
     user.paymentStatus = 'paid';
-    user.lastPaymentDate = new Date();
     await user.save();
     
-    // Update transaction if exists
-    if (sandboxTransactions && sandboxTransactions.has(transactionId)) {
+    // Update sandbox transaction if it exists in memory
+    if (typeof sandboxTransactions !== 'undefined' && sandboxTransactions.has(transactionId)) {
       const transaction = sandboxTransactions.get(transactionId);
-      transaction.state = 2; // Completed
+      transaction.state = 2; // Mark as Completed
       transaction.perform_time = Date.now();
     }
-    
     
     return res.json({
       success: true,
@@ -660,12 +654,8 @@ router.post('/complete', async (req, res) => {
       user: {
         id: user._id,
         plan: user.subscriptionPlan,
+        expiryDate: user.subscriptionExpiryDate, // Return the new expiry date
         paymentStatus: user.paymentStatus
-      },
-      transaction: {
-        id: transactionId,
-        status: 'completed',
-        completedAt: new Date().toISOString()
       }
     });
     

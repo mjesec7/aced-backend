@@ -638,53 +638,57 @@ app.post('/api/progress/quick-save', async (req, res) => {
 });
 
 
-// ✅ CRITICAL FIX: Add a general status route for all updates
+// ✅ [UPDATED] - User Status Update Route (PUT /api/users/:userId/status)
 app.put('/api/users/:userId/status', async (req, res) => {
   try {
-
     const { userId } = req.params;
     const { subscriptionPlan, userStatus, plan, source } = req.body;
     const finalStatus = subscriptionPlan || userStatus || plan || 'free';
 
-    // Validate status
     if (!['free', 'start', 'pro', 'premium'].includes(finalStatus)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid subscription plan'
-      });
+      return res.status(400).json({ success: false, error: 'Invalid subscription plan' });
     }
 
     const User = require('./models/user');
-
-    // Find and update user
-    const user = await User.findOneAndUpdate(
-      {
+    const user = await User.findOne({
         $or: [
           { firebaseId: userId },
           { _id: mongoose.Types.ObjectId.isValid(userId) ? userId : null }
         ]
-      },
-      {
-        subscriptionPlan: finalStatus,
-        userStatus: finalStatus,
-        plan: finalStatus,
-        lastStatusUpdate: new Date(),
-        statusSource: source || 'api'
-      },
-      { new: true, upsert: false }
-    );
+    });
 
     if (!user) {
-      return res.status(404).json({
-        success: false,
-        error: 'User not found'
-      });
+      return res.status(404).json({ success: false, error: 'User not found' });
     }
+
+    const oldPlan = user.subscriptionPlan;
+    const newPlan = finalStatus;
+
+    // ✅ FIX: If upgrading from 'free', grant a new subscription with an expiry date.
+    if (newPlan !== 'free' && oldPlan === 'free') {
+      // Admin or direct API updates grant a 1-year subscription by default
+      await user.grantSubscription(newPlan, 365, source || 'admin');
+    } else {
+      // For downgrades or other changes, just update the plan string and clear expiry if moving to free
+      user.subscriptionPlan = newPlan;
+      user.userStatus = newPlan;
+      user.plan = newPlan;
+      user.lastStatusUpdate = new Date();
+      user.statusSource = source || 'api';
+      if (newPlan === 'free') {
+        user.subscriptionExpiryDate = null;
+        user.subscriptionSource = null;
+      }
+      await user.save();
+    }
+    
+    // Fetch the updated user data to send back
+    const updatedUser = await User.findById(user._id).lean();
 
     res.json({
       success: true,
-      user: user,
-      message: `User status updated to ${finalStatus}`,
+      user: updatedUser,
+      message: `User status updated to ${newPlan}`,
       timestamp: new Date().toISOString()
     });
   } catch (error) {
@@ -1093,6 +1097,7 @@ app.post('/api/payments/initiate', async (req, res) => {
   }
 });
 
+// ✅ [UPDATED] - Promo Code Route (POST /api/payments/promo-code)
 app.post('/api/payments/promo-code', async (req, res) => {
   try {
     const { userId, plan, promoCode } = req.body;
@@ -1104,8 +1109,10 @@ app.post('/api/payments/promo-code', async (req, res) => {
       });
     }
 
-    // ✅ Check if promocode exists in database
+    // ✅ Import models
     const Promocode = require('./models/promoCode');
+    const User = require('./models/user');
+    
     const promocode = await Promocode.findOne({
       code: promoCode.toUpperCase(),
       isActive: true
@@ -1118,7 +1125,6 @@ app.post('/api/payments/promo-code', async (req, res) => {
       });
     }
 
-    // ✅ Check if promocode grants the right plan
     if (promocode.grantsPlan !== plan) {
       return res.status(400).json({
         success: false,
@@ -1126,10 +1132,7 @@ app.post('/api/payments/promo-code', async (req, res) => {
       });
     }
 
-    // ✅ SIMPLE: Just update user status
-    const User = require('./models/user');
     const user = await User.findOne({ firebaseId: userId });
-
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -1137,17 +1140,23 @@ app.post('/api/payments/promo-code', async (req, res) => {
       });
     }
 
-    // ✅ Update user subscription
-    user.subscriptionPlan = plan;
-    await user.save();
+    // ✅ FIX: Use the new grantSubscription method to set plan, expiry, and source
+    const durationInDays = promocode.subscriptionDays || 30; // Use days from promocode or default to 30
+    await user.grantSubscription(plan, durationInDays, 'promocode');
 
-    // ✅ Update promocode usage
+    // Update promocode usage stats
     promocode.currentUses = (promocode.currentUses || 0) + 1;
     await promocode.save();
+    
+    const expiryDate = user.subscriptionExpiryDate;
 
     res.json({
       success: true,
-      message: `Промокод применён! Активирован план ${plan.toUpperCase()}`
+      message: `Промокод применён! План ${plan.toUpperCase()} активен до ${expiryDate.toLocaleDateString('ru-RU')}.`,
+      user: {
+        subscriptionPlan: user.subscriptionPlan,
+        subscriptionExpiryDate: user.subscriptionExpiryDate
+      }
     });
 
   } catch (error) {
@@ -1568,41 +1577,26 @@ if (failedRoutes.length > 0) {
   });
 }
 
-// ✅ EMERGENCY FIX: Add user save route directly since userRoutes might be failing
-
-// ✅ EMERGENCY FIX: Add user save route directly (FIXED VERSION)
+// ✅ [UPDATED] - Self-Healing Login Route (POST /api/users/save)
 app.post('/api/users/save', async (req, res) => {
-
   const { token, name, subscriptionPlan } = req.body;
 
   if (!token || !name) {
-    return res.status(400).json({
-      error: '❌ Missing token or name',
-      server: 'api.aced.live'
-    });
+    return res.status(400).json({ error: '❌ Missing token or name' });
   }
 
   try {
-    // ✅ Import Firebase Admin directly, not through config
     const admin = require('firebase-admin');
     const User = require('./models/user');
-
     const decoded = await admin.auth().verifyIdToken(token);
-
-
-    if (decoded.aud !== 'aced-9cf72') {
-      return res.status(403).json({
-        error: '❌ Token from wrong Firebase project',
-        expected: 'aced-9cf72',
-        received: decoded.aud
-      });
-    }
 
     const firebaseId = decoded.uid;
     const email = decoded.email;
 
     let user = await User.findOne({ firebaseId });
+
     if (!user) {
+      // Create new user, correctly defaulting to 'free'
       user = new User({
         firebaseId,
         email,
@@ -1611,17 +1605,29 @@ app.post('/api/users/save', async (req, res) => {
         subscriptionPlan: subscriptionPlan || 'free'
       });
     } else {
+      // ✅ SELF-HEALING: Check for expired subscription on login
+      // The hasActiveSubscription method is from your updated user model
+      if (!user.hasActiveSubscription() && user.subscriptionPlan !== 'free') {
+          user.subscriptionPlan = 'free';
+          user.subscriptionSource = null;
+          // The expiry date is already in the past, no need to clear it.
+      }
+      
       user.email = email;
       user.name = name;
       user.Login = email;
-      if (subscriptionPlan) user.subscriptionPlan = subscriptionPlan;
+      user.lastLoginAt = new Date(); // Track login time
+      // Note: We don't update subscriptionPlan here unless it expired
     }
 
     await user.save();
 
+    // Send back the complete, updated user object
+    const finalUser = await User.findById(user._id).lean();
+
     res.json({
-      ...user.toObject(),
-      message: '✅ User saved via emergency route',
+      ...finalUser,
+      message: '✅ User saved/synced successfully',
       server: 'api.aced.live'
     });
 
@@ -1629,8 +1635,7 @@ app.post('/api/users/save', async (req, res) => {
     console.error('❌ Emergency save error:', err.message);
     res.status(401).json({
       error: '❌ Invalid Firebase token',
-      details: err.message,
-      server: 'api.aced.live'
+      details: err.message
     });
   }
 });

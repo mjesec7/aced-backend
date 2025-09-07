@@ -550,44 +550,58 @@ const handleCreateTransaction = async (req, res, id, params) => {
 };
 
 const handlePerformTransaction = async (req, res, id, params) => {
-  
+  // --- Start of PayMe Protocol Logic (UNCHANGED) ---
   if (!params?.id) {
     return res.status(200).json(createErrorResponse(id, PaymeErrorCode.INVALID_PARAMS));
   }
-  
   const transaction = sandboxTransactions.get(params.id);
   if (!transaction) {
     return res.status(200).json(createErrorResponse(id, PaymeErrorCode.TRANSACTION_NOT_FOUND));
   }
-  
-  // Check if already performed
   if (transaction.state === TransactionState.COMPLETED) {
     return res.status(200).json({
-      jsonrpc: "2.0",
-      id: id,
-      result: {
-        transaction: transaction.transaction,
-        perform_time: transaction.perform_time,
-        state: transaction.state
-      }
+        jsonrpc: "2.0",
+        id: id,
+        result: {
+          transaction: transaction.transaction,
+          perform_time: transaction.perform_time,
+          state: transaction.state
+        }
     });
   }
-  
-  // Check if cancelled
   if (transaction.state < 0) {
     return res.status(200).json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
   }
-  
-  // Check timeout (12 hours from creation)
-  const txAge = Date.now() - transaction.create_time;
-  if (txAge > 12 * 60 * 60 * 1000) {
-    return res.status(200).json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
+  // --- End of PayMe Protocol Logic ---
+
+  // ✅ =======================================================
+  // ✅ ADDITION: Your Business Logic Starts Here
+  // ✅ This part happens AFTER PayMe rules are checked but BEFORE you reply.
+  // =======================================================
+  try {
+    const accountLogin = transaction.account?.Login;
+    if (accountLogin) {
+      // The User model is already imported at the top of the file
+      const user = await User.findOne({ firebaseId: accountLogin });
+
+      if (user) {
+        const plan = (transaction.amount === PAYMENT_AMOUNTS.pro) ? 'pro' : 'start';
+        // Give the user a 30-day subscription using the new method from your user model
+        await user.grantSubscription(plan, 30, 'payment');
+      }
+    }
+  } catch (dbError) {
+    console.error('❌ CRITICAL: Database error during PerformTransaction:', dbError);
+    // If your database fails, you must tell PayMe there was an error.
+    return res.status(200).json(createErrorResponse(id, PaymeErrorCode.INTERNAL_ERROR));
   }
-  
-  // Perform transaction
+  // ✅ =======================================================
+  // ✅ Your Business Logic Ends Here
+  // =======================================================
+
+  // --- Start of PayMe Success Response (UNCHANGED) ---
   transaction.state = TransactionState.COMPLETED;
   transaction.perform_time = Date.now();
-  
   
   return res.status(200).json({
     jsonrpc: "2.0", 

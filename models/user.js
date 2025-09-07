@@ -1,462 +1,416 @@
-// models/user.js - ENHANCED VERSION WITH AI INTEGRATION SUPPORT
+// models/user.js - MERGED & ENHANCED VERSION
 const mongoose = require('mongoose');
 
-// ✅ Study List Entry Schema
+// --- Sub-Schemas (Organized for clarity) ---
+
 const studyTopicSchema = new mongoose.Schema({
-  topicId: { type: mongoose.Schema.Types.ObjectId, ref: 'Topic', required: true },
-  subject: { type: String, required: true },
-  name: { type: String, required: true },
-  level: { type: String, default: 'basic' },
-  addedAt: { type: Date, default: Date.now }
+    topicId: { type: mongoose.Schema.Types.ObjectId, ref: 'Topic', required: true },
+    subject: { type: String, required: true },
+    name: { type: String, required: true },
+    level: { type: String, default: 'basic' },
+    addedAt: { type: Date, default: Date.now }
 }, { _id: false });
 
-// ✅ Goal Schema
 const goalSchema = new mongoose.Schema({
-  title: { type: String, required: true },
-  subject: String,
-  startDate: Date,
-  endDate: Date,
-  targetLessons: { type: Number, default: 0 },
-  completedLessons: { type: Number, default: 0 },
-  progress: { type: Number, default: 0 }
+    title: { type: String, required: true },
+    subject: String,
+    startDate: Date,
+    endDate: Date,
+    targetLessons: { type: Number, default: 0 },
+    completedLessons: { type: Number, default: 0 },
+    progress: { type: Number, default: 0 }
 }, { _id: false });
 
-// ✅ Diary Entry Schema
 const diaryEntrySchema = new mongoose.Schema({
-  date: { type: Date, required: true },
-  studyMinutes: Number,
-  completedTopics: Number,
-  averageGrade: Number
+    date: { type: Date, required: true },
+    studyMinutes: Number,
+    completedTopics: Number,
+    averageGrade: Number
 }, { _id: false });
 
-// ✅ Homework Submission Schema
 const homeworkSubmissionSchema = new mongoose.Schema({
-  lessonId: { type: mongoose.Schema.Types.ObjectId, ref: 'Lesson', required: true },
-  questions: [ // Manual and auto
-    {
-      question: String,
-      userAnswer: String,
-      correctAnswer: String,
-      isCorrect: Boolean,
-      submittedAt: { type: Date, default: Date.now }
-    }
-  ],
-  score: Number,
-  submittedAt: { type: Date, default: Date.now }
+    lessonId: { type: mongoose.Schema.Types.ObjectId, ref: 'Lesson', required: true },
+    questions: [{
+        question: String,
+        userAnswer: String,
+        correctAnswer: String,
+        isCorrect: Boolean,
+        submittedAt: { type: Date, default: Date.now }
+    }],
+    score: Number,
+    submittedAt: { type: Date, default: Date.now }
 }, { _id: false });
 
-// ✅ Test Result Schema
 const testResultSchema = new mongoose.Schema({
-  testId: { type: mongoose.Schema.Types.ObjectId, ref: 'Test', required: true },
-  topic: String,
-  type: { type: String, enum: ['grammar', 'vocab'] },
-  questions: [
-    {
-      question: String,
-      selected: String,
-      correctAnswer: String,
-      isCorrect: Boolean
-    }
-  ],
-  score: Number,
-  total: Number,
-  date: { type: Date, default: Date.now }
+    testId: { type: mongoose.Schema.Types.ObjectId, ref: 'Test', required: true },
+    topic: String,
+    type: { type: String, enum: ['grammar', 'vocab'] },
+    questions: [{
+        question: String,
+        selected: String,
+        correctAnswer: String,
+        isCorrect: Boolean
+    }],
+    score: Number,
+    total: Number,
+    date: { type: Date, default: Date.now }
 }, { _id: false });
 
-// ✅ ENHANCED: AI Usage Schema (renamed from monthlyUsageSchema for clarity)
 const aiUsageSchema = new mongoose.Schema({
-  messages: { type: Number, default: 0 },
-  images: { type: Number, default: 0 },
-  lastUsed: { type: Date, default: Date.now },
-  // ✅ NEW: AI Context tracking
-  contexts: {
-    general: { type: Number, default: 0 },        // General chat
-    lesson: { type: Number, default: 0 },          // Lesson-specific help
-    explanation: { type: Number, default: 0 },     // Help with explanations
-    exercise: { type: Number, default: 0 },        // Exercise assistance
-    hint: { type: Number, default: 0 },            // Smart hints
-    homework: { type: Number, default: 0 }         // Homework help
-  },
-  // ✅ NEW: Lesson-specific usage tracking
-  lessonUsage: {
-    type: Map,
-    of: Number,
-    default: new Map()
-  }
+    messages: { type: Number, default: 0 },
+    images: { type: Number, default: 0 },
+    lastUsed: { type: Date, default: Date.now },
+    contexts: {
+        general: { type: Number, default: 0 },
+        lesson: { type: Number, default: 0 },
+        explanation: { type: Number, default: 0 },
+        exercise: { type: Number, default: 0 },
+        hint: { type: Number, default: 0 },
+        homework: { type: Number, default: 0 }
+    },
+    lessonUsage: {
+        type: Map,
+        of: Number,
+        default: new Map()
+    }
 }, { _id: false });
 
-// ✅ Main User Schema
+
+// --- Main User Schema ---
+
 const userSchema = new mongoose.Schema({
-  // 🔐 Firebase Credentials
-  firebaseId: { type: String, required: true, unique: true },
-  Login: { type: String, required: true, unique: true },
-  name: String,
-  email: { type: String, required: true, unique: true },
-  photoURL: String,
+    // --- Core Identification & Credentials ---
+    firebaseId: { type: String, required: true, unique: true, index: true },
+    Login: { type: String, required: true, unique: true }, // For PayMe compatibility
+    name: String,
+    email: { type: String, required: true, unique: true, index: true },
+    photoURL: String,
+    role: { type: String, enum: ['admin', 'user'], default: 'user' },
 
-  // 🧑 Role
-  role: { type: String, enum: ['admin', 'user'], default: 'user' },
+    // --- 💳 Subscription & Status (SERVER-AUTHORITATIVE) ---
+    subscriptionPlan: {
+        type: String,
+        enum: ['free', 'start', 'pro', 'premium'],
+        default: 'free'
+    },
+    subscriptionExpiryDate: { // ✅ CRITICAL: Tracks when the subscription ends
+        type: Date,
+        default: null
+    },
+    subscriptionSource: { // ✅ CRITICAL: Tracks how the subscription was obtained
+        type: String,
+        enum: ['payment', 'promocode', 'admin', 'gift', null],
+        default: null
+    },
+    paymentStatus: {
+        type: String,
+        enum: ['pending', 'paid', 'failed', 'unpaid'],
+        default: 'unpaid'
+    },
+    isBlocked: { type: Boolean, default: false },
+    lastLoginAt: { type: Date },
 
-  // 💳 Subscription Info
-  subscriptionPlan: {
-    type: String,
-    enum: ['free', 'start', 'pro'],
-    default: 'free'
-  },
-  paymentStatus: {
-    type: String,
-    enum: ['pending', 'paid', 'failed', 'unpaid'],
-    default: 'unpaid'
-  },
-  isBlocked: { type: Boolean, default: false },
+    // --- 📚 Learning & Progress ---
+    studyList: [studyTopicSchema],
+    progress: { type: Object, default: {} },
+    homeworkSubmissions: [homeworkSubmissionSchema],
+    testResults: [testResultSchema],
 
-  // 📚 Learning
-  studyList: [studyTopicSchema],
-  progress: {
-    type: Object,
-    default: {} // e.g. { lessonId: { completedSteps: [], completed: true, stars: 3, timeSpent: 900 } }
-  },
+    // --- 🎯 Goals & Diary ---
+    goals: [goalSchema],
+    diary: [diaryEntrySchema],
 
-  // 💡 Homework & Tests
-  homeworkSubmissions: [homeworkSubmissionSchema],
-  testResults: [testResultSchema],
+    // --- 🏆 Gamification & Points ---
+    totalPoints: { type: Number, default: 0 },
+    xp: { type: Number, default: 0 },
+    level: { type: Number, default: 1 },
+    badges: { type: [String], default: [] },
 
-  // 🧠 Points System
-  totalPoints: { type: Number, default: 0 },
+    // --- 🤖 AI & Usage Tracking ---
+    aiUsage: { type: Map, of: aiUsageSchema, default: new Map() },
+    homeworkUsage: { type: Map, of: aiUsageSchema, default: new Map() }, // For backward compatibility
+    lastResetCheck: { type: Date, default: Date.now },
 
-  // 🎯 Goals & Diary
-  goals: [goalSchema],
-  diary: [diaryEntrySchema],
-
-  // 🏆 Gamification
-  xp: { type: Number, default: 0 },
-  level: { type: Number, default: 1 },
-  badges: { type: [String], default: [] },
-
-  // ✅ ENHANCED: AI Usage Tracking (renamed for clarity and enhanced functionality)
-  aiUsage: {
-    type: Map,
-    of: aiUsageSchema,
-    default: new Map()
-  },
-  
-  // ✅ BACKWARD COMPATIBILITY: Keep existing homeworkUsage for legacy support
-  homeworkUsage: {
-    type: Map,
-    of: aiUsageSchema,
-    default: new Map()
-  },
-  
-  lastResetCheck: { type: Date, default: Date.now },
-
-  // 🕐 Timestamps
-  createdAt: { type: Date, default: Date.now }
+}, {
+    // ✅ Automatically add createdAt and updatedAt timestamps
+    timestamps: true
 });
 
-// ✅ ENHANCED: Get current month AI usage (replaces getCurrentMonthUsage)
+
+// --- 💳 Subscription Helper Methods ---
+
+/**
+ * Determines if the user has an active, non-expired subscription.
+ * This is the single source of truth for checking premium status.
+ * @returns {boolean} True if the subscription is active and valid.
+ */
+userSchema.methods.hasActiveSubscription = function() {
+    if (this.subscriptionPlan === 'free' || !this.subscriptionExpiryDate) {
+        return false;
+    }
+    // Check if the expiry date is in the future
+    return this.subscriptionExpiryDate > new Date();
+};
+
+/**
+ * Calculates the number of days remaining until the subscription expires.
+ * @returns {number|null} Days remaining, or null if no expiry date is set. Returns 0 if expired.
+ */
+userSchema.methods.daysUntilExpiry = function() {
+    if (!this.subscriptionExpiryDate) {
+        return null;
+    }
+    const now = new Date();
+    const diffTime = this.subscriptionExpiryDate.getTime() - now.getTime();
+    if (diffTime < 0) return 0; // Expired
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+};
+
+/**
+ * A centralized method to grant or update a user's subscription.
+ * @param {string} plan - The plan to grant ('start', 'pro', 'premium').
+ * @param {number} durationInDays - The validity period of the subscription.
+ * @param {string} source - The source of the subscription ('payment', 'promocode', etc.).
+ */
+userSchema.methods.grantSubscription = async function(plan, durationInDays, source) {
+    const now = new Date();
+    this.subscriptionPlan = plan;
+    this.subscriptionSource = source;
+    // If user already has an active subscription, extend it. Otherwise, create a new one.
+    const startDate = this.hasActiveSubscription() ? this.subscriptionExpiryDate : now;
+    this.subscriptionExpiryDate = new Date(startDate.getTime() + (durationInDays * 24 * 60 * 60 * 1000));
+    await this.save();
+};
+
+
+// --- 🤖 AI Usage Methods ---
+
+/**
+ * Retrieves or initializes the AI usage data for the current calendar month.
+ * @returns {object} The usage object for the current month.
+ */
 userSchema.methods.getCurrentMonthAIUsage = function() {
-  const now = new Date();
-  const monthKey = `${now.getFullYear()}-${now.getMonth()}`;
-  
-  if (!this.aiUsage.has(monthKey)) {
-    this.aiUsage.set(monthKey, { 
-      messages: 0, 
-      images: 0, 
-      lastUsed: new Date(),
-      contexts: {
-        general: 0,
-        lesson: 0,
-        explanation: 0,
-        exercise: 0,
-        hint: 0,
-        homework: 0
-      },
-      lessonUsage: new Map()
-    });
-  }
-  
-  return this.aiUsage.get(monthKey);
+    const now = new Date();
+    const monthKey = `${now.getFullYear()}-${now.getMonth()}`;
+
+    if (!this.aiUsage.has(monthKey)) {
+        this.aiUsage.set(monthKey, {
+            messages: 0,
+            images: 0,
+            lastUsed: new Date(),
+            contexts: { general: 0, lesson: 0, explanation: 0, exercise: 0, hint: 0, homework: 0 },
+            lessonUsage: new Map()
+        });
+    }
+
+    return this.aiUsage.get(monthKey);
 };
 
-// ✅ BACKWARD COMPATIBILITY: Keep existing method name
+// Backward compatibility alias
 userSchema.methods.getCurrentMonthUsage = function() {
-  return this.getCurrentMonthAIUsage();
+    return this.getCurrentMonthAIUsage();
 };
 
-// ✅ ENHANCED: Increment AI usage with context and lesson tracking
+/**
+ * Increments AI usage, tracking messages, images, context, and lesson ID.
+ * @param {object} options - The usage details.
+ * @param {number} [options.messageCount=0] - Number of messages to add.
+ * @param {number} [options.imageCount=0] - Number of images to add.
+ * @param {string} [options.context='general'] - The context of the usage.
+ * @param {string|null} [options.lessonId=null] - The ID of the lesson related to the usage.
+ * @returns {Promise<object>} The updated usage object for the current month.
+ */
 userSchema.methods.incrementAIUsage = async function(options = {}) {
-  const {
-    messageCount = 0,
-    imageCount = 0,
-    context = 'general',
-    lessonId = null
-  } = options;
-  
-  const now = new Date();
-  const monthKey = `${now.getFullYear()}-${now.getMonth()}`;
-  
-  let currentUsage = this.aiUsage.get(monthKey) || { 
-    messages: 0, 
-    images: 0, 
-    lastUsed: new Date(),
-    contexts: {
-      general: 0,
-      lesson: 0,
-      explanation: 0,
-      exercise: 0,
-      hint: 0,
-      homework: 0
-    },
-    lessonUsage: new Map()
-  };
-  
-  // Update totals
-  currentUsage.messages += messageCount;
-  currentUsage.images += imageCount;
-  currentUsage.lastUsed = now;
-  
-  // Update context tracking
-  if (currentUsage.contexts && currentUsage.contexts[context] !== undefined) {
-    currentUsage.contexts[context] += messageCount;
-  }
-  
-  // Update lesson-specific usage
-  if (lessonId && currentUsage.lessonUsage) {
-    const lessonUsageCount = currentUsage.lessonUsage.get(lessonId) || 0;
-    currentUsage.lessonUsage.set(lessonId, lessonUsageCount + messageCount);
-  }
-  
-  this.aiUsage.set(monthKey, currentUsage);
-  
-  // ✅ BACKWARD COMPATIBILITY: Also update homeworkUsage for legacy support
-  this.homeworkUsage.set(monthKey, {
-    messages: currentUsage.messages,
-    images: currentUsage.images,
-    lastUsed: currentUsage.lastUsed
-  });
-  
-  await this.save();
-  return currentUsage;
-};
+    const {
+        messageCount = 0,
+        imageCount = 0,
+        context = 'general',
+        lessonId = null
+    } = options;
 
-// ✅ BACKWARD COMPATIBILITY: Keep existing method name
-userSchema.methods.incrementUsage = async function(messageCount = 0, imageCount = 0) {
-  return this.incrementAIUsage({ messageCount, imageCount });
-};
+    const now = new Date();
+    const monthKey = `${now.getFullYear()}-${now.getMonth()}`;
+    let currentUsage = this.getCurrentMonthAIUsage(); // This ensures the entry exists
 
-// ✅ ENHANCED: Monthly reset with AI data cleanup
-userSchema.methods.checkMonthlyReset = async function() {
-  const now = new Date();
-  const currentMonth = now.getMonth();
-  const currentYear = now.getFullYear();
-  
-  if (!this.lastResetCheck) {
-    this.lastResetCheck = now;
-    await this.save();
-    return false;
-  }
-  
-  const lastReset = new Date(this.lastResetCheck);
-  const lastMonth = lastReset.getMonth();
-  const lastYear = lastReset.getFullYear();
-  
-  // Check if month changed
-  if (currentYear > lastYear || (currentYear === lastYear && currentMonth > lastMonth)) {
-    // Reset current month usage
-    const monthKey = `${currentYear}-${currentMonth}`;
-    const newUsageData = { 
-      messages: 0, 
-      images: 0, 
-      lastUsed: now,
-      contexts: {
-        general: 0,
-        lesson: 0,
-        explanation: 0,
-        exercise: 0,
-        hint: 0,
-        homework: 0
-      },
-      lessonUsage: new Map()
-    };
-    
-    this.aiUsage.set(monthKey, newUsageData);
-    this.homeworkUsage.set(monthKey, { messages: 0, images: 0, lastUsed: now }); // Backward compatibility
-    this.lastResetCheck = now;
-    
-    // Clean up old usage data (keep only last 6 months)
-    const cutoffDate = new Date();
-    cutoffDate.setMonth(cutoffDate.getMonth() - 6);
-    
-    for (const [key] of this.aiUsage) {
-      const [year, month] = key.split('-').map(Number);
-      const keyDate = new Date(year, month);
-      if (keyDate < cutoffDate) {
-        this.aiUsage.delete(key);
-        this.homeworkUsage.delete(key);
-      }
+    // Update totals
+    currentUsage.messages += messageCount;
+    currentUsage.images += imageCount;
+    currentUsage.lastUsed = now;
+
+    // Update context tracking
+    if (currentUsage.contexts && currentUsage.contexts[context] !== undefined) {
+        currentUsage.contexts[context] += messageCount;
     }
-    
-    await this.save();
-    return true;
-  }
-  
-  return false;
-};
 
-// ✅ ENHANCED: Get usage limits based on plan
-userSchema.methods.getUsageLimits = function() {
-  const limits = {
-    free: { messages: 50, images: 5 },
-    start: { messages: -1, images: 20 }, // -1 means unlimited
-    pro: { messages: -1, images: -1 }
-  };
-  
-  return limits[this.subscriptionPlan] || limits.free;
-};
-
-// ✅ ENHANCED: Check if AI usage is within limits
-userSchema.methods.checkAIUsageLimits = function(hasImage = false) {
-  const currentUsage = this.getCurrentMonthAIUsage();
-  const limits = this.getUsageLimits();
-  
-  // Check message limit
-  if (limits.messages !== -1 && currentUsage.messages >= limits.messages) {
-    return {
-      allowed: false,
-      reason: 'message_limit_exceeded',
-      message: `Достигнут лимит сообщений (${limits.messages}) для плана "${this.subscriptionPlan}". Обновите план для продолжения.`
-    };
-  }
-  
-  // Check image limit
-  if (hasImage && limits.images !== -1 && currentUsage.images >= limits.images) {
-    return {
-      allowed: false,
-      reason: 'image_limit_exceeded',
-      message: `Достигнут лимит изображений (${limits.images}) для плана "${this.subscriptionPlan}". Обновите план для продолжения.`
-    };
-  }
-  
-  return {
-    allowed: true,
-    remaining: {
-      messages: limits.messages === -1 ? '∞' : Math.max(0, limits.messages - currentUsage.messages),
-      images: limits.images === -1 ? '∞' : Math.max(0, limits.images - currentUsage.images)
+    // Update lesson-specific usage
+    if (lessonId && currentUsage.lessonUsage) {
+        const lessonUsageCount = currentUsage.lessonUsage.get(lessonId) || 0;
+        currentUsage.lessonUsage.set(lessonId.toString(), lessonUsageCount + messageCount);
     }
-  };
-};
 
-// ✅ BACKWARD COMPATIBILITY: Keep existing method name
-userSchema.methods.checkUsageLimits = function(hasImage = false) {
-  return this.checkAIUsageLimits(hasImage);
-};
+    this.aiUsage.set(monthKey, currentUsage);
 
-// ✅ NEW: Get AI usage statistics
-userSchema.methods.getAIUsageStats = function(months = 3) {
-  const stats = [];
-  const now = new Date();
-  
-  for (let i = 0; i < months; i++) {
-    const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const monthKey = `${date.getFullYear()}-${date.getMonth()}`;
-    const usage = this.aiUsage.get(monthKey) || { 
-      messages: 0, 
-      images: 0, 
-      contexts: {},
-      lessonUsage: new Map()
-    };
-    
-    stats.unshift({
-      month: monthKey,
-      date: date,
-      messages: usage.messages,
-      images: usage.images,
-      contexts: usage.contexts || {},
-      lessonCount: usage.lessonUsage ? usage.lessonUsage.size : 0,
-      totalInteractions: usage.messages + usage.images
+    // Backward compatibility: Also update homeworkUsage
+    this.homeworkUsage.set(monthKey, {
+        messages: currentUsage.messages,
+        images: currentUsage.images,
+        lastUsed: currentUsage.lastUsed
     });
-  }
-  
-  return stats;
+
+    await this.save();
+    return currentUsage;
 };
 
-// ✅ NEW: Get most used lessons
-userSchema.methods.getMostUsedLessons = function(limit = 5) {
-  const currentUsage = this.getCurrentMonthAIUsage();
-  if (!currentUsage.lessonUsage || currentUsage.lessonUsage.size === 0) {
-    return [];
-  }
-  
-  const lessonUsageArray = Array.from(currentUsage.lessonUsage.entries())
-    .map(([lessonId, count]) => ({ lessonId, count }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, limit);
-  
-  return lessonUsageArray;
+// Backward compatibility alias
+userSchema.methods.incrementUsage = async function(messageCount = 0, imageCount = 0) {
+    return this.incrementAIUsage({ messageCount, imageCount });
 };
 
-// ✅ NEW: Get AI context usage breakdown
-userSchema.methods.getContextUsageBreakdown = function() {
-  const currentUsage = this.getCurrentMonthAIUsage();
-  const contexts = currentUsage.contexts || {};
-  
-  const total = Object.values(contexts).reduce((sum, count) => sum + count, 0);
-  
-  if (total === 0) {
-    return {};
-  }
-  
-  const breakdown = {};
-  for (const [context, count] of Object.entries(contexts)) {
-    breakdown[context] = {
-      count: count,
-      percentage: Math.round((count / total) * 100)
+
+/**
+ * Returns the AI usage limits based on the user's current subscription plan.
+ * @returns {{messages: number, images: number}}
+ */
+userSchema.methods.getUsageLimits = function() {
+    const limits = {
+        free: { messages: 50, images: 5 },
+        start: { messages: -1, images: 20 }, // -1 means unlimited
+        pro: { messages: -1, images: -1 },
+        premium: { messages: -1, images: -1 }
     };
-  }
-  
-  return breakdown;
+    return limits[this.subscriptionPlan] || limits.free;
 };
 
-// ✅ NEW: Check if user needs upgrade suggestion
-userSchema.methods.shouldSuggestUpgrade = function() {
-  const currentUsage = this.getCurrentMonthAIUsage();
-  const limits = this.getUsageLimits();
-  const plan = this.subscriptionPlan;
-  
-  // Don't suggest upgrade for pro users
-  if (plan === 'pro') {
-    return { shouldSuggest: false };
-  }
-  
-  // Suggest upgrade based on usage patterns
-  if (plan === 'free') {
-    if (currentUsage.messages > 30 || currentUsage.images > 3) {
-      return {
-        shouldSuggest: true,
-        recommendedPlan: 'start',
-        reason: 'Вы активно используете AI помощника. План Start даст вам безлимитные сообщения.',
-        benefits: ['Безлимитные сообщения', '20 изображений в месяц', 'Приоритетная поддержка']
-      };
+/**
+ * Checks if a user's intended AI usage is within their plan's limits.
+ * @param {boolean} [hasImage=false] - Whether the upcoming request includes an image.
+ * @returns {{allowed: boolean, reason?: string, message?: string, remaining?: {messages: number|string, images: number|string}}}
+ */
+userSchema.methods.checkAIUsageLimits = function(hasImage = false) {
+    const currentUsage = this.getCurrentMonthAIUsage();
+    const limits = this.getUsageLimits();
+
+    if (limits.messages !== -1 && currentUsage.messages >= limits.messages) {
+        return {
+            allowed: false,
+            reason: 'message_limit_exceeded',
+            message: `Message limit (${limits.messages}) reached for your plan. Please upgrade to continue.`
+        };
     }
-  } else if (plan === 'start') {
-    if (currentUsage.images > 15) {
-      return {
-        shouldSuggest: true,
-        recommendedPlan: 'pro',
-        reason: 'Вы часто используете изображения. План Pro даст полную свободу.',
-        benefits: ['Безлимитные сообщения', 'Безлимитные изображения', 'Премиум функции']
-      };
+
+    if (hasImage && limits.images !== -1 && currentUsage.images >= limits.images) {
+        return {
+            allowed: false,
+            reason: 'image_limit_exceeded',
+            message: `Image limit (${limits.images}) reached for your plan. Please upgrade to continue.`
+        };
     }
-  }
-  
-  return { shouldSuggest: false };
+
+    return {
+        allowed: true,
+        remaining: {
+            messages: limits.messages === -1 ? '∞' : Math.max(0, limits.messages - currentUsage.messages),
+            images: limits.images === -1 ? '∞' : Math.max(0, limits.images - currentUsage.images)
+        }
+    };
 };
 
-// ✅ Indexes for better performance
+// Backward compatibility alias
+userSchema.methods.checkUsageLimits = function(hasImage = false) {
+    return this.checkAIUsageLimits(hasImage);
+};
+
+
+/**
+ * Checks if the calendar month has changed and resets monthly usage data if needed.
+ * Also cleans up usage data older than 6 months.
+ * @returns {Promise<boolean>} True if a reset occurred.
+ */
+userSchema.methods.checkMonthlyReset = async function() {
+    const now = new Date();
+    if (!this.lastResetCheck) {
+        this.lastResetCheck = now;
+        await this.save();
+        return false;
+    }
+
+    const lastReset = new Date(this.lastResetCheck);
+    const hasMonthChanged = now.getFullYear() > lastReset.getFullYear() || now.getMonth() > lastReset.getMonth();
+
+    if (hasMonthChanged) {
+        this.lastResetCheck = now;
+
+        // Clean up old usage data (older than 6 months)
+        const cutoffDate = new Date();
+        cutoffDate.setMonth(cutoffDate.getMonth() - 6);
+        for (const [key] of this.aiUsage.keys()) {
+            const [year, month] = key.split('-').map(Number);
+            if (new Date(year, month) < cutoffDate) {
+                this.aiUsage.delete(key);
+                this.homeworkUsage.delete(key); // Also clear legacy data
+            }
+        }
+        
+        await this.save();
+        return true; // A reset (or at least a check and potential cleanup) happened
+    }
+
+    return false;
+};
+
+// --- 📊 AI Analytics Methods ---
+
+/**
+ * Retrieves AI usage statistics for a specified number of past months.
+ * @param {number} [months=3] - The number of months to retrieve stats for.
+ * @returns {Array<object>} An array of monthly usage statistics.
+ */
+userSchema.methods.getAIUsageStats = function(months = 3) {
+    const stats = [];
+    const now = new Date();
+    for (let i = 0; i < months; i++) {
+        const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const monthKey = `${date.getFullYear()}-${date.getMonth()}`;
+        const usage = this.aiUsage.get(monthKey) || { messages: 0, images: 0, contexts: {}, lessonUsage: new Map() };
+        
+        stats.unshift({
+            month: monthKey,
+            messages: usage.messages,
+            images: usage.images,
+            contexts: usage.contexts || {},
+            lessonCount: usage.lessonUsage ? usage.lessonUsage.size : 0,
+        });
+    }
+    return stats;
+};
+
+/**
+ * Gets a breakdown of AI usage by context for the current month.
+ * @returns {object} An object with counts and percentages for each context.
+ */
+userSchema.methods.getContextUsageBreakdown = function() {
+    const { contexts } = this.getCurrentMonthAIUsage();
+    if (!contexts) return {};
+
+    const total = Object.values(contexts).reduce((sum, count) => sum + count, 0);
+    if (total === 0) return {};
+
+    const breakdown = {};
+    for (const [context, count] of Object.entries(contexts)) {
+        breakdown[context] = {
+            count,
+            percentage: Math.round((count / total) * 100)
+        };
+    }
+    return breakdown;
+};
+
+
+// --- Indexes for Performance ---
 userSchema.index({ firebaseId: 1 });
 userSchema.index({ email: 1 });
+userSchema.index({ subscriptionExpiryDate: 1 });
 userSchema.index({ subscriptionPlan: 1 });
-userSchema.index({ lastResetCheck: 1 });
 
 const User = mongoose.model('User', userSchema);
 module.exports = User;
