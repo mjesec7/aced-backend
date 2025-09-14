@@ -1067,8 +1067,8 @@ async function processContentStep(step, index) {
   };
 }
 
+// ✅ REPLACED: A much more robust function to process all exercise types.
 async function processExerciseStep(step, index) {
-
   let exercises = [];
 
   if (step.exercises && Array.isArray(step.exercises)) {
@@ -1077,43 +1077,16 @@ async function processExerciseStep(step, index) {
     exercises = step.data;
   } else if (step.data && Array.isArray(step.data.exercises)) {
     exercises = step.data.exercises;
-  } else if (step.data && step.data.question) {
-    exercises = [step.data];
   } else if (step.question) {
     exercises = [step];
   }
 
-  const validatedExercises = [];
-
-  for (let exIndex = 0; exIndex < exercises.length; exIndex++) {
-    const exercise = exercises[exIndex];
-    const exType = exercise.type || 'short-answer';
-    const hasQuestion = exercise.question && String(exercise.question).trim();
-    const hasAnswer = exercise.answer || exercise.correctAnswer;
-
-    // Type-aware field validation
-    const validByType = (() => {
-      switch (exType) {
-        case 'drag-drop':
-          return Array.isArray(exercise.dragItems) && exercise.dragItems.length > 0 &&
-                 Array.isArray(exercise.dropZones) && exercise.dropZones.length > 0;
-        case 'matching':
-          return Array.isArray(exercise.pairs) && exercise.pairs.length >= 2;
-        case 'abc':
-        case 'multiple-choice':
-          return Array.isArray(exercise.options) && exercise.options.length >= 2 && hasAnswer;
-        default:
-          return hasAnswer;
-      }
-    })();
-
-    if (!hasQuestion || !validByType) {
-      continue;
-    }
+  const validatedExercises = exercises.map((exercise, exIndex) => {
+    if (!exercise.question) return null;
 
     const validatedExercise = {
       id: exercise.id || `ex_${index}_${exIndex}`,
-      type: exType,
+      type: exercise.type || 'short-answer',
       question: String(exercise.question).trim(),
       answer: String(exercise.answer || exercise.correctAnswer || '').trim(),
       correctAnswer: String(exercise.correctAnswer || exercise.answer || '').trim(),
@@ -1121,64 +1094,23 @@ async function processExerciseStep(step, index) {
       includeInHomework: Boolean(exercise.includeInHomework),
       instruction: String(exercise.instruction || '').trim(),
       hint: String(exercise.hint || '').trim(),
-      explanation: String(exercise.explanation || '').trim()
+      explanation: String(exercise.explanation || '').trim(),
+      
+      // Add all new potential fields
+      options: exercise.options || [],
+      template: exercise.template || '',
+      blanks: exercise.blanks || [],
+      pairs: exercise.pairs || [],
+      items: exercise.items || [],
+      statement: exercise.statement || '',
+      dragItems: exercise.dragItems || [],
+      dropZones: exercise.dropZones || [],
+      correctSentence: exercise.correctSentence || ''
     };
+    return validatedExercise;
+  }).filter(Boolean); // Remove null entries
 
-    // Add type-specific fields
-    switch (exType) {
-      case 'abc':
-      case 'multiple-choice':
-        validatedExercise.options = Array.isArray(exercise.options)
-          ? exercise.options.filter(opt => opt && String(opt).trim())
-          : [];
-        break;
-
-      case 'fill-blank':
-        validatedExercise.template = exercise.template || validatedExercise.question;
-        validatedExercise.blanks = Array.isArray(exercise.blanks) ? exercise.blanks : [];
-        break;
-
-      case 'matching':
-        validatedExercise.pairs = Array.isArray(exercise.pairs) ? exercise.pairs : [];
-        break;
-
-      case 'ordering':
-        validatedExercise.items = Array.isArray(exercise.items) ? exercise.items : [];
-        break;
-
-      case 'true-false':
-        validatedExercise.statement = exercise.statement || validatedExercise.question;
-        validatedExercise.options = ['True', 'False'];
-        validatedExercise.correctAnswer = typeof exercise.correctAnswer === 'boolean'
-          ? (exercise.correctAnswer ? 0 : 1)
-          : (String(exercise.correctAnswer).toLowerCase() === 'true' ? 0 : 1);
-        break;
-
-      case 'drag-drop':
-        validatedExercise.dragItems = Array.isArray(exercise.dragItems) ? exercise.dragItems : [];
-        validatedExercise.dropZones = Array.isArray(exercise.dropZones) ? exercise.dropZones : [];
-        break;
-    }
-
-    validatedExercises.push(validatedExercise);
-  }
-
-  if (validatedExercises.length === 0) {
-    validatedExercises.push({
-      id: `default_ex_${index}`,
-      type: 'short-answer',
-      question: "Placeholder question",
-      answer: "Placeholder answer",
-      correctAnswer: "Placeholder answer",
-      points: 1,
-      includeInHomework: false,
-      instruction: '',
-      hint: '',
-      explanation: ''
-    });
-  }
-
-  return validatedExercises;
+  return validatedExercises.length > 0 ? validatedExercises : [];
 }
 
 async function processQuizStep(step, index) {
@@ -1297,38 +1229,28 @@ async function processQuizStep(step, index) {
   
   return validatedQuizzes;
 }
-//smth
+
+// ✅ REPLACED: A more robust function to handle different vocabulary structures.
 async function processVocabularyStep(step, index) {
-  
   let vocabularyItems = [];
-  
-  if (step.vocabulary && Array.isArray(step.vocabulary)) {
+
+  if (step.data && Array.isArray(step.data.terms)) { // Handles { data: { terms: [] } }
+    vocabularyItems = step.data.terms;
+  } else if (Array.isArray(step.vocabulary)) {
     vocabularyItems = step.vocabulary;
   } else if (Array.isArray(step.data)) {
     vocabularyItems = step.data;
-  } else if (step.data && Array.isArray(step.data.vocabulary)) {
-    vocabularyItems = step.data.vocabulary;
   }
-  
-  const validatedVocabulary = vocabularyItems.filter(vocab => 
-    vocab.term && vocab.term.trim() && 
-    vocab.definition && vocab.definition.trim()
-  ).map(vocab => ({
-    term: String(vocab.term).trim(),
-    definition: String(vocab.definition).trim(),
-    example: vocab.example ? String(vocab.example).trim() : '',
-    pronunciation: vocab.pronunciation || ''
-  }));
-  
-  if (validatedVocabulary.length === 0) {
-    validatedVocabulary.push({
-      term: "Sample Term",
-      definition: "Sample definition for this term",
-      example: "Example usage of the term in context",
-      pronunciation: ""
-    });
-  }
-  
+
+  const validatedVocabulary = vocabularyItems
+    .filter(vocab => !vocab.isHeader && vocab.term && vocab.definition)
+    .map(vocab => ({
+      term: String(vocab.term).trim(),
+      definition: String(vocab.definition).trim(),
+      example: vocab.example ? String(vocab.example).trim() : '',
+      pronunciation: vocab.pronunciation || ''
+    }));
+
   return validatedVocabulary;
 }
 

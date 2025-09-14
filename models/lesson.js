@@ -1,16 +1,42 @@
+// models/lesson.js - FULLY UPDATED & ENHANCED MODEL
 const mongoose = require('mongoose');
 
-// ✅ Enhanced Exercise schema for different types
+// =================================================================
+// 🧱 SUB-SCHEMAS: Building blocks for the main lesson schema
+// =================================================================
+
+// ✅ ENHANCED: A flexible schema for various exercise types.
+// This schema now includes specific fields for matching, fill-in-the-blank,
+// error correction, and more, making it highly adaptable.
 const exerciseSchema = new mongoose.Schema({
-  question: { type: String, required: true },
-  answer: { type: String },
-  correctAnswer: { type: String },
-  options: { type: [String], default: [] },
+  // --- Core Fields ---
+  type: { type: String, default: 'short-answer', trim: true }, // e.g., 'multiple-choice', 'fill-blank', 'matching'
+  question: { type: String, required: true, trim: true },
+  instruction: { type: String, default: '', trim: true },
+
+  // --- Answer Fields ---
+  answer: { type: String, trim: true }, // For simple short-answer
+  correctAnswer: { type: mongoose.Schema.Types.Mixed }, // Can be a string, number (index), or boolean
+
+  // --- Type-Specific Fields ---
+  options: { type: [mongoose.Schema.Types.Mixed], default: [] }, // For multiple-choice, can be strings or {text, value} objects
+  template: { type: String, trim: true }, // For fill-blank, e.g., "He ___ to the store."
+  blanks: { type: [mongoose.Schema.Types.Mixed], default: [] }, // For fill-blank answers
+  pairs: { type: [mongoose.Schema.Types.Mixed], default: [] }, // For matching, e.g., [{left, right}]
+  items: { type: [String], default: [] }, // For ordering exercises
+  statement: { type: String, trim: true }, // For true-false exercises
+  dragItems: { type: [String], default: [] }, // For drag-and-drop
+  dropZones: { type: [String], default: [] }, // For drag-and-drop
+  correctSentence: { type: String, trim: true }, // For error-correction
+
+  // --- Metadata ---
   points: { type: Number, default: 1 },
-  includeInHomework: { type: Boolean, default: false }
+  includeInHomework: { type: Boolean, default: false },
+  hint: { type: String, default: '', trim: true },
+  explanation: { type: String, default: '', trim: true }
 }, { _id: false });
 
-// ✅ Enhanced Quiz schema with multiple question types
+// ✅ Standardized Quiz schema
 const quizSchema = new mongoose.Schema({
   question: { type: String, required: true },
   type: {
@@ -18,159 +44,104 @@ const quizSchema = new mongoose.Schema({
     enum: ['multiple-choice', 'true-false', 'short-answer'],
     default: 'multiple-choice'
   },
-  options: {
-    type: [{
-      text: { type: String, required: true }
-    }],
-    default: [],
-    validate: [
-      function(val) {
-        // Only validate options for multiple-choice
-        if (this.type === 'multiple-choice') {
-          return val.length >= 2;
-        }
-        return true;
-      },
-      '❌ Multiple choice questions must have at least 2 options'
-    ]
-  },
-  correctAnswer: { type: String },
+  options: { type: [mongoose.Schema.Types.Mixed], default: [] },
+  correctAnswer: { type: mongoose.Schema.Types.Mixed, required: true },
   explanation: { type: String, default: '' }
 }, { _id: false });
 
-// ✅ Enhanced Vocabulary schema
+// ✅ Standardized Vocabulary schema
 const vocabSchema = new mongoose.Schema({
   term: { type: String, required: true },
   definition: { type: String, required: true },
-  example: { type: String, default: '' }
+  example: { type: String, default: '' },
+  pronunciation: { type: String, default: '' }
 }, { _id: false });
 
-// ✅ Reading Questions schema
-const questionSchema = new mongoose.Schema({
-  text: { type: String, required: true },
-  answer: { type: String, required: true }
-}, { _id: false });
-
-// ✅ Enhanced Step schema supporting all new step types
+// ✅ ENHANCED: The core Step schema using Mixed type for maximum flexibility.
+// This allows any data structure within a step, accommodating all current
+// and future exercise and content types.
 const stepSchema = new mongoose.Schema({
   type: {
     type: String,
     required: true,
     enum: [
-      'explanation', 'example', 'practice', 'exercise', 
-      'vocabulary', 'quiz', 'video', 'audio', 
-      'reading', 'writing'
+      'explanation', 'example', 'practice', 'exercise',
+      'vocabulary', 'quiz', 'video', 'audio',
+      'reading', 'writing', 'image' // Added 'image' type
     ]
   },
-  data: { 
-    type: mongoose.Schema.Types.Mixed, 
+  data: {
+    type: mongoose.Schema.Types.Mixed,
     required: true,
     validate: {
       validator: function(data) {
-        // Validate based on step type
-        switch (this.type) {
-          case 'explanation':
-          case 'example':
-          case 'reading':
-            return data && (typeof data.content === 'string' || typeof data === 'string');
-          
-          case 'exercise':
-            return Array.isArray(data) && data.every(ex => 
-              ex.question && (ex.answer || ex.correctAnswer)
-            );
-          
-          case 'vocabulary':
-            return Array.isArray(data) && data.every(vocab => 
-              vocab.term && vocab.definition
-            );
-          
-          case 'quiz':
-            return Array.isArray(data) && data.every(quiz => 
-              quiz.question && quiz.correctAnswer
-            );
-          
-          case 'video':
-          case 'audio':
-            return data && (data.url || data.description);
-          
-          case 'practice':
-            return data && (data.instructions || data.type);
-          
-          case 'writing':
-            return data && (data.prompt || data.wordLimit);
-          
-          default:
-            return true;
-        }
+        // Basic validation: ensure data is not null or undefined
+        if (data === null || data === undefined) return false;
+        // Ensure data is an object or an array, not just a primitive (unless it's a simple explanation)
+        if (typeof data !== 'object' && this.type !== 'explanation') return false;
+        return true;
       },
-      message: '❌ Invalid data format for step type'
+      message: '❌ Invalid data format for the given step type.'
     }
   }
 }, { _id: false });
 
-// ✅ Main lesson schema with enhanced support
+// =================================================================
+// 📖 MAIN LESSON SCHEMA
+// =================================================================
+
 const lessonSchema = new mongoose.Schema({
-  subject: { type: String, required: true, trim: true },
+  // --- Core Identification ---
+  subject: { type: String, required: true, trim: true, index: true },
   level: { type: Number, required: true, min: 1, max: 12 },
   topic: { type: String, required: true, trim: true },
-  topicId: { 
-    type: mongoose.Schema.Types.ObjectId, 
-    required: true, 
-    ref: 'Topic' 
+  topicId: {
+    type: mongoose.Schema.Types.ObjectId,
+    required: true,
+    ref: 'Topic',
+    index: true
   },
   lessonName: { type: String, required: true, trim: true },
+  description: { type: String, required: true, trim: true },
   type: {
     type: String,
     enum: ['free', 'premium'],
     default: 'free'
   },
 
-  description: { type: String, required: true, trim: true },
-  
-  // ✅ Enhanced content fields
-  explanations: { type: [String], default: [] },
-  examples: { type: String, default: '', trim: true },
-  content: { type: String, default: '', trim: true },
-  hint: { type: String, default: '', trim: true },
-
-  // ✅ New structured steps system
-  steps: { 
-    type: [stepSchema], 
+  // --- Content Structure ---
+  steps: {
+    type: [stepSchema],
     default: [],
-    validate: [
-      function(steps) {
-        // Ensure at least one step exists
-        return steps.length > 0;
-      },
-      '❌ Lesson must have at least one step'
-    ]
+    validate: [ (val) => val.length > 0, '❌ A lesson must have at least one step.' ]
   },
-  
-  // ✅ Legacy support for existing data
-  quiz: { type: [quizSchema], default: [] },
-  relatedSubjects: { type: [String], default: [] },
 
-  // ✅ Enhanced homework support
+  // --- Legacy Content Fields (for backward compatibility) ---
+  explanations: { type: [String], default: [] },
+  quiz: { type: [quizSchema], default: [] },
+
+  // --- Homework (Embedded Summary) ---
   homework: {
     exercises: { type: [exerciseSchema], default: [] },
     quizzes: { type: [quizSchema], default: [] },
     totalExercises: { type: Number, default: 0 }
   },
 
-  // ✅ Multilingual and metadata support
+  // --- Metadata & Relations ---
+  relatedSubjects: { type: [String], default: [] },
   translations: { type: mongoose.Schema.Types.Mixed, default: {} },
   metadata: {
-    difficulty: { 
-      type: String, 
-      enum: ['beginner', 'intermediate', 'advanced'], 
-      default: 'beginner' 
+    difficulty: {
+      type: String,
+      enum: ['beginner', 'intermediate', 'advanced'],
+      default: 'beginner'
     },
-    estimatedDuration: { type: Number, default: 30 }, // in minutes
+    estimatedDuration: { type: Number, default: 20 }, // in minutes
     prerequisites: { type: [String], default: [] },
     learningObjectives: { type: [String], default: [] }
   },
 
-  // ✅ Performance and analytics
+  // --- Analytics & Stats ---
   stats: {
     viewCount: { type: Number, default: 0 },
     completionRate: { type: Number, default: 0 },
@@ -178,45 +149,51 @@ const lessonSchema = new mongoose.Schema({
     totalRatings: { type: Number, default: 0 }
   },
 
-  // ✅ Status and visibility
-  isActive: { type: Boolean, default: true },
+  // --- Status & Timestamps ---
+  isActive: { type: Boolean, default: true, index: true },
   isDraft: { type: Boolean, default: false },
   publishedAt: { type: Date },
-  
-}, { 
-  timestamps: true,
-  // ✅ Enable strict mode to prevent unexpected fields
-  strict: true
+
+}, {
+  timestamps: true, // Automatically adds createdAt and updatedAt
+  strict: true,     // Ensures no unexpected fields are saved
+  toJSON: { virtuals: true },   // Include virtuals when converting to JSON
+  toObject: { virtuals: true } // Include virtuals when converting to Object
 });
 
-// ✅ Indexes for better performance
-lessonSchema.index({ subject: 1, level: 1 });
-lessonSchema.index({ topicId: 1 });
-lessonSchema.index({ subject: 1, level: 1, type: 1 });
-lessonSchema.index({ isActive: 1, isDraft: 1 });
+// =================================================================
+// ⚡ VIRTUALS: Computed properties for convenience
+// =================================================================
 
-// ✅ Virtual for homework count
+// ✅ Virtual for a quick homework count
 lessonSchema.virtual('homeworkCount').get(function() {
-  return (this.homework?.exercises?.length || 0) + 
-         (this.homework?.quizzes?.length || 0);
+  return this.homework?.totalExercises || 0;
 });
 
-// ✅ Pre-save middleware to calculate homework totals
+// =================================================================
+// ⚙️ MIDDLEWARE (HOOKS): Logic that runs on certain actions
+// =================================================================
+
+// ✅ Pre-save middleware to automatically calculate totals and set dates
 lessonSchema.pre('save', function(next) {
-  if (this.homework) {
-    this.homework.totalExercises = (this.homework.exercises?.length || 0) + 
-                                   (this.homework.quizzes?.length || 0);
+  // Automatically calculate the total number of homework exercises
+  if (this.isModified('homework')) {
+    this.homework.totalExercises = (this.homework.exercises?.length || 0) + (this.homework.quizzes?.length || 0);
   }
-  
-  // Set published date if not draft and not already set
-  if (!this.isDraft && !this.publishedAt) {
+
+  // Set the published date automatically when a lesson goes live
+  if (this.isModified('isDraft') && !this.isDraft && !this.publishedAt) {
     this.publishedAt = new Date();
   }
-  
+
   next();
 });
 
-// ✅ Static method to find lessons with homework
+// =================================================================
+//  STATIC & INSTANCE METHODS: Custom model functions
+// =================================================================
+
+// ✅ Static method to find all lessons that have associated homework
 lessonSchema.statics.findWithHomework = function() {
   return this.find({
     $or: [
@@ -226,78 +203,35 @@ lessonSchema.statics.findWithHomework = function() {
   });
 };
 
-// ✅ Instance method to extract homework for separate homework creation
+// ✅ Instance method to extract all exercises suitable for a standalone homework assignment
 lessonSchema.methods.extractHomework = function() {
-  const homeworkExercises = [];
-  
+  const homeworkItems = [];
+
   // Extract from steps marked for homework
   this.steps.forEach(step => {
     if (step.type === 'exercise' && Array.isArray(step.data)) {
       step.data.forEach(exercise => {
         if (exercise.includeInHomework) {
-          homeworkExercises.push({
-            question: exercise.question,
-            correctAnswer: exercise.answer || exercise.correctAnswer,
-            points: exercise.points || 1,
-            type: 'short-answer'
-          });
+          homeworkItems.push(exercise);
         }
       });
     }
-    
+    // Also extract quizzes as homework items
     if (step.type === 'quiz' && Array.isArray(step.data)) {
-      step.data.forEach(quiz => {
-        homeworkExercises.push({
-          question: quiz.question,
-          type: quiz.type,
-          options: quiz.options,
-          correctAnswer: quiz.correctAnswer,
-          points: 1
-        });
-      });
+      homeworkItems.push(...step.data);
     }
   });
-  
-  // Add existing homework
-  if (this.homework?.exercises) {
-    homeworkExercises.push(...this.homework.exercises);
-  }
-  
-  if (this.homework?.quizzes) {
-    homeworkExercises.push(...this.homework.quizzes);
-  }
-  
-  return homeworkExercises;
+
+  // Include legacy homework as well
+  if (this.homework?.exercises) homeworkItems.push(...this.homework.exercises);
+  if (this.homework?.quizzes) homeworkItems.push(...this.homework.quizzes);
+
+  return homeworkItems;
 };
 
-// ✅ Logging Hooks (keep existing ones)
-lessonSchema.pre('save', function (next) {
-  next();
-});
-
-lessonSchema.post('save', function (doc) {
-});
-
-lessonSchema.post('find', function (docs) {
-});
-
-lessonSchema.post('findOne', function (doc) {
-  if (doc) {
-  } else {
-  }
-});
-
-lessonSchema.post('findOneAndUpdate', function (doc) {
-  if (doc) {
-  } else {
-  }
-});
-
-lessonSchema.post('findOneAndDelete', function (doc) {
-  if (doc) {
-  } else {
-  }
-});
+// =================================================================
+// 🚀 EXPORT
+// =================================================================
 
 const Lesson = mongoose.model('Lesson', lessonSchema);
 module.exports = Lesson;

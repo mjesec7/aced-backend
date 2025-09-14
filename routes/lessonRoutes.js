@@ -286,7 +286,10 @@ const enhancedFallbackAddLesson = async (req, res) => {
             
           case 'vocabulary':
             let vocabulary = [];
-            if (Array.isArray(step.vocabulary)) {
+            // ✅ ADDED: Logic to handle nested 'terms' property
+            if (step.data && Array.isArray(step.data.terms)) {
+              vocabulary = step.data.terms;
+            } else if (Array.isArray(step.vocabulary)) {
               vocabulary = step.vocabulary;
             } else if (Array.isArray(step.data)) {
               vocabulary = step.data;
@@ -294,14 +297,15 @@ const enhancedFallbackAddLesson = async (req, res) => {
               vocabulary = step.data.vocabulary;
             }
             
-            processedData = vocabulary.filter(vocab => 
-              vocab.term && vocab.term.trim() && 
-              vocab.definition && vocab.definition.trim()
-            ).map(vocab => ({
-              term: vocab.term.trim(),
-              definition: vocab.definition.trim(),
-              example: vocab.example?.trim() || ''
-            }));
+            // ✅ MODIFIED: Filter out headers and validate items
+            processedData = vocabulary
+              .filter(vocab => !vocab.isHeader && vocab.term && vocab.term.trim() && vocab.definition && vocab.definition.trim())
+              .map(vocab => ({
+                term: vocab.term.trim(),
+                definition: vocab.definition.trim(),
+                example: vocab.example?.trim() || '',
+                pronunciation: vocab.pronunciation || ''
+              }));
             
             break;
             
