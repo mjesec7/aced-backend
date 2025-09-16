@@ -19,15 +19,18 @@ const exerciseSchema = new mongoose.Schema({
   correctAnswer: { type: mongoose.Schema.Types.Mixed }, // Can be a string, number (index), or boolean
 
   // --- Type-Specific Fields ---
+  questions: { type: [mongoose.Schema.Types.Mixed], default: [] }, // For multi-question formats like 'reading'
   options: { type: [mongoose.Schema.Types.Mixed], default: [] }, // For multiple-choice, can be strings or {text, value} objects
-  template: { type: String, trim: true }, // For fill-blank, e.g., "He ___ to the store."
-  blanks: { type: [mongoose.Schema.Types.Mixed], default: [] }, // For fill-blank answers
+  template: { type: String, trim: true }, // For fill-blanks, e.g., "He ___ to the store."
+  blanks: { type: [mongoose.Schema.Types.Mixed], default: [] }, // For fill-blanks answers
   pairs: { type: [mongoose.Schema.Types.Mixed], default: [] }, // For matching, e.g., [{left, right}]
+  words: { type: [String], default: [] }, // For sentence structure
+  correctOrder: { type: [String], default: [] }, // For sentence structure
   items: { type: [String], default: [] }, // For ordering exercises
   statement: { type: String, trim: true }, // For true-false exercises
+  correctSentence: { type: String, trim: true }, // For error-correction
   dragItems: { type: [String], default: [] }, // For drag-and-drop
   dropZones: { type: [String], default: [] }, // For drag-and-drop
-  correctSentence: { type: String, trim: true }, // For error-correction
 
   // --- Metadata ---
   points: { type: Number, default: 1 },
