@@ -1984,6 +1984,464 @@ exports.getPaymentInfo = async (req, res) => {
     }
 };
 
+/**
+ * Get application information
+ * Returns details about your Multicard application/merchant account
+ */
+exports.getApplicationInfo = async (req, res) => {
+    try {
+        const token = await getAuthToken();
+        
+        console.log('ℹ️ Fetching application info...');
+
+        const response = await axios.get(
+            `${API_URL}/payment/application`,
+            {
+                headers: { 'Authorization': `Bearer ${token}` }
+            }
+        );
+
+        if (response.data?.success) {
+            const appInfo = response.data.data;
+            
+            console.log('✅ Application info retrieved');
+            console.log(`   Application ID: ${appInfo.application_id}`);
+            console.log(`   Official Name: ${appInfo.official_name}`);
+            console.log(`   Wallet Balance: ${appInfo.wallet_sum} tiyin`);
+
+            res.json({
+                success: true,
+                data: appInfo
+            });
+        } else {
+            throw new Error('Failed to get application info');
+        }
+
+    } catch (error) {
+        console.error('❌ Error getting application info:', error.message);
+        res.status(error.response?.status || 500).json({
+            success: false,
+            error: {
+                code: 'APP_INFO_ERROR',
+                details: error.message
+            }
+        });
+    }
+};
+
+/**
+ * Get recipient bank account details
+ * Returns merchant's bank account information
+ */
+exports.getRecipientBankAccount = async (req, res) => {
+    try {
+        const token = await getAuthToken();
+        
+        console.log('🏦 Fetching recipient bank account...');
+
+        const response = await axios.get(
+            `${API_URL}/payment/merchant-account/recipient`,
+            {
+                headers: { 'Authorization': `Bearer ${token}` }
+            }
+        );
+
+        if (response.data?.success) {
+            const accountInfo = response.data.data;
+            
+            console.log('✅ Bank account info retrieved');
+            console.log(`   Official Name: ${accountInfo.official_name}`);
+            console.log(`   TIN: ${accountInfo.tin}`);
+            console.log(`   Account: ${accountInfo.account_no}`);
+            console.log(`   MFO: ${accountInfo.mfo}`);
+
+            res.json({
+                success: true,
+                data: accountInfo
+            });
+        } else {
+            throw new Error('Failed to get bank account info');
+        }
+
+    } catch (error) {
+        console.error('❌ Error getting bank account info:', error.message);
+        res.status(error.response?.status || 500).json({
+            success: false,
+            error: {
+                code: 'BANK_ACCOUNT_ERROR',
+                details: error.message
+            }
+        });
+    }
+};
+
+/**
+ * Get payment history for a store
+ * Returns list of completed payment transactions with statistics
+ */
+exports.getPaymentHistory = async (req, res) => {
+    const { storeId } = req.params;
+    const { 
+        offset = 0, 
+        limit = 100, 
+        onlyStatus, 
+        startDate, 
+        endDate 
+    } = req.query;
+
+    // Validate required fields
+    if (!startDate || !endDate) {
+        return res.status(400).json({
+            success: false,
+            error: {
+                code: 'ERROR_FIELDS',
+                details: 'startDate and endDate are required (format: YYYY-MM-DD HH:mm:ss)'
+            }
+        });
+    }
+
+    // Validate limit
+    if (limit > 100) {
+        return res.status(400).json({
+            success: false,
+            error: {
+                code: 'INVALID_LIMIT',
+                details: 'Limit cannot exceed 100'
+            }
+        });
+    }
+
+    try {
+        const token = await getAuthToken();
+        
+        const params = {
+            offset: parseInt(offset),
+            limit: parseInt(limit),
+            start_date: startDate,
+            end_date: endDate,
+            ...(onlyStatus && { only_status: onlyStatus })
+        };
+
+        console.log('📊 Fetching payment history...');
+        console.log(`   Store ID: ${storeId}`);
+        console.log(`   Period: ${startDate} to ${endDate}`);
+        console.log(`   Status filter: ${onlyStatus || 'all'}`);
+
+        const response = await axios.get(
+            `${API_URL}/payment/store/${storeId}/history`,
+            {
+                headers: { 'Authorization': `Bearer ${token}` },
+                params
+            }
+        );
+
+        if (response.data?.success) {
+            const historyData = response.data.data;
+            
+            console.log('✅ Payment history retrieved');
+            console.log(`   Total transactions: ${historyData.pagination.total}`);
+            console.log(`   Returned: ${historyData.list.length}`);
+
+            // Calculate total amounts by status
+            const summary = {};
+            historyData.stat.forEach(stat => {
+                const key = `${stat.status}_${stat.ps}`;
+                summary[key] = stat.payment_amount;
+            });
+            console.log('   Summary:', summary);
+
+            res.json({
+                success: true,
+                data: historyData
+            });
+        } else {
+            throw new Error('Failed to get payment history');
+        }
+
+    } catch (error) {
+        console.error('❌ Error getting payment history:', error.message);
+        
+        // Handle specific errors
+        if (error.response?.status === 403) {
+            return res.status(403).json({
+                success: false,
+                error: {
+                    code: 'ERROR_ACCESS_DENIED',
+                    details: 'Access denied to this store'
+                }
+            });
+        }
+
+        res.status(error.response?.status || 500).json({
+            success: false,
+            error: {
+                code: error.response?.data?.error?.code || 'HISTORY_ERROR',
+                details: error.response?.data?.error?.details || error.message
+            }
+        });
+    }
+};
+
+/**
+ * Get credit history (card top-ups/payouts)
+ * Returns list of payouts made to cards
+ */
+exports.getCreditHistory = async (req, res) => {
+    const { storeId } = req.params;
+    const { 
+        offset = 0, 
+        limit = 100, 
+        onlyStatus, 
+        startDate, 
+        endDate 
+    } = req.query;
+
+    // Validate required fields
+    if (!startDate || !endDate) {
+        return res.status(400).json({
+            success: false,
+            error: {
+                code: 'ERROR_FIELDS',
+                details: 'startDate and endDate are required (format: YYYY-MM-DD HH:mm:ss)'
+            }
+        });
+    }
+
+    // Validate limit
+    if (limit > 100) {
+        return res.status(400).json({
+            success: false,
+            error: {
+                code: 'INVALID_LIMIT',
+                details: 'Limit cannot exceed 100'
+            }
+        });
+    }
+
+    try {
+        const token = await getAuthToken();
+        
+        const params = {
+            offset: parseInt(offset),
+            limit: parseInt(limit),
+            start_date: startDate,
+            end_date: endDate,
+            ...(onlyStatus && { only_status: onlyStatus })
+        };
+
+        console.log('💳 Fetching credit history (payouts)...');
+        console.log(`   Store ID: ${storeId}`);
+        console.log(`   Period: ${startDate} to ${endDate}`);
+
+        const response = await axios.get(
+            `${API_URL}/payment/store/${storeId}/credit-history`,
+            {
+                headers: { 'Authorization': `Bearer ${token}` },
+                params
+            }
+        );
+
+        if (response.data?.success) {
+            const creditData = response.data.data;
+            
+            console.log('✅ Credit history retrieved');
+            console.log(`   Total payouts: ${creditData.pagination.total}`);
+            console.log(`   Returned: ${creditData.list.length}`);
+
+            res.json({
+                success: true,
+                data: creditData
+            });
+        } else {
+            throw new Error('Failed to get credit history');
+        }
+
+    } catch (error) {
+        console.error('❌ Error getting credit history:', error.message);
+        res.status(error.response?.status || 500).json({
+            success: false,
+            error: {
+                code: error.response?.data?.error?.code || 'CREDIT_HISTORY_ERROR',
+                details: error.response?.data?.error?.details || error.message
+            }
+        });
+    }
+};
+
+/**
+ * Get payment statistics for dashboard
+ * Helper method to get aggregated payment data
+ */
+exports.getPaymentStatistics = async (req, res) => {
+    const { storeId } = req.params;
+    const { startDate, endDate } = req.query;
+
+    if (!startDate || !endDate) {
+        return res.status(400).json({
+            success: false,
+            error: {
+                code: 'ERROR_FIELDS',
+                details: 'startDate and endDate are required'
+            }
+        });
+    }
+
+    try {
+        const token = await getAuthToken();
+        
+        // Get all transactions
+        const response = await axios.get(
+            `${API_URL}/payment/store/${storeId}/history`,
+            {
+                headers: { 'Authorization': `Bearer ${token}` },
+                params: {
+                    offset: 0,
+                    limit: 1, // We only need stats, not full list
+                    start_date: startDate,
+                    end_date: endDate
+                }
+            }
+        );
+
+        if (response.data?.success) {
+            const stats = response.data.data.stat;
+            
+            // Aggregate by status
+            const aggregated = {
+                success: { count: 0, amount: 0 },
+                error: { count: 0, amount: 0 },
+                progress: { count: 0, amount: 0 },
+                draft: { count: 0, amount: 0 },
+                revert: { count: 0, amount: 0 }
+            };
+
+            stats.forEach(stat => {
+                if (aggregated[stat.status]) {
+                    aggregated[stat.status].amount += parseInt(stat.payment_amount || 0);
+                    aggregated[stat.status].count += 1;
+                }
+            });
+
+            // Calculate totals
+            const totalAmount = Object.values(aggregated).reduce((sum, s) => sum + s.amount, 0);
+            const totalCount = response.data.data.pagination.total;
+
+            console.log('📈 Payment statistics:');
+            console.log(`   Total: ${totalAmount} tiyin (${totalCount} transactions)`);
+            console.log(`   Success: ${aggregated.success.amount} tiyin`);
+            console.log(`   Failed: ${aggregated.error.amount} tiyin`);
+
+            res.json({
+                success: true,
+                data: {
+                    period: { startDate, endDate },
+                    total: {
+                        count: totalCount,
+                        amount: totalAmount
+                    },
+                    byStatus: aggregated,
+                    stats: stats // Raw stats
+                }
+            });
+        } else {
+            throw new Error('Failed to get statistics');
+        }
+
+    } catch (error) {
+        console.error('❌ Error getting statistics:', error.message);
+        res.status(error.response?.status || 500).json({
+            success: false,
+            error: {
+                code: 'STATS_ERROR',
+                details: error.message
+            }
+        });
+    }
+};
+
+/**
+ * Export payment history to CSV
+ * Helper method for generating reports
+ */
+exports.exportPaymentHistory = async (req, res) => {
+    const { storeId } = req.params;
+    const { startDate, endDate, onlyStatus } = req.query;
+
+    if (!startDate || !endDate) {
+        return res.status(400).json({
+            success: false,
+            error: {
+                code: 'ERROR_FIELDS',
+                details: 'startDate and endDate are required'
+            }
+        });
+    }
+
+    try {
+        const token = await getAuthToken();
+        
+        // Fetch all pages
+        let allTransactions = [];
+        let offset = 0;
+        const limit = 100;
+        let hasMore = true;
+
+        console.log('📥 Exporting payment history...');
+
+        while (hasMore) {
+            const response = await axios.get(
+                `${API_URL}/payment/store/${storeId}/history`,
+                {
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    params: {
+                        offset,
+                        limit,
+                        start_date: startDate,
+                        end_date: endDate,
+                        ...(onlyStatus && { only_status: onlyStatus })
+                    }
+                }
+            );
+
+            if (response.data?.success) {
+                const transactions = response.data.data.list;
+                allTransactions = allTransactions.concat(transactions);
+                
+                hasMore = transactions.length === limit;
+                offset += limit;
+                
+                console.log(`   Fetched ${allTransactions.length} transactions...`);
+            } else {
+                hasMore = false;
+            }
+        }
+
+        // Convert to CSV
+        const csvHeader = 'ID,UUID,Status,Payment System,Invoice ID,Payment Time,Amount,Commission,Card PAN,RRN\n';
+        const csvRows = allTransactions.map(t => 
+            `${t.id},${t.uuid},${t.status},${t.ps},${t.store_invoice_id},${t.payment_time || ''},${t.payment_amount},${t.commission_amount},${t.card_pan || ''},${t.ps_uniq_id || ''}`
+        ).join('\n');
+
+        const csv = csvHeader + csvRows;
+
+        console.log(`✅ Exported ${allTransactions.length} transactions`);
+
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename=payments_${storeId}_${startDate}_${endDate}.csv`);
+        res.send(csv);
+
+    } catch (error) {
+        console.error('❌ Error exporting history:', error.message);
+        res.status(500).json({
+            success: false,
+            error: {
+                code: 'EXPORT_ERROR',
+                details: error.message
+            }
+        });
+    }
+};
+
 
 // Export all controller functions
 module.exports = {
@@ -2013,4 +2471,11 @@ module.exports = {
     sendFiscalReceipt: exports.sendFiscalReceipt,
     refundPayment: exports.refundPayment,
     getPaymentInfo: exports.getPaymentInfo,
+    getApplicationInfo: exports.getApplicationInfo,
+    getRecipientBankAccount: exports.getRecipientBankAccount,
+    getPaymentHistory: exports.getPaymentHistory,
+    getCreditHistory: exports.getCreditHistory,
+    getPaymentStatistics: exports.getPaymentStatistics,
+    exportPaymentHistory: exports.exportPaymentHistory,
 };
+

@@ -61,10 +61,28 @@ router.post('/card', multicardController.addCardByDetails);
 router.put('/card/:cardToken/confirm', multicardController.confirmCardBinding);
 
 // ============================================
-// UTILITY ROUTES
+// UTILITY / ADMIN ROUTES
 // ============================================
 
 // Test connection
 router.get('/test-connection', multicardController.testConnection);
+
+// Get application information
+router.get('/application/info', multicardController.getApplicationInfo);
+
+// Get recipient bank account details
+router.get('/merchant-account/recipient', multicardController.getRecipientBankAccount);
+
+// Get payment history for a store
+router.get('/store/:storeId/history', multicardController.getPaymentHistory);
+
+// Get credit history (payouts) for a store
+router.get('/store/:storeId/credit-history', multicardController.getCreditHistory);
+
+// Get payment statistics (aggregated)
+router.get('/store/:storeId/statistics', multicardController.getPaymentStatistics);
+
+// Export payment history to CSV
+router.get('/store/:storeId/export', multicardController.exportPaymentHistory);
 
 module.exports = router;
