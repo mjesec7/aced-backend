@@ -198,6 +198,10 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
       // CRITICAL: PayMe allowed origins
       'https://checkout.paycom.uz',
       'https://checkout.test.paycom.uz',
+      
+      // ✅ ADD THESE FOR MULTICARD
+      'https://checkout.multicard.uz',
+      'https://dev-checkout.multicard.uz',
     ];
 
 // Add development origins if in dev mode
@@ -1382,6 +1386,39 @@ app.post('/api/payments/generate-form', async (req, res) => {
 
 
 // ========================================
+// 🛡️ MULTICARD IP WHITELIST MIDDLEWARE
+// ========================================
+
+const multicardIpWhitelist = (req, res, next) => {
+  const allowedIp = '195.158.26.90'; // Multicard webhook IP
+  const clientIp = req.ip || req.connection.remoteAddress || req.headers['x-forwarded-for'];
+  
+  // Skip check in development
+  if (process.env.NODE_ENV === 'development') {
+    console.log('🔓 Multicard IP check skipped (development mode)');
+    return next();
+  }
+
+  // Check if request is from Multicard webhook
+  const isMulticardWebhook = req.url.includes('/multicard/webhook') || 
+                           req.url.includes('/multicard/callback');
+
+  if (isMulticardWebhook && clientIp !== allowedIp) {
+    console.warn(`⚠️ Blocked Multicard request from unauthorized IP: ${clientIp}`);
+    return res.status(403).json({
+      success: false,
+      error: 'Forbidden - Invalid source IP'
+    });
+  }
+
+  next();
+};
+
+// Apply to webhook routes
+app.use('/api/payments/multicard/webhook', multicardIpWhitelist);
+app.use('/api/payments/multicard/callback', multicardIpWhitelist);
+
+// ========================================
 // 🏥 ENHANCED HEALTH CHECK - MULTIPLE ENDPOINTS
 // ========================================
 
@@ -1532,6 +1569,8 @@ const routesToMount = [
   ['/api/payments', './routes/payments', 'Main payment routes (CRITICAL)'],
   ['/api/promocodes', './routes/promocodeRoutes', 'Promocode management routes (ADMIN)'],
 
+  // ✅ ADD THIS LINE FOR MULTICARD
+  ['/api/payments/multicard', './routes/multicardRoutes', 'Multicard payment integration'],
 
   // PayMe routes (legacy)
   ['/api/payments', './routes/paymeRoutes', 'PayMe payment routes (legacy)'],
