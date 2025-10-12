@@ -2,19 +2,69 @@ const express = require('express');
 const router = express.Router();
 const multicardController = require('../controllers/multicardController');
 
-// Initiate payment - returns checkout URL
+// ============================================
+// PAYMENT ROUTES
+// ============================================
+
+// Payment initiation
 router.post('/initiate', multicardController.initiatePayment);
 
-// Webhook endpoint - receives payment notifications from Multicard
-router.post('/webhook', multicardController.handleWebhook);
+// QR code payment (PaymeGo, ClickPass, Uzum, etc.)
+router.put('/payment/:uuid/scanpay', multicardController.processScanPay);
 
-// Success callback - user returns after successful payment
-router.get('/callback/success', multicardController.handleSuccessCallback);
+// Webhooks - New format (recommended)
+router.post('/webhook', multicardController.handleWebhookCallback);
 
-// Get invoice information
+// Success callback - Old format (deprecated but kept for compatibility)
+router.post('/callback/success', multicardController.handleSuccessCallbackOld);
+
+// User return callbacks
+router.get('/return/success', multicardController.handleSuccessCallback);
+router.get('/return/error', (req, res) => {
+    res.redirect(`${process.env.FRONTEND_URL}/payment-failed`);
+});
+
+// Invoice management
 router.get('/invoice/:invoiceId', multicardController.getInvoiceInfo);
+router.delete('/invoice/:uuid', multicardController.deleteInvoice);
 
-// Cancel invoice
-router.delete('/invoice/:invoiceId', multicardController.cancelInvoice);
+// ============================================
+// CARD BINDING ROUTES (Form-based)
+// ============================================
+
+// Create card binding session
+router.post('/card-binding/create', multicardController.createCardBindingSession);
+
+// Card binding callback (from Multicard)
+router.post('/card-binding/callback', multicardController.handleCardBindingCallback);
+
+// Check card binding status
+router.get('/card-binding/status/:sessionId', multicardController.checkCardBindingStatus);
+
+// Get card info by token
+router.get('/card/:cardToken', multicardController.getCardInfoByToken);
+
+// Check PINFL (Uzcard/Humo only)
+router.post('/card/check-pinfl', multicardController.checkCardPinfl);
+
+// Delete card token
+router.delete('/card/:cardToken', multicardController.deleteCardToken);
+
+// ============================================
+// CARD BINDING ROUTES (API-based - requires PCI DSS)
+// ============================================
+
+// Add card by card details (sends SMS OTP)
+router.post('/card', multicardController.addCardByDetails);
+
+// Confirm card binding with OTP
+router.put('/card/:cardToken/confirm', multicardController.confirmCardBinding);
+
+// ============================================
+// UTILITY ROUTES
+// ============================================
+
+// Test connection
+router.get('/test-connection', multicardController.testConnection);
 
 module.exports = router;

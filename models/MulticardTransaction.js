@@ -79,6 +79,10 @@ const multicardTransactionSchema = new mongoose.Schema({
     paidAt: { 
         type: Date 
     },
+    refundedAt: {
+        type: Date,
+        comment: 'Date when payment was refunded'
+    },
 }, { timestamps: true });
 
 // Index for finding pending transactions

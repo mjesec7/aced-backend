@@ -110,6 +110,32 @@ const userSchema = new mongoose.Schema({
     isBlocked: { type: Boolean, default: false },
     lastLoginAt: { type: Date },
 
+    // --- 💳 Card Management ---
+    cardBindingSession: {
+        sessionId: String,
+        formUrl: String,
+        createdAt: Date,
+        expiresAt: Date
+    },
+    savedCards: [{
+        cardToken: {
+            type: String,
+            required: true
+        },
+        cardPan: {
+            type: String,
+            required: true
+        },
+        ps: {
+            type: String,
+            enum: ['uzcard', 'humo', 'visa', 'mastercard', 'unionpay']
+        },
+        addedAt: {
+            type: Date,
+            default: Date.now
+        }
+    }],
+
     // --- 📚 Learning & Progress ---
     studyList: [studyTopicSchema],
     progress: { type: Object, default: {} },
@@ -179,6 +205,17 @@ userSchema.methods.grantSubscription = async function(plan, durationInDays, sour
     // If user already has an active subscription, extend it. Otherwise, create a new one.
     const startDate = this.hasActiveSubscription() ? this.subscriptionExpiryDate : now;
     this.subscriptionExpiryDate = new Date(startDate.getTime() + (durationInDays * 24 * 60 * 60 * 1000));
+    await this.save();
+};
+
+/**
+ * Revokes an active subscription, typically after a refund.
+ * This reverts the user to the 'free' plan and clears their expiry date.
+ */
+userSchema.methods.revokeSubscription = async function() {
+    this.subscriptionPlan = 'free';
+    this.subscriptionExpiryDate = null;
+    this.subscriptionSource = null;
     await this.save();
 };
 
