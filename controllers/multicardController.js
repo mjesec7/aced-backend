@@ -1360,6 +1360,630 @@ const deleteCardToken = async (req, res) => {
     }
 };
 
+/**
+ * Create payment by card token
+ * This allows payment on Partner's page using saved card token
+ */
+exports.createPaymentByToken = async (req, res) => {
+    const { card, amount, storeId, invoiceId, callbackUrl, deviceDetails, ofd } = req.body;
+
+    if (!card?.token || !amount || !storeId || !invoiceId) {
+        return res.status(400).json({
+            success: false,
+            error: {
+                code: 'ERROR_FIELDS',
+                details: 'card.token, amount, storeId, and invoiceId are required'
+            }
+        });
+    }
+
+    try {
+        const token = await getAuthToken();
+        
+        const payload = {
+            card: {
+                token: card.token
+            },
+            amount,
+            store_id: storeId,
+            invoice_id: invoiceId,
+            ...(callbackUrl && { callback_url: callbackUrl }),
+            ...(deviceDetails && { device_details: deviceDetails }),
+            ...(ofd && { ofd })
+        };
+
+        console.log('💳 Creating payment by token');
+        console.log(`   Amount: ${amount} tiyin`);
+        console.log(`   Invoice: ${invoiceId}`);
+
+        const response = await axios.post(
+            `${API_URL}/payment`,
+            payload,
+            {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+
+        if (response.data?.success) {
+            const paymentData = response.data.data;
+            
+            // Create transaction record
+            const transaction = new MulticardTransaction({
+                userId: req.user?._id || req.body.userId,
+                multicardUuid: paymentData.uuid,
+                invoiceId: paymentData.store_invoice_id,
+                amount: paymentData.total_amount,
+                plan: req.body.plan || 'standard',
+                status: paymentData.status === 'success' ? 'paid' : 'pending',
+                paymentDetails: {
+                    paymentAmount: paymentData.payment_amount,
+                    commissionAmount: paymentData.commission_amount,
+                    commissionType: paymentData.commission_type,
+                    totalAmount: paymentData.total_amount,
+                    ps: paymentData.ps,
+                    cardToken: paymentData.card_token,
+                    cardPan: paymentData.card_pan,
+                    otpHash: paymentData.otp_hash,
+                }
+            });
+            await transaction.save();
+
+            console.log('✅ Payment created');
+            console.log(`   UUID: ${paymentData.uuid}`);
+            console.log(`   Status: ${paymentData.status}`);
+            console.log(`   OTP Required: ${paymentData.otp_hash ? 'Yes' : 'No'}`);
+
+            res.json({
+                success: true,
+                data: paymentData,
+                message: paymentData.otp_hash ? 'OTP confirmation required' : 'Payment created without OTP'
+            });
+        } else {
+            throw new Error('Failed to create payment');
+        }
+
+    } catch (error) {
+        console.error('❌ Error creating payment by token:', error.message);
+        res.status(error.response?.status || 500).json({
+            success: false,
+            error: {
+                code: error.response?.data?.error?.code || 'PAYMENT_ERROR',
+                details: error.response?.data?.error?.details || error.message
+            }
+        });
+    }
+};
+
+/**
+ * Create payment with card details (PCI DSS required)
+ * This allows direct payment using card PAN and expiry
+ */
+exports.createPaymentByCardDetails = async (req, res) => {
+    const { card, amount, storeId, invoiceId, callbackUrl, deviceDetails, ofd } = req.body;
+
+    if (!card?.pan || !card?.expiry || !amount || !storeId || !invoiceId) {
+        return res.status(400).json({
+            success: false,
+            error: {
+                code: 'ERROR_FIELDS',
+                details: 'card.pan, card.expiry, amount, storeId, and invoiceId are required'
+            }
+        });
+    }
+
+    try {
+        const token = await getAuthToken();
+        
+        const payload = {
+            card: {
+                pan: card.pan,
+                expiry: card.expiry
+            },
+            amount,
+            store_id: storeId,
+            invoice_id: invoiceId,
+            ...(callbackUrl && { callback_url: callbackUrl }),
+            ...(deviceDetails && { device_details: deviceDetails }),
+            ...(ofd && { ofd })
+        };
+
+        console.log('💳 Creating payment by card details (PCI DSS)');
+        console.log(`   PAN: ${card.pan.substring(0, 6)}******${card.pan.substring(card.pan.length - 4)}`);
+        console.log(`   Amount: ${amount} tiyin`);
+
+        const response = await axios.post(
+            `${API_URL}/payment`,
+            payload,
+            {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+
+        if (response.data?.success) {
+            const paymentData = response.data.data;
+            
+            // Create transaction record
+            const transaction = new MulticardTransaction({
+                userId: req.user?._id || req.body.userId,
+                multicardUuid: paymentData.uuid,
+                invoiceId: paymentData.store_invoice_id,
+                amount: paymentData.total_amount,
+                plan: req.body.plan || 'standard',
+                status: paymentData.status === 'success' ? 'paid' : 'pending',
+                paymentDetails: {
+                    paymentAmount: paymentData.payment_amount,
+                    commissionAmount: paymentData.commission_amount,
+                    commissionType: paymentData.commission_type,
+                    totalAmount: paymentData.total_amount,
+                    ps: paymentData.ps,
+                    cardPan: paymentData.card_pan,
+                    otpHash: paymentData.otp_hash,
+                }
+            });
+            await transaction.save();
+
+            console.log('✅ Payment created, OTP sent');
+            console.log(`   UUID: ${paymentData.uuid}`);
+
+            res.json({
+                success: true,
+                data: paymentData,
+                message: 'OTP sent to card holder'
+            });
+        } else {
+            throw new Error('Failed to create payment');
+        }
+
+    } catch (error) {
+        console.error('❌ Error creating payment by card details:', error.message);
+        res.status(error.response?.status || 500).json({
+            success: false,
+            error: {
+                code: error.response?.data?.error?.code || 'PAYMENT_ERROR',
+                details: error.response?.data?.error?.details || error.message
+            }
+        });
+    }
+};
+
+/**
+ * Create split payment
+ * Allows splitting payment between multiple recipients
+ */
+exports.createSplitPayment = async (req, res) => {
+    const { card, amount, storeId, invoiceId, callbackUrl, ofd, split } = req.body;
+
+    if (!card?.token || !amount || !storeId || !invoiceId || !split) {
+        return res.status(400).json({
+            success: false,
+            error: {
+                code: 'ERROR_FIELDS',
+                details: 'card.token, amount, storeId, invoiceId, and split are required'
+            }
+        });
+    }
+
+    // Validate split amounts
+    const totalSplitAmount = split.reduce((sum, item) => sum + item.amount, 0);
+    if (totalSplitAmount > amount) {
+        return res.status(400).json({
+            success: false,
+            error: {
+                code: 'INVALID_SPLIT',
+                details: 'Total split amount cannot exceed payment amount minus commission'
+            }
+        });
+    }
+
+    try {
+        const token = await getAuthToken();
+        
+        const payload = {
+            card: {
+                token: card.token
+            },
+            amount,
+            store_id: storeId,
+            invoice_id: invoiceId,
+            split,
+            ...(callbackUrl && { callback_url: callbackUrl }),
+            ...(ofd && { ofd })
+        };
+
+        console.log('💰 Creating split payment');
+        console.log(`   Total: ${amount} tiyin`);
+        console.log(`   Split into ${split.length} parts`);
+
+        const response = await axios.post(
+            `${API_URL}/payment`,
+            payload,
+            {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+
+        if (response.data?.success) {
+            const paymentData = response.data.data;
+            
+            console.log('✅ Split payment created');
+            console.log(`   UUID: ${paymentData.uuid}`);
+
+            res.json({
+                success: true,
+                data: paymentData
+            });
+        } else {
+            throw new Error('Failed to create split payment');
+        }
+
+    } catch (error) {
+        console.error('❌ Error creating split payment:', error.message);
+        res.status(error.response?.status || 500).json({
+            success: false,
+            error: {
+                code: error.response?.data?.error?.code || 'SPLIT_PAYMENT_ERROR',
+                details: error.response?.data?.error?.details || error.message
+            }
+        });
+    }
+};
+
+/**
+ * Create payment via payment apps (Payme, Click, Uzum, etc.)
+ * Returns checkout_url to redirect user to payment app
+ */
+exports.createPaymentViaApp = async (req, res) => {
+    const { paymentSystem, amount, storeId, invoiceId, callbackUrl, ofd } = req.body;
+
+    const validSystems = ['payme', 'click', 'uzum', 'anorbank', 'alif', 'oson', 'xazna', 'beepul', 'trastpay', 'sbp'];
+    
+    if (!paymentSystem || !validSystems.includes(paymentSystem)) {
+        return res.status(400).json({
+            success: false,
+            error: {
+                code: 'INVALID_PAYMENT_SYSTEM',
+                details: `payment_system must be one of: ${validSystems.join(', ')}`
+            }
+        });
+    }
+
+    if (!amount || !storeId || !invoiceId) {
+        return res.status(400).json({
+            success: false,
+            error: {
+                code: 'ERROR_FIELDS',
+                details: 'paymentSystem, amount, storeId, and invoiceId are required'
+            }
+        });
+    }
+
+    try {
+        const token = await getAuthToken();
+        
+        const payload = {
+            payment_system: paymentSystem,
+            amount,
+            store_id: storeId,
+            invoice_id: invoiceId,
+            ...(callbackUrl && { callback_url: callbackUrl }),
+            ...(ofd && { ofd })
+        };
+
+        console.log(`📱 Creating payment via ${paymentSystem.toUpperCase()}`);
+        console.log(`   Amount: ${amount} tiyin`);
+
+        const response = await axios.post(
+            `${API_URL}/payment`,
+            payload,
+            {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+
+        if (response.data?.success) {
+            const paymentData = response.data.data;
+            
+            // Create transaction record
+            const transaction = new MulticardTransaction({
+                userId: req.user?._id || req.body.userId,
+                multicardUuid: paymentData.uuid,
+                invoiceId: paymentData.store_invoice_id,
+                amount: paymentData.total_amount,
+                plan: req.body.plan || 'standard',
+                status: 'pending',
+                checkoutUrl: paymentData.checkout_url,
+                paymentDetails: {
+                    ps: paymentData.ps,
+                    totalAmount: paymentData.total_amount,
+                }
+            });
+            await transaction.save();
+
+            console.log('✅ Payment app link created');
+            console.log(`   Checkout URL: ${paymentData.checkout_url}`);
+
+            res.json({
+                success: true,
+                data: paymentData,
+                message: `Redirect user to ${paymentSystem} app`
+            });
+        } else {
+            throw new Error('Failed to create payment');
+        }
+
+    } catch (error) {
+        console.error('❌ Error creating payment via app:', error.message);
+        res.status(error.response?.status || 500).json({
+            success: false,
+            error: {
+                code: error.response?.data?.error?.code || 'PAYMENT_APP_ERROR',
+                details: error.response?.data?.error?.details || error.message
+            }
+        });
+    }
+};
+
+/**
+ * Confirm payment with OTP
+ * Required when payment.otp_hash is not null
+ */
+exports.confirmPayment = async (req, res) => {
+    const { paymentUuid } = req.params;
+    const { otp, debitAvailable } = req.body;
+
+    if (!otp) {
+        return res.status(400).json({
+            success: false,
+            error: {
+                code: 'ERROR_FIELDS',
+                details: 'OTP is required'
+            }
+        });
+    }
+
+    try {
+        const token = await getAuthToken();
+        
+        const payload = {
+            otp,
+            debit_available: debitAvailable || false
+        };
+
+        console.log(`✅ Confirming payment: ${paymentUuid}`);
+
+        const response = await axios.put(
+            `${API_URL}/payment/${paymentUuid}`,
+            payload,
+            {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+
+        if (response.data?.success) {
+            const paymentData = response.data.data;
+            
+            // Update transaction
+            const transaction = await MulticardTransaction.findOne({ multicardUuid: paymentUuid });
+            if (transaction) {
+                transaction.status = paymentData.status === 'success' ? 'paid' : 'pending';
+                transaction.paymentDetails = {
+                    ...transaction.paymentDetails,
+                    paymentTime: paymentData.payment_time,
+                    psResponseCode: paymentData.ps_response_code,
+                    psResponseMsg: paymentData.ps_response_msg,
+                };
+                await transaction.save();
+            }
+
+            console.log('✅ Payment confirmed');
+            console.log(`   Status: ${paymentData.status}`);
+
+            res.json({
+                success: true,
+                data: paymentData
+            });
+        } else {
+            throw new Error('Failed to confirm payment');
+        }
+
+    } catch (error) {
+        console.error('❌ Error confirming payment:', error.message);
+        
+        // Handle special error codes
+        const errorCode = error.response?.data?.error?.code;
+        if (errorCode === 'ERROR_DEBIT_UNKNOWN' || errorCode === 'ERROR_CALLBACK_TIMEOUT') {
+            console.warn('⚠️ Payment status unknown - client should check payment status');
+            return res.status(202).json({
+                success: false,
+                error: {
+                    code: errorCode,
+                    details: 'Payment status unknown. Please check payment status.',
+                    action: 'CHECK_STATUS'
+                }
+            });
+        }
+
+        res.status(error.response?.status || 500).json({
+            success: false,
+            error: {
+                code: error.response?.data?.error?.code || 'CONFIRM_ERROR',
+                details: error.response?.data?.error?.details || error.message
+            }
+        });
+    }
+};
+
+/**
+ * Send fiscal receipt URL
+ * Used when Partner handles fiscalization
+ */
+exports.sendFiscalReceipt = async (req, res) => {
+    const { paymentUuid } = req.params;
+    const { url } = req.body;
+
+    if (!url) {
+        return res.status(400).json({
+            success: false,
+            error: {
+                code: 'ERROR_FIELDS',
+                details: 'Fiscal receipt URL is required'
+            }
+        });
+    }
+
+    try {
+        const token = await getAuthToken();
+        
+        console.log(`📄 Sending fiscal receipt for payment: ${paymentUuid}`);
+        console.log(`   URL: ${url}`);
+
+        const response = await axios.patch(
+            `${API_URL}/payment/${paymentUuid}/fiscal`,
+            { url },
+            {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+
+        if (response.data?.success !== undefined) {
+            console.log('✅ Fiscal receipt sent');
+
+            res.json({
+                success: true,
+                message: 'Fiscal receipt URL saved'
+            });
+        } else {
+            throw new Error('Failed to send fiscal receipt');
+        }
+
+    } catch (error) {
+        console.error('❌ Error sending fiscal receipt:', error.message);
+        res.status(error.response?.status || 500).json({
+            success: false,
+            error: {
+                code: error.response?.data?.error?.code || 'FISCAL_ERROR',
+                details: error.response?.data?.error?.details || error.message
+            }
+        });
+    }
+};
+
+/**
+ * Refund payment (cancel and return funds)
+ */
+exports.refundPayment = async (req, res) => {
+    const { paymentUuid } = req.params;
+
+    try {
+        const token = await getAuthToken();
+        
+        console.log(`🔄 Refunding payment: ${paymentUuid}`);
+
+        const response = await axios.delete(
+            `${API_URL}/payment/${paymentUuid}`,
+            {
+                headers: { 'Authorization': `Bearer ${token}` }
+            }
+        );
+
+        if (response.data?.success) {
+            const paymentData = response.data.data;
+            
+            // Update transaction
+            const transaction = await MulticardTransaction.findOne({ multicardUuid: paymentUuid });
+            if (transaction) {
+                transaction.status = 'refunded';
+                transaction.refundedAt = new Date();
+                await transaction.save();
+
+                // Revoke subscription if needed
+                if (transaction.userId) {
+                    const user = await User.findById(transaction.userId);
+                    if (user) {
+                        await user.revokeSubscription('multicard');
+                        console.log(`🔄 Subscription revoked for user: ${user.email}`);
+                    }
+                }
+            }
+
+            console.log('✅ Payment refunded');
+
+            res.json({
+                success: true,
+                data: paymentData,
+                message: 'Payment refunded successfully'
+            });
+        } else {
+            throw new Error('Failed to refund payment');
+        }
+
+    } catch (error) {
+        console.error('❌ Error refunding payment:', error.message);
+        res.status(error.response?.status || 500).json({
+            success: false,
+            error: {
+                code: error.response?.data?.error?.code || 'REFUND_ERROR',
+                details: error.response?.data?.error?.details || error.message
+            }
+        });
+    }
+};
+
+/**
+ * Get payment information by UUID
+ */
+exports.getPaymentInfo = async (req, res) => {
+    const { paymentUuid } = req.params;
+
+    try {
+        const token = await getAuthToken();
+        
+        const response = await axios.get(
+            `${API_URL}/payment/${paymentUuid}`,
+            {
+                headers: { 'Authorization': `Bearer ${token}` }
+            }
+        );
+
+        if (response.data?.success) {
+            res.json({
+                success: true,
+                data: response.data.data
+            });
+        } else {
+            throw new Error('Failed to get payment info');
+        }
+
+    } catch (error) {
+        console.error('❌ Error getting payment info:', error.message);
+        res.status(error.response?.status || 500).json({
+            success: false,
+            error: {
+                code: 'GET_PAYMENT_ERROR',
+                details: error.message
+            }
+        });
+    }
+};
+
 
 // Export all controller functions
 module.exports = {
@@ -1381,4 +2005,12 @@ module.exports = {
     confirmCardBinding,
     checkCardPinfl,
     deleteCardToken,
+    createPaymentByToken: exports.createPaymentByToken,
+    createPaymentByCardDetails: exports.createPaymentByCardDetails,
+    createSplitPayment: exports.createSplitPayment,
+    createPaymentViaApp: exports.createPaymentViaApp,
+    confirmPayment: exports.confirmPayment,
+    sendFiscalReceipt: exports.sendFiscalReceipt,
+    refundPayment: exports.refundPayment,
+    getPaymentInfo: exports.getPaymentInfo,
 };
