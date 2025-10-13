@@ -324,34 +324,64 @@ const handleWebhook = async (req, res) => {
 /**
  * Get invoice/payment information
  */
+/**
+ * Get invoice/payment information
+ * Fixed to properly look up UUID first
+ */
 const getInvoiceInfo = async (req, res) => {
     const { invoiceId } = req.params;
 
     try {
+        // STEP 1: Find transaction in your database by invoiceId
         const transaction = await MulticardTransaction.findOne({ invoiceId });
+        
         if (!transaction) {
             return res.status(404).json({
                 success: false,
                 error: {
                     code: 'TRANSACTION_NOT_FOUND',
-                    details: 'Transaction not found'
+                    details: 'Transaction not found in database'
                 }
             });
         }
 
+        // STEP 2: Check if we have a Multicard UUID
+        if (!transaction.multicardUuid) {
+            return res.status(400).json({
+                success: false,
+                error: {
+                    code: 'MISSING_UUID',
+                    details: 'Transaction exists but has no Multicard UUID'
+                }
+            });
+        }
+
+        // STEP 3: Fetch from Multicard API using UUID
         const token = await getAuthToken();
+        
+        console.log(`🔍 Fetching invoice info:`);
+        console.log(`   Invoice ID: ${invoiceId}`);
+        console.log(`   Multicard UUID: ${transaction.multicardUuid}`);
+        
         const response = await axios.get(
             `${API_URL}/payment/invoice/${transaction.multicardUuid}`,
             {
-                headers: { 'Authorization': `Bearer ${token}` }
+                headers: { 
+                    'Authorization': `Bearer ${token}`,
+                    'X-Access-Token': process.env.MULTICARD_TOKEN || ''
+                }
             }
         );
 
         if (response.data?.success) {
+            console.log(`✅ Invoice found`);
+            console.log(`   Status: ${response.data.data.status || 'N/A'}`);
+            
             res.json({
                 success: true,
                 data: {
                     local: {
+                        invoiceId: transaction.invoiceId,
                         status: transaction.status,
                         amount: transaction.amount,
                         plan: transaction.plan,
@@ -368,11 +398,33 @@ const getInvoiceInfo = async (req, res) => {
 
     } catch (error) {
         console.error('❌ Error fetching invoice info:', error.message);
-        res.status(500).json({
+        
+        // Handle specific error cases
+        if (error.response?.status === 404) {
+            return res.status(404).json({
+                success: false,
+                error: {
+                    code: 'INVOICE_NOT_FOUND',
+                    details: 'Invoice not found in Multicard system. It may have been deleted or expired.'
+                }
+            });
+        }
+
+        if (error.response?.status === 401 || error.response?.status === 403) {
+            return res.status(401).json({
+                success: false,
+                error: {
+                    code: 'AUTH_ERROR',
+                    details: 'Authentication failed. Check your Bearer token and X-Access-Token.'
+                }
+            });
+        }
+
+        res.status(error.response?.status || 500).json({
             success: false,
             error: {
-                code: 'FETCH_ERROR',
-                details: 'Failed to fetch invoice information'
+                code: error.response?.data?.error?.code || 'FETCH_ERROR',
+                details: error.response?.data?.error?.details || error.message
             }
         });
     }
