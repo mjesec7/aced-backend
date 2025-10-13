@@ -3,50 +3,12 @@ const dotenv = require('dotenv');
 const crypto = require('crypto');
 const MulticardTransaction = require('../models/multicardTransaction');
 const User = require('../models/user');
+const { getAuthToken } = require('./multicardAuth');
+
 
 dotenv.config();
 
 const API_URL = process.env.MULTICARD_API_URL;
-let authToken = null;
-let tokenExpiry = 0;
-
-/**
- * Gets a valid auth token from Multicard, requesting a new one if necessary.
- * Token is valid for 24 hours from creation.
- * @returns {Promise<string>} The JWT token.
- */
-const getAuthToken = async () => {
-    if (authToken && Date.now() < tokenExpiry) {
-        return authToken;
-    }
-    try {
-        console.log('🔑 Requesting Multicard auth token...');
-        const response = await axios.post(`${API_URL}/auth`, {
-            application_id: process.env.MULTICARD_APPLICATION_ID,
-            secret: process.env.MULTICARD_SECRET,
-        });
-
-        if (response.data && response.data.token) {
-            authToken = response.data.token;
-            // Parse expiry time (format: "2023-03-18 16:40:31" in GMT+5)
-            // Set margin of 1 hour before expiry
-            const expiryDate = new Date(response.data.expiry);
-            tokenExpiry = expiryDate.getTime() - (60 * 60 * 1000);
-            
-            console.log('✅ Token obtained successfully');
-            console.log('   Role:', response.data.role);
-            console.log('   Expires at:', response.data.expiry);
-            
-            return authToken;
-        }
-        throw new Error('Multicard authentication failed: Invalid response');
-    } catch (error) {
-        console.error('❌ Error fetching Multicard token:', error.response?.data || error.message);
-        authToken = null;
-        tokenExpiry = 0;
-        throw error;
-    }
-};
 
 /**
  * Controller function to initiate a payment.
@@ -57,8 +19,8 @@ const initiatePayment = async (req, res) => {
 
     // Validate required fields
     if (!userId || !plan || !amount || !ofd) {
-        return res.status(400).json({ 
-            success: false, 
+        return res.status(400).json({
+            success: false,
             error: {
                 code: 'ERROR_FIELDS',
                 details: 'userId, plan, amount, and ofd are required.'
@@ -68,27 +30,27 @@ const initiatePayment = async (req, res) => {
 
     try {
         // Find user by firebaseId or MongoDB _id
-const user = await User.findOne({
-    $or: [
-        { firebaseId: userId },
-        { _id: mongoose.Types.ObjectId.isValid(userId) ? userId : null }
-    ]
-});
+        const user = await User.findOne({
+            $or: [
+                { firebaseId: userId },
+                { _id: mongoose.Types.ObjectId.isValid(userId) ? userId : null }
+            ]
+        });
 
-if (!user) {
-    return res.status(404).json({ 
-        success: false, 
-        error: {
-            code: 'USER_NOT_FOUND',
-            details: 'User not found'
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: {
+                    code: 'USER_NOT_FOUND',
+                    details: 'User not found'
+                }
+            });
         }
-    });
-}
 
         const token = await getAuthToken();
         const invoiceId = `aced_${plan}_${userId}_${Date.now()}`;
         const callbackUrl = `${process.env.API_BASE_URL}/api/payments/multicard/webhook`;
-        
+
         // Parse store_id - can be int or string according to API
         let storeId;
         if (isNaN(parseInt(process.env.MULTICARD_STORE_ID))) {
@@ -125,15 +87,15 @@ if (!user) {
             payload.sms = sms; // Format: 998XXXXXXXXX
         }
 
-        console.log('📤 Creating Multicard invoice:', { 
-            invoiceId, 
-            amount, 
+        console.log('📤 Creating Multicard invoice:', {
+            invoiceId,
+            amount,
             storeId,
-            itemCount: ofdData.length 
+            itemCount: ofdData.length
         });
 
         const response = await axios.post(`${API_URL}/payment/invoice`, payload, {
-            headers: { 
+            headers: {
                 'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json'
             },
@@ -147,7 +109,7 @@ if (!user) {
         }
 
         const invoiceData = response.data.data;
-        
+
         // Create a pending transaction record in your database
         const transaction = new MulticardTransaction({
             userId,
@@ -183,10 +145,10 @@ if (!user) {
 
     } catch (error) {
         console.error('❌ Error initiating Multicard payment:', error.message);
-        
+
         // Return error in Multicard format
-        res.status(500).json({ 
-            success: false, 
+        res.status(500).json({
+            success: false,
             error: {
                 code: 'PAYMENT_INITIATION_FAILED',
                 details: error.message
@@ -245,11 +207,11 @@ const handleWebhook = async (req, res) => {
 
     // Extract payment data from webhook
     const payment = webhookData.payment;
-    
+
     if (!payment || !payment.store_invoice_id) {
         console.error('❌ Invalid webhook data: store_invoice_id is missing.');
-        return res.status(400).json({ 
-            success: false, 
+        return res.status(400).json({
+            success: false,
             error: {
                 code: 'INVALID_WEBHOOK',
                 details: 'Missing store_invoice_id in webhook payload'
@@ -259,14 +221,14 @@ const handleWebhook = async (req, res) => {
 
     try {
         // Find the transaction using your internal invoice ID
-        const transaction = await MulticardTransaction.findOne({ 
-            invoiceId: payment.store_invoice_id 
+        const transaction = await MulticardTransaction.findOne({
+            invoiceId: payment.store_invoice_id
         });
-        
+
         if (!transaction) {
             console.error(`❌ Transaction not found for invoice_id: ${payment.store_invoice_id}`);
-            return res.status(404).json({ 
-                success: false, 
+            return res.status(404).json({
+                success: false,
                 error: {
                     code: 'TRANSACTION_NOT_FOUND',
                     details: `Transaction not found for invoice_id: ${payment.store_invoice_id}`
@@ -277,9 +239,9 @@ const handleWebhook = async (req, res) => {
         // Idempotency check: If already processed, return success
         if (transaction.status === 'paid' || transaction.status === 'failed' || transaction.status === 'canceled') {
             console.log(`✅ Transaction already processed: ${payment.store_invoice_id}, status: ${transaction.status}`);
-            return res.status(200).json({ 
-                success: true, 
-                message: 'Webhook already processed' 
+            return res.status(200).json({
+                success: true,
+                message: 'Webhook already processed'
             });
         }
 
@@ -308,7 +270,7 @@ const handleWebhook = async (req, res) => {
         if (payment.status === 'success') {
             transaction.status = 'paid';
             transaction.paidAt = new Date(payment.payment_time || Date.now());
-            
+
             // Find the user and grant them their subscription/purchase
             const user = await User.findById(transaction.userId);
             if (user) {
@@ -338,17 +300,17 @@ const handleWebhook = async (req, res) => {
         }
 
         await transaction.save();
-        
+
         // Always return success to Multicard to prevent retries
-        res.status(200).json({ 
-            success: true, 
-            message: 'Webhook processed successfully' 
+        res.status(200).json({
+            success: true,
+            message: 'Webhook processed successfully'
         });
 
     } catch (error) {
         console.error('❌ Error processing webhook:', error.message);
-        res.status(500).json({ 
-            success: false, 
+        res.status(500).json({
+            success: false,
             error: {
                 code: 'INTERNAL_ERROR',
                 details: 'Failed to process webhook'
@@ -366,8 +328,8 @@ const getInvoiceInfo = async (req, res) => {
     try {
         const transaction = await MulticardTransaction.findOne({ invoiceId });
         if (!transaction) {
-            return res.status(404).json({ 
-                success: false, 
+            return res.status(404).json({
+                success: false,
                 error: {
                     code: 'TRANSACTION_NOT_FOUND',
                     details: 'Transaction not found'
@@ -404,8 +366,8 @@ const getInvoiceInfo = async (req, res) => {
 
     } catch (error) {
         console.error('❌ Error fetching invoice info:', error.message);
-        res.status(500).json({ 
-            success: false, 
+        res.status(500).json({
+            success: false,
             error: {
                 code: 'FETCH_ERROR',
                 details: 'Failed to fetch invoice information'
@@ -423,8 +385,8 @@ const cancelInvoice = async (req, res) => {
     try {
         const transaction = await MulticardTransaction.findOne({ invoiceId });
         if (!transaction) {
-            return res.status(404).json({ 
-                success: false, 
+            return res.status(404).json({
+                success: false,
                 error: {
                     code: 'TRANSACTION_NOT_FOUND',
                     details: 'Transaction not found'
@@ -433,8 +395,8 @@ const cancelInvoice = async (req, res) => {
         }
 
         if (transaction.status === 'paid') {
-            return res.status(400).json({ 
-                success: false, 
+            return res.status(400).json({
+                success: false,
                 error: {
                     code: 'CANNOT_CANCEL_PAID',
                     details: 'Cannot cancel a paid transaction'
@@ -464,8 +426,8 @@ const cancelInvoice = async (req, res) => {
 
     } catch (error) {
         console.error('❌ Error canceling invoice:', error.message);
-        res.status(500).json({ 
-            success: false, 
+        res.status(500).json({
+            success: false,
             error: {
                 code: 'CANCEL_ERROR',
                 details: 'Failed to cancel invoice'
@@ -484,7 +446,7 @@ const testConnection = async (req, res) => {
             success: true,
             message: 'Successfully connected to Multicard API',
             token: token.substring(0, 20) + '...',
-            tokenExpiry: new Date(tokenExpiry).toISOString()
+            // tokenExpiry is not available here, but you can fetch it if needed
         });
     } catch (error) {
         res.status(500).json({
@@ -528,7 +490,7 @@ const processScanPay = async (req, res) => {
         }
 
         const token = await getAuthToken();
-        
+
         console.log(`📱 Processing scan payment for transaction: ${uuid}`);
         console.log(`   Code: ${code.substring(0, 10)}...`);
 
@@ -545,7 +507,7 @@ const processScanPay = async (req, res) => {
 
         if (response.data?.success) {
             const paymentData = response.data.data;
-            
+
             // Update transaction with payment details
             transaction.status = paymentData.status === 'success' ? 'paid' : 'pending';
             transaction.paymentDetails = {
@@ -567,7 +529,7 @@ const processScanPay = async (req, res) => {
 
             if (paymentData.status === 'success') {
                 transaction.paidAt = new Date(paymentData.payment_time || Date.now());
-                
+
                 // Grant subscription
                 const user = await User.findById(transaction.userId);
                 if (user) {
@@ -589,7 +551,7 @@ const processScanPay = async (req, res) => {
 
     } catch (error) {
         console.error('❌ Error processing scan payment:', error.message);
-        
+
         // Check for specific error codes
         if (error.response?.data?.error?.code === 'ERROR_DEBIT_UNKNOWN') {
             console.warn('⚠️ Unknown debit error - check payment status manually');
@@ -804,7 +766,7 @@ const handleWebhookCallback = async (req, res) => {
                 console.warn(`🔄 Transaction refunded: ${invoice_id}`);
                 transaction.status = 'refunded';
                 transaction.refundedAt = refund_time ? new Date(refund_time) : new Date();
-                
+
                 // Revoke subscription if needed
                 const userToRevoke = await User.findById(transaction.userId);
                 if (userToRevoke) {
@@ -868,7 +830,7 @@ const deleteInvoice = async (req, res) => {
         }
 
         const token = await getAuthToken();
-        
+
         console.log(`🗑️ Deleting invoice: ${uuid}`);
 
         const response = await axios.delete(
@@ -920,23 +882,23 @@ const createCardBindingSession = async (req, res) => {
     }
 
     try {
-     // Find user by firebaseId or MongoDB _id
-const user = await User.findOne({
-    $or: [
-        { firebaseId: userId },
-        { _id: mongoose.Types.ObjectId.isValid(userId) ? userId : null }
-    ]
-});
+        // Find user by firebaseId or MongoDB _id
+        const user = await User.findOne({
+            $or: [
+                { firebaseId: userId },
+                { _id: mongoose.Types.ObjectId.isValid(userId) ? userId : null }
+            ]
+        });
 
-if (!user) {
-    return res.status(404).json({ 
-        success: false, 
-        error: {
-            code: 'USER_NOT_FOUND',
-            details: 'User not found'
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: {
+                    code: 'USER_NOT_FOUND',
+                    details: 'User not found'
+                }
+            });
         }
-    });
-}
 
         const token = await getAuthToken();
         const storeId = parseInt(process.env.MULTICARD_STORE_ID);
@@ -962,7 +924,7 @@ if (!user) {
 
         if (response.data?.success) {
             const sessionData = response.data.data;
-            
+
             // Store session info in user document or separate collection
             user.cardBindingSession = {
                 sessionId: sessionData.session_id,
@@ -1064,7 +1026,7 @@ const checkCardBindingStatus = async (req, res) => {
 
     try {
         const token = await getAuthToken();
-        
+
         console.log(`🔍 Checking card binding status: ${sessionId}`);
 
         const response = await axios.get(
@@ -1103,7 +1065,7 @@ const getCardInfoByToken = async (req, res) => {
 
     try {
         const token = await getAuthToken();
-        
+
         console.log(`🔍 Getting card info by token: ${cardToken.substring(0, 10)}...`);
 
         const response = await axios.get(
@@ -1153,7 +1115,7 @@ const addCardByDetails = async (req, res) => {
 
     try {
         const token = await getAuthToken();
-        
+
         console.log('💳 Adding card by details (PCI DSS method)');
         console.log(`   PAN: ${pan.substring(0, 6)}******${pan.substring(pan.length - 4)}`);
 
@@ -1179,7 +1141,7 @@ const addCardByDetails = async (req, res) => {
 
         if (response.data?.success) {
             const cardData = response.data.data;
-            
+
             console.log('✅ Card added, SMS sent');
             console.log(`   Status: ${cardData.status}`);
             console.log(`   Token: ${cardData.card_token}`);
@@ -1224,7 +1186,7 @@ const confirmCardBinding = async (req, res) => {
 
     try {
         const token = await getAuthToken();
-        
+
         console.log(`✅ Confirming card binding with OTP`);
         console.log(`   Token: ${cardToken.substring(0, 10)}...`);
 
@@ -1241,7 +1203,7 @@ const confirmCardBinding = async (req, res) => {
 
         if (response.data?.success) {
             const cardData = response.data.data;
-            
+
             console.log('✅ Card binding confirmed');
             console.log(`   Status: ${cardData.status}`);
             console.log(`   PAN: ${cardData.card_pan}`);
@@ -1294,7 +1256,7 @@ const checkCardPinfl = async (req, res) => {
 
     try {
         const token = await getAuthToken();
-        
+
         console.log(`🔍 Checking PINFL for card: ${pan.substring(0, 6)}******${pan.substring(pan.length - 4)}`);
 
         const response = await axios.post(
@@ -1310,7 +1272,7 @@ const checkCardPinfl = async (req, res) => {
 
         if (response.data?.success !== undefined) {
             const matches = response.data.data;
-            
+
             console.log(`   Result: ${matches === true ? '✅ Match' : matches === false ? '❌ No match' : '❓ Unknown'}`);
 
             res.json({
@@ -1341,7 +1303,7 @@ const deleteCardToken = async (req, res) => {
 
     try {
         const token = await getAuthToken();
-        
+
         console.log(`🗑️ Deleting card token: ${cardToken.substring(0, 10)}...`);
 
         const response = await axios.delete(
@@ -1393,7 +1355,7 @@ exports.createPaymentByToken = async (req, res) => {
 
     try {
         const token = await getAuthToken();
-        
+
         const payload = {
             card: {
                 token: card.token
@@ -1423,7 +1385,7 @@ exports.createPaymentByToken = async (req, res) => {
 
         if (response.data?.success) {
             const paymentData = response.data.data;
-            
+
             // Create transaction record
             const transaction = new MulticardTransaction({
                 userId: req.user?._id || req.body.userId,
@@ -1490,7 +1452,7 @@ exports.createPaymentByCardDetails = async (req, res) => {
 
     try {
         const token = await getAuthToken();
-        
+
         const payload = {
             card: {
                 pan: card.pan,
@@ -1521,7 +1483,7 @@ exports.createPaymentByCardDetails = async (req, res) => {
 
         if (response.data?.success) {
             const paymentData = response.data.data;
-            
+
             // Create transaction record
             const transaction = new MulticardTransaction({
                 userId: req.user?._id || req.body.userId,
@@ -1597,7 +1559,7 @@ exports.createSplitPayment = async (req, res) => {
 
     try {
         const token = await getAuthToken();
-        
+
         const payload = {
             card: {
                 token: card.token
@@ -1627,7 +1589,7 @@ exports.createSplitPayment = async (req, res) => {
 
         if (response.data?.success) {
             const paymentData = response.data.data;
-            
+
             console.log('✅ Split payment created');
             console.log(`   UUID: ${paymentData.uuid}`);
 
@@ -1659,7 +1621,7 @@ exports.createPaymentViaApp = async (req, res) => {
     const { paymentSystem, amount, storeId, invoiceId, callbackUrl, ofd } = req.body;
 
     const validSystems = ['payme', 'click', 'uzum', 'anorbank', 'alif', 'oson', 'xazna', 'beepul', 'trastpay', 'sbp'];
-    
+
     if (!paymentSystem || !validSystems.includes(paymentSystem)) {
         return res.status(400).json({
             success: false,
@@ -1682,7 +1644,7 @@ exports.createPaymentViaApp = async (req, res) => {
 
     try {
         const token = await getAuthToken();
-        
+
         const payload = {
             payment_system: paymentSystem,
             amount,
@@ -1708,7 +1670,7 @@ exports.createPaymentViaApp = async (req, res) => {
 
         if (response.data?.success) {
             const paymentData = response.data.data;
-            
+
             // Create transaction record
             const transaction = new MulticardTransaction({
                 userId: req.user?._id || req.body.userId,
@@ -1769,7 +1731,7 @@ exports.confirmPayment = async (req, res) => {
 
     try {
         const token = await getAuthToken();
-        
+
         const payload = {
             otp,
             debit_available: debitAvailable || false
@@ -1790,7 +1752,7 @@ exports.confirmPayment = async (req, res) => {
 
         if (response.data?.success) {
             const paymentData = response.data.data;
-            
+
             // Update transaction
             const transaction = await MulticardTransaction.findOne({ multicardUuid: paymentUuid });
             if (transaction) {
@@ -1817,7 +1779,7 @@ exports.confirmPayment = async (req, res) => {
 
     } catch (error) {
         console.error('❌ Error confirming payment:', error.message);
-        
+
         // Handle special error codes
         const errorCode = error.response?.data?.error?.code;
         if (errorCode === 'ERROR_DEBIT_UNKNOWN' || errorCode === 'ERROR_CALLBACK_TIMEOUT') {
@@ -1862,7 +1824,7 @@ exports.sendFiscalReceipt = async (req, res) => {
 
     try {
         const token = await getAuthToken();
-        
+
         console.log(`📄 Sending fiscal receipt for payment: ${paymentUuid}`);
         console.log(`   URL: ${url}`);
 
@@ -1908,7 +1870,7 @@ exports.refundPayment = async (req, res) => {
 
     try {
         const token = await getAuthToken();
-        
+
         console.log(`🔄 Refunding payment: ${paymentUuid}`);
 
         const response = await axios.delete(
@@ -1920,7 +1882,7 @@ exports.refundPayment = async (req, res) => {
 
         if (response.data?.success) {
             const paymentData = response.data.data;
-            
+
             // Update transaction
             const transaction = await MulticardTransaction.findOne({ multicardUuid: paymentUuid });
             if (transaction) {
@@ -1969,7 +1931,7 @@ exports.getPaymentInfo = async (req, res) => {
 
     try {
         const token = await getAuthToken();
-        
+
         const response = await axios.get(
             `${API_URL}/payment/${paymentUuid}`,
             {
@@ -2005,7 +1967,7 @@ exports.getPaymentInfo = async (req, res) => {
 exports.getApplicationInfo = async (req, res) => {
     try {
         const token = await getAuthToken();
-        
+
         console.log('ℹ️ Fetching application info...');
 
         const response = await axios.get(
@@ -2017,7 +1979,7 @@ exports.getApplicationInfo = async (req, res) => {
 
         if (response.data?.success) {
             const appInfo = response.data.data;
-            
+
             console.log('✅ Application info retrieved');
             console.log(`   Application ID: ${appInfo.application_id}`);
             console.log(`   Official Name: ${appInfo.official_name}`);
@@ -2050,7 +2012,7 @@ exports.getApplicationInfo = async (req, res) => {
 exports.getRecipientBankAccount = async (req, res) => {
     try {
         const token = await getAuthToken();
-        
+
         console.log('🏦 Fetching recipient bank account...');
 
         const response = await axios.get(
@@ -2062,7 +2024,7 @@ exports.getRecipientBankAccount = async (req, res) => {
 
         if (response.data?.success) {
             const accountInfo = response.data.data;
-            
+
             console.log('✅ Bank account info retrieved');
             console.log(`   Official Name: ${accountInfo.official_name}`);
             console.log(`   TIN: ${accountInfo.tin}`);
@@ -2095,12 +2057,12 @@ exports.getRecipientBankAccount = async (req, res) => {
  */
 exports.getPaymentHistory = async (req, res) => {
     const { storeId } = req.params;
-    const { 
-        offset = 0, 
-        limit = 100, 
-        onlyStatus, 
-        startDate, 
-        endDate 
+    const {
+        offset = 0,
+        limit = 100,
+        onlyStatus,
+        startDate,
+        endDate
     } = req.query;
 
     // Validate required fields
@@ -2127,7 +2089,7 @@ exports.getPaymentHistory = async (req, res) => {
 
     try {
         const token = await getAuthToken();
-        
+
         const params = {
             offset: parseInt(offset),
             limit: parseInt(limit),
@@ -2151,7 +2113,7 @@ exports.getPaymentHistory = async (req, res) => {
 
         if (response.data?.success) {
             const historyData = response.data.data;
-            
+
             console.log('✅ Payment history retrieved');
             console.log(`   Total transactions: ${historyData.pagination.total}`);
             console.log(`   Returned: ${historyData.list.length}`);
@@ -2174,7 +2136,7 @@ exports.getPaymentHistory = async (req, res) => {
 
     } catch (error) {
         console.error('❌ Error getting payment history:', error.message);
-        
+
         // Handle specific errors
         if (error.response?.status === 403) {
             return res.status(403).json({
@@ -2202,12 +2164,12 @@ exports.getPaymentHistory = async (req, res) => {
  */
 exports.getCreditHistory = async (req, res) => {
     const { storeId } = req.params;
-    const { 
-        offset = 0, 
-        limit = 100, 
-        onlyStatus, 
-        startDate, 
-        endDate 
+    const {
+        offset = 0,
+        limit = 100,
+        onlyStatus,
+        startDate,
+        endDate
     } = req.query;
 
     // Validate required fields
@@ -2234,7 +2196,7 @@ exports.getCreditHistory = async (req, res) => {
 
     try {
         const token = await getAuthToken();
-        
+
         const params = {
             offset: parseInt(offset),
             limit: parseInt(limit),
@@ -2257,7 +2219,7 @@ exports.getCreditHistory = async (req, res) => {
 
         if (response.data?.success) {
             const creditData = response.data.data;
-            
+
             console.log('✅ Credit history retrieved');
             console.log(`   Total payouts: ${creditData.pagination.total}`);
             console.log(`   Returned: ${creditData.list.length}`);
@@ -2302,7 +2264,7 @@ exports.getPaymentStatistics = async (req, res) => {
 
     try {
         const token = await getAuthToken();
-        
+
         // Get all transactions
         const response = await axios.get(
             `${API_URL}/payment/store/${storeId}/history`,
@@ -2319,7 +2281,7 @@ exports.getPaymentStatistics = async (req, res) => {
 
         if (response.data?.success) {
             const stats = response.data.data.stat;
-            
+
             // Aggregate by status
             const aggregated = {
                 success: { count: 0, amount: 0 },
@@ -2393,7 +2355,7 @@ exports.exportPaymentHistory = async (req, res) => {
 
     try {
         const token = await getAuthToken();
-        
+
         // Fetch all pages
         let allTransactions = [];
         let offset = 0;
@@ -2420,10 +2382,10 @@ exports.exportPaymentHistory = async (req, res) => {
             if (response.data?.success) {
                 const transactions = response.data.data.list;
                 allTransactions = allTransactions.concat(transactions);
-                
+
                 hasMore = transactions.length === limit;
                 offset += limit;
-                
+
                 console.log(`   Fetched ${allTransactions.length} transactions...`);
             } else {
                 hasMore = false;
@@ -2432,7 +2394,7 @@ exports.exportPaymentHistory = async (req, res) => {
 
         // Convert to CSV
         const csvHeader = 'ID,UUID,Status,Payment System,Invoice ID,Payment Time,Amount,Commission,Card PAN,RRN\n';
-        const csvRows = allTransactions.map(t => 
+        const csvRows = allTransactions.map(t =>
             `${t.id},${t.uuid},${t.status},${t.ps},${t.store_invoice_id},${t.payment_time || ''},${t.payment_amount},${t.commission_amount},${t.card_pan || ''},${t.ps_uniq_id || ''}`
         ).join('\n');
 
@@ -2492,4 +2454,3 @@ module.exports = {
     getPaymentStatistics: exports.getPaymentStatistics,
     exportPaymentHistory: exports.exportPaymentHistory,
 };
-
