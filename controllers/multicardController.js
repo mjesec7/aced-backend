@@ -1,6 +1,8 @@
 const axios = require('axios');
 const dotenv = require('dotenv');
 const crypto = require('crypto');
+const mongoose = require('mongoose');  // ← ADD THIS LINE
+
 const MulticardTransaction = require('../models/MulticardTransaction');
 const User = require('../models/user');
 const { getAuthToken } = require('./multicardAuth');
