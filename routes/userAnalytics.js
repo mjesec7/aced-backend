@@ -257,7 +257,7 @@ router.get('/:userId', verifyToken, async (req, res) => {
         }
       }
     });
-
+//bhj
     const mostActiveDay = Object.entries(dayCount)
       .sort((a, b) => b[1] - a[1])[0]?.[0] || null;
 
