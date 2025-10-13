@@ -67,16 +67,23 @@ const initiatePayment = async (req, res) => {
     }
 
     try {
-        const user = await User.findById(userId);
-        if (!user) {
-            return res.status(404).json({ 
-                success: false, 
-                error: {
-                    code: 'USER_NOT_FOUND',
-                    details: 'User not found'
-                }
-            });
+        // Find user by firebaseId or MongoDB _id
+const user = await User.findOne({
+    $or: [
+        { firebaseId: userId },
+        { _id: mongoose.Types.ObjectId.isValid(userId) ? userId : null }
+    ]
+});
+
+if (!user) {
+    return res.status(404).json({ 
+        success: false, 
+        error: {
+            code: 'USER_NOT_FOUND',
+            details: 'User not found'
         }
+    });
+}
 
         const token = await getAuthToken();
         const invoiceId = `aced_${plan}_${userId}_${Date.now()}`;
@@ -913,16 +920,23 @@ const createCardBindingSession = async (req, res) => {
     }
 
     try {
-        const user = await User.findById(userId);
-        if (!user) {
-            return res.status(404).json({
-                success: false,
-                error: {
-                    code: 'USER_NOT_FOUND',
-                    details: 'User not found'
-                }
-            });
+     // Find user by firebaseId or MongoDB _id
+const user = await User.findOne({
+    $or: [
+        { firebaseId: userId },
+        { _id: mongoose.Types.ObjectId.isValid(userId) ? userId : null }
+    ]
+});
+
+if (!user) {
+    return res.status(404).json({ 
+        success: false, 
+        error: {
+            code: 'USER_NOT_FOUND',
+            details: 'User not found'
         }
+    });
+}
 
         const token = await getAuthToken();
         const storeId = parseInt(process.env.MULTICARD_STORE_ID);
