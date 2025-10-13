@@ -1,6 +1,161 @@
 const express = require('express');
 const router = express.Router();
+const axios = require('axios');
 const multicardController = require('../controllers/multicardController');
+const { getAuthToken } = require('../controllers/multicardAuth');
+const MulticardTransaction = require('../models/MulticardTransaction');
+
+// ============================================
+// DEBUG / TEST ROUTES (Place these first)
+// ============================================
+
+/**
+ * List all transactions (for debugging)
+ */
+router.get('/debug/transactions', async (req, res) => {
+    try {
+        const transactions = await MulticardTransaction.find()
+            .sort({ createdAt: -1 })
+            .limit(20)
+            .select('invoiceId multicardUuid status amount plan createdAt checkoutUrl');
+        
+        res.json({
+            success: true,
+            count: transactions.length,
+            data: transactions
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * Get single transaction by any identifier
+ */
+router.get('/debug/transaction/:identifier', async (req, res) => {
+    try {
+        const { identifier } = req.params;
+        
+        // Try to find by invoiceId OR multicardUuid
+        const transaction = await MulticardTransaction.findOne({
+            $or: [
+                { invoiceId: identifier },
+                { multicardUuid: identifier }
+            ]
+        });
+        
+        if (!transaction) {
+            return res.status(404).json({
+                success: false,
+                message: 'Transaction not found',
+                searched: identifier
+            });
+        }
+        
+        res.json({
+            success: true,
+            data: transaction
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * Test Multicard API directly with a UUID
+ */
+router.get('/debug/multicard/:uuid', async (req, res) => {
+    try {
+        const { uuid } = req.params;
+        const token = await getAuthToken();
+        
+        console.log(`🔍 Testing Multicard API with UUID: ${uuid}`);
+        console.log(`   API URL: ${process.env.MULTICARD_API_URL}/payment/invoice/${uuid}`);
+        console.log(`   Token: ${token.substring(0, 20)}...`);
+        
+        const response = await axios.get(
+            `${process.env.MULTICARD_API_URL}/payment/invoice/${uuid}`,
+            {
+                headers: { 
+                    'Authorization': `Bearer ${token}`,
+                    'X-Access-Token': process.env.MULTICARD_TOKEN || '',
+                    'Accept': 'application/json'
+                }
+            }
+        );
+        
+        console.log(`✅ Response status: ${response.status}`);
+        console.log(`   Success: ${response.data.success}`);
+        
+        res.json({
+            success: true,
+            status: response.status,
+            data: response.data
+        });
+        
+    } catch (error) {
+        console.error(`❌ Multicard API Error:`);
+        console.error(`   Status: ${error.response?.status}`);
+        console.error(`   Message: ${error.message}`);
+        console.error(`   Response:`, JSON.stringify(error.response?.data, null, 2));
+        
+        res.status(error.response?.status || 500).json({
+            success: false,
+            error: {
+                message: error.message,
+                status: error.response?.status,
+                data: error.response?.data
+            }
+        });
+    }
+});
+
+/**
+ * Test auth token
+ */
+router.get('/debug/auth', async (req, res) => {
+    try {
+        const token = await getAuthToken();
+        
+        res.json({
+            success: true,
+            message: 'Auth token obtained',
+            tokenPreview: token.substring(0, 30) + '...',
+            tokenLength: token.length,
+            apiUrl: process.env.MULTICARD_API_URL,
+            storeId: process.env.MULTICARD_STORE_ID
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * Check environment variables
+ */
+router.get('/debug/env', (req, res) => {
+    res.json({
+        success: true,
+        env: {
+            MULTICARD_API_URL: process.env.MULTICARD_API_URL || 'NOT SET',
+            MULTICARD_APPLICATION_ID: process.env.MULTICARD_APPLICATION_ID || 'NOT SET',
+            MULTICARD_SECRET: process.env.MULTICARD_SECRET ? 'SET (***' + process.env.MULTICARD_SECRET.slice(-4) + ')' : 'NOT SET',
+            MULTICARD_STORE_ID: process.env.MULTICARD_STORE_ID || 'NOT SET',
+            MULTICARD_TOKEN: process.env.MULTICARD_TOKEN ? 'SET (***' + process.env.MULTICARD_TOKEN.slice(-4) + ')' : 'NOT SET',
+            API_BASE_URL: process.env.API_BASE_URL || 'NOT SET',
+            FRONTEND_URL: process.env.FRONTEND_URL || 'NOT SET'
+        }
+    });
+});
 
 // ============================================
 // PAYMENT ROUTES
@@ -13,8 +168,8 @@ router.post('/initiate', multicardController.initiatePayment);
 router.put('/payment/:uuid/scanpay', multicardController.processScanPay);
 
 // Webhooks - New format (recommended)
-// CORRECT
 router.post('/webhook', multicardController.handleWebhook);
+
 // Success callback - Old format (deprecated but kept for compatibility)
 router.post('/callback/success', multicardController.handleSuccessCallbackOld);
 
@@ -59,6 +214,34 @@ router.post('/card', multicardController.addCardByDetails);
 
 // Confirm card binding with OTP
 router.put('/card/:cardToken/confirm', multicardController.confirmCardBinding);
+
+// ============================================
+// PAYMENT BY CARD TOKEN ROUTES
+// ============================================
+
+// Create payment by saved card token
+router.post('/payment/by-token', multicardController.createPaymentByToken);
+
+// Create payment by card details (PCI DSS required)
+router.post('/payment/by-card', multicardController.createPaymentByCardDetails);
+
+// Create split payment
+router.post('/payment/split', multicardController.createSplitPayment);
+
+// Create payment via payment app (Payme, Click, Uzum, etc.)
+router.post('/payment/via-app', multicardController.createPaymentViaApp);
+
+// Confirm payment with OTP
+router.put('/payment/:paymentUuid/confirm', multicardController.confirmPayment);
+
+// Send fiscal receipt URL
+router.patch('/payment/:paymentUuid/fiscal', multicardController.sendFiscalReceipt);
+
+// Refund payment
+router.delete('/payment/:paymentUuid', multicardController.refundPayment);
+
+// Get payment info
+router.get('/payment/:paymentUuid', multicardController.getPaymentInfo);
 
 // ============================================
 // UTILITY / ADMIN ROUTES
