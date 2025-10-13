@@ -1570,8 +1570,7 @@ const routesToMount = [
   ['/api/promocodes', './routes/promocodeRoutes', 'Promocode management routes (ADMIN)'],
 
   // ✅ ADD THIS LINE FOR MULTICARD
-  ['/api/payments/multicard', './routes/multicardRoutes', 'Multicard payment integration'],
-
+  ['/api/multicard', './routes/multicardRoutes', 'Multicard payment integration'],
   // PayMe routes (legacy)
   ['/api/payments', './routes/paymeRoutes', 'PayMe payment routes (legacy)'],
 
