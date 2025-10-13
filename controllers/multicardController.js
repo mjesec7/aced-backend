@@ -1,10 +1,10 @@
-const axios = require('axios');
-const dotenv = require('dotenv');
-const crypto = require('crypto');
-const MulticardTransaction = require('../models/multicardTransaction');
-const User = require('../models/user');
-const { getAuthToken } = require('./multicardAuth');
-
+import axios from 'axios';
+import dotenv from 'dotenv';
+import crypto from 'crypto';
+import mongoose from 'mongoose';
+import MulticardTransaction from '../models/multicardTransaction.js';
+import User from '../models/user.js';
+import { getAuthToken } from './multicardAuth.js';
 
 dotenv.config();
 
@@ -2419,8 +2419,7 @@ exports.exportPaymentHistory = async (req, res) => {
 };
 
 
-// Export all controller functions
-module.exports = {
+export {
     initiatePayment,
     handleSuccessCallback,
     handleWebhook,
@@ -2439,18 +2438,18 @@ module.exports = {
     confirmCardBinding,
     checkCardPinfl,
     deleteCardToken,
-    createPaymentByToken: exports.createPaymentByToken,
-    createPaymentByCardDetails: exports.createPaymentByCardDetails,
-    createSplitPayment: exports.createSplitPayment,
-    createPaymentViaApp: exports.createPaymentViaApp,
-    confirmPayment: exports.confirmPayment,
-    sendFiscalReceipt: exports.sendFiscalReceipt,
-    refundPayment: exports.refundPayment,
-    getPaymentInfo: exports.getPaymentInfo,
-    getApplicationInfo: exports.getApplicationInfo,
-    getRecipientBankAccount: exports.getRecipientBankAccount,
-    getPaymentHistory: exports.getPaymentHistory,
-    getCreditHistory: exports.getCreditHistory,
-    getPaymentStatistics: exports.getPaymentStatistics,
-    exportPaymentHistory: exports.exportPaymentHistory,
+    createPaymentByToken,
+    createPaymentByCardDetails,
+    createSplitPayment,
+    createPaymentViaApp,
+    confirmPayment,
+    sendFiscalReceipt,
+    refundPayment,
+    getPaymentInfo,
+    getApplicationInfo,
+    getRecipientBankAccount,
+    getPaymentHistory,
+    getCreditHistory,
+    getPaymentStatistics,
+    exportPaymentHistory,
 };

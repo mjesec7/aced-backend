@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
 
 const multicardTransactionSchema = new mongoose.Schema({
     userId: { 
@@ -60,6 +60,7 @@ const multicardTransactionSchema = new mongoose.Schema({
         ps: String, // Payment service: uzcard, humo, visa, etc.
         phone: String,
         cardPan: String,
+        cardToken: String,
         terminalId: String,
         merchantId: String,
         psUniqId: String, // RRN/RefNum
@@ -67,6 +68,8 @@ const multicardTransactionSchema = new mongoose.Schema({
         psResponseMsg: String,
         receiptUrl: String,
         paymentTime: Date,
+        billingId: String,
+        otpHash: String,
     },
     errorCode: {
         type: String,
@@ -91,4 +94,4 @@ multicardTransactionSchema.index({ userId: 1, status: 1 });
 
 const MulticardTransaction = mongoose.model('MulticardTransaction', multicardTransactionSchema);
 
-module.exports = MulticardTransaction;
+export default MulticardTransaction;

@@ -1,6 +1,7 @@
-const express = require('express');
+import express from 'express';
+import * as multicardController from '../controllers/multicardController.js';
+
 const router = express.Router();
-const multicardController = require('../controllers/multicardController');
 
 // ============================================
 // PAYMENT ROUTES
@@ -13,8 +14,8 @@ router.post('/initiate', multicardController.initiatePayment);
 router.put('/payment/:uuid/scanpay', multicardController.processScanPay);
 
 // Webhooks - New format (recommended)
-// CORRECT
 router.post('/webhook', multicardController.handleWebhook);
+
 // Success callback - Old format (deprecated but kept for compatibility)
 router.post('/callback/success', multicardController.handleSuccessCallbackOld);
 
@@ -61,6 +62,34 @@ router.post('/card', multicardController.addCardByDetails);
 router.put('/card/:cardToken/confirm', multicardController.confirmCardBinding);
 
 // ============================================
+// PAYMENT BY CARD TOKEN
+// ============================================
+
+// Create payment using saved card token
+router.post('/payment/by-token', multicardController.createPaymentByToken);
+
+// Create payment using card details (PCI DSS required)
+router.post('/payment/by-card', multicardController.createPaymentByCardDetails);
+
+// Create split payment
+router.post('/payment/split', multicardController.createSplitPayment);
+
+// Create payment via payment apps (Payme, Click, Uzum, etc.)
+router.post('/payment/via-app', multicardController.createPaymentViaApp);
+
+// Confirm payment with OTP
+router.put('/payment/:paymentUuid/confirm', multicardController.confirmPayment);
+
+// Send fiscal receipt URL
+router.patch('/payment/:paymentUuid/fiscal', multicardController.sendFiscalReceipt);
+
+// Refund payment
+router.delete('/payment/:paymentUuid', multicardController.refundPayment);
+
+// Get payment info
+router.get('/payment/:paymentUuid', multicardController.getPaymentInfo);
+
+// ============================================
 // UTILITY / ADMIN ROUTES
 // ============================================
 
@@ -85,4 +114,4 @@ router.get('/store/:storeId/statistics', multicardController.getPaymentStatistic
 // Export payment history to CSV
 router.get('/store/:storeId/export', multicardController.exportPaymentHistory);
 
-module.exports = router;
+export default router;

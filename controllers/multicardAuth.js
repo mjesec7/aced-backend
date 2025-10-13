@@ -1,5 +1,5 @@
-const axios = require('axios');
-const dotenv = require('dotenv');
+import axios from 'axios';
+import dotenv from 'dotenv';
 
 dotenv.config();
 
@@ -219,8 +219,4 @@ const forceRefreshToken = async (req, res) => {
     }
 };
 
-module.exports = {
-    getAuthToken,
-    testAuth,
-    forceRefreshToken
-};
+export { getAuthToken, testAuth, forceRefreshToken };
