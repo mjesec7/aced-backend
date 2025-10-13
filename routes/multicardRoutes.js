@@ -13,8 +13,8 @@ router.post('/initiate', multicardController.initiatePayment);
 router.put('/payment/:uuid/scanpay', multicardController.processScanPay);
 
 // Webhooks - New format (recommended)
-router.post('/webhook', multicardController.handleWebhookCallback);
-
+// CORRECT
+router.post('/webhook', multicardController.handleWebhook);
 // Success callback - Old format (deprecated but kept for compatibility)
 router.post('/callback/success', multicardController.handleSuccessCallbackOld);
 
