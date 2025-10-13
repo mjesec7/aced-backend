@@ -1,7 +1,7 @@
 const axios = require('axios');
 const dotenv = require('dotenv');
 const crypto = require('crypto');
-const MulticardTransaction = require('../models/multicardTransaction');
+const MulticardTransaction = require('../models/MulticardTransaction');
 const User = require('../models/user');
 const { getAuthToken } = require('./multicardAuth');
 
