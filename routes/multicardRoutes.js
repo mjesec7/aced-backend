@@ -171,7 +171,7 @@ router.put('/payment/:uuid/scanpay', multicardController.processScanPay);
 router.post('/webhook', multicardController.handleWebhook);
 
 // Success callback - Old format (deprecated but kept for compatibility)
-router.post('/callback/success', multicardController.handleSuccessCallbackOld);
+router.post('/success', multicardController.handleSuccessCallbackOld);
 
 // User return callbacks
 router.get('/return/success', multicardController.handleSuccessCallback);

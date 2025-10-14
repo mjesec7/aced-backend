@@ -1388,20 +1388,24 @@ app.post('/api/payments/generate-form', async (req, res) => {
 // ========================================
 // 🛡️ MULTICARD IP WHITELIST MIDDLEWARE
 // ========================================
-
 const multicardIpWhitelist = (req, res, next) => {
   const allowedIp = '195.158.26.90'; // Multicard webhook IP
   const clientIp = req.ip || req.connection.remoteAddress || req.headers['x-forwarded-for'];
   
-  // Skip check in development
+  // ✅ CRITICAL FIX: Skip check in development OR for callback routes
   if (process.env.NODE_ENV === 'development') {
     console.log('🔓 Multicard IP check skipped (development mode)');
     return next();
   }
 
+  // ✅ NEW: Allow callback/success routes (these come from browser, not Multicard IP)
+  if (req.url.includes('/success') || req.url.includes('/callback/success')) {
+    console.log('🔓 Multicard success callback allowed (browser redirect)');
+    return next();
+  }
+
   // Check if request is from Multicard webhook
-  const isMulticardWebhook = req.url.includes('/multicard/webhook') || 
-                           req.url.includes('/multicard/callback');
+  const isMulticardWebhook = req.url.includes('/webhook');
 
   if (isMulticardWebhook && clientIp !== allowedIp) {
     console.warn(`⚠️ Blocked Multicard request from unauthorized IP: ${clientIp}`);
@@ -1414,9 +1418,8 @@ const multicardIpWhitelist = (req, res, next) => {
   next();
 };
 
-// Apply to webhook routes
+// Apply ONLY to webhook routes, not callback routes
 app.use('/api/payments/multicard/webhook', multicardIpWhitelist);
-app.use('/api/payments/multicard/callback', multicardIpWhitelist);
 
 // ========================================
 // 🏥 ENHANCED HEALTH CHECK - MULTIPLE ENDPOINTS
