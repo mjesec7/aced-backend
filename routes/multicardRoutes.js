@@ -187,14 +187,16 @@ router.delete('/invoice/:uuid', multicardController.deleteInvoice);
 // CARD BINDING ROUTES (Form-based)
 // ============================================
 
-// Create card binding session
-router.post('/card-binding/create', multicardController.createCardBindingSession);
+// ✅ Create card binding session - CORRECT PATH
+router.post('/card/bind', multicardController.createCardBindingSession);
 
 // Card binding callback (from Multicard)
 router.post('/card-binding/callback', multicardController.handleCardBindingCallback);
+router.post('/card/bind/callback', multicardController.handleCardBindingCallback); // Alternative path
 
 // Check card binding status
-router.get('/card-binding/status/:sessionId', multicardController.checkCardBindingStatus);
+router.get('/card/bind/:sessionId', multicardController.checkCardBindingStatus);
+router.get('/card-binding/status/:sessionId', multicardController.checkCardBindingStatus); // Alternative path
 
 // Get card info by token
 router.get('/card/:cardToken', multicardController.getCardInfoByToken);
