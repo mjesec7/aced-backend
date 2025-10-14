@@ -1566,6 +1566,9 @@ const mountRoute = (path, routeFile, description) => {
 
 const routesToMount = [
   // ✅ FIXED: Add main payment routes FIRST
+
+  ['/api/payments/multicard', './routes/multicardRoutes', 'Multicard payment integration'],  // PayMe routes (legacy)
+
   ['/api/payments', './routes/payments', 'Main payment routes (CRITICAL)'],
   ['/api/promocodes', './routes/promocodeRoutes', 'Promocode management routes (ADMIN)'],
 

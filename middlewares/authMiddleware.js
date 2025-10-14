@@ -1,9 +1,35 @@
+// middlewares/authMiddleware.js
 // ✅ Firebase Admin SDK initialized via config/firebase.js
 const admin = require('../config/firebase');
 
 const authenticateUser = async (req, res, next) => {
   try {
+    // ✅ PUBLIC PATHS - Skip authentication for webhooks and callbacks
+    const publicPaths = [
+      '/api/payments/multicard/webhook',
+      '/api/payments/multicard/callback',
+      '/api/payments/multicard/callback/success',
+      '/api/payments/multicard/return/success',
+      '/api/payments/multicard/return/error',
+      '/api/payments/payme',
+      '/api/payments/payme/notify',
+      '/api/payments/payme/return/success',
+      '/api/payments/payme/return/failure',
+      '/api/payments/payme/return/cancel',
+      '/health',
+      '/api/health',
+      '/api/status',
+      '/api/routes'
+    ];
+
+    // Check if current path is public
+    const isPublicPath = publicPaths.some(path => req.path === path || req.path.startsWith(path));
     
+    if (isPublicPath) {
+      console.log(`✅ Public path accessed: ${req.path} - Skipping auth`);
+      return next(); // Skip authentication for public paths
+    }
+
     const authHeader = req.headers.authorization;
 
     // 🔒 Validate Authorization header presence and format
@@ -24,7 +50,6 @@ const authenticateUser = async (req, res, next) => {
       });
     }
 
-    
     // 🔐 Verify token via Firebase Admin with enhanced error handling
     let decodedToken;
     try {
@@ -57,14 +82,10 @@ const authenticateUser = async (req, res, next) => {
       throw verificationError;
     }
 
-
-
     // ✅ CRITICAL: Force validate project ID match
     const REQUIRED_PROJECT_ID = 'aced-9cf72'; // Your frontend project ID
     const tokenAud = (decodedToken.aud || '').trim();
     const envProjectId = (process.env.FIREBASE_PROJECT_ID || '').trim();
-
-  
 
     // Check if token is from correct project
     if (tokenAud !== REQUIRED_PROJECT_ID) {
