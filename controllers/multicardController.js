@@ -953,96 +953,115 @@ const deleteInvoice = async (req, res) => {
  * Returns a URL where user can add their card
  */
 const createCardBindingSession = async (req, res) => {
-    const { userId, redirectUrl, redirectDeclineUrl } = req.body;
+  const { userId, redirectUrl, redirectDeclineUrl, callbackUrl } = req.body;
 
-    if (!userId || !redirectUrl || !redirectDeclineUrl) {
-        return res.status(400).json({
-            success: false,
-            error: {
-                code: 'ERROR_FIELDS',
-                details: 'userId, redirectUrl, and redirectDeclineUrl are required'
-            }
-        });
+  // ✅ FIX: Make callbackUrl required as per documentation
+  if (!userId || !redirectUrl || !redirectDeclineUrl || !callbackUrl) {
+    return res.status(400).json({
+      success: false,
+      error: {
+        code: 'ERROR_FIELDS',
+        details: 'userId, redirectUrl, redirectDeclineUrl, and callbackUrl are required'
+      }
+    });
+  }
+
+  try {
+    // Find user by firebaseId or MongoDB _id
+    const user = await User.findOne({
+      $or: [
+        { firebaseId: userId },
+        { _id: mongoose.Types.ObjectId.isValid(userId) ? userId : null }
+      ]
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: 'USER_NOT_FOUND',
+          details: 'User not found'
+        }
+      });
     }
 
-    try {
-        // Find user by firebaseId or MongoDB _id
-        const user = await User.findOne({
-            $or: [
-                { firebaseId: userId },
-                { _id: mongoose.Types.ObjectId.isValid(userId) ? userId : null }
-            ]
-        });
+    const token = await getAuthToken();
+    const storeId = parseInt(process.env.MULTICARD_STORE_ID);
+    
+    // ✅ Use the callbackUrl from request body
+    // This is where Multicard will send the callback when card is bound
+    const finalCallbackUrl = callbackUrl || `${process.env.API_BASE_URL}/api/payments/multicard/card-binding/callback`;
 
-        if (!user) {
-            return res.status(404).json({
-                success: false,
-                error: {
-                    code: 'USER_NOT_FOUND',
-                    details: 'User not found'
-                }
-            });
+    console.log('💳 Creating card binding session for user:', userId);
+    console.log('📞 Callback URL:', finalCallbackUrl);
+
+    const response = await axios.post(
+      `${API_URL}/payment/card/bind`,
+      {
+        redirect_url: redirectUrl,
+        redirect_decline_url: redirectDeclineUrl,
+        store_id: storeId,
+        callback_url: finalCallbackUrl
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
         }
+      }
+    );
 
-        const token = await getAuthToken();
-        const storeId = parseInt(process.env.MULTICARD_STORE_ID);
-        const callbackUrl = `${process.env.API_BASE_URL}/api/payments/multicard/card-binding/callback`;
+    if (response.data?.success) {
+      const sessionData = response.data.data;
 
-        console.log('💳 Creating card binding session for user:', userId);
+      // Store session info in user document
+      user.cardBindingSession = {
+        sessionId: sessionData.session_id,
+        formUrl: sessionData.form_url,
+        createdAt: new Date(),
+        expiresAt: new Date(Date.now() + 15 * 60 * 1000), // 15 minutes
+        callbackUrl: finalCallbackUrl
+      };
+      await user.save();
 
-        const response = await axios.post(
-            `${API_URL}/payment/card/bind`,
-            {
-                redirect_url: redirectUrl,
-                redirect_decline_url: redirectDeclineUrl,
-                store_id: storeId,
-                callback_url: callbackUrl
-            },
-            {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
-            }
-        );
+      console.log('✅ Card binding session created');
+      console.log('   Session ID:', sessionData.session_id);
+      console.log('   Form URL:', sessionData.form_url);
 
-        if (response.data?.success) {
-            const sessionData = response.data.data;
-
-            // Store session info in user document or separate collection
-            user.cardBindingSession = {
-                sessionId: sessionData.session_id,
-                formUrl: sessionData.form_url,
-                createdAt: new Date(),
-                expiresAt: new Date(Date.now() + 15 * 60 * 1000) // 15 minutes
-            };
-            await user.save();
-
-            console.log('✅ Card binding session created');
-            console.log('   Session ID:', sessionData.session_id);
-            console.log('   Form URL:', sessionData.form_url);
-
-            res.json({
-                success: true,
-                data: {
-                    sessionId: sessionData.session_id,
-                    formUrl: sessionData.form_url
-                }
-            });
-        } else {
-            throw new Error('Failed to create card binding session');
+      res.json({
+        success: true,
+        data: {
+          sessionId: sessionData.session_id,
+          formUrl: sessionData.form_url,
+          expiresIn: 900 // 15 minutes in seconds
         }
-
-    } catch (error) {
-        console.error('❌ Error creating card binding session:', error.message);
-        res.status(500).json({
-            success: false,
-            error: {
-                code: 'BINDING_SESSION_ERROR',
-                details: error.message
-            }
-        });
+      });
+    } else {
+      throw new Error('Failed to create card binding session');
     }
+
+  } catch (error) {
+    console.error('❌ Error creating card binding session:', error);
+    
+    // Handle specific errors
+    if (error.response?.status === 401) {
+      return res.status(401).json({
+        success: false,
+        error: {
+          code: 'AUTH_ERROR',
+          details: 'Invalid Bearer token'
+        }
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: {
+        code: 'BINDING_SESSION_ERROR',
+        details: error.response?.data?.error?.details || error.message
+      }
+    });
+  }
 };
 
 /**
@@ -1050,56 +1069,69 @@ const createCardBindingSession = async (req, res) => {
  * Called by Multicard when card is successfully added
  */
 const handleCardBindingCallback = async (req, res) => {
-    const callbackData = req.body;
-    console.log('💳 Received card binding callback:', JSON.stringify(callbackData, null, 2));
+  const callbackData = req.body;
+  console.log('💳 Received card binding callback:', JSON.stringify(callbackData, null, 2));
 
-    // The exact format of this callback should be verified with Multicard documentation
-    // This is a placeholder implementation
-    const { payer_id, card_token, card_pan, ps } = callbackData;
+  // According to docs, the callback contains payer_id (which is session_id)
+  const { payer_id, card_token, card_pan, ps, status } = callbackData;
 
-    try {
-        // Find user by session_id (payer_id)
-        const user = await User.findOne({ 'cardBindingSession.sessionId': payer_id });
-        if (!user) {
-            console.error(`❌ User not found for session: ${payer_id}`);
-            return res.status(404).json({
-                success: false,
-                message: 'User not found'
-            });
-        }
+  try {
+    // Find user by session_id (payer_id)
+    const user = await User.findOne({ 'cardBindingSession.sessionId': payer_id });
+    
+    if (!user) {
+      console.error(`❌ User not found for session: ${payer_id}`);
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
 
-        // Store card token
-        if (!user.savedCards) {
-            user.savedCards = [];
-        }
+    // Only process if binding was successful
+    if (status === 'success' || status === 'active') {
+      // Store card token
+      if (!user.savedCards) {
+        user.savedCards = [];
+      }
 
-        user.savedCards.push({
-            cardToken: card_token,
-            cardPan: card_pan,
-            ps: ps,
-            addedAt: new Date()
-        });
+      // Check if card already exists
+      const existingCard = user.savedCards.find(card => card.cardToken === card_token);
+      
+      if (!existingCard) {
+        user.savedCards.push({
+          cardToken: card_token,
+          cardPan: card_pan,
+          ps: ps,
+          addedAt: new Date()
+        });
 
-        // Clear binding session
-        user.cardBindingSession = undefined;
-        await user.save();
+        console.log(`✅ Card bound successfully for user: ${user.email}`);
+        console.log(`   Card: ${card_pan}`);
+        console.log(`   PS: ${ps}`);
+        console.log(`   Token: ${card_token}`);
+      } else {
+        console.log(`ℹ️ Card already exists for user: ${user.email}`);
+      }
+    } else {
+      console.warn(`⚠️ Card binding failed with status: ${status}`);
+    }
 
-        console.log(`✅ Card bound successfully for user: ${user.email}`);
-        console.log(`   Card: ${card_pan}`);
-        console.log(`   PS: ${ps}`);
+    // Clear binding session
+    user.cardBindingSession = undefined;
+    await user.save();
 
-        res.status(200).json({
-            success: true,
-            message: 'Card bound successfully'
-        });
+    res.status(200).json({
+      success: true,
+      message: 'Card binding callback processed'
+    });
 
-    } catch (error) {
-        console.error('❌ Error processing card binding callback:', error.message);
-        res.status(500).json({
-            success: false,
-            message: 'Internal server error'
-        });
-    }
+  } catch (error) {
+    console.error('❌ Error processing card binding callback:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
 };
 
 /**
