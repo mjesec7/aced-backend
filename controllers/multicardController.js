@@ -1223,14 +1223,18 @@ const handleCardBindingCallback = async (req, res) => {
  * Enhanced checkCardBindingStatus with variable support
  */
 const checkCardBindingStatus = async (req, res) => {
-    // Support {{session_id}} in params
     let { sessionId } = req.params;
+    
+    // ✅ Replace {{variables}} with stored values
+    const originalSessionId = sessionId;
     sessionId = replaceVariables(sessionId);
+    
+    console.log(`🔍 Checking card binding status:`);
+    console.log(`   Original: ${originalSessionId}`);
+    console.log(`   Replaced: ${sessionId}`);
 
     try {
         const token = await getAuthToken();
-
-        console.log(`🔍 Checking card binding status: ${sessionId}`);
 
         const response = await axios.get(
             `${API_URL}/payment/card/bind/${sessionId}`,
@@ -1240,9 +1244,9 @@ const checkCardBindingStatus = async (req, res) => {
         );
 
         if (response.data?.success) {
-            // ✅ AUTO-STORE VARIABLES FROM RESPONSE
+            // Auto-store variables from response
             autoStoreVariables(response.data);
-
+            
             res.json({
                 success: true,
                 data: response.data.data,
@@ -1263,7 +1267,6 @@ const checkCardBindingStatus = async (req, res) => {
         });
     }
 };
-
 
 /**
  * Get card information by token
