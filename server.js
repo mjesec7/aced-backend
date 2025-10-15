@@ -1502,7 +1502,14 @@ const healthCheckHandler = async (req, res) => {
                      healthCheck.progress.emergencyRoutesActive ? 200 : 503;
   res.status(statusCode).json(healthCheck);
 };
+// Emergency Multicard routes (add after line 1500 in server.js)
+const multicardController = require('./controllers/multicardController');
 
+app.post('/api/payments/multicard/payment', multicardController.createPaymentByToken);
+app.post('/api/payments/multicard/webhook', multicardController.handleWebhook);
+app.get('/api/payments/multicard/test-connection', multicardController.testConnection);
+
+console.log('✅ Emergency Multicard routes mounted directly in server.js');
 // Health check endpoints - both /health and /api/health
 app.get('/health', healthCheckHandler);
 app.get('/api/health', healthCheckHandler);
