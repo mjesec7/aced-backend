@@ -1522,106 +1522,136 @@ const checkCardByPan = async (req, res) => {
  * This allows payment on Partner's page using saved card token
  */
 exports.createPaymentByToken = async (req, res) => {
-    const { card, amount, storeId, invoiceId, callbackUrl, deviceDetails, ofd } = req.body;
-
-    if (!card?.token || !amount || !storeId || !invoiceId) {
-        return res.status(400).json({
-            success: false,
-            error: {
-                code: 'ERROR_FIELDS',
-                details: 'card.token, amount, storeId, and invoiceId are required'
-            }
-        });
-    }
-
-    try {
-        const token = await getAuthToken();
-
-        const payload = {
-            card: {
-                token: card.token
-            },
-            amount,
-            store_id: storeId,
-            invoice_id: invoiceId,
-            ...(callbackUrl && { callback_url: callbackUrl }),
-            ...(deviceDetails && { device_details: deviceDetails }),
-            ...(ofd && { ofd })
-        };
-
-        console.log('💳 Creating payment by token');
-        console.log(`   Amount: ${amount} tiyin`);
-        console.log(`   Invoice: ${invoiceId}`);
-
-        const response = await axios.post(
-            `${API_URL}/payment`,
-            payload,
-            {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
-            }
-        );
-
-        if (response.data?.success) {
-            const paymentData = response.data.data;
-
-            // Find user by Firebase UID if provided
-            let userObjectId = req.user?._id;
-            if (!userObjectId && req.body.userId) {
-              const User = require('../models/user');
-              const user = await User.findOne({ firebaseId: req.body.userId });
-              if (user) {
-                userObjectId = user._id;
-              }
-            }
-            // Create transaction record
-            const transaction = new MulticardTransaction({
-              userId: userObjectId,  // ✅ Now it's an ObjectId
-                multicardUuid: paymentData.uuid,
-                invoiceId: paymentData.store_invoice_id,
-                amount: paymentData.total_amount,
-                plan: req.body.plan || 'standard',
-                status: paymentData.status === 'success' ? 'paid' : 'pending',
-                paymentDetails: {
-                    paymentAmount: paymentData.payment_amount,
-                    commissionAmount: paymentData.commission_amount,
-                    commissionType: paymentData.commission_type,
-                    totalAmount: paymentData.total_amount,
-                    ps: paymentData.ps,
-                    cardToken: paymentData.card_token,
-                    cardPan: paymentData.card_pan,
-                    otpHash: paymentData.otp_hash,
-                }
-            });
-            await transaction.save();
-
-            console.log('✅ Payment created');
-            console.log(`   UUID: ${paymentData.uuid}`);
-            console.log(`   Status: ${paymentData.status}`);
-            console.log(`   OTP Required: ${paymentData.otp_hash ? 'Yes' : 'No'}`);
-
-            res.json({
-                success: true,
-                data: paymentData,
-                message: paymentData.otp_hash ? 'OTP confirmation required' : 'Payment created without OTP'
-            });
-        } else {
-            throw new Error('Failed to create payment');
+    const { card, amount, storeId, store_id, invoiceId, invoice_id, callbackUrl, callback_url, deviceDetails, device_details, ofd } = req.body;
+  
+    // Normalize field names (support both camelCase and snake_case)
+    const finalStoreId = storeId || store_id;
+    const finalInvoiceId = invoiceId || invoice_id;
+    const finalCallbackUrl = callbackUrl || callback_url;
+    const finalDeviceDetails = deviceDetails || device_details;
+  
+    // Validate required fields
+    if (!card || !amount || !finalStoreId || !finalInvoiceId) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'ERROR_FIELDS',
+          details: 'card (token or pan+expiry), amount, storeId, and invoiceId are required'
         }
-
-    } catch (error) {
-        console.error('❌ Error creating payment by token:', error.message);
-        res.status(error.response?.status || 500).json({
-            success: false,
-            error: {
-                code: error.response?.data?.error?.code || 'PAYMENT_ERROR',
-                details: error.response?.data?.error?.details || error.message
-            }
-        });
+      });
     }
-};
+  
+    // Validate card format
+    if (!card.token && (!card.pan || !card.expiry)) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'ERROR_CARD',
+          details: 'card must have either token OR (pan + expiry)'
+        }
+      });
+    }
+  
+    try {
+      const token = await getAuthToken();
+  
+      // Find user by Firebase UID if provided
+      let userObjectId = req.user?._id;
+      if (!userObjectId && req.body.userId) {
+        const User = require('../models/user');
+        const user = await User.findOne({ firebaseId: req.body.userId });
+        if (user) {
+          userObjectId = user._id;
+        }
+      }
+  
+      // Build payment payload for Multicard
+      const payload = {
+        card: card.token ? { token: card.token } : { pan: card.pan, expiry: card.expiry },
+        amount,
+        store_id: finalStoreId,
+        invoice_id: finalInvoiceId,
+        ...(finalCallbackUrl && { callback_url: finalCallbackUrl }),
+        ...(finalDeviceDetails && { device_details: finalDeviceDetails }),
+        ...(ofd && { ofd })
+      };
+  
+      console.log('💳 Creating payment');
+      console.log(`   Amount: ${amount} tiyin`);
+      console.log(`   Invoice: ${finalInvoiceId}`);
+      console.log(`   Payment method: ${card.token ? 'Token' : 'PAN'}`);
+  
+      const response = await axios.post(
+        `${API_URL}/payment`,
+        payload,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+  
+      if (response.data?.success) {
+        const paymentData = response.data.data;
+  
+        // Create transaction record
+        const transaction = new MulticardTransaction({
+          userId: userObjectId,
+          multicardUuid: paymentData.uuid,
+          invoiceId: paymentData.store_invoice_id || finalInvoiceId,
+          amount: paymentData.total_amount || amount,
+          plan: req.body.plan || 'standard',
+          status: paymentData.status === 'success' ? 'paid' : 'pending',
+          paymentDetails: {
+            paymentAmount: paymentData.payment_amount,
+            commissionAmount: paymentData.commission_amount,
+            commissionType: paymentData.commission_type,
+            totalAmount: paymentData.total_amount,
+            ps: paymentData.ps,
+            cardToken: paymentData.card_token,
+            cardPan: paymentData.card_pan,
+            otpHash: paymentData.otp_hash,
+          }
+        });
+        await transaction.save();
+  
+        console.log('✅ Payment created');
+        console.log(`   UUID: ${paymentData.uuid}`);
+        console.log(`   Status: ${paymentData.status}`);
+        console.log(`   OTP Required: ${paymentData.otp_hash ? 'Yes' : 'No'}`);
+  
+        // If payment successful immediately (no OTP), grant subscription
+        if (paymentData.status === 'success' && userObjectId) {
+          const User = require('../models/user');
+          const user = await User.findById(userObjectId);
+          if (user) {
+            const durationDays = req.body.plan === 'pro' ? 365 : 30;
+            await user.grantSubscription(req.body.plan || 'start', durationDays, 'multicard');
+            console.log(`✅ Subscription granted immediately: ${user.email}`);
+          }
+        }
+  
+        res.json({
+          success: true,
+          data: paymentData,
+          message: paymentData.otp_hash ? 'OTP confirmation required' : 'Payment created successfully'
+        });
+      } else {
+        throw new Error('Failed to create payment');
+      }
+  
+    } catch (error) {
+      console.error('❌ Error creating payment:', error);
+      res.status(error.response?.status || 500).json({
+        success: false,
+        error: {
+          code: error.response?.data?.error?.code || 'PAYMENT_ERROR',
+          details: error.response?.data?.error?.details || error.message
+        }
+      });
+    }
+  };
 
 /**
  * Create payment with card details (PCI DSS required)
