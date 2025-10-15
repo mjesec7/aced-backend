@@ -1451,7 +1451,72 @@ const deleteCardToken = async (req, res) => {
         });
     }
 };
-
+/**
+ * Check card information by PAN
+ */
+const checkCardByPan = async (req, res) => {
+    const { pan } = req.params;
+  
+    if (!pan || pan.length < 16 || pan.length > 20) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'INVALID_PAN',
+          details: 'Card number must be between 16 and 20 digits'
+        }
+      });
+    }
+  
+    try {
+      const token = await getAuthToken();
+  
+      console.log(`🔍 Checking card by PAN: ${pan.substring(0, 6)}******${pan.substring(pan.length - 4)}`);
+  
+      const response = await axios.get(
+        `${API_URL}/payment/card/check/${pan}`,
+        {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }
+      );
+  
+      if (response.data?.success) {
+        const cardData = response.data.data;
+  
+        console.log('✅ Card found');
+        console.log(`   Payment System: ${cardData.ps}`);
+        console.log(`   Bank: ${cardData.bank?.name || 'Unknown'}`);
+        console.log(`   Holder: ${cardData.holder_name || 'N/A'}`);
+  
+        res.json({
+          success: true,
+          data: cardData
+        });
+      } else {
+        throw new Error('Failed to check card');
+      }
+  
+    } catch (error) {
+      console.error('❌ Error checking card by PAN:', error);
+  
+      if (error.response?.status === 400) {
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: error.response?.data?.error?.code || 'ERROR_CARD_NOT_FOUND',
+            details: error.response?.data?.error?.details || 'Card not found'
+          }
+        });
+      }
+  
+      res.status(error.response?.status || 500).json({
+        success: false,
+        error: {
+          code: 'CHECK_CARD_ERROR',
+          details: error.response?.data?.error?.details || error.message
+        }
+      });
+    }
+  };
 /**
  * Create payment by card token
  * This allows payment on Partner's page using saved card token
@@ -2555,6 +2620,7 @@ module.exports = {
     confirmCardBinding,
     checkCardPinfl,
     deleteCardToken,
+    checkCardByPan,
     createPaymentByToken: exports.createPaymentByToken,
     createPaymentByCardDetails: exports.createPaymentByCardDetails,
     createSplitPayment: exports.createSplitPayment,

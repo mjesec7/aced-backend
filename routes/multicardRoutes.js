@@ -217,6 +217,15 @@ router.post('/card', multicardController.addCardByDetails);
 // Confirm card binding with OTP
 router.put('/card/:cardToken/confirm', multicardController.confirmCardBinding);
 
+// ✅ ADD THIS NEW ROUTE:
+router.get('/card/check/:pan', multicardController.checkCardByPan);
+
+// Check PINFL (Uzcard/Humo only)
+router.post('/card/check-pinfl', multicardController.checkCardPinfl);
+
+// Delete card token
+router.delete('/card/:cardToken', multicardController.deleteCardToken);
+
 // ============================================
 // PAYMENT BY CARD TOKEN ROUTES
 // ============================================
