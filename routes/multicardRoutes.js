@@ -231,7 +231,7 @@ router.delete('/card/:cardToken', multicardController.deleteCardToken);
 // ============================================
 
 // Create payment by saved card token
-router.post('/payment/by-token', multicardController.createPaymentByToken);
+router.post('/payment', multicardController.createPaymentByToken);
 
 // Create payment by card details (PCI DSS required)
 router.post('/payment/by-card', multicardController.createPaymentByCardDetails);
