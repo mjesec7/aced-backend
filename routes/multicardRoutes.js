@@ -4,6 +4,12 @@ const axios = require('axios');
 const multicardController = require('../controllers/multicardController');
 const { getAuthToken } = require('../controllers/multicardAuth');
 const MulticardTransaction = require('../models/MulticardTransaction');
+const {
+    setVariable,
+    getVariable,
+    getAllVariables,
+    clearVariables
+} = require('../controllers/multicardController');
 
 // ============================================
 // DEBUG / TEST ROUTES (Place these first)
@@ -18,7 +24,7 @@ router.get('/debug/transactions', async (req, res) => {
             .sort({ createdAt: -1 })
             .limit(20)
             .select('invoiceId multicardUuid status amount plan createdAt checkoutUrl');
-        
+
         res.json({
             success: true,
             count: transactions.length,
@@ -38,7 +44,7 @@ router.get('/debug/transactions', async (req, res) => {
 router.get('/debug/transaction/:identifier', async (req, res) => {
     try {
         const { identifier } = req.params;
-        
+
         // Try to find by invoiceId OR multicardUuid
         const transaction = await MulticardTransaction.findOne({
             $or: [
@@ -46,7 +52,7 @@ router.get('/debug/transaction/:identifier', async (req, res) => {
                 { multicardUuid: identifier }
             ]
         });
-        
+
         if (!transaction) {
             return res.status(404).json({
                 success: false,
@@ -54,7 +60,7 @@ router.get('/debug/transaction/:identifier', async (req, res) => {
                 searched: identifier
             });
         }
-        
+
         res.json({
             success: true,
             data: transaction
@@ -74,37 +80,37 @@ router.get('/debug/multicard/:uuid', async (req, res) => {
     try {
         const { uuid } = req.params;
         const token = await getAuthToken();
-        
+
         console.log(`🔍 Testing Multicard API with UUID: ${uuid}`);
         console.log(`   API URL: ${process.env.MULTICARD_API_URL}/payment/invoice/${uuid}`);
         console.log(`   Token: ${token.substring(0, 20)}...`);
-        
+
         const response = await axios.get(
             `${process.env.MULTICARD_API_URL}/payment/invoice/${uuid}`,
             {
-                headers: { 
+                headers: {
                     'Authorization': `Bearer ${token}`,
                     'X-Access-Token': process.env.MULTICARD_TOKEN || '',
                     'Accept': 'application/json'
                 }
             }
         );
-        
+
         console.log(`✅ Response status: ${response.status}`);
         console.log(`   Success: ${response.data.success}`);
-        
+
         res.json({
             success: true,
             status: response.status,
             data: response.data
         });
-        
+
     } catch (error) {
         console.error(`❌ Multicard API Error:`);
         console.error(`   Status: ${error.response?.status}`);
         console.error(`   Message: ${error.message}`);
         console.error(`   Response:`, JSON.stringify(error.response?.data, null, 2));
-        
+
         res.status(error.response?.status || 500).json({
             success: false,
             error: {
@@ -122,7 +128,7 @@ router.get('/debug/multicard/:uuid', async (req, res) => {
 router.get('/debug/auth', async (req, res) => {
     try {
         const token = await getAuthToken();
-        
+
         res.json({
             success: true,
             message: 'Auth token obtained',
@@ -278,5 +284,119 @@ router.get('/store/:storeId/statistics', multicardController.getPaymentStatistic
 
 // Export payment history to CSV
 router.get('/store/:storeId/export', multicardController.exportPaymentHistory);
+
+// ============================================
+// VARIABLE MANAGEMENT ROUTES
+// ============================================
+
+/**
+ * Get all stored variables
+ * GET /api/payments/multicard/variables
+ */
+router.get('/variables', (req, res) => {
+    const allVars = getAllVariables();
+    res.json({
+        success: true,
+        data: allVars,
+        count: Object.keys(allVars).length
+    });
+});
+
+/**
+ * Get a specific variable
+ * GET /api/payments/multicard/variables/:key
+ */
+router.get('/variables/:key', (req, res) => {
+    const { key } = req.params;
+    const value = getVariable(key);
+
+    if (value === undefined) {
+        return res.status(404).json({
+            success: false,
+            error: {
+                code: 'VARIABLE_NOT_FOUND',
+                details: `Variable {{${key}}} not found`
+            }
+        });
+    }
+
+    res.json({
+        success: true,
+        data: {
+            key,
+            value
+        }
+    });
+});
+
+/**
+ * Set a variable manually
+ * POST /api/payments/multicard/variables
+ * Body: { "key": "session_id", "value": "abc123" }
+ */
+router.post('/variables', (req, res) => {
+    const { key, value } = req.body;
+
+    if (!key || value === undefined) {
+        return res.status(400).json({
+            success: false,
+            error: {
+                code: 'MISSING_FIELDS',
+                details: 'Both key and value are required'
+            }
+        });
+    }
+
+    setVariable(key, value);
+
+    res.json({
+        success: true,
+        message: `Variable {{${key}}} set successfully`,
+        data: {
+            key,
+            value
+        }
+    });
+});
+
+/**
+ * Clear all variables
+ * DELETE /api/payments/multicard/variables
+ */
+router.delete('/variables', (req, res) => {
+    clearVariables();
+
+    res.json({
+        success: true,
+        message: 'All variables cleared'
+    });
+});
+
+/**
+ * Clear a specific variable
+ * DELETE /api/payments/multicard/variables/:key
+ */
+router.delete('/variables/:key', (req, res) => {
+    const { key } = req.params;
+    const value = getVariable(key);
+
+    if (value === undefined) {
+        return res.status(404).json({
+            success: false,
+            error: {
+                code: 'VARIABLE_NOT_FOUND',
+                details: `Variable {{${key}}} not found`
+            }
+        });
+    }
+
+    variables.delete(key);
+    console.log(`🗑️ Variable deleted: {{${key}}}`);
+
+    res.json({
+        success: true,
+        message: `Variable {{${key}}} deleted`
+    });
+});
 
 module.exports = router;
