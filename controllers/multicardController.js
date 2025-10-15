@@ -1,7 +1,7 @@
 const axios = require('axios');
 const dotenv = require('dotenv');
 const crypto = require('crypto');
-const mongoose = require('mongoose');  // ← ADD THIS LINE
+const mongoose = require('mongoose');
 
 const MulticardTransaction = require('../models/MulticardTransaction');
 const User = require('../models/user');
@@ -1567,9 +1567,18 @@ exports.createPaymentByToken = async (req, res) => {
         if (response.data?.success) {
             const paymentData = response.data.data;
 
+            // Find user by Firebase UID if provided
+            let userObjectId = req.user?._id;
+            if (!userObjectId && req.body.userId) {
+              const User = require('../models/user');
+              const user = await User.findOne({ firebaseId: req.body.userId });
+              if (user) {
+                userObjectId = user._id;
+              }
+            }
             // Create transaction record
             const transaction = new MulticardTransaction({
-                userId: req.user?._id || req.body.userId,
+              userId: userObjectId,  // ✅ Now it's an ObjectId
                 multicardUuid: paymentData.uuid,
                 invoiceId: paymentData.store_invoice_id,
                 amount: paymentData.total_amount,
@@ -1665,9 +1674,18 @@ exports.createPaymentByCardDetails = async (req, res) => {
         if (response.data?.success) {
             const paymentData = response.data.data;
 
+            // Find user by Firebase UID if provided
+            let userObjectId = req.user?._id;
+            if (!userObjectId && req.body.userId) {
+              const User = require('../models/user');
+              const user = await User.findOne({ firebaseId: req.body.userId });
+              if (user) {
+                userObjectId = user._id;
+              }
+            }
             // Create transaction record
             const transaction = new MulticardTransaction({
-                userId: req.user?._id || req.body.userId,
+              userId: userObjectId,  // ✅ Now it's an ObjectId
                 multicardUuid: paymentData.uuid,
                 invoiceId: paymentData.store_invoice_id,
                 amount: paymentData.total_amount,
