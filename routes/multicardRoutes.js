@@ -243,7 +243,7 @@ router.post('/payment/split', multicardController.createSplitPayment);
 router.post('/payment/via-app', multicardController.createPaymentViaApp);
 
 // Confirm payment with OTP
-router.put('/payment/:paymentUuid/confirm', multicardController.confirmPayment);
+router.put('/payment/:paymentUuid', multicardController.confirmPayment);
 
 // Send fiscal receipt URL
 router.patch('/payment/:paymentUuid/fiscal', multicardController.sendFiscalReceipt);
