@@ -1032,240 +1032,298 @@ const deleteInvoice = async (req, res) => {
 };
 
 /**
- * Enhanced createCardBindingSession with auto variable storage
- */
+ * Create card binding session - FIXED VERSION
+ */
 const createCardBindingSession = async (req, res) => {
-    // Process variables in request body
-    const processedBody = replaceVariables(req.body);
+  const { userId, redirectUrl, redirectDeclineUrl, callbackUrl } = req.body;
 
-    const { userId, redirectUrl, redirectDeclineUrl, callbackUrl } = processedBody;
+  if (!userId || !redirectUrl || !redirectDeclineUrl || !callbackUrl) {
+    return res.status(400).json({
+      success: false,
+      error: {
+        code: 'ERROR_FIELDS',
+        details: 'userId, redirectUrl, redirectDeclineUrl, and callbackUrl are required'
+      }
+    });
+  }
 
-    if (!userId || !redirectUrl || !redirectDeclineUrl || !callbackUrl) {
-        return res.status(400).json({
-            success: false,
-            error: {
-                code: 'ERROR_FIELDS',
-                details: 'userId, redirectUrl, redirectDeclineUrl, and callbackUrl are required'
-            }
-        });
-    }
+  try {
+    // Find user by firebaseId or MongoDB _id
+    const user = await User.findOne({
+      $or: [
+        { firebaseId: userId },
+        { _id: mongoose.Types.ObjectId.isValid(userId) ? userId : null }
+      ]
+    });
 
-    try {
-        const user = await User.findOne({
-            $or: [
-                { firebaseId: userId },
-                { _id: mongoose.Types.ObjectId.isValid(userId) ? userId : null }
-            ]
-        });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: 'USER_NOT_FOUND',
+          details: 'User not found'
+        }
+      });
+    }
 
-        if (!user) {
-            return res.status(404).json({
-                success: false,
-                error: {
-                    code: 'USER_NOT_FOUND',
-                    details: 'User not found'
-                }
-            });
-        }
+    const token = await getAuthToken();
+    const storeId = parseInt(process.env.MULTICARD_STORE_ID);
+    
+    const finalCallbackUrl = callbackUrl || `${process.env.API_BASE_URL}/api/payments/multicard/card-binding/callback`;
 
-        const token = await getAuthToken();
-        const storeId = parseInt(process.env.MULTICARD_STORE_ID);
+    console.log('💳 Creating card binding session for user:', userId);
+    console.log('📞 Callback URL:', finalCallbackUrl);
 
-        const finalCallbackUrl = callbackUrl || `${process.env.API_BASE_URL}/api/payments/multicard/card-binding/callback`;
+    const response = await axios.post(
+      `${API_URL}/payment/card/bind`,
+      {
+        redirect_url: redirectUrl,
+        redirect_decline_url: redirectDeclineUrl,
+        store_id: storeId,
+        callback_url: finalCallbackUrl
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
 
-        console.log('💳 Creating card binding session for user:', userId);
-        console.log('📞 Callback URL:', finalCallbackUrl);
+    if (response.data?.success) {
+      const sessionData = response.data.data;
 
-        const response = await axios.post(
-            `${API_URL}/payment/card/bind`,
-            {
-                redirect_url: redirectUrl,
-                redirect_decline_url: redirectDeclineUrl,
-                store_id: storeId,
-                callback_url: finalCallbackUrl
-            },
-            {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
-            }
-        );
+      // ✅ Store session in MulticardTransaction with type 'card_binding'
+      const bindingSession = new MulticardTransaction({
+        userId: user._id,
+        transactionType: 'card_binding',
+        sessionId: sessionData.session_id,
+        formUrl: sessionData.form_url,
+        redirectUrl,
+        redirectDeclineUrl,
+        callbackUrl: finalCallbackUrl,
+        status: 'pending',
+        expiresAt: new Date(Date.now() + 15 * 60 * 1000) // 15 minutes
+      });
+      await bindingSession.save();
 
-        if (response.data?.success) {
-            const sessionData = response.data.data;
+      console.log('✅ Card binding session created');
+      console.log('   Session ID:', sessionData.session_id);
+      console.log('   Form URL:', sessionData.form_url);
 
-            // ✅ AUTO-STORE VARIABLES
-            autoStoreVariables(response.data);
+      res.json({
+        success: true,
+        data: {
+          sessionId: sessionData.session_id,
+          formUrl: sessionData.form_url,
+          expiresIn: 900 // 15 minutes in seconds
+        }
+      });
+    } else {
+      throw new Error('Failed to create card binding session');
+    }
 
-            // Store session info in user document
-            user.cardBindingSession = {
-                sessionId: sessionData.session_id,
-                formUrl: sessionData.form_url,
-                createdAt: new Date(),
-                expiresAt: new Date(Date.now() + 15 * 60 * 1000),
-                callbackUrl: finalCallbackUrl
-            };
-            await user.save();
+  } catch (error) {
+    console.error('❌ Error creating card binding session:', error);
+    
+    if (error.response?.status === 401) {
+      return res.status(401).json({
+        success: false,
+        error: {
+          code: 'AUTH_ERROR',
+          details: 'Invalid Bearer token'
+        }
+      });
+    }
 
-            console.log('✅ Card binding session created');
-            console.log('   Session ID:', sessionData.session_id);
-            console.log('   Form URL:', sessionData.form_url);
-
-            res.json({
-                success: true,
-                data: {
-                    sessionId: sessionData.session_id,
-                    formUrl: sessionData.form_url,
-                    expiresIn: 900
-                },
-                variables: getAllVariables() // Return stored variables
-            });
-        } else {
-            throw new Error('Failed to create card binding session');
-        }
-
-    } catch (error) {
-        console.error('❌ Error creating card binding session:', error);
-
-        if (error.response?.status === 401) {
-            return res.status(401).json({
-                success: false,
-                error: {
-                    code: 'AUTH_ERROR',
-                    details: 'Invalid Bearer token'
-                }
-            });
-        }
-
-        res.status(500).json({
-            success: false,
-            error: {
-                code: 'BINDING_SESSION_ERROR',
-                details: error.response?.data?.error?.details || error.message
-            }
-        });
-    }
+    res.status(500).json({
+      success: false,
+      error: {
+        code: 'BINDING_SESSION_ERROR',
+        details: error.response?.data?.error?.details || error.message
+      }
+    });
+  }
 };
 
-
 /**
- * Handle card binding callback
- * Called by Multicard when card is successfully added
- */
+ * Handle card binding callback - FIXED VERSION
+ */
 const handleCardBindingCallback = async (req, res) => {
-    const callbackData = req.body;
-    console.log('💳 Received card binding callback:', JSON.stringify(callbackData, null, 2));
+  const callbackData = req.body;
+  console.log('💳 Received card binding callback:', JSON.stringify(callbackData, null, 2));
 
-    // According to docs, the callback contains payer_id (which is session_id)
-    const { payer_id, card_token, card_pan, ps, status } = callbackData;
+  const { payer_id, card_token, card_pan, ps, status, phone, holder_name, pinfl } = callbackData;
 
-    try {
-        // Find user by session_id (payer_id)
-        const user = await User.findOne({ 'cardBindingSession.sessionId': payer_id });
+  try {
+    // ✅ Find session by payer_id (which is the session_id) using the correct model
+    const session = await MulticardTransaction.findOne({ sessionId: payer_id, transactionType: 'card_binding' });
+    
+    if (!session) {
+      console.error(`❌ Session not found for payer_id: ${payer_id}`);
+      return res.status(404).json({
+        success: false,
+        message: 'Session not found'
+      });
+    }
 
-        if (!user) {
-            console.error(`❌ User not found for session: ${payer_id}`);
-            return res.status(404).json({
-                success: false,
-                message: 'User not found'
-            });
+    // Only process if binding was successful
+    if (status === 'active') {
+      // Update session with card details
+      session.status = 'active';
+      // Add card details to a nested object for clarity
+      session.cardDetails = {
+        cardToken: card_token,
+        cardPan: card_pan,
+        ps: ps,
+        phone: phone,
+        holderName: holder_name,
+        pinfl: pinfl,
+      };
+      session.boundAt = new Date();
+      session.callbackPayload = callbackData;
+      
+      await session.save();
+
+      // Also save to user's savedCards array
+      const user = await User.findById(session.userId);
+      if (user) {
+        if (!user.savedCards) {
+          user.savedCards = [];
         }
+        const existingCard = user.savedCards.find(card => card.cardToken === card_token);
+        
+        if (!existingCard) {
+          user.savedCards.push({
+            cardToken: card_token,
+            cardPan: card_pan,
+            ps: ps,
+            holderName: holder_name,
+            addedAt: new Date()
+          });
+          await user.save();
+        }
+      }
 
-        // Only process if binding was successful
-        if (status === 'success' || status === 'active') {
-            // Store card token
-            if (!user.savedCards) {
-                user.savedCards = [];
-            }
+      console.log(`✅ Card bound successfully`);
+      console.log(`   User: ${user?.email || session.userId}`);
+      console.log(`   Card: ${card_pan}`);
+      console.log(`   PS: ${ps}`);
+      console.log(`   Token: ${card_token}`);
+    } else if (status === 'draft') {
+      session.status = 'pending';
+      await session.save();
+      console.log(`⏳ Card binding in progress for session: ${payer_id}`);
+    } else {
+      session.status = 'failed';
+      session.callbackPayload = callbackData;
+      await session.save();
+      console.warn(`⚠️ Card binding failed with status: ${status}`);
+    }
 
-            // Check if card already exists
-            const existingCard = user.savedCards.find(card => card.cardToken === card_token);
+    res.status(200).json({
+      success: true,
+      message: 'Card binding callback processed'
+    });
 
-            if (!existingCard) {
-                user.savedCards.push({
-                    cardToken: card_token,
-                    cardPan: card_pan,
-                    ps: ps,
-                    addedAt: new Date()
-                });
-
-                console.log(`✅ Card bound successfully for user: ${user.email}`);
-                console.log(`   Card: ${card_pan}`);
-                console.log(`   PS: ${ps}`);
-                console.log(`   Token: ${card_token}`);
-            } else {
-                console.log(`ℹ️ Card already exists for user: ${user.email}`);
-            }
-        } else {
-            console.warn(`⚠️ Card binding failed with status: ${status}`);
-        }
-
-        // Clear binding session
-        user.cardBindingSession = undefined;
-        await user.save();
-
-        res.status(200).json({
-            success: true,
-            message: 'Card binding callback processed'
-        });
-
-    } catch (error) {
-        console.error('❌ Error processing card binding callback:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Internal server error'
-        });
-    }
+  } catch (error) {
+    console.error('❌ Error processing card binding callback:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
 };
 
 /**
- * Enhanced checkCardBindingStatus with variable support
- */
+ * Check card binding status - FIXED VERSION
+ */
 const checkCardBindingStatus = async (req, res) => {
-    let { sessionId } = req.params;
-    
-    // ✅ Replace {{variables}} with stored values
-    const originalSessionId = sessionId;
-    sessionId = replaceVariables(sessionId);
-    
-    console.log(`🔍 Checking card binding status:`);
-    console.log(`   Original: ${originalSessionId}`);
-    console.log(`   Replaced: ${sessionId}`);
+    const { sessionId } = req.params;
 
-    try {
-        const token = await getAuthToken();
+    try {
+        // First check our database using the correct model
+        const session = await MulticardTransaction.findOne({ sessionId, transactionType: 'card_binding' });
+        
+        if (!session) {
+            return res.status(404).json({
+                success: false,
+                error: {
+                    code: 'SESSION_NOT_FOUND',
+                    details: 'Card binding session not found'
+                }
+            });
+        }
 
-        const response = await axios.get(
-            `${API_URL}/payment/card/bind/${sessionId}`,
-            {
-                headers: { 'Authorization': `Bearer ${token}` }
-            }
-        );
+        // Then check with Multicard API
+        const token = await getAuthToken();
 
-        if (response.data?.success) {
-            // Auto-store variables from response
-            autoStoreVariables(response.data);
-            
-            res.json({
-                success: true,
-                data: response.data.data,
-                variables: getAllVariables()
-            });
-        } else {
-            throw new Error('Failed to check card binding status');
-        }
+        console.log(`🔍 Checking card binding status: ${sessionId}`);
 
-    } catch (error) {
-        console.error('❌ Error checking card binding status:', error.message);
-        res.status(error.response?.status || 500).json({
-            success: false,
-            error: {
-                code: 'CHECK_STATUS_ERROR',
-                details: error.response?.data?.error?.details || error.message
-            }
-        });
-    }
+        const response = await axios.get(
+            `${API_URL}/payment/card/bind/${sessionId}`,
+            {
+                headers: { 'Authorization': `Bearer ${token}` }
+            }
+        );
+
+        if (response.data?.success) {
+            const multicardData = response.data.data;
+            
+            // Update session if status changed
+            if (multicardData.status === 'active' && session.status !== 'active') {
+                session.status = 'active';
+                session.cardDetails = {
+                  cardToken: multicardData.card_token,
+                  cardPan: multicardData.card_pan,
+                  ps: multicardData.ps,
+                  phone: multicardData.phone,
+                  holderName: multicardData.holder_name,
+                };
+                session.boundAt = new Date();
+                await session.save();
+                
+                // Also save to user's savedCards array
+                const user = await User.findById(session.userId);
+                if (user) {
+                    if(!user.savedCards) {
+                        user.savedCards = [];
+                    }
+                    const existingCard = user.savedCards.find(card => card.cardToken === multicardData.card_token);
+                    if (!existingCard) {
+                        user.savedCards.push({
+                            cardToken: multicardData.card_token,
+                            cardPan: multicardData.card_pan,
+                            ps: multicardData.ps,
+                            holderName: multicardData.holder_name,
+                            addedAt: new Date()
+                        });
+                        await user.save();
+                    }
+                }
+            }
+            
+            res.json({
+                success: true,
+                data: {
+                    local: session,
+                    multicard: multicardData
+                }
+            });
+        } else {
+            throw new Error('Failed to check card binding status');
+        }
+
+    } catch (error) {
+        console.error('❌ Error checking card binding status:', error.message);
+        res.status(error.response?.status || 500).json({
+            success: false,
+            error: {
+                code: 'CHECK_STATUS_ERROR',
+                details: error.response?.data?.error?.details || error.message
+            }
+        });
+    }
 };
 
 /**
