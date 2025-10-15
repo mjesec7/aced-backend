@@ -1522,27 +1522,53 @@ const checkCardByPan = async (req, res) => {
  * This allows payment on Partner's page using saved card token
  */
 exports.createPaymentByToken = async (req, res) => {
-    const { card, amount, storeId, store_id, invoiceId, invoice_id, callbackUrl, callback_url, deviceDetails, device_details, ofd } = req.body;
+    const { 
+      card, 
+      payment_system, 
+      paymentSystem,
+      amount, 
+      storeId, 
+      store_id, 
+      invoiceId, 
+      invoice_id, 
+      callbackUrl, 
+      callback_url, 
+      deviceDetails, 
+      device_details, 
+      ofd 
+    } = req.body;
   
-    // Normalize field names (support both camelCase and snake_case)
+    // Normalize field names
     const finalStoreId = storeId || store_id;
     const finalInvoiceId = invoiceId || invoice_id;
     const finalCallbackUrl = callbackUrl || callback_url;
     const finalDeviceDetails = deviceDetails || device_details;
+    const finalPaymentSystem = payment_system || paymentSystem;
   
-    // Validate required fields
-    if (!card || !amount || !finalStoreId || !finalInvoiceId) {
+    // ✅ UPDATED VALIDATION: Allow either card OR payment_system
+    if (!amount || !finalStoreId || !finalInvoiceId) {
       return res.status(400).json({
         success: false,
         error: {
           code: 'ERROR_FIELDS',
-          details: 'card (token or pan+expiry), amount, storeId, and invoiceId are required'
+          details: 'amount, storeId, and invoiceId are required'
         }
       });
     }
   
-    // Validate card format
-    if (!card.token && (!card.pan || !card.expiry)) {
+    // Validate payment method
+    if (!card && !finalPaymentSystem) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'ERROR_PAYMENT_METHOD',
+          details: 'Either card (token or pan+expiry) OR payment_system is required'
+        }
+      });
+    }
+  
+    // Validate card format if provided
+    if (card && !card.token && (!card.pan || !card.expiry)) {
       return res.status(400).json({
         success: false,
         error: {
@@ -1565,9 +1591,8 @@ exports.createPaymentByToken = async (req, res) => {
         }
       }
   
-      // Build payment payload for Multicard
+      // ✅ Build payment payload - support 3 methods
       const payload = {
-        card: card.token ? { token: card.token } : { pan: card.pan, expiry: card.expiry },
         amount,
         store_id: finalStoreId,
         invoice_id: finalInvoiceId,
@@ -1576,10 +1601,24 @@ exports.createPaymentByToken = async (req, res) => {
         ...(ofd && { ofd })
       };
   
-      console.log('💳 Creating payment');
+      // Add payment method to payload
+      if (finalPaymentSystem) {
+        // Payment via app (PayMe, Click, etc.)
+        payload.payment_system = finalPaymentSystem;
+        console.log('💳 Creating payment via app');
+        console.log(`   Payment System: ${finalPaymentSystem}`);
+      } else if (card.token) {
+        // Payment via saved card token
+        payload.card = { token: card.token };
+        console.log('💳 Creating payment via card token');
+      } else {
+        // Payment via card PAN
+        payload.card = { pan: card.pan, expiry: card.expiry };
+        console.log('💳 Creating payment via card PAN');
+      }
+  
       console.log(`   Amount: ${amount} tiyin`);
       console.log(`   Invoice: ${finalInvoiceId}`);
-      console.log(`   Payment method: ${card.token ? 'Token' : 'PAN'}`);
   
       const response = await axios.post(
         `${API_URL}/payment`,
@@ -1603,12 +1642,13 @@ exports.createPaymentByToken = async (req, res) => {
           amount: paymentData.total_amount || amount,
           plan: req.body.plan || 'standard',
           status: paymentData.status === 'success' ? 'paid' : 'pending',
+          checkoutUrl: paymentData.checkout_url, // For payment apps
           paymentDetails: {
             paymentAmount: paymentData.payment_amount,
             commissionAmount: paymentData.commission_amount,
             commissionType: paymentData.commission_type,
             totalAmount: paymentData.total_amount,
-            ps: paymentData.ps,
+            ps: paymentData.ps || finalPaymentSystem,
             cardToken: paymentData.card_token,
             cardPan: paymentData.card_pan,
             otpHash: paymentData.otp_hash,
@@ -1619,9 +1659,15 @@ exports.createPaymentByToken = async (req, res) => {
         console.log('✅ Payment created');
         console.log(`   UUID: ${paymentData.uuid}`);
         console.log(`   Status: ${paymentData.status}`);
-        console.log(`   OTP Required: ${paymentData.otp_hash ? 'Yes' : 'No'}`);
+        
+        if (paymentData.checkout_url) {
+          console.log(`   Checkout URL: ${paymentData.checkout_url}`);
+        }
+        if (paymentData.otp_hash) {
+          console.log(`   OTP Required: Yes`);
+        }
   
-        // If payment successful immediately (no OTP), grant subscription
+        // If payment successful immediately, grant subscription
         if (paymentData.status === 'success' && userObjectId) {
           const User = require('../models/user');
           const user = await User.findById(userObjectId);
@@ -1635,7 +1681,11 @@ exports.createPaymentByToken = async (req, res) => {
         res.json({
           success: true,
           data: paymentData,
-          message: paymentData.otp_hash ? 'OTP confirmation required' : 'Payment created successfully'
+          message: paymentData.checkout_url 
+            ? `Redirect user to ${finalPaymentSystem || 'payment'} app`
+            : paymentData.otp_hash 
+              ? 'OTP confirmation required' 
+              : 'Payment created successfully'
         });
       } else {
         throw new Error('Failed to create payment');
