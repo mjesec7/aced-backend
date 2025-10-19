@@ -3723,16 +3723,27 @@ app.post('/api/lessons/generate-ai', async (req, res) => {
   }
 });
 
-// ✅ STUDY LIST ROUTES - SIMPLE AND WORKING
+// ========================================
+// ✅ [UPDATED] STUDY LIST ROUTES 
+// ========================================
+
 app.post('/api/users/:userId/study-list', async (req, res) => {
   try {
     const { userId } = req.params;
     const data = req.body;
 
-    if (!data.topicId || !data.topic) {
+    // Enhanced validation
+    if (!data.topicId) {
       return res.status(400).json({
         success: false,
-        error: 'topicId and topic are required'
+        error: 'topicId is required'
+      });
+    }
+    
+    if (!data.topic) {
+      return res.status(400).json({
+        success: false,
+        error: 'topic name is required'
       });
     }
 
@@ -3740,16 +3751,21 @@ app.post('/api/users/:userId/study-list', async (req, res) => {
     let user = await User.findOne({ firebaseId: userId });
 
     if (!user) {
+      // Create user if doesn't exist
       user = new User({
         firebaseId: userId,
-        email: 'user@example.com',
-        name: 'User',
+        email: req.body.email || 'user@example.com',
+        name: req.body.name || 'User',
         studyList: []
       });
     }
 
     // Check if already exists
-    const exists = user.studyList.some(item => item.topicId === data.topicId);
+    const exists = user.studyList.some(item => 
+      item.topicId === data.topicId || 
+      (item.topicId && item.topicId.toString() === data.topicId)
+    );
+    
     if (exists) {
       return res.status(400).json({
         success: false,
@@ -3757,14 +3773,14 @@ app.post('/api/users/:userId/study-list', async (req, res) => {
       });
     }
 
-    // Add to study list
+    // Add to study list with complete data
     user.studyList.push({
       topicId: data.topicId,
       topic: data.topic,
       subject: data.subject || 'General',
-      level: data.level || 1,
-      lessonCount: data.lessonCount || 0,
-      totalTime: data.totalTime || 10,
+      level: parseInt(data.level) || 1,
+      lessonCount: parseInt(data.lessonCount) || 0,
+      totalTime: parseInt(data.totalTime) || 10,
       type: data.type || 'free',
       addedAt: new Date()
     });
@@ -3773,13 +3789,15 @@ app.post('/api/users/:userId/study-list', async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Topic added to study list'
+      message: 'Topic added to study list',
+      data: user.studyList
     });
 
   } catch (error) {
+    console.error('Study list error:', error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message || 'Failed to add to study list'
     });
   }
 });
