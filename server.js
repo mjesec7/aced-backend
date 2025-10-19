@@ -240,7 +240,9 @@ app.use(cors({
     'X-Auth',
     'X-Request-Source',
     'X-User-Agent',
-    'X-PayMe-Request' // PayMe specific headers
+    'X-PayMe-Request', // PayMe specific headers
+    'X-Cache-Status',   // ✅ ADDED THIS LINE
+    'X-Debounced'       // ✅ ADDED THIS LINE TOO
   ],
   exposedHeaders: ['X-Total-Count'],
   maxAge: 86400, // 24 hours
@@ -252,7 +254,7 @@ app.options('*', (req, res) => {
 
   res.header('Access-Control-Allow-Origin', req.headers.origin);
   res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH');
-  res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin,X-Auth,X-Request-Source,X-User-Agent,X-PayMe-Request');
+  res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin,X-Auth,X-Request-Source,X-User-Agent,X-PayMe-Request,X-Cache-Status,X-Debounced');
   res.header('Access-Control-Allow-Credentials', 'true');
   res.header('Access-Control-Max-Age', '86400');
 
