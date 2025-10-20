@@ -1103,7 +1103,7 @@ app.post('/api/payments/initiate', async (req, res) => {
   }
 });
 
-// ✅ [UPDATED] - Promo Code Route (POST /api/payments/promo-code)
+// ✅ FIXED: Promo Code Route with proper 30-day subscription
 app.post('/api/payments/promo-code', async (req, res) => {
   try {
     const { userId, plan, promoCode } = req.body;
@@ -1115,10 +1115,11 @@ app.post('/api/payments/promo-code', async (req, res) => {
       });
     }
 
-    // ✅ Import models
+    // Import models
     const Promocode = require('./models/promoCode');
     const User = require('./models/user');
     
+    // Find and validate promocode
     const promocode = await Promocode.findOne({
       code: promoCode.toUpperCase(),
       isActive: true
@@ -1138,6 +1139,23 @@ app.post('/api/payments/promo-code', async (req, res) => {
       });
     }
 
+    // Check if promocode has uses remaining
+    if (promocode.maxUses && promocode.currentUses >= promocode.maxUses) {
+      return res.status(400).json({
+        success: false,
+        error: 'Промокод уже использован максимальное количество раз'
+      });
+    }
+
+    // Check if promocode is expired
+    if (promocode.expiresAt && new Date() > new Date(promocode.expiresAt)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Промокод истек'
+      });
+    }
+
+    // Find user
     const user = await User.findOne({ firebaseId: userId });
     if (!user) {
       return res.status(404).json({
@@ -1146,22 +1164,49 @@ app.post('/api/payments/promo-code', async (req, res) => {
       });
     }
 
-    // ✅ FIX: Use the new grantSubscription method to set plan, expiry, and source
-    const durationInDays = promocode.subscriptionDays || 30; // Use days from promocode or default to 30
-    await user.grantSubscription(plan, durationInDays, 'promocode');
+    // ✅ CRITICAL FIX: Use exactly 30 days from promocode or default to 30
+    const durationInDays = promocode.subscriptionDays || 30; // Default to 30 days
+    const now = new Date();
+    const expiryDate = new Date(now.getTime() + (durationInDays * 24 * 60 * 60 * 1000));
 
-    // Update promocode usage stats
-    promocode.currentUses = (promocode.currentUses || 0) + 1;
-    await promocode.save();
+    // Update user subscription
+    user.subscriptionPlan = plan;
+    user.userStatus = plan;
+    user.subscriptionExpiryDate = expiryDate;
+    user.subscriptionActivatedAt = now;
+    user.subscriptionSource = 'promocode';
+    user.lastPromocode = promoCode.toUpperCase();
+    user.lastPromocodeUsedAt = now;
     
-    const expiryDate = user.subscriptionExpiryDate;
+    await user.save();
+
+    // Update promocode usage
+    promocode.currentUses = (promocode.currentUses || 0) + 1;
+    
+    // Track who used the promocode
+    if (!promocode.usedBy) {
+      promocode.usedBy = [];
+    }
+    promocode.usedBy.push({
+      userId: userId,
+      userEmail: user.email,
+      usedAt: now,
+      grantedPlan: plan,
+      expiryDate: expiryDate
+    });
+    
+    await promocode.save();
+
+    console.log(`✅ Promocode ${promoCode} applied: ${plan} plan for ${durationInDays} days until ${expiryDate.toLocaleDateString()}`);
 
     res.json({
       success: true,
       message: `Промокод применён! План ${plan.toUpperCase()} активен до ${expiryDate.toLocaleDateString('ru-RU')}.`,
       user: {
         subscriptionPlan: user.subscriptionPlan,
-        subscriptionExpiryDate: user.subscriptionExpiryDate
+        subscriptionExpiryDate: user.subscriptionExpiryDate,
+        subscriptionActivatedAt: user.subscriptionActivatedAt,
+        daysGranted: durationInDays
       }
     });
 
@@ -1173,6 +1218,130 @@ app.post('/api/payments/promo-code', async (req, res) => {
     });
   }
 });
+
+// ✅ ADD: Endpoint to check subscription validity
+app.get('/api/users/:userId/subscription-status', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const User = require('./models/user');
+    
+    const user = await User.findOne({ firebaseId: userId });
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    const now = new Date();
+    let currentPlan = 'free';
+    let isActive = false;
+    let daysRemaining = 0;
+    let expiryDate = null;
+
+    // Check if user has a subscription and if it's still valid
+    if (user.subscriptionExpiryDate && user.subscriptionPlan !== 'free') {
+      expiryDate = new Date(user.subscriptionExpiryDate);
+      
+      if (now < expiryDate) {
+        // Subscription is still valid
+        currentPlan = user.subscriptionPlan;
+        isActive = true;
+        daysRemaining = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
+      } else {
+        // Subscription expired - revert to free
+        console.log(`⏰ User ${userId} subscription expired, reverting to free`);
+        
+        user.subscriptionPlan = 'free';
+        user.userStatus = 'free';
+        user.subscriptionExpiredAt = expiryDate;
+        await user.save();
+      }
+    }
+
+    res.json({
+      success: true,
+      subscription: {
+        plan: currentPlan,
+        isActive: isActive,
+        expiryDate: expiryDate,
+        daysRemaining: daysRemaining,
+        activatedAt: user.subscriptionActivatedAt,
+        source: user.subscriptionSource
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error checking subscription status:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to check subscription status'
+    });
+  }
+});
+
+// ✅ ADD: Manual subscription extension endpoint (for admin)
+app.post('/api/admin/users/:userId/extend-subscription', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { days = 30 } = req.body;
+    
+    const User = require('./models/user');
+    const user = await User.findOne({ firebaseId: userId });
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    if (user.subscriptionPlan === 'free') {
+      return res.status(400).json({
+        success: false,
+        error: 'User has no active subscription to extend'
+      });
+    }
+
+    const now = new Date();
+    let newExpiry;
+
+    // If subscription is still valid, extend from current expiry
+    // If expired, extend from today
+    if (user.subscriptionExpiryDate && new Date(user.subscriptionExpiryDate) > now) {
+      newExpiry = new Date(new Date(user.subscriptionExpiryDate).getTime() + (days * 24 * 60 * 60 * 1000));
+    } else {
+      newExpiry = new Date(now.getTime() + (days * 24 * 60 * 60 * 1000));
+    }
+
+    user.subscriptionExpiryDate = newExpiry;
+    user.lastExtendedAt = now;
+    user.lastExtensionDays = days;
+    
+    await user.save();
+
+    console.log(`📅 Extended ${user.email} subscription by ${days} days until ${newExpiry.toLocaleDateString()}`);
+
+    res.json({
+      success: true,
+      message: `Subscription extended by ${days} days`,
+      user: {
+        subscriptionPlan: user.subscriptionPlan,
+        subscriptionExpiryDate: newExpiry,
+        daysExtended: days
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error extending subscription:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to extend subscription'
+    });
+  }
+});
+
 
 // ✅ EMERGENCY: Add missing payment form generation route directly
 app.post('/api/payments/generate-form', async (req, res) => {
@@ -4937,10 +5106,57 @@ app.use((err, req, res, next) => {
 // 🚀 SERVER STARTUP
 // ========================================
 
+// ✅ ADD: Cron job to check and expire subscriptions (run daily)
+async function checkExpiredSubscriptions() {
+  try {
+    const User = require('./models/user');
+    const now = new Date();
+    
+    // Find all users with expired subscriptions
+    const expiredUsers = await User.find({
+      subscriptionPlan: { $ne: 'free' },
+      subscriptionExpiryDate: { $lt: now }
+    });
+
+    console.log(`🔍 Found ${expiredUsers.length} expired subscriptions`);
+
+    for (const user of expiredUsers) {
+      const oldPlan = user.subscriptionPlan;
+      
+      // Revert to free
+      user.subscriptionPlan = 'free';
+      user.userStatus = 'free';
+      user.subscriptionExpiredAt = user.subscriptionExpiryDate;
+      user.previousPlan = oldPlan;
+      
+      await user.save();
+      
+      console.log(`✅ User ${user.email} reverted from ${oldPlan} to free (expired ${user.subscriptionExpiryDate})`);
+    }
+
+    return {
+      checked: expiredUsers.length,
+      expired: expiredUsers.length
+    };
+
+  } catch (error) {
+    console.error('❌ Error checking expired subscriptions:', error);
+    return {
+      error: error.message
+    };
+  }
+}
+
 const startServer = async () => {
   try {
     // Connect to database first
     await connectDB();
+
+    // Run subscription check every hour
+    setInterval(checkExpiredSubscriptions, 60 * 60 * 1000); // 1 hour
+
+    // Run once on server start (with 30 second delay)
+    setTimeout(checkExpiredSubscriptions, 30000);
 
     // Start the server
     const server = app.listen(PORT, () => {
