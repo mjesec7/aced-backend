@@ -312,7 +312,7 @@ exports.createTestFromLesson = async (req, res) => {
       data: test,
       message: `✅ Test created with ${questions.length} questions from lesson`
     });
-
+//hii
   } catch (error) {
     console.error('❌ Error creating test from lesson:', error);
     res.status(500).json({ 
