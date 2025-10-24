@@ -71,6 +71,15 @@ const clearVariables = () => {
 };
 
 /**
+ * Delete a specific variable
+ */
+const deleteVariable = (key) => {
+    variables.delete(key);
+    console.log(`🗑️ Variable deleted: {{${key}}}`);
+};
+
+
+/**
  * Automatically find and store key variables from a Multicard API response
  */
 const autoStoreVariables = (responseBody) => {
@@ -107,147 +116,137 @@ const autoStoreVariables = (responseBody) => {
  * Creates an invoice with Multicard and returns the checkout URL.
  */
 const initiatePayment = async (req, res) => {
-    const { userId, plan, amount, ofd, lang, sms } = req.body;
+  const { userId, plan, amount, ofd, lang, sms } = req.body;
 
-    // Validate required fields
-    if (!userId || !plan || !amount || !ofd) {
-        return res.status(400).json({
-            success: false,
-            error: {
-                code: 'ERROR_FIELDS',
-                details: 'userId, plan, amount, and ofd are required.'
-            }
-        });
-    }
+  // Validate required fields
+  if (!userId || !plan || !amount || !ofd) {
+    return res.status(400).json({
+      success: false,
+      error: {
+        code: 'ERROR_FIELDS',
+        details: 'userId, plan, amount, and ofd are required.'
+      }
+    });
+  }
 
-    try {
-        // Find user by firebaseId or MongoDB _id
-        const user = await User.findOne({
-            $or: [
-                { firebaseId: userId },
-                { _id: mongoose.Types.ObjectId.isValid(userId) ? userId : null }
-            ]
-        });
+  try {
+    // ✅ FIX: Find user by Firebase UID and get MongoDB _id
+    const user = await User.findOne({ firebaseId: userId });
+    
+    if (!user) {
+      // If user doesn't exist, create a placeholder or return error
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: 'USER_NOT_FOUND',
+          details: 'User not found. Please ensure user is registered.'
+        }
+      });
+    }
 
-        if (!user) {
-            return res.status(404).json({
-                success: false,
-                error: {
-                    code: 'USER_NOT_FOUND',
-                    details: 'User not found'
-                }
-            });
-        }
+    const token = await getAuthToken();
+    const invoiceId = `aced_${plan}_${userId}_${Date.now()}`;
+    const callbackUrl = `${process.env.API_BASE_URL}/api/payments/multicard/webhook`;
 
-        const token = await getAuthToken();
-        const invoiceId = `aced_${plan}_${userId}_${Date.now()}`;
-        const callbackUrl = `${process.env.API_BASE_URL}/api/payments/multicard/webhook`;
+    // Parse store_id
+    let storeId;
+    if (isNaN(parseInt(process.env.MULTICARD_STORE_ID))) {
+      storeId = process.env.MULTICARD_STORE_ID;
+    } else {
+      storeId = parseInt(process.env.MULTICARD_STORE_ID);
+    }
 
-        // Parse store_id - can be int or string according to API
-        let storeId;
-        if (isNaN(parseInt(process.env.MULTICARD_STORE_ID))) {
-            storeId = process.env.MULTICARD_STORE_ID; // UUID string
-        } else {
-            storeId = parseInt(process.env.MULTICARD_STORE_ID); // Integer
-        }
+    // Build OFD array
+    const ofdData = ofd.map(item => ({
+      qty: item.qty,
+      price: item.price,
+      mxik: item.mxik,
+      total: item.total,
+      package_code: item.package_code,
+      name: item.name,
+      ...(item.vat && { vat: item.vat }),
+      ...(item.tin && { tin: item.tin }),
+    }));
 
-        // Build OFD array according to API specs
-        const ofdData = ofd.map(item => ({
-            qty: item.qty,
-            price: item.price, // in tiyin
-            mxik: item.mxik, // from tasnif.soliq.uz
-            total: item.total, // in tiyin
-            package_code: item.package_code, // from tasnif.soliq.uz
-            name: item.name,
-            ...(item.vat && { vat: item.vat }), // Optional
-            ...(item.tin && { tin: item.tin }), // Optional
-        }));
+    const payload = {
+      store_id: storeId,
+      amount: amount,
+      invoice_id: invoiceId,
+      callback_url: callbackUrl,
+      return_url: `${process.env.FRONTEND_URL}/payment-success`,
+      return_error_url: `${process.env.FRONTEND_URL}/payment-failed`,
+      lang: lang || 'ru',
+      ofd: ofdData,
+    };
 
-        const payload = {
-            store_id: storeId,
-            amount: amount, // Amount in tiyin (1 UZS = 100 tiyin)
-            invoice_id: invoiceId,
-            callback_url: callbackUrl,
-            return_url: `${process.env.FRONTEND_URL}/payment-success`,
-            return_error_url: `${process.env.FRONTEND_URL}/payment-failed`,
-            lang: lang || 'ru', // 'ru', 'uz', or 'en'
-            ofd: ofdData,
-        };
+    if (sms) {
+      payload.sms = sms;
+    }
 
-        // Add optional SMS field if provided
-        if (sms) {
-            payload.sms = sms; // Format: 998XXXXXXXXX
-        }
+    console.log('📤 Creating Multicard invoice:', {
+      invoiceId,
+      amount,
+      storeId,
+      itemCount: ofdData.length
+    });
 
-        console.log('📤 Creating Multicard invoice:', {
-            invoiceId,
-            amount,
-            storeId,
-            itemCount: ofdData.length
-        });
+    const response = await axios.post(`${API_URL}/payment/invoice`, payload, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+    });
 
-        const response = await axios.post(`${API_URL}/payment/invoice`, payload, {
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            },
-        });
+    if (!response.data || !response.data.success) {
+      const errorCode = response.data?.error?.code || 'UNKNOWN_ERROR';
+      const errorDetails = response.data?.error?.details || 'Unknown error occurred';
+      throw new Error(`Failed to create invoice: [${errorCode}] ${errorDetails}`);
+    }
 
-        // Check for success flag in response
-        if (!response.data || !response.data.success) {
-            const errorCode = response.data?.error?.code || 'UNKNOWN_ERROR';
-            const errorDetails = response.data?.error?.details || 'Unknown error occurred';
-            throw new Error(`Failed to create invoice: [${errorCode}] ${errorDetails}`);
-        }
+    const invoiceData = response.data.data;
 
-        const invoiceData = response.data.data;
+    // ✅ FIX: Use MongoDB _id for transaction, but store Firebase UID too
+    const transaction = new MulticardTransaction({
+      userId: user._id, // ✅ Use MongoDB ObjectId
+      firebaseUserId: userId, // ✅ Store Firebase UID separately
+      invoiceId,
+      amount,
+      plan,
+      status: 'pending',
+      multicardUuid: invoiceData.uuid,
+      checkoutUrl: invoiceData.checkout_url,
+      shortLink: invoiceData.short_link,
+      deeplink: invoiceData.deeplink,
+    });
+    
+    await transaction.save();
 
-        // Create a pending transaction record in your database
-        const transaction = new MulticardTransaction({
-            userId,
-            invoiceId,
-            amount,
-            plan,
-            status: 'pending',
-            multicardUuid: invoiceData.uuid,
-            checkoutUrl: invoiceData.checkout_url,
-            shortLink: invoiceData.short_link,
-            deeplink: invoiceData.deeplink,
-        });
-        await transaction.save();
+    console.log('✅ Invoice created successfully');
 
-        console.log('✅ Invoice created successfully');
-        console.log('   UUID:', invoiceData.uuid);
-        console.log('   Checkout URL:', invoiceData.checkout_url);
-        if (invoiceData.short_link) {
-            console.log('   Short Link:', invoiceData.short_link);
-        }
+    res.json({
+      success: true,
+      data: {
+        uuid: invoiceData.uuid,
+        checkoutUrl: invoiceData.checkout_url,
+        shortLink: invoiceData.short_link,
+        deeplink: invoiceData.deeplink,
+        invoiceId: invoiceId,
+        addedOn: invoiceData.added_on,
+      }
+    });
 
-        res.json({
-            success: true,
-            data: {
-                uuid: invoiceData.uuid,
-                checkoutUrl: invoiceData.checkout_url,
-                shortLink: invoiceData.short_link, // For QR codes (production only)
-                deeplink: invoiceData.deeplink,
-                invoiceId: invoiceId,
-                addedOn: invoiceData.added_on,
-            }
-        });
-
-    } catch (error) {
-        console.error('❌ Error initiating Multicard payment:', error.message);
-
-        // Return error in Multicard format
-        res.status(500).json({
-            success: false,
-            error: {
-                code: 'PAYMENT_INITIATION_FAILED',
-                details: error.message
-            }
-        });
-    }
+  } catch (error) {
+    console.error('❌ Error initiating Multicard payment:', error.message);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: 'PAYMENT_INITIATION_FAILED',
+        details: error.message
+      }
+    });
+  }
 };
+
 
 /**
  * Controller function to handle the success callback (when user returns from payment page).
@@ -2911,4 +2910,5 @@ module.exports = {
     getVariable,
     getAllVariables,
     clearVariables,
+    deleteVariable, // Exporting this function
 };
