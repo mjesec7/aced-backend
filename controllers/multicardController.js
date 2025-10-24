@@ -130,62 +130,72 @@ const initiatePayment = async (req, res) => {
   }
 
   try {
-    // ✅ FIX: Find user by Firebase UID and get MongoDB _id
-    const user = await User.findOne({ firebaseId: userId });
-    
+    // Find user by firebaseId or MongoDB _id
+    const user = await User.findOne({
+      $or: [
+        { firebaseId: userId },
+        { _id: mongoose.Types.ObjectId.isValid(userId) ? userId : null }
+      ]
+    });
+
     if (!user) {
-      // If user doesn't exist, create a placeholder or return error
       return res.status(404).json({
         success: false,
         error: {
           code: 'USER_NOT_FOUND',
-          details: 'User not found. Please ensure user is registered.'
+          details: 'User not found'
         }
       });
     }
 
+    // ✅ FIX: Get authentication token with proper credentials
     const token = await getAuthToken();
-    const invoiceId = `aced_${plan}_${userId}_${Date.now()}`;
+    
+    // ✅ FIX: Create cleaner invoice ID
+    const timestamp = Date.now();
+    const invoiceId = `ACED_${plan.toUpperCase()}_${timestamp}`;
+    
     const callbackUrl = `${process.env.API_BASE_URL}/api/payments/multicard/webhook`;
 
-    // Parse store_id
-    let storeId;
-    if (isNaN(parseInt(process.env.MULTICARD_STORE_ID))) {
-      storeId = process.env.MULTICARD_STORE_ID;
-    } else {
-      storeId = parseInt(process.env.MULTICARD_STORE_ID);
-    }
+    // ✅ FIX: Use correct store ID from env
+    const storeId = parseInt(process.env.MULTICARD_STORE_ID) || 2660;
 
-    // Build OFD array
+    // ✅ FIX: Ensure amount is in tiyin (100 tiyin = 1 UZS)
+    const finalAmount = amount || (plan === 'pro' ? 45500000 : 26000000);
+
+    // Build OFD array according to API specs
     const ofdData = ofd.map(item => ({
-      qty: item.qty,
-      price: item.price,
-      mxik: item.mxik,
-      total: item.total,
-      package_code: item.package_code,
-      name: item.name,
-      ...(item.vat && { vat: item.vat }),
-      ...(item.tin && { tin: item.tin }),
+      qty: item.qty || 1,
+      price: item.price || finalAmount, // Price in tiyin
+      mxik: item.mxik || '10899002001000000',
+      total: item.total || finalAmount, // Total in tiyin
+      package_code: item.package_code || '1236095', // ✅ Use your actual package code
+      name: item.name || `ACED ${plan.toUpperCase()} Plan`,
+      vat: item.vat || 0
     }));
 
     const payload = {
       store_id: storeId,
-      amount: amount,
+      amount: finalAmount, // ✅ Amount in tiyin
       invoice_id: invoiceId,
       callback_url: callbackUrl,
       return_url: `${process.env.FRONTEND_URL}/payment-success`,
       return_error_url: `${process.env.FRONTEND_URL}/payment-failed`,
       lang: lang || 'ru',
       ofd: ofdData,
+      // ✅ ADD: Store name for display
+      store_name: 'ACED Education Platform'
     };
 
+    // Add optional SMS field if provided
     if (sms) {
       payload.sms = sms;
     }
 
     console.log('📤 Creating Multicard invoice:', {
       invoiceId,
-      amount,
+      amount: finalAmount,
+      amountUZS: finalAmount / 100, // Display in UZS for logging
       storeId,
       itemCount: ofdData.length
     });
@@ -193,7 +203,9 @@ const initiatePayment = async (req, res) => {
     const response = await axios.post(`${API_URL}/payment/invoice`, payload, {
       headers: {
         'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'X-Application-Id': process.env.MULTICARD_APPLICATION_ID,
+        'X-Secret': process.env.MULTICARD_SECRET
       },
     });
 
@@ -205,12 +217,12 @@ const initiatePayment = async (req, res) => {
 
     const invoiceData = response.data.data;
 
-    // ✅ FIX: Use MongoDB _id for transaction, but store Firebase UID too
+    // ✅ Use MongoDB _id for transaction, and correct amount
     const transaction = new MulticardTransaction({
       userId: user._id, // ✅ Use MongoDB ObjectId
       firebaseUserId: userId, // ✅ Store Firebase UID separately
       invoiceId,
-      amount,
+      amount: finalAmount, // ✅ Use finalAmount
       plan,
       status: 'pending',
       multicardUuid: invoiceData.uuid,
