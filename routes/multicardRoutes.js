@@ -8,7 +8,8 @@ const {
     setVariable,
     getVariable,
     getAllVariables,
-    clearVariables
+    clearVariables,
+    deleteVariable // Added this import to fix the bug
 } = require('../controllers/multicardController');
 
 // ============================================
@@ -227,10 +228,10 @@ router.put('/card/:cardToken/confirm', multicardController.confirmCardBinding);
 router.get('/card/check/:pan', multicardController.checkCardByPan);
 
 // Check PINFL (Uzcard/Humo only)
-router.post('/card/check-pinfl', multicardController.checkCardPinfl);
+// DUPLICATE REMOVED
 
 // Delete card token
-router.delete('/card/:cardToken', multicardController.deleteCardToken);
+// DUPLICATE REMOVED
 
 // ============================================
 // PAYMENT BY CARD TOKEN ROUTES
@@ -390,7 +391,8 @@ router.delete('/variables/:key', (req, res) => {
         });
     }
 
-    variables.delete(key);
+    // FIX: Use the imported deleteVariable function
+    deleteVariable(key);
     console.log(`🗑️ Variable deleted: {{${key}}}`);
 
     res.json({
@@ -400,3 +402,4 @@ router.delete('/variables/:key', (req, res) => {
 });
 
 module.exports = router;
+
