@@ -692,5 +692,54 @@ router.get('/user/:firebaseId/results', verifyToken, checkUserMatch, async (req,
     res.status(500).json({ error: 'Failed to fetch test results' });
   }
 });
+// GET /api/users/:userId/tests/:testId
+router.get('/users/:userId/tests/:testId', verifyToken, async (req, res) => {
+  try {
+    const { testId } = req.params;
 
+    const test = await Test.findById(testId).select('-questions.correctAnswer -questions.explanation');
+
+    if (!test) {
+      return res.status(404).json({
+        success: false,
+        error: 'Test not found'
+      });
+    }
+
+    if (!test.isActive) {
+      return res.status(403).json({
+        success: false,
+        error: 'Test is not active'
+      });
+    }
+
+    // Randomize questions if enabled
+    if (test.randomizeQuestions && test.questions.length > 0) {
+      test.questions = test.questions.sort(() => Math.random() - 0.5);
+    }
+
+    // Randomize options if enabled
+    if (test.randomizeOptions) {
+      test.questions.forEach(question => {
+        if (question.options && question.options.length > 0) {
+          question.options = question.options.sort(() => Math.random() - 0.5);
+        }
+      });
+    }
+
+    res.json({
+      success: true,
+      test: test,
+      message: '✅ Test retrieved successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching test:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error fetching test',
+      details: error.message
+    });
+  }
+});
 module.exports = router;

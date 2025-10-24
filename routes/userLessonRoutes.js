@@ -1,7 +1,13 @@
 const express = require('express');
 const router = express.Router();
+const mongoose = require('mongoose');
 const UserProgress = require('../models/userProgress');
+const Lesson = require('../models/lesson');
 const verifyToken = require('../middlewares/authMiddleware');
+
+// ========================================
+// 🎯 USER LESSON PROGRESS ROUTES
+// ========================================
 
 // ✅ GET /api/user/:firebaseId/lesson/:lessonId - Get user's progress for specific lesson
 router.get('/:firebaseId/lesson/:lessonId', verifyToken, async (req, res) => {
@@ -70,6 +76,8 @@ router.post('/:firebaseId/lesson/:lessonId', verifyToken, async (req, res) => {
     });
   }
 });
+
+// ✅ POST /api/user/:firebaseId/progress/save
 router.post('/:firebaseId/progress/save', verifyToken, async (req, res) => {
   try {
     const { firebaseId } = req.params;
@@ -113,7 +121,6 @@ router.post('/:firebaseId/progress/save', verifyToken, async (req, res) => {
       { upsert: true, new: true, runValidators: true }
     );
     
-    
     res.json({
       success: true,
       data: updated,
@@ -130,4 +137,184 @@ router.post('/:firebaseId/progress/save', verifyToken, async (req, res) => {
     });
   }
 });
+
+// ========================================
+// 🆕 ADDITIONAL USER-PROGRESS ROUTES FROM SERVER.JS
+// ========================================
+
+// ✅ GET /api/user-progress/user/:userId/lesson/:lessonId
+router.get('/user-progress/user/:userId/lesson/:lessonId', async (req, res) => {
+  try {
+    const { userId, lessonId } = req.params;
+
+    // Basic validation
+    if (!userId || !lessonId) {
+      return res.status(400).json({
+        success: false,
+        error: 'userId and lessonId are required'
+      });
+    }
+
+    // Find progress
+    const progress = await UserProgress.findOne({
+      userId: userId,
+      lessonId: lessonId
+    }).populate('lessonId', 'title description order')
+      .populate('topicId', 'title description order');
+
+    res.json({
+      success: true,
+      data: progress || null,
+      message: progress ? '✅ Progress found' : '⚠️ No progress found for this lesson'
+    });
+
+  } catch (error) {
+    console.error('❌ Error in user-progress lesson route:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error fetching lesson progress',
+      details: error.message
+    });
+  }
+});
+
+// ✅ POST /api/user-progress/user/:userId/lesson/:lessonId
+router.post('/user-progress/user/:userId/lesson/:lessonId', async (req, res) => {
+  console.log('✅ ROUTE: POST /api/user-progress/user/:userId/lesson/:lessonId called');
+  try {
+    const { userId, lessonId } = req.params;
+    const progressData = req.body;
+
+    // Basic validation
+    if (!userId || !lessonId) {
+      return res.status(400).json({
+        success: false,
+        error: 'userId and lessonId are required'
+      });
+    }
+
+    // Get topicId from lesson if not provided
+    let finalTopicId = progressData.topicId;
+    if (!finalTopicId) {
+      try {
+        const lesson = await Lesson.findById(lessonId);
+        if (lesson && lesson.topicId) {
+          finalTopicId = lesson.topicId;
+        }
+      } catch (lessonError) {
+        console.warn('⚠️ Failed to find lesson to get topicId:', lessonError.message);
+      }
+    }
+
+    const updateData = {
+      userId: userId,
+      lessonId: lessonId,
+      topicId: finalTopicId,
+      completedSteps: progressData.completedSteps || [],
+      progressPercent: Math.min(100, Math.max(0, Number(progressData.progressPercent) || 0)),
+      completed: Boolean(progressData.completed),
+      mistakes: Math.max(0, Number(progressData.mistakes) || 0),
+      medal: String(progressData.medal || 'none'),
+      duration: Math.max(0, Number(progressData.duration) || 0),
+      stars: Math.min(5, Math.max(0, Number(progressData.stars) || 0)),
+      points: Math.max(0, Number(progressData.points) || 0),
+      hintsUsed: Math.max(0, Number(progressData.hintsUsed) || 0),
+      submittedHomework: Boolean(progressData.submittedHomework),
+      updatedAt: new Date()
+    };
+
+    // Remove null/undefined fields
+    Object.keys(updateData).forEach(key => {
+      if (updateData[key] === null || updateData[key] === undefined) {
+        delete updateData[key];
+      }
+    });
+
+    const updated = await UserProgress.findOneAndUpdate(
+      { userId: userId, lessonId: lessonId },
+      updateData,
+      { upsert: true, new: true, runValidators: true }
+    );
+
+    res.json({
+      success: true,
+      data: updated,
+      message: '✅ Progress saved successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ Error in user-progress/user/lesson route:', error);
+
+    if (error.name === 'CastError') {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid data format',
+        field: error.path,
+        value: error.value
+      });
+    } else if (error.name === 'ValidationError') {
+      res.status(400).json({
+        success: false,
+        error: 'Validation error',
+        details: Object.values(error.errors).map(e => e.message)
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: 'Error saving progress',
+        details: error.message
+      });
+    }
+  }
+});
+
+// ✅ GET /api/user-progress (for general user progress queries)
+router.get('/user-progress', async (req, res) => {
+  console.log('📊 GET /api/user-progress called with query:', req.query);
+
+  try {
+    const { userId, lessonId } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'userId is required as query parameter'
+      });
+    }
+
+    if (lessonId) {
+      // Get specific lesson progress
+      const progress = await UserProgress.findOne({ userId, lessonId })
+        .populate('lessonId', 'title description order')
+        .populate('topicId', 'title description order');
+
+      return res.json({
+        success: true,
+        data: progress || null,
+        message: progress ? '✅ Progress found' : '⚠️ No progress found'
+      });
+    } else {
+      // Get all progress for user
+      const progressRecords = await UserProgress.find({ userId })
+        .populate('lessonId', 'title description order')
+        .populate('topicId', 'title description order')
+        .sort({ updatedAt: -1 });
+
+      return res.json({
+        success: true,
+        data: progressRecords,
+        message: '✅ All progress loaded'
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ Error in user-progress general route:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error fetching progress',
+      details: error.message
+    });
+  }
+});
+
 module.exports = router;
