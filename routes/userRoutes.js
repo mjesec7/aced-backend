@@ -127,6 +127,12 @@ function validateFirebaseId(req, res, next) {
   next();
 }
 
+// ✅ NEW: Middleware for routes using :userId
+function validateUserId(req, res, next) {
+  if (!req.params.userId) return res.status(400).json({ error: '❌ Missing userId' });
+  next();
+}
+
 function verifyOwnership(req, res, next) {
   if (!req.user || req.user.uid !== req.params.firebaseId)
     return res.status(403).json({ error: '❌ Access denied: User mismatch' });
@@ -457,15 +463,47 @@ async function makeAIRequest(userInput, imageUrl, lessonId) {
 // 📄 USER INFO ROUTES
 // ========================================
 
-router.get('/:firebaseId', validateFirebaseId, async (req, res) => {
-  try {
-    const user = await User.findOne({ firebaseId: req.params.firebaseId });
-    if (!user) return res.status(404).json({ error: '❌ User not found' });
-    res.json(user);
-  } catch (error) {
-    console.error('❌ Error fetching user:', error);
-    res.status(500).json({ error: '❌ Server error' });
-  }
+// ✅ UPDATED: Replaced old /:firebaseId route with new /:userId route
+router.get('/:userId', validateUserId, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    const user = await User.findOne({
+      $or: [
+        { firebaseId: userId },
+        { _id: mongoose.Types.ObjectId.isValid(userId) ? userId : null }
+      ]
+    }).lean();
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    const responseUser = {
+      ...user,
+      userStatus: user.subscriptionPlan || 'free',
+      plan: user.subscriptionPlan || 'free',
+      serverFetch: true,
+      fetchTime: new Date().toISOString()
+    };
+
+    res.json({
+      success: true,
+      user: responseUser,
+      status: user.subscriptionPlan || 'free',
+      message: 'User data fetched successfully'
+    });
+  } catch (error) {
+    console.error('❌ Server: User fetch error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch user data',
+      details: error.message
+    });
+  }
 });
 
 router.get('/:firebaseId/status', validateFirebaseId, async (req, res) => {
@@ -477,6 +515,346 @@ router.get('/:firebaseId/status', validateFirebaseId, async (req, res) => {
     console.error('❌ Error fetching user status:', error);
     res.status(500).json({ error: '❌ Server error' });
   }
+});
+
+// ✅ NEW: PUT /api/users/:userId/status - Update user subscription status
+router.put('/:userId/status', validateUserId, verifyToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { subscriptionPlan, userStatus, plan, source } = req.body;
+    const finalStatus = subscriptionPlan || userStatus || plan || 'free';
+
+    if (!['free', 'start', 'pro', 'premium'].includes(finalStatus)) {
+      return res.status(400).json({ success: false, error: 'Invalid subscription plan' });
+    }
+
+    const user = await User.findOne({
+      $or: [
+        { firebaseId: userId },
+        { _id: mongoose.Types.ObjectId.isValid(userId) ? userId : null }
+      ]
+    });
+
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    const oldPlan = user.subscriptionPlan;
+    const newPlan = finalStatus;
+
+    // If upgrading from 'free', grant a new subscription
+    if (newPlan !== 'free' && oldPlan === 'free') {
+      await user.grantSubscription(newPlan, 365, source || 'admin');
+    } else {
+      user.subscriptionPlan = newPlan;
+      user.userStatus = newPlan;
+      user.plan = newPlan;
+      user.lastStatusUpdate = new Date();
+      user.statusSource = source || 'api';
+      if (newPlan === 'free') {
+        user.subscriptionExpiryDate = null;
+        user.subscriptionSource = null;
+      }
+      await user.save();
+    }
+    
+    const updatedUser = await User.findById(user._id).lean();
+
+    res.json({
+      success: true,
+      user: updatedUser,
+      message: `User status updated to ${newPlan}`,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('❌ User status update failed:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update user status',
+      details: error.message
+    });
+  }
+});
+
+// ✅ NEW: GET /api/users/:userId/subscription-status - Check subscription validity
+router.get('/:userId/subscription-status', validateUserId, verifyToken, async (req, res) => {
+  // Note: The original file used 'verifyOwnership' on a similar route.
+  // Adding it here based on the original file's pattern.
+  // If this route is for admins, remove verifyOwnership.
+  // For now, assuming user checks their own status.
+  if (!req.user || req.user.uid !== req.params.userId) {
+     return res.status(403).json({ error: '❌ Access denied: User mismatch' });
+  }
+
+  try {
+    const { userId } = req.params;
+    const user = await User.findOne({ firebaseId: userId });
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    const now = new Date();
+    let currentPlan = 'free';
+    let isActive = false;
+    let daysRemaining = 0;
+    let expiryDate = null;
+
+    if (user.subscriptionExpiryDate && user.subscriptionPlan !== 'free') {
+      expiryDate = new Date(user.subscriptionExpiryDate);
+      
+      if (now < expiryDate) {
+        currentPlan = user.subscriptionPlan;
+        isActive = true;
+        daysRemaining = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
+      } else {
+        console.log(`⏰ User ${userId} subscription expired, reverting to free`);
+        user.subscriptionPlan = 'free';
+        user.userStatus = 'free';
+        user.subscriptionExpiredAt = expiryDate;
+        await user.save();
+      }
+    }
+
+    res.json({
+      success: true,
+      subscription: {
+        plan: currentPlan,
+        isActive: isActive,
+        expiryDate: expiryDate,
+        daysRemaining: daysRemaining,
+        activatedAt: user.subscriptionActivatedAt,
+        source: user.subscriptionSource
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error checking subscription status:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to check subscription status'
+    });
+  }
+});
+
+// ========================================
+// 👑 ADMIN & MISC ROUTES
+// ========================================
+
+// ✅ NEW: POST /api/users/admin/:userId/extend-subscription - Extend subscription (admin)
+router.post('/admin/:userId/extend-subscription', validateUserId, verifyToken, async (req, res) => {
+  // TODO: Add admin-level verification middleware here
+  try {
+    const { userId } = req.params;
+    const { days = 30 } = req.body;
+    
+    const user = await User.findOne({ 
+      $or: [
+        { firebaseId: userId },
+        { _id: mongoose.Types.ObjectId.isValid(userId) ? userId : null }
+      ]
+    });
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    if (user.subscriptionPlan === 'free') {
+      return res.status(400).json({
+        success: false,
+        error: 'User has no active subscription to extend'
+      });
+    }
+
+    const now = new Date();
+    let newExpiry;
+
+    if (user.subscriptionExpiryDate && new Date(user.subscriptionExpiryDate) > now) {
+      newExpiry = new Date(new Date(user.subscriptionExpiryDate).getTime() + (days * 24 * 60 * 60 * 1000));
+    } else {
+      newExpiry = new Date(now.getTime() + (days * 24 * 60 * 60 * 1000));
+    }
+
+    user.subscriptionExpiryDate = newExpiry;
+    user.lastExtendedAt = now;
+    user.lastExtensionDays = days;
+    
+    await user.save();
+
+    console.log(`📅 Extended ${user.email} subscription by ${days} days until ${newExpiry.toLocaleDateString()}`);
+
+    res.json({
+      success: true,
+      message: `Subscription extended by ${days} days`,
+      user: {
+        subscriptionPlan: user.subscriptionPlan,
+        subscriptionExpiryDate: newExpiry,
+        daysExtended: days
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error extending subscription:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to extend subscription'
+    });
+  }
+});
+
+// ✅ NEW: GET /api/users/admin/users - Get all users (admin)
+router.get('/admin/users', verifyToken, async (req, res) => {
+  // TODO: Add admin-level verification middleware here
+  try {
+    const {
+      page = 1,
+      limit = 50,
+      search = '',
+      plan = '',
+      status = ''
+    } = req.query;
+
+    const filter = {};
+
+    if (search) {
+      filter.$or = [
+        { email: { $regex: search, $options: 'i' } },
+        { name: { $regex: search, $options: 'i' } },
+        { firebaseId: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    if (plan && plan !== 'all') {
+      filter.subscriptionPlan = plan;
+    }
+
+    if (status === 'active') {
+      filter.isBlocked = { $ne: true };
+    } else if (status === 'blocked') {
+      filter.isBlocked = true;
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const [users, total] = await Promise.all([
+      User.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean(),
+      User.countDocuments(filter)
+    ]);
+
+    const enhancedUsers = users.map(user => ({
+      ...user,
+      studyListCount: user.studyList?.length || 0,
+      paymentCount: 0,
+      totalPaid: 0,
+      promocodeCount: 0,
+      userSegment: user.subscriptionPlan === 'free' ? 'free-inactive' : 'premium-active',
+      engagementLevel: user.lastLoginAt && (Date.now() - new Date(user.lastLoginAt).getTime()) < (7 * 24 * 60 * 60 * 1000) ? 'high' : 'low',
+      riskLevel: 'low',
+      isActivePaidUser: user.subscriptionPlan !== 'free',
+      isActiveStudent: user.studyList?.length > 0,
+      accountValue: user.subscriptionPlan === 'pro' ? 455000 : user.subscriptionPlan === 'start' ? 260000 : 0,
+      lastActivity: user.lastLoginAt || user.updatedAt,
+      analytics: {
+        studyDays: user.studyList?.length || 0,
+        totalLessonsDone: 0,
+        totalPoints: 0,
+        weeklyLessons: 0,
+        monthlyLessons: 0
+      }
+    }));
+
+    res.json({
+      success: true,
+      users: enhancedUsers,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit))
+      },
+      dataSource: 'real_backend',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('❌ Error fetching admin users:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch users',
+      details: error.message
+    });
+  }
+});
+
+// ✅ NEW: GET /api/users/all - Get all users list
+router.get('/all', verifyToken, async (req, res) => {
+  // TODO: Add admin-level verification middleware here
+  try {
+    const users = await User.find({})
+      .select('firebaseId email name subscriptionPlan isBlocked createdAt lastLoginAt studyList')
+      .sort({ createdAt: -1 })
+      .limit(100)
+      .lean();
+
+    res.json({
+      success: true,
+      data: users,
+      count: users.length,
+      dataSource: 'real_backend',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('❌ Error fetching all users:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch users',
+      details: error.message
+    });
+  }
+});
+
+// ✅ NEW: GET /api/users/test - Test endpoint
+router.get('/test', (req, res) => {
+JSON.stringify(res.json({
+    message: '✅ User routes are working',
+    server: 'api.aced.live',
+    timestamp: new Date().toISOString(),
+    routes: [
+      'POST /api/users/save',
+      'GET /api/users/:userId',
+      'GET /api/users/:firebaseId/status',
+      'PUT /api/users/:userId/status',
+      'GET /api/users/:userId/subscription-status',
+      'GET /api/users/:firebaseId/usage/:monthKey',
+      'POST /api/users/chat',
+      'GET /api/users/:firebaseId/recommendations',
+      'GET /api/users/:firebaseId/homeworks',
+      'GET /api/users/:firebaseId/tests',
+      'POST /api/users/:firebaseId/tests/:testId/submit',
+      'GET /api/users/:firebaseId/homework/:homeworkId',
+      'POST /api/users/:firebaseId/homework/:homeworkId/submit',
+      'POST /api/users/:firebaseId/lesson/:lessonId',
+      'POST /api/users/:firebaseId/progress/save',
+      'GET /api/users/:firebaseId/study-list',
+      'POST /api/users/:firebaseId/study-list',
+      'DELETE /api/users/:firebaseId/study-list/:topicId',
+      'GET /api/users/:firebaseId/progress',
+      'GET /api/users/:firebaseId/analytics',
+      'GET /api/users/:firebaseId/diary',
+      'POST /api/users/:firebaseId/diary',
+      'POST /api/users/admin/:userId/extend-subscription',
+      'GET /api/users/admin/users',
+      'GET /api/users/all',
+      'GET /api/users/test'
+    ]
+  }));
 });
 
 // ========================================
@@ -601,7 +979,12 @@ router.get('/:firebaseId/homeworks', validateFirebaseId, verifyToken, verifyOwne
       return new Date(b.updatedAt) - new Date(a.updatedAt);
     });
     
-    
+    // Send response (was missing in original file)
+    res.json({
+        success: true,
+        data: allHomeworks,
+        message: `✅ Found ${allHomeworks.length} homework items`
+    });
     
   } catch (error) {
     console.error('❌ Error fetching user homeworks:', error);
@@ -638,7 +1021,12 @@ router.get('/:firebaseId/tests', validateFirebaseId, verifyToken, verifyOwnershi
       };
     });
     
-    
+    // Send response (was missing in original file)
+    res.json({
+        success: true,
+        data: testsWithProgress,
+        message: `✅ Found ${testsWithProgress.length} tests`
+    });
     
   } catch (error) {
     console.error('❌ Error fetching user tests:', error);
@@ -1433,72 +1821,7 @@ router.post('/:firebaseId/progress/save', validateFirebaseId, verifyToken, verif
     }
   }
 });
-router.post('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOwnership, async (req, res) => {
-  try {
-    const studyListData = req.body;
-    
-    
-    // Check required fields
-    if (!studyListData.topicId || (!studyListData.topic && !studyListData.topicName)) {
-      return res.status(400).json({
-        success: false,
-        error: 'topicId and topic name are required'
-      });
-    }
-    
-    const user = await User.findOne({ firebaseId: req.params.firebaseId });
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        error: 'User not found'
-      });
-    }
 
-    if (!user.studyList) {
-      user.studyList = [];
-    }
-
-    // Check if already exists
-    const exists = user.studyList.some(item => item.topicId === studyListData.topicId);
-    if (exists) {
-      return res.status(400).json({
-        success: false,
-        error: 'Этот курс уже добавлен в ваш список'
-      });
-    }
-    
-    // Map frontend data to what your User model expects
-    const mappedData = {
-      name: studyListData.topic || studyListData.topicName,  // This was missing!
-      topicId: studyListData.topicId,
-      subject: studyListData.subject || 'General',
-      level: studyListData.level || 1,
-      lessonCount: studyListData.lessonCount || 0,
-      totalTime: studyListData.totalTime || 10,
-      type: studyListData.type || 'free',
-      description: studyListData.description || '',
-      isActive: studyListData.isActive !== false,
-      addedAt: studyListData.addedAt || new Date()
-    };
-    
-    user.studyList.push(mappedData);
-    await user.save();
-    
-    res.status(201).json({
-      success: true,
-      message: 'Курс успешно добавлен в ваш список',
-      data: mappedData
-    });
-    
-  } catch (error) {
-    console.error('❌ Study list error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Server error',
-      message: error.message
-    });
-  }
-});
 // ========================================
 // 📚 STUDY LIST MANAGEMENT (ENHANCED)
 // ========================================
@@ -1557,7 +1880,12 @@ router.get('/:firebaseId/study-list', validateFirebaseId, verifyToken, verifyOwn
     });
     
   } catch (error) {
- 
+    console.error('❌ Error fetching study list:', error);
+    res.status(500).json({ 
+      success: false,
+      error: '❌ Error fetching study list',
+      message: error.message
+    });
   }
 });
 

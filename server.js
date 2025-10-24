@@ -644,115 +644,9 @@ app.post('/api/progress/quick-save', async (req, res) => {
 });
 
 
-// ✅ [UPDATED] - User Status Update Route (PUT /api/users/:userId/status)
-app.put('/api/users/:userId/status', async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const { subscriptionPlan, userStatus, plan, source } = req.body;
-    const finalStatus = subscriptionPlan || userStatus || plan || 'free';
 
-    if (!['free', 'start', 'pro', 'premium'].includes(finalStatus)) {
-      return res.status(400).json({ success: false, error: 'Invalid subscription plan' });
-    }
 
-    const User = require('./models/user');
-    const user = await User.findOne({
-        $or: [
-          { firebaseId: userId },
-          { _id: mongoose.Types.ObjectId.isValid(userId) ? userId : null }
-        ]
-    });
 
-    if (!user) {
-      return res.status(404).json({ success: false, error: 'User not found' });
-    }
-
-    const oldPlan = user.subscriptionPlan;
-    const newPlan = finalStatus;
-
-    // ✅ FIX: If upgrading from 'free', grant a new subscription with an expiry date.
-    if (newPlan !== 'free' && oldPlan === 'free') {
-      // Admin or direct API updates grant a 1-year subscription by default
-      await user.grantSubscription(newPlan, 365, source || 'admin');
-    } else {
-      // For downgrades or other changes, just update the plan string and clear expiry if moving to free
-      user.subscriptionPlan = newPlan;
-      user.userStatus = newPlan;
-      user.plan = newPlan;
-      user.lastStatusUpdate = new Date();
-      user.statusSource = source || 'api';
-      if (newPlan === 'free') {
-        user.subscriptionExpiryDate = null;
-        user.subscriptionSource = null;
-      }
-      await user.save();
-    }
-    
-    // Fetch the updated user data to send back
-    const updatedUser = await User.findById(user._id).lean();
-
-    res.json({
-      success: true,
-      user: updatedUser,
-      message: `User status updated to ${newPlan}`,
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('❌ Server: User status update failed:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to update user status',
-      details: error.message
-    });
-  }
-});
-
-// ✅ ADDED: GET user data route to support new auth flow in main.js
-app.get('/api/users/:userId', async (req, res) => {
-  try {
-
-    const { userId } = req.params;
-    const User = require('./models/user');
-
-    // Find user by firebaseId or _id
-    const user = await User.findOne({
-      $or: [
-        { firebaseId: userId },
-        { _id: mongoose.Types.ObjectId.isValid(userId) ? userId : null }
-      ]
-    }).lean();
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        error: 'User not found'
-      });
-    }
-
-    // Return user with all status fields
-    const responseUser = {
-      ...user,
-      userStatus: user.subscriptionPlan || 'free',
-      plan: user.subscriptionPlan || 'free',
-      serverFetch: true,
-      fetchTime: new Date().toISOString()
-    };
-
-    res.json({
-      success: true,
-      user: responseUser,
-      status: user.subscriptionPlan || 'free',
-      message: 'User data fetched successfully'
-    });
-  } catch (error) {
-    console.error('❌ Server: User fetch error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch user data',
-      details: error.message
-    });
-  }
-});
 
 
 // ========================================
@@ -1219,128 +1113,9 @@ app.post('/api/payments/promo-code', async (req, res) => {
   }
 });
 
-// ✅ ADD: Endpoint to check subscription validity
-app.get('/api/users/:userId/subscription-status', async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const User = require('./models/user');
-    
-    const user = await User.findOne({ firebaseId: userId });
-    
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        error: 'User not found'
-      });
-    }
 
-    const now = new Date();
-    let currentPlan = 'free';
-    let isActive = false;
-    let daysRemaining = 0;
-    let expiryDate = null;
 
-    // Check if user has a subscription and if it's still valid
-    if (user.subscriptionExpiryDate && user.subscriptionPlan !== 'free') {
-      expiryDate = new Date(user.subscriptionExpiryDate);
-      
-      if (now < expiryDate) {
-        // Subscription is still valid
-        currentPlan = user.subscriptionPlan;
-        isActive = true;
-        daysRemaining = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
-      } else {
-        // Subscription expired - revert to free
-        console.log(`⏰ User ${userId} subscription expired, reverting to free`);
-        
-        user.subscriptionPlan = 'free';
-        user.userStatus = 'free';
-        user.subscriptionExpiredAt = expiryDate;
-        await user.save();
-      }
-    }
 
-    res.json({
-      success: true,
-      subscription: {
-        plan: currentPlan,
-        isActive: isActive,
-        expiryDate: expiryDate,
-        daysRemaining: daysRemaining,
-        activatedAt: user.subscriptionActivatedAt,
-        source: user.subscriptionSource
-      }
-    });
-
-  } catch (error) {
-    console.error('❌ Error checking subscription status:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to check subscription status'
-    });
-  }
-});
-
-// ✅ ADD: Manual subscription extension endpoint (for admin)
-app.post('/api/admin/users/:userId/extend-subscription', async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const { days = 30 } = req.body;
-    
-    const User = require('./models/user');
-    const user = await User.findOne({ firebaseId: userId });
-    
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        error: 'User not found'
-      });
-    }
-
-    if (user.subscriptionPlan === 'free') {
-      return res.status(400).json({
-        success: false,
-        error: 'User has no active subscription to extend'
-      });
-    }
-
-    const now = new Date();
-    let newExpiry;
-
-    // If subscription is still valid, extend from current expiry
-    // If expired, extend from today
-    if (user.subscriptionExpiryDate && new Date(user.subscriptionExpiryDate) > now) {
-      newExpiry = new Date(new Date(user.subscriptionExpiryDate).getTime() + (days * 24 * 60 * 60 * 1000));
-    } else {
-      newExpiry = new Date(now.getTime() + (days * 24 * 60 * 60 * 1000));
-    }
-
-    user.subscriptionExpiryDate = newExpiry;
-    user.lastExtendedAt = now;
-    user.lastExtensionDays = days;
-    
-    await user.save();
-
-    console.log(`📅 Extended ${user.email} subscription by ${days} days until ${newExpiry.toLocaleDateString()}`);
-
-    res.json({
-      success: true,
-      message: `Subscription extended by ${days} days`,
-      user: {
-        subscriptionPlan: user.subscriptionPlan,
-        subscriptionExpiryDate: newExpiry,
-        daysExtended: days
-      }
-    });
-
-  } catch (error) {
-    console.error('❌ Error extending subscription:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to extend subscription'
-    });
-  }
-});
 
 
 // ✅ EMERGENCY: Add missing payment form generation route directly
@@ -1746,36 +1521,35 @@ const mountRoute = (path, routeFile, description) => {
 };
 
 const routesToMount = [
-  // ✅ FIXED: Add main payment routes FIRST
-
-  ['/api/payments/multicard', './routes/multicardRoutes', 'Multicard payment integration'],  // PayMe routes (legacy)
-
-  ['/api/payments', './routes/payments', 'Main payment routes (CRITICAL)'],
+  // Payment routes - BOTH payment providers (order matters: specific before general)
+  ['/api/payments/multicard', './routes/multicardRoutes', 'Multicard payment integration'],
+  ['/api/payments/payme', './routes/paymeRoutes', 'PayMe payment routes'],
+  ['/api/payments', './routes/payments', 'Main payment routes (handles both)'],
   ['/api/promocodes', './routes/promocodeRoutes', 'Promocode management routes (ADMIN)'],
 
-  // ✅ ADD THIS LINE FOR MULTICARD
-  ['/api/payments/multicard', './routes/multicardRoutes', 'Multicard payment integration'],  // PayMe routes (legacy)
-  ['/api/payments', './routes/paymeRoutes', 'PayMe payment routes (legacy)'],
-
-  // User routes - CRITICAL
+  // User routes
   ['/api/users', './routes/userRoutes', 'User management routes (MAIN)'],
   ['/api/user', './routes/userRoutes', 'User management routes (LEGACY)'],
 
-  // Other routes
+  // Progress & Analytics
   ['/api/progress', './routes/userProgressRoutes', 'Progress tracking routes'],
+  ['/api/analytics', './routes/userAnalytics', 'User analytics routes'],
+
+  // Content routes
   ['/api/lessons', './routes/lessonRoutes', 'Lesson management routes'],
   ['/api/subjects', './routes/subjectRoutes', 'Subject management routes'],
   ['/api/topics', './routes/topicRoutes', 'Topic management routes'],
-  ['/api/chat', './routes/chatRoutes', 'Chat/AI routes'],
+  ['/api/updated-courses', './routes/updatedCourses', 'Updated Courses routes (MAIN FRONTEND)'],
+  
+  // Learning materials
   ['/api/homeworks', './routes/homeworkRoutes', 'Homework routes'],
   ['/api/tests', './routes/testRoutes', 'Test/quiz routes'],
-  ['/api/analytics', './routes/userAnalytics', 'User analytics routes'],
-  ['/api/updated-courses', './routes/updatedCourses', 'Updated Courses routes (MAIN FRONTEND)'],
-
-  // NEW: Routes for Guides and Books
   ['/api/guides', './routes/guides', 'Guides routes'],
   ['/api/books', './routes/books', 'Books routes'],
-
+  
+  // Language & Communication
+  ['/api/vocabulary', './routes/vocabularyRoutes', 'Vocabulary routes'], // ✅ ADDED - This was missing!
+  ['/api/chat', './routes/chatRoutes', 'Chat/AI routes'],
 ];
 
 // Mount routes
@@ -1977,125 +1751,8 @@ app.get('/api/status', (req, res) => {
     }
   });
 });
-app.get('/api/admin/users', async (req, res) => {
-  try {
 
-    const {
-      page = 1,
-      limit = 50,
-      search = '',
-      plan = '',
-      status = ''
-    } = req.query;
 
-    const User = require('./models/user');
-
-    // Build filter
-    const filter = {};
-
-    if (search) {
-      filter.$or = [
-        { email: { $regex: search, $options: 'i' } },
-        { name: { $regex: search, $options: 'i' } },
-        { firebaseId: { $regex: search, $options: 'i' } }
-      ];
-    }
-
-    if (plan && plan !== 'all') {
-      filter.subscriptionPlan = plan;
-    }
-
-    if (status === 'active') {
-      filter.isBlocked = { $ne: true };
-    } else if (status === 'blocked') {
-      filter.isBlocked = true;
-    }
-
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-
-    const [users, total] = await Promise.all([
-      User.find(filter)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(parseInt(limit))
-        .lean(),
-      User.countDocuments(filter)
-    ]);
-
-    // Enhance users with computed fields
-    const enhancedUsers = users.map(user => ({
-      ...user,
-      studyListCount: user.studyList?.length || 0,
-      paymentCount: 0, // You can enhance this with actual payment data
-      totalPaid: 0,
-      promocodeCount: 0,
-      userSegment: user.subscriptionPlan === 'free' ? 'free-inactive' : 'premium-active',
-      engagementLevel: user.lastLoginAt && (Date.now() - new Date(user.lastLoginAt).getTime()) < (7 * 24 * 60 * 60 * 1000) ? 'high' : 'low',
-      riskLevel: 'low',
-      isActivePaidUser: user.subscriptionPlan !== 'free',
-      isActiveStudent: user.studyList?.length > 0,
-      accountValue: user.subscriptionPlan === 'pro' ? 455000 : user.subscriptionPlan === 'start' ? 260000 : 0,
-      lastActivity: user.lastLoginAt || user.updatedAt,
-      analytics: {
-        studyDays: user.studyList?.length || 0,
-        totalLessonsDone: 0, // You can enhance this with UserProgress data
-        totalPoints: 0,
-        weeklyLessons: 0,
-        monthlyLessons: 0
-      }
-    }));
-
-    res.json({
-      success: true,
-      users: enhancedUsers,
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total,
-        pages: Math.ceil(total / parseInt(limit))
-      },
-      dataSource: 'real_backend',
-      timestamp: new Date().toISOString()
-    });
-
-  } catch (error) {
-    console.error('❌ Error fetching admin users:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch users',
-      details: error.message
-    });
-  }
-});
-
-// ✅ GET /api/users/all - Alternative endpoint
-app.get('/api/users/all', async (req, res) => {
-  try {
-
-    const User = require('./models/user');
-    const users = await User.find({})
-      .select('firebaseId email name subscriptionPlan isBlocked createdAt lastLoginAt studyList')
-      .sort({ createdAt: -1 })
-      .limit(100) // Reasonable limit
-      .lean();
-
-    res.json({
-      success: true,
-      data: users,
-      count: users.length,
-      dataSource: 'real_backend',
-      timestamp: new Date().toISOString()
-    });
-
-  } catch (error) {
-    console.error('❌ Error fetching all users:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch users',
-      details: error.message
-    });
-  }
-});
 
 
 // ========================================
