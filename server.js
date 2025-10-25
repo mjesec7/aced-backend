@@ -1675,7 +1675,125 @@ const healthCheckHandler = async (req, res) => {
 };
 // Emergency Multicard routes (add after line 1500 in server.js)
 const multicardController = require('./controllers/multicardController');
+app.post('/api/payments/multicard/initiate', async (req, res) => {
+  try {
+    console.log('💳 Multicard payment initiation request:', {
+      userId: req.body.userId,
+      plan: req.body.plan,
+      amount: req.body.amount
+    });
 
+    const {
+      userId,
+      plan,
+      amount,
+      lang = 'ru',
+      userName,
+      userEmail
+    } = req.body;
+
+    // Validation
+    if (!userId || !plan) {
+      return res.status(400).json({
+        success: false,
+        error: 'userId and plan are required'
+      });
+    }
+
+    // Import axios and auth
+    const axios = require('axios');
+    const { auth } = require('./firebase');
+
+    // Get Firebase token
+    let token = null;
+    try {
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        token = await currentUser.getIdToken();
+      }
+    } catch (authError) {
+      console.warn('⚠️ Failed to get auth token:', authError.message);
+    }
+
+    // Calculate amount
+    const finalAmount = amount || (plan === 'pro' ? 45500000 : 26000000);
+
+    // Build OFD data (required for Uzbekistan)
+    const ofdData = [{
+      qty: 1,
+      price: finalAmount,
+      total: finalAmount,
+      name: `ACED ${plan.toUpperCase()} Plan`,
+      mxik: '10899002001000000',
+      package_code: '1873404',
+      vat: 0
+    }];
+
+    // Prepare request
+    const multicardPayload = {
+      userId: userId,
+      plan: plan,
+      amount: finalAmount,
+      ofd: ofdData,
+      lang: lang,
+      userName: userName,
+      userEmail: userEmail
+    };
+
+    console.log('📤 Sending to Multicard backend:', multicardPayload);
+
+    // Call backend Multicard controller
+    const baseUrl = process.env.VITE_API_BASE_URL || 'https://api.aced.live';
+    const response = await axios.post(
+      `${baseUrl}/api/payments/multicard/payment`,
+      multicardPayload,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token && { 'Authorization': `Bearer ${token}` })
+        },
+        timeout: 30000
+      }
+    );
+
+    console.log('✅ Multicard response:', response.data);
+
+    if (response.data.success) {
+      return res.json({
+        success: true,
+        data: response.data.data,
+        message: 'Payment initiated successfully'
+      });
+    } else {
+      throw new Error(response.data.error || 'Payment initiation failed');
+    }
+
+  } catch (error) {
+    console.error('❌ Multicard initiation error:', error);
+
+    return res.status(500).json({
+      success: false,
+      error: error.response?.data?.error || error.message || 'Payment initiation failed',
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+});
+
+// ✅ GET /api/payments/multicard/test - Test Multicard integration
+app.get('/api/payments/multicard/test', async (req, res) => {
+  res.json({
+    success: true,
+    message: 'Multicard integration active',
+    endpoints: {
+      initiate: 'POST /api/payments/multicard/initiate',
+      webhook: 'POST /api/payments/multicard/webhook',
+      test: 'GET /api/payments/multicard/test'
+    },
+    timestamp: new Date().toISOString()
+  });
+});
+
+console.log('✅ Emergency Multicard routes mounted directly in server.js');
 app.post('/api/payments/multicard/payment', multicardController.createPaymentByToken);
 app.post('/api/payments/multicard/webhook', multicardController.handleWebhook);
 app.get('/api/payments/multicard/test-connection', multicardController.testConnection);
