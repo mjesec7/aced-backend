@@ -1740,6 +1740,7 @@ console.log('✅ Multicard emergency routes with real API integration mounted');
 app.post('/api/payments/multicard/payment', multicardController.createPaymentByToken);
 app.post('/api/payments/multicard/webhook', multicardController.handleWebhook);
 app.get('/api/payments/multicard/test-connection', multicardController.testConnection);
+app.post('/api/payments/multicard/initiate', multicardController.initiatePayment);
 
 console.log('✅ Emergency Multicard routes mounted directly in server.js');
 // Health check endpoints - both /health and /api/health
