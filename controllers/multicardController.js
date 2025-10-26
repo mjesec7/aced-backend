@@ -248,14 +248,58 @@ const initiatePayment = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Error initiating Multicard payment:', error.message);
-    res.status(500).json({
-      success: false,
-      error: {
-        code: 'PAYMENT_INITIATION_FAILED',
-        details: error.message
+    // ✅ ENHANCED ERROR LOGGING
+    console.error('❌ Multicard API Error Details:');
+    
+    if (error.response) {
+      console.error('Status:', error.response.status);
+      console.error('Status Text:', error.response.statusText);
+      console.error('Response Data:', JSON.stringify(error.response.data, null, 2));
+      console.error('Response Headers:', error.response.headers);
+      
+      // Check for specific Multicard error codes
+      if (error.response.data?.error) {
+        console.error('Multicard Error:', error.response.data.error);
       }
-    });
+      if (error.response.data?.errors) {
+        console.error('Multicard Errors:', error.response.data.errors);
+      }
+      
+      // Return more detailed error to frontend
+      return res.status(500).json({
+        success: false,
+        error: {
+          code: 'PAYMENT_INITIATION_FAILED',
+          details: error.response.data?.error?.details || 
+                   error.response.data?.error || 
+                   error.response.data?.message || 
+                   'Multicard API rejected the request',
+          multicardStatus: error.response.status,
+          multicardError: error.response.data
+        }
+      });
+    } else if (error.request) {
+      console.error('No response received from Multicard');
+      console.error('Request:', error.request);
+      
+      return res.status(500).json({
+        success: false,
+        error: {
+          code: 'MULTICARD_NO_RESPONSE',
+          details: 'No response from Multicard API'
+        }
+      });
+    } else {
+      console.error('Error setting up request:', error.message);
+      
+      return res.status(500).json({
+        success: false,
+        error: {
+          code: 'REQUEST_SETUP_ERROR',
+          details: error.message
+        }
+      });
+    }
   }
 };
 
