@@ -1709,11 +1709,17 @@ app.get('/api/payments/multicard/test', (req, res) => {
   });
 });
 
-// ✅ 2. CRITICAL: Payment Initiation (POST only)
 app.post('/api/payments/multicard/initiate', async (req, res) => {
   console.log('\n📥 === MULTICARD PAYMENT INITIATION ===');
   console.log('Method:', req.method);
   console.log('Content-Type:', req.headers['content-type']);
+  
+  // ✅ CRITICAL FIX: Prevent redirect by ensuring exact route match
+  // Remove trailing slash if present
+  if (req.path.endsWith('/')) {
+    return res.redirect(307, req.path.slice(0, -1) + req.url.slice(req.path.length));
+  }
+  
   console.log('Body received:', {
     userId: req.body.userId ? '✅ Present' : '❌ Missing',
     plan: req.body.plan || '❌ Missing',
@@ -1904,7 +1910,6 @@ const mountRoute = (path, routeFile, description) => {
 const routesToMount = [
   // ✅ FIXED: Add main payment routes FIRST
 
-  ['/api/payments/multicard', './routes/multicardRoutes', 'Multicard payment integration'],  // PayMe routes (legacy)
 
   ['/api/payments', './routes/payments', 'Main payment routes (CRITICAL)'],
   ['/api/promocodes', './routes/promocodeRoutes', 'Promocode management routes (ADMIN)'],
