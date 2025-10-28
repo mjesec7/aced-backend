@@ -1708,7 +1708,13 @@ app.get('/api/payments/multicard/test', (req, res) => {
     }
   });
 });
-
+app.use('/api/payments/multicard', (req, res, next) => {
+  console.log(`🔍 Multicard: ${req.method} ${req.path}`);
+  if (req.method === 'GET' && req.path === '/initiate') {
+    console.error('❌ GET detected! Should be POST!');
+  }
+  next();
+});
 app.post('/api/payments/multicard/initiate', async (req, res) => {
   console.log('\n📥 === MULTICARD PAYMENT INITIATION ===');
   console.log('Method:', req.method);
