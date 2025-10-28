@@ -9,8 +9,34 @@ const {
     getVariable,
     getAllVariables,
     clearVariables,
-    deleteVariable // Added this import to fix the bug
+    deleteVariable
 } = require('../controllers/multicardController');
+
+// ============================================
+// 🔧 CORS CONFIGURATION FOR MULTICARD ROUTES
+// ============================================
+
+// Handle CORS preflight for all routes
+router.options('*', (req, res) => {
+    res.header('Access-Control-Allow-Origin', process.env.FRONTEND_URL || '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+    res.header('Access-Control-Max-Age', '86400'); // 24 hours
+    res.sendStatus(200);
+});
+
+// Add logging middleware for all multicard requests
+router.use((req, res, next) => {
+    console.log('🔵 Multicard Route Hit:', {
+        method: req.method,
+        path: req.path,
+        fullUrl: req.originalUrl,
+        hasBody: !!req.body,
+        contentType: req.headers['content-type'],
+        authorization: req.headers.authorization ? '✅ Present' : '❌ Missing'
+    });
+    next();
+});
 
 // ============================================
 // DEBUG / TEST ROUTES (Place these first)
@@ -46,7 +72,6 @@ router.get('/debug/transaction/:identifier', async (req, res) => {
     try {
         const { identifier } = req.params;
 
-        // Try to find by invoiceId OR multicardUuid
         const transaction = await MulticardTransaction.findOne({
             $or: [
                 { invoiceId: identifier },
@@ -164,11 +189,65 @@ router.get('/debug/env', (req, res) => {
     });
 });
 
+/**
+ * List all registered routes
+ */
+router.get('/debug/routes', (req, res) => {
+    const routes = [];
+    
+    router.stack.forEach(layer => {
+        if (layer.route) {
+            const methods = Object.keys(layer.route.methods).join(', ').toUpperCase();
+            routes.push({
+                path: layer.route.path,
+                methods: methods
+            });
+        }
+    });
+
+    res.json({
+        success: true,
+        message: 'Multicard routes registered',
+        count: routes.length,
+        routes: routes.sort((a, b) => a.path.localeCompare(b.path))
+    });
+});
+
 // ============================================
 // PAYMENT ROUTES
 // ============================================
 
-// Payment initiation
+// ✅ CRITICAL: Handle GET method with clear error
+router.get('/initiate', (req, res) => {
+    console.warn('⚠️  Received GET request to /initiate - This endpoint requires POST!');
+    console.warn('   Query params:', req.query);
+    console.warn('   Headers:', req.headers);
+    
+    res.status(405).json({
+        success: false,
+        error: {
+            code: 'METHOD_NOT_ALLOWED',
+            message: 'This endpoint requires POST method',
+            details: 'You sent a GET request, but /initiate only accepts POST',
+            correctUsage: {
+                method: 'POST',
+                url: '/api/payments/multicard/initiate',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer YOUR_TOKEN'
+                },
+                body: {
+                    userId: 'string',
+                    plan: 'start or pro',
+                    amount: 'number (optional)',
+                    lang: 'ru, uz, or en (optional)'
+                }
+            }
+        }
+    });
+});
+
+// ✅ CRITICAL: The actual POST handler
 router.post('/initiate', multicardController.initiatePayment);
 
 // QR code payment (PaymeGo, ClickPass, Uzum, etc.)
@@ -194,16 +273,16 @@ router.delete('/invoice/:uuid', multicardController.deleteInvoice);
 // CARD BINDING ROUTES (Form-based)
 // ============================================
 
-// ✅ Create card binding session - CORRECT PATH
+// Create card binding session
 router.post('/card/bind', multicardController.createCardBindingSession);
 
 // Card binding callback (from Multicard)
 router.post('/card-binding/callback', multicardController.handleCardBindingCallback);
-router.post('/card/bind/callback', multicardController.handleCardBindingCallback); // Alternative path
+router.post('/card/bind/callback', multicardController.handleCardBindingCallback);
 
 // Check card binding status
 router.get('/card/bind/:sessionId', multicardController.checkCardBindingStatus);
-router.get('/card-binding/status/:sessionId', multicardController.checkCardBindingStatus); // Alternative path
+router.get('/card-binding/status/:sessionId', multicardController.checkCardBindingStatus);
 
 // Get card info by token
 router.get('/card/:cardToken', multicardController.getCardInfoByToken);
@@ -224,14 +303,8 @@ router.post('/card', multicardController.addCardByDetails);
 // Confirm card binding with OTP
 router.put('/card/:cardToken/confirm', multicardController.confirmCardBinding);
 
-// ✅ ADD THIS NEW ROUTE:
+// Check card by PAN
 router.get('/card/check/:pan', multicardController.checkCardByPan);
-
-// Check PINFL (Uzcard/Humo only)
-// DUPLICATE REMOVED
-
-// Delete card token
-// DUPLICATE REMOVED
 
 // ============================================
 // PAYMENT BY CARD TOKEN ROUTES
@@ -292,7 +365,6 @@ router.get('/store/:storeId/export', multicardController.exportPaymentHistory);
 
 /**
  * Get all stored variables
- * GET /api/payments/multicard/variables
  */
 router.get('/variables', (req, res) => {
     const allVars = getAllVariables();
@@ -305,7 +377,6 @@ router.get('/variables', (req, res) => {
 
 /**
  * Get a specific variable
- * GET /api/payments/multicard/variables/:key
  */
 router.get('/variables/:key', (req, res) => {
     const { key } = req.params;
@@ -323,17 +394,12 @@ router.get('/variables/:key', (req, res) => {
 
     res.json({
         success: true,
-        data: {
-            key,
-            value
-        }
+        data: { key, value }
     });
 });
 
 /**
  * Set a variable manually
- * POST /api/payments/multicard/variables
- * Body: { "key": "session_id", "value": "abc123" }
  */
 router.post('/variables', (req, res) => {
     const { key, value } = req.body;
@@ -353,20 +419,15 @@ router.post('/variables', (req, res) => {
     res.json({
         success: true,
         message: `Variable {{${key}}} set successfully`,
-        data: {
-            key,
-            value
-        }
+        data: { key, value }
     });
 });
 
 /**
  * Clear all variables
- * DELETE /api/payments/multicard/variables
  */
 router.delete('/variables', (req, res) => {
     clearVariables();
-
     res.json({
         success: true,
         message: 'All variables cleared'
@@ -375,7 +436,6 @@ router.delete('/variables', (req, res) => {
 
 /**
  * Clear a specific variable
- * DELETE /api/payments/multicard/variables/:key
  */
 router.delete('/variables/:key', (req, res) => {
     const { key } = req.params;
@@ -391,7 +451,6 @@ router.delete('/variables/:key', (req, res) => {
         });
     }
 
-    // FIX: Use the imported deleteVariable function
     deleteVariable(key);
     console.log(`🗑️ Variable deleted: {{${key}}}`);
 
@@ -401,5 +460,30 @@ router.delete('/variables/:key', (req, res) => {
     });
 });
 
-module.exports = router;
+// ============================================
+// CATCH-ALL ERROR HANDLER
+// ============================================
 
+router.all('*', (req, res) => {
+    console.error('❌ Multicard route not found:', {
+        method: req.method,
+        path: req.path,
+        originalUrl: req.originalUrl
+    });
+
+    res.status(404).json({
+        success: false,
+        error: {
+            code: 'ROUTE_NOT_FOUND',
+            message: `Multicard route not found: ${req.method} ${req.path}`,
+            availableRoutes: [
+                'POST /api/payments/multicard/initiate',
+                'GET /api/payments/multicard/debug/env',
+                'GET /api/payments/multicard/debug/auth',
+                'GET /api/payments/multicard/debug/routes'
+            ]
+        }
+    });
+});
+
+module.exports = router;
