@@ -1741,15 +1741,15 @@ app.post('/api/payments/multicard/payment', multicardController.createPaymentByT
 app.post('/api/payments/multicard/webhook', multicardController.handleWebhook);
 app.get('/api/payments/multicard/test-connection', multicardController.testConnection);
 
-// Add this BEFORE the POST route
-app.get('/api/payments/multicard/initiate', (req, res) => {
-  res.status(405).json({
-    success: false,
-    error: 'Method not allowed. Use POST instead of GET',
-    hint: 'Check your frontend code - initiateMulticardPayment should use multicardApi.post() not .get()',
-    correctEndpoint: 'POST /api/payments/multicard/initiate'
-  });
-});
+// // Add this BEFORE the POST route
+// app.get('/api/payments/multicard/initiate', (req, res) => {
+//   res.status(405).json({
+//     success: false,
+//     error: 'Method not allowed. Use POST instead of GET',
+//     hint: 'Check your frontend code - initiateMulticardPayment should use multicardApi.post() not .get()',
+//     correctEndpoint: 'POST /api/payments/multicard/initiate'
+//   });
+// });
 app.post('/api/payments/multicard/initiate', multicardController.initiatePayment);
 
 console.log('✅ Emergency Multicard routes mounted directly in server.js');
