@@ -1673,90 +1673,174 @@ const healthCheckHandler = async (req, res) => {
                      healthCheck.progress.emergencyRoutesActive ? 200 : 503;
   res.status(statusCode).json(healthCheck);
 };
-// Emergency Multicard routes (add after line 1500 in server.js)
-const multicardController = require('./controllers/multicardController');
-// ADD THIS LINE
-app.post('/api/payments/multicard/initiate', multicardController.initiatePayment);
+// ========================================
+// 🚨 EMERGENCY MULTICARD ROUTE FIX
+// Insert this code in server.js at around line 1490
+// BEFORE any other route mounting
+// ========================================
 
-// ✅ GET /api/payments/multicard/test - Test endpoint
+console.log('\n🔧 === MULTICARD EMERGENCY ROUTE FIX ===');
+
+// Remove the old duplicate line if it exists
+// app.post('/api/payments/multicard/initiate', multicardController.initiatePayment);
+
+// Import controller
+const multicardController = require('./controllers/multicardController');
+const { testAuth, forceRefreshToken } = require('./controllers/multicardAuth');
+
+// ✅ 1. Test endpoint (GET)
 app.get('/api/payments/multicard/test', (req, res) => {
   res.json({
     success: true,
-    message: '✅ Multicard routes are active',
+    message: '✅ Multicard test endpoint working',
+    server: 'api.aced.live',
     timestamp: new Date().toISOString(),
     configuration: {
       storeId: process.env.MULTICARD_STORE_ID ? 'Configured' : 'Missing',
-      secretKey: process.env.MULTICARD_SECRET_KEY ? 'Configured' : 'Missing',
-      baseUrl: process.env.MULTICARD_BASE_URL || 'https://api.multicard.uz',
-      mode: (!process.env.MULTICARD_STORE_ID || !process.env.MULTICARD_SECRET_KEY) ? 'mock' : 'live'
+      applicationId: process.env.MULTICARD_APPLICATION_ID ? 'Configured' : 'Missing',
+      secret: process.env.MULTICARD_SECRET ? 'Configured' : 'Missing',
+      apiUrl: process.env.MULTICARD_API_URL || 'Not configured'
     },
-    endpoints: {
-      initiate: {
+    routes: {
+      initiate: 'POST /api/payments/multicard/initiate',
+      test: 'GET /api/payments/multicard/test',
+      webhook: 'POST /api/payments/multicard/webhook'
+    }
+  });
+});
+
+// ✅ 2. CRITICAL: Payment Initiation (POST only)
+app.post('/api/payments/multicard/initiate', async (req, res) => {
+  console.log('\n📥 === MULTICARD PAYMENT INITIATION ===');
+  console.log('Method:', req.method);
+  console.log('Content-Type:', req.headers['content-type']);
+  console.log('Body received:', {
+    userId: req.body.userId ? '✅ Present' : '❌ Missing',
+    plan: req.body.plan || '❌ Missing',
+    amount: req.body.amount || 'Not provided',
+    ofd: req.body.ofd ? `✅ (${req.body.ofd.length} items)` : '❌ Missing'
+  });
+  
+  // Validate required fields
+  if (!req.body.userId) {
+    return res.status(400).json({
+      success: false,
+      error: {
+        code: 'MISSING_USER_ID',
+        message: 'userId is required',
+        received: req.body
+      }
+    });
+  }
+  
+  if (!req.body.plan) {
+    return res.status(400).json({
+      success: false,
+      error: {
+        code: 'MISSING_PLAN',
+        message: 'plan is required (start or pro)',
+        received: req.body
+      }
+    });
+  }
+  
+  if (!req.body.ofd || !Array.isArray(req.body.ofd) || req.body.ofd.length === 0) {
+    return res.status(400).json({
+      success: false,
+      error: {
+        code: 'MISSING_OFD',
+        message: 'ofd array is required for receipt',
+        received: req.body
+      }
+    });
+  }
+  
+  try {
+    console.log('✅ Validation passed, calling controller...');
+    await multicardController.initiatePayment(req, res);
+  } catch (error) {
+    console.error('❌ Controller error:', error);
+    return res.status(500).json({
+      success: false,
+      error: {
+        code: 'CONTROLLER_ERROR',
+        message: error.message,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      }
+    });
+  }
+});
+
+// ✅ 3. Handle GET requests to /initiate (return error)
+app.get('/api/payments/multicard/initiate', (req, res) => {
+  console.warn('\n⚠️ GET request to /initiate - should be POST');
+  
+  res.status(405).json({
+    success: false,
+    error: {
+      code: 'METHOD_NOT_ALLOWED',
+      message: 'This endpoint requires POST method',
+      details: 'You sent a GET request, but /initiate only accepts POST',
+      correctUsage: {
         method: 'POST',
-        path: '/api/payments/multicard/initiate',
-        status: 'active'
-      },
-      webhook: {
-        method: 'POST',
-        path: '/api/payments/multicard/webhook',
-        status: 'active'
+        url: '/api/payments/multicard/initiate',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: {
+          userId: 'firebase-uid-here',
+          plan: 'start or pro',
+          ofd: [
+            {
+              qty: 1,
+              price: 26000000,
+              mxik: '10899002001000000',
+              total: 26000000,
+              package_code: '1236095',
+              name: 'ACED START Plan',
+              vat: 0
+            }
+          ],
+          lang: 'ru'
+        }
       }
     }
   });
 });
 
-// ✅ POST /api/payments/multicard/webhook - Webhook handler
+// ✅ 4. Webhook handler
 app.post('/api/payments/multicard/webhook', async (req, res) => {
+  console.log('\n🔔 === MULTICARD WEBHOOK RECEIVED ===');
+  console.log('IP:', req.ip);
+  console.log('Body keys:', Object.keys(req.body));
+  
   try {
-    console.log('🔔 Multicard webhook received:', req.body);
-
-    // TODO: Implement webhook verification and processing
-    // 1. Verify signature
-    // 2. Update payment status in database
-    // 3. Update user subscription if payment successful
-
-    const { invoice, status, amount } = req.body;
-
-    if (status === 'success') {
-      console.log('✅ Payment successful:', invoice);
-      // TODO: Grant user subscription here
-    }
-
-    res.json({
-      success: true,
-      message: 'Webhook received'
-    });
-
+    await multicardController.handleWebhook(req, res);
   } catch (error) {
-    console.error('❌ Webhook processing error:', error);
-    res.status(500).json({
+    console.error('❌ Webhook error:', error);
+    // Always return 200 to prevent retries
+    res.status(200).json({
       success: false,
-      error: error.message
+      message: 'Webhook received but processing failed'
     });
   }
 });
 
-console.log('✅ Multicard emergency routes with real API integration mounted');
-app.post('/api/payments/multicard/payment', multicardController.createPaymentByToken);
-app.post('/api/payments/multicard/webhook', multicardController.handleWebhook);
+// ✅ 5. Success callback
+app.get('/api/payments/multicard/callback/success', multicardController.handleSuccessCallback);
+
+// ✅ 6. Invoice info
+app.get('/api/payments/multicard/invoice/:invoiceId', multicardController.getInvoiceInfo);
+
+// ✅ 7. Test connection
 app.get('/api/payments/multicard/test-connection', multicardController.testConnection);
 
-// // Add this BEFORE the POST route
-// app.get('/api/payments/multicard/initiate', (req, res) => {
-//   res.status(405).json({
-//     success: false,
-//     error: 'Method not allowed. Use POST instead of GET',
-//     hint: 'Check your frontend code - initiateMulticardPayment should use multicardApi.post() not .get()',
-//     correctEndpoint: 'POST /api/payments/multicard/initiate'
-//   });
-// });
-app.post('/api/payments/multicard/initiate', multicardController.initiatePayment);
-
-console.log('✅ Emergency Multicard routes mounted directly in server.js');
-// Health check endpoints - both /health and /api/health
-app.get('/health', healthCheckHandler);
-app.get('/api/health', healthCheckHandler);
-
+console.log('✅ Multicard emergency routes mounted:');
+console.log('   POST /api/payments/multicard/initiate - Payment initiation');
+console.log('   GET  /api/payments/multicard/initiate - Method not allowed helper');
+console.log('   POST /api/payments/multicard/webhook - Webhook handler');
+console.log('   GET  /api/payments/multicard/test - Test endpoint');
+console.log('=== END MULTICARD FIX ===\n');
 // ========================================
 // 🔐 AUTH TEST ENDPOINT WITH ERROR HANDLING - MULTIPLE ROUTES
 // ========================================
