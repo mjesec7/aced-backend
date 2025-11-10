@@ -161,8 +161,13 @@ const initiatePayment = async (req, res) => {
     const storeId = parseInt(process.env.MULTICARD_STORE_ID) || 2660;
 
     // ✅ FIX: Ensure amount is in tiyin (100 tiyin = 1 UZS)
-    const finalAmount = amount || (plan === 'pro' ? 45500000 : 26000000);
+let finalAmount = amount || (plan === 'pro' ? 455000 : 260000);
 
+// Convert UZS to tiyin (Multicard expects tiyin)
+if (finalAmount < 10000000) {
+  finalAmount = finalAmount * 100;
+  console.log(`💰 Amount: ${finalAmount / 100} UZS → ${finalAmount} tiyin`);
+}
     // Build OFD array according to API specs
     const ofdData = ofd.map(item => ({
       qty: item.qty || 1,
