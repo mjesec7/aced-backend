@@ -34,7 +34,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // ========================================
-// 🌐 CORS CONFIGURATION
+// 🌐 CORS CONFIGURATION (UPDATED)
 // ========================================
 
 const allowedOrigins = process.env.ALLOWED_ORIGINS
@@ -58,18 +58,21 @@ if (process.env.NODE_ENV === 'development') {
 
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error(`CORS: ${origin} not allowed`));
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) === -1) {
+      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+      return callback(new Error(msg), false);
     }
+    return callback(null, true);
   },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'x-cache-status'],
+  exposedHeaders: ['x-cache-status']
 }));
 
-app.options('*', cors());
+app.options('*', cors()); // Enable pre-flight across-the-board
 
 // ========================================
 // 💾 DATABASE CONNECTION
@@ -198,8 +201,9 @@ mountRoute('/api/promocodes', './routes/promocodeRoutes', 'Promocode routes');
 // ========================================
 
 // User progress routes (CRITICAL)
-mountRoute('/api/user-progress', './routes/userProgressRoutes', 'User progress routes (main)');
-mountRoute('/api/progress', './routes/userProgressRoutes', 'Progress routes (alias)');
+// This now handles /api/progress, /api/progress/learning-profile, and /api/progress/rewards
+mountRoute('/api/progress', './routes/userProgressRoutes', 'User Progress, Learning Profile & Rewards routes');
+mountRoute('/api/user-progress', './routes/userProgressRoutes', 'User progress routes (legacy alias)');
 
 // Analytics routes
 mountRoute('/api/analytics', './routes/userAnalytics', 'User analytics routes');

@@ -600,11 +600,63 @@ const LearningProfile = mongoose.models.LearningProfile ||
   mongoose.model('LearningProfile', learningProfileSchema);
 
 // ========================================
-// 🧬 LEARNING PROFILE ROUTES (NEW)
+// 🎮 REWARDS MODEL (NEW)
 // ========================================
 
-// GET /api/learning-profile/:userId
-router.get('/api/learning-profile/:userId', async (req, res) => {
+const rewardsSchema = new mongoose.Schema({
+  userId: { 
+    type: String, 
+    required: true, 
+    unique: true,
+    index: true 
+  },
+  level: { type: Number, default: 1 },
+  totalPoints: { type: Number, default: 0 },
+  currentLevelProgress: { type: Number, default: 0 },
+  streak: { type: Number, default: 0 },
+  lastStreakDate: { type: Date },
+  nextRewardIn: { type: Number, default: 10 },
+  achievements: [{
+    id: String,
+    name: String,
+    icon: String,
+    rarity: { 
+      type: String, 
+      enum: ['common', 'rare', 'epic', 'legendary'],
+      default: 'common'
+    },
+    unlockedAt: { type: Date, default: Date.now }
+  }]
+}, { timestamps: true });
+
+// Static method to get or create rewards
+rewardsSchema.statics.getOrCreate = async function(userId) {
+  let rewards = await this.findOne({ userId });
+  
+  if (!rewards) {
+    rewards = await this.create({
+      userId,
+      level: 1,
+      totalPoints: 0,
+      currentLevelProgress: 0,
+      streak: 0,
+      nextRewardIn: 10,
+      achievements: []
+    });
+  }
+  
+  return rewards;
+};
+
+const Rewards = mongoose.models.Rewards || 
+  mongoose.model('Rewards', rewardsSchema);
+
+// ========================================
+// 🧬 LEARNING PROFILE ROUTES (PATHS FIXED)
+// ========================================
+
+// GET /api/progress/learning-profile/:userId
+router.get('/learning-profile/:userId', verifyToken, async (req, res) => {
   try {
     const { userId } = req.params;
     
@@ -625,8 +677,8 @@ router.get('/api/learning-profile/:userId', async (req, res) => {
   }
 });
 
-// POST /api/learning-profile/:userId/update
-router.post('/api/learning-profile/:userId/update', async (req, res) => {
+// POST /api/progress/learning-profile/:userId/update
+router.post('/learning-profile/:userId/update', verifyToken, async (req, res) => {
   try {
     const { userId } = req.params;
     const performanceData = req.body;
@@ -657,15 +709,15 @@ router.post('/api/learning-profile/:userId/update', async (req, res) => {
   }
 });
 
-// GET /api/learning-profile/:userId/recommendation
-router.get('/api/learning-profile/:userId/recommendation', async (req, res) => {
+// GET /api/progress/learning-profile/:userId/recommendation
+router.get('/learning-profile/:userId/recommendation', verifyToken, async (req, res) => {
   try {
     const { userId } = req.params;
     
     const profile = await LearningProfile.findOne({ userId });
     
     if (!profile) {
-      return res.status(4404).json({
+      return res.status(404).json({ // Fixed typo: 4404 -> 404
         success: false,
         error: 'Profile not found'
       });
@@ -754,6 +806,195 @@ function generateLearningTips(profile) {
   
   return tips;
 }
+
+// ========================================
+// 🎮 REWARDS ROUTES (NEW)
+// ========================================
+
+// GET /api/progress/rewards/:userId - Get user rewards
+router.get('/rewards/:userId', verifyToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    const rewards = await Rewards.getOrCreate(userId);
+    
+    res.json({
+      success: true,
+      rewards
+    });
+    
+  } catch (error) {
+    console.error('❌ Error fetching rewards:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch rewards'
+    });
+  }
+});
+
+// POST /api/progress/rewards/:userId/check - Check for reward after step completion
+router.post('/rewards/:userId/check', verifyToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { currentStep } = req.body;
+    
+    let rewards = await Rewards.findOne({ userId });
+    
+    if (!rewards) {
+      rewards = await Rewards.create({ userId });
+    }
+    
+    // Add points for step completion
+    const pointsEarned = 10;
+    rewards.totalPoints += pointsEarned;
+    rewards.currentLevelProgress += 5;
+    
+    // Check for level up
+    let leveledUp = false;
+    if (rewards.currentLevelProgress >= 100) {
+      rewards.level += 1;
+      rewards.currentLevelProgress = 0;
+      leveledUp = true;
+      
+      // Add level achievement
+      rewards.achievements.push({
+        id: `level-${rewards.level}`,
+        name: `Level ${rewards.level} Achieved!`,
+        icon: '🎖️',
+        rarity: rewards.level % 5 === 0 ? 'legendary' : 
+                rewards.level % 3 === 0 ? 'epic' : 
+                rewards.level % 2 === 0 ? 'rare' : 'common',
+        unlockedAt: new Date()
+      });
+    }
+    
+    // Calculate next reward distance
+    rewards.nextRewardIn = Math.max(0, 10 - (currentStep % 10));
+    
+    // Check for milestone achievements
+    if (rewards.totalPoints === 100) {
+      rewards.achievements.push({
+        id: 'first-100',
+        name: 'Century Club',
+        icon: '💯',
+        rarity: 'rare',
+        unlockedAt: new Date()
+      });
+    } else if (rewards.totalPoints === 500) {
+      rewards.achievements.push({
+        id: 'points-500',
+        name: 'Point Master',
+        icon: '🌟',
+        rarity: 'epic',
+        unlockedAt: new Date()
+      });
+    } else if (rewards.totalPoints === 1000) {
+      rewards.achievements.push({
+        id: 'points-1000',
+        name: 'Legendary Learner',
+        icon: '👑',
+        rarity: 'legendary',
+        unlockedAt: new Date()
+      });
+    }
+    
+    await rewards.save();
+    
+    res.json({
+      success: true,
+      rewards,
+      leveledUp,
+      pointsEarned
+    });
+    
+  } catch (error) {
+    console.error('❌ Error checking reward:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to check reward'
+    });
+  }
+});
+
+// POST /api/progress/rewards/:userId/streak - Update daily streak
+router.post('/rewards/:userId/streak', verifyToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    let rewards = await Rewards.findOne({ userId });
+    
+    if (!rewards) {
+      rewards = await Rewards.create({ userId });
+    }
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const lastStreak = rewards.lastStreakDate ? new Date(rewards.lastStreakDate) : null;
+    
+    if (!lastStreak || lastStreak < today) {
+      if (lastStreak) {
+        lastStreak.setHours(0, 0, 0, 0);
+        const daysDiff = Math.floor((today - lastStreak) / (1000 * 60 * 60 * 24));
+        
+        if (daysDiff === 1) {
+          // Consecutive day - increment streak
+          rewards.streak += 1;
+          
+          // Check for streak achievements
+          if (rewards.streak === 7) {
+            rewards.achievements.push({
+              id: 'streak-7',
+              name: 'Week Warrior',
+              icon: '🔥',
+              rarity: 'rare',
+              unlockedAt: new Date()
+            });
+          } else if (rewards.streak === 30) {
+            rewards.achievements.push({
+              id: 'streak-30',
+              name: 'Monthly Master',
+              icon: '🏆',
+              rarity: 'epic',
+              unlockedAt: new Date()
+            });
+          } else if (rewards.streak === 100) {
+            rewards.achievements.push({
+              id: 'streak-100',
+              name: 'Century Streak',
+              icon: '💎',
+              rarity: 'legendary',
+              unlockedAt: new Date()
+            });
+          }
+        } else if (daysDiff > 1) {
+          // Streak broken - reset to 1
+          rewards.streak = 1;
+        }
+        // If daysDiff === 0, already updated today, do nothing
+      } else {
+        // First streak
+        rewards.streak = 1;
+      }
+      
+      rewards.lastStreakDate = today;
+      await rewards.save();
+    }
+    
+    res.json({
+      success: true,
+      streak: rewards.streak,
+      rewards
+    });
+    
+  } catch (error) {
+    console.error('❌ Error updating streak:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update streak'
+    });
+  }
+});
 
 
 // ✅ Enhanced error handling middleware
