@@ -1,795 +1,320 @@
+// ========================================
+// 🚀 ACED.LIVE - MAIN SERVER FILE (OPTIMIZED)
+// ========================================
+
 const express = require('express');
-const router = express.Router();
+const cors = require('cors');
+const helmet = require('helmet');
+const compression = require('compression');
 const mongoose = require('mongoose');
-const UserProgress = require('../models/userProgress');
-const Lesson = require('../models/lesson');
-const verifyToken = require('../middlewares/authMiddleware');
+const dotenv = require('dotenv');
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
+const { v4: uuidv4 } = require('uuid');
 
-// ✅ CRITICAL: ObjectId validation and extraction utility
-const extractValidObjectId = (value, fieldName = 'ObjectId') => {
-  if (!value) {
-    return null;
-  }
-  
-  try {
-    let idString = null;
-    
-    // Handle different input types
-    if (typeof value === 'string') {
-      idString = value.trim();
-    } else if (typeof value === 'object' && value !== null) {
-      // Try to extract ID from object - handle all possible field names
-      idString = value._id || value.id || value.topicId || value.lessonId || value.ObjectId;
-      
-      // If it's still an object, convert to string
-      if (typeof idString === 'object' && idString !== null) {
-        idString = idString.toString();
-      }
+dotenv.config();
+mongoose.set('debug', process.env.NODE_ENV === 'development');
+
+const app = express();
+const PORT = process.env.PORT || 5000;
+
+// ========================================
+// 🛡️ SECURITY & MIDDLEWARE
+// ========================================
+
+app.use(helmet({
+  crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
+  contentSecurityPolicy: false,
+}));
+app.use(compression());
+
+// Body parsing
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// ========================================
+// 🌐 CORS CONFIGURATION
+// ========================================
+
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
+  : [
+      'https://aced.live',
+      'https://www.aced.live',
+      'https://admin.aced.live',
+      'https://api.aced.live',
+      'http://localhost:3000',
+      'http://localhost:3001',
+      'https://checkout.paycom.uz',
+      'https://checkout.test.paycom.uz',
+      'https://checkout.multicard.uz',
+      'https://dev-checkout.multicard.uz',
+    ];
+
+if (process.env.NODE_ENV === 'development') {
+  allowedOrigins.push('http://localhost:5173', 'http://localhost:4173', 'http://localhost:8080');
+}
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
     } else {
-      idString = value.toString();
+      callback(new Error(`CORS: ${origin} not allowed`));
     }
-    
-    // Check for invalid string representations
-    if (!idString || 
-        idString === '[object Object]' || 
-        idString === 'null' || 
-        idString === 'undefined' ||
-        idString === 'NaN' ||
-        idString.includes('[object') ||
-        idString.length === 0) {
-  
-      return null;
-    }
-    
-    // Validate ObjectId format (24 character hex string)
-    if (!mongoose.Types.ObjectId.isValid(idString)) {
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+}));
 
-      return null;
-    }
-    
-    return idString;
-  } catch (error) {
-    console.error(`❌ Error extracting ${fieldName}:`, {
-      error: error.message,
-      originalValue: value,
-      valueType: typeof value
+app.options('*', cors());
+
+// ========================================
+// 💾 DATABASE CONNECTION
+// ========================================
+
+const connectDB = async () => {
+  try {
+    await mongoose.connect(process.env.MONGO_URI, {
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000,
     });
-    return null;
+    console.log('✅ MongoDB connected');
+  } catch (error) {
+    console.error('❌ MongoDB connection failed:', error.message);
+    if (process.env.NODE_ENV === 'production') {
+      process.exit(1);
+    }
   }
 };
 
-
-
-// ✅ GET /api/progress - Load progress
-router.get('/', async (req, res) => {
-  const { userId, lessonId } = req.query;
-  
-  if (!userId) {
-    return res.status(400).json({ message: '❌ userId is required as query parameter.' });
-  }
-
-  try {
-    if (lessonId) {
-      // Validate lessonId if provided
-      const validLessonId = extractValidObjectId(lessonId, 'lessonId');
-      if (!validLessonId) {
-        return res.status(400).json({ 
-          message: '❌ Invalid lessonId format.',
-          received: lessonId,
-          expected: '24-character hex string'
-        });
-      }
-      
-      // Load specific lesson progress
-      const progress = await UserProgress.findOne({ userId, lessonId: validLessonId })
-        .populate('lessonId', 'title description order')
-        .populate('topicId', 'title description order');
-      
-      return res.status(200).json({
-        message: '✅ Progress loaded',
-        data: progress || null
-      });
-    } else {
-      // Load all progress for user
-      const progressRecords = await UserProgress.find({ userId })
-        .populate('lessonId', 'title description order')
-        .populate('topicId', 'title description order')
-        .sort({ updatedAt: -1 });
-
-      return res.status(200).json({
-        message: '✅ All progress loaded',
-        data: progressRecords
-      });
-    }
-  } catch (error) {
-    console.error('❌ Error loading progress:', error);
-    res.status(500).json({ message: '❌ Server error', error: error.message });
-  }
-});
-
-// ✅ ENHANCED: GET /api/progress/lesson/:lessonId/user/:userId - Get specific lesson progress
-router.get('/lesson/:lessonId/user/:userId', async (req, res) => {
-  try {
-    const { lessonId, userId } = req.params;
-    
-    const validLessonId = extractValidObjectId(lessonId, 'lessonId');
-    if (!validLessonId) {
-      return res.status(400).json({
-        success: false,
-        message: '❌ Invalid lessonId format',
-        received: lessonId
-      });
-    }
-    
-    const progress = await UserProgress.findOne({ 
-      userId, 
-      lessonId: validLessonId 
-    }).populate('lessonId', 'lessonName subject level');
-    
-    if (!progress) {
-      return res.json({
-        success: true,
-        progress: null,
-        hasProgress: false,
-        message: 'No progress found for this lesson'
-      });
-    }
-    
-    res.json({
-      success: true,
-      progress: {
-        lessonId: progress.lessonId,
-        userId: progress.userId,
-        completed: progress.completed,
-        completedAt: progress.completedAt,
-        progressPercent: progress.progressPercent || 0,
-        currentStep: progress.currentStep || 0,
-        totalSteps: progress.totalSteps || 0,
-        stars: progress.stars || 0,
-        score: progress.score || 0,
-        timeSpent: progress.timeSpent || 0,
-        mistakes: progress.mistakes || 0,
-        lastAccessed: progress.updatedAt,
-        completedSteps: progress.completedSteps || []
-      },
-      hasProgress: true,
-      lesson: progress.lessonId
-    });
-    
-  } catch (error) {
-    console.error('❌ Error getting lesson progress:', error);
-    res.status(500).json({
-      success: false,
-      message: '❌ Failed to get lesson progress',
-      error: error.message
-    });
-  }
-});
-router.post('/user-progress', verifyToken, async (req, res) => {
-  
-  try {
-    const progressData = req.body;
-    const firebaseId = progressData.userId || req.user?.uid;
-    
-   
-    
-    // Basic validation
-    if (!firebaseId) {
-      return res.status(400).json({
-        success: false,
-        message: '❌ userId is required.',
-        error: '❌ userId and lessonId are required.'
-      });
-    }
-    
-    if (!progressData.lessonId) {
-      return res.status(400).json({
-        success: false,
-        message: '❌ lessonId is required.',
-        error: '❌ userId and lessonId are required.'
-      });
-    }
-    
-    // Validate lessonId
-    const validLessonId = extractValidObjectId(progressData.lessonId, 'lessonId');
-    if (!validLessonId) {
-      return res.status(400).json({ 
-        success: false,
-        message: '❌ Invalid lessonId format.',
-        error: '❌ userId and lessonId are required.'
-      });
-    }
-    
-    // Get topicId from lesson if needed
-    let finalTopicId = null;
-    try {
-      const lesson = await Lesson.findById(validLessonId);
-      if (lesson && lesson.topicId) {
-        finalTopicId = extractValidObjectId(lesson.topicId, 'lesson.topicId');
-      }
-    } catch (lessonError) {
-    }
-    
-    const updateData = {
-      userId: firebaseId,
-      lessonId: validLessonId,
-      topicId: finalTopicId,
-      completedSteps: progressData.completedSteps || [],
-      progressPercent: Math.min(100, Math.max(0, Number(progressData.progressPercent) || 0)),
-      completed: Boolean(progressData.completed),
-      currentStep: Math.max(0, Number(progressData.currentStep) || 0),
-      totalSteps: Math.max(0, Number(progressData.totalSteps) || 0),
-      mistakes: Math.max(0, Number(progressData.mistakes) || 0),
-      medal: String(progressData.medal || 'none'),
-      duration: Math.max(0, Number(progressData.duration) || 0),
-      timeSpent: Math.max(0, Number(progressData.timeSpent) || Number(progressData.duration) || 0),
-      stars: Math.min(5, Math.max(0, Number(progressData.stars) || 0)),
-      score: Math.max(0, Number(progressData.score) || 0),
-      points: Math.max(0, Number(progressData.points) || 0),
-      hintsUsed: Math.max(0, Number(progressData.hintsUsed) || 0),
-      submittedHomework: Boolean(progressData.submittedHomework),
-      updatedAt: new Date()
-    };
-
-    // Set completedAt when lesson is marked as completed
-    if (updateData.completed && !updateData.completedAt) {
-      updateData.completedAt = new Date();
-    }
-    
-    // Remove null/undefined fields
-    Object.keys(updateData).forEach(key => {
-      if (updateData[key] === null || updateData[key] === undefined) {
-        delete updateData[key];
-      }
-    });
-    
-    const updated = await UserProgress.findOneAndUpdate(
-      { userId: firebaseId, lessonId: validLessonId },
-      updateData,
-      { upsert: true, new: true, runValidators: true }
-    );
-    
-    
-    res.json({
-      success: true,
-      data: updated,
-      message: '✅ Progress saved/updated',
-      endpoint: 'user-progress'
-    });
-    
-  } catch (error) {
-    console.error('❌ Error in /api/user-progress:', error);
-    
-    if (error.name === 'CastError') {
-      res.status(400).json({ 
-        success: false,
-        message: '❌ Invalid data format - ObjectId casting failed',
-        error: '❌ userId and lessonId are required.'
-      });
-    } else if (error.name === 'ValidationError') {
-      res.status(400).json({ 
-        success: false,
-        message: '❌ Validation error',
-        error: '❌ userId and lessonId are required.'
-      });
-    } else {
-      res.status(500).json({ 
-        success: false,
-        message: '❌ Server error',
-        error: '❌ Server error'
-      });
-    }
-  }
-});
-
-// ✅ FIXED: POST /api/progress - Save or update user progress
-router.post('/', verifyToken, async (req, res) => {
-  
-  try {
-    const {
-      userId,
-      lessonId,
-      topicId,
-      completedSteps = [],
-      progressPercent = 0,
-      completed = false,
-      currentStep = 0,
-      totalSteps = 0,
-      mistakes = 0,
-      medal = 'none',
-      duration = 0,
-      timeSpent = 0,
-      stars = 0,
-      score = 0,
-      points = 0,
-      hintsUsed = 0,
-      submittedHomework = false
-    } = req.body;
-
-    // Use Firebase UID from token if userId not provided
-    const firebaseId = userId || req.user?.uid;
-
-    if (!firebaseId || !lessonId) {
-      console.error('❌ Missing required fields:', { 
-        firebaseId: !!firebaseId, 
-        lessonId: !!lessonId 
-      });
-      return res.status(400).json({ 
-        message: '❌ userId and lessonId are required.',
-        missing: {
-          userId: !firebaseId,
-          lessonId: !lessonId
-        }
-      });
-    }
-
-    // ✅ STEP 1: Validate and extract lessonId
-    const validLessonId = extractValidObjectId(lessonId, 'lessonId');
-    if (!validLessonId) {
-      console.error('❌ Invalid lessonId received:', {
-        original: lessonId,
-        type: typeof lessonId,
-        stringified: JSON.stringify(lessonId)
-      });
-      return res.status(400).json({ 
-        message: '❌ Invalid lessonId format.',
-        received: {
-          value: lessonId,
-          type: typeof lessonId,
-          stringified: JSON.stringify(lessonId)
-        },
-        expected: '24-character hex string like "6839dfac0ee10d51ff4a5dcb"'
-      });
-    }
-    // ✅ STEP 2: Handle topicId validation and extraction
-    let finalTopicId = null;
-    
-    // First, try to extract topicId from request if provided
-    if (topicId !== undefined && topicId !== null) {
-      finalTopicId = extractValidObjectId(topicId, 'topicId');
-      
-      if (finalTopicId) {
-      } else {
-     
-      }
-    } else {
-    }
-    
-    // If no valid topicId from request, try to get it from the lesson
-    if (!finalTopicId) {
-      try {
-        const lesson = await Lesson.findById(validLessonId);
-        if (lesson && lesson.topicId) {
-          finalTopicId = extractValidObjectId(lesson.topicId, 'lesson.topicId');
-          if (finalTopicId) {
-          } else {
-          }
-        } else {
-      
-        }
-      } catch (error) {
-        console.error('❌ Error fetching lesson for topicId:', error.message);
-      }
-    }
-
-    // ✅ STEP 3: Prepare update data with validation
-    const updateData = {
-      completedSteps: Array.isArray(completedSteps) ? completedSteps : [],
-      progressPercent: Math.min(100, Math.max(0, Number(progressPercent) || 0)),
-      completed: Boolean(completed),
-      currentStep: Math.max(0, Number(currentStep) || 0),
-      totalSteps: Math.max(0, Number(totalSteps) || 0),
-      mistakes: Math.max(0, Number(mistakes) || 0),
-      medal: String(medal || 'none'),
-      duration: Math.max(0, Number(duration) || 0),
-      timeSpent: Math.max(0, Number(timeSpent) || Number(duration) || 0),
-      stars: Math.min(5, Math.max(0, Number(stars) || 0)),
-      score: Math.max(0, Number(score) || 0),
-      points: Math.max(0, Number(points) || 0),
-      hintsUsed: Math.max(0, Number(hintsUsed) || 0),
-      submittedHomework: Boolean(submittedHomework),
-      updatedAt: new Date()
-    };
-
-    // Set completedAt when lesson is marked as completed
-    if (completed && !updateData.completedAt) {
-      updateData.completedAt = new Date();
-    }
-
-    // ✅ CRITICAL: Only add topicId if it's valid
-    if (finalTopicId) {
-      updateData.topicId = finalTopicId;
-    } else {
-      // Explicitly unset topicId if it was invalid
-      updateData.$unset = { topicId: "" };
-    }
-
-  
-
-    // ✅ STEP 4: Perform the database update
-    const updated = await UserProgress.findOneAndUpdate(
-      { userId: firebaseId, lessonId: validLessonId },
-      updateData,
-      { 
-        upsert: true, 
-        new: true, 
-        runValidators: true,
-        context: 'query' // Important for mongoose validation
-      }
-    );
-
-    
-
-    res.status(200).json({
-      message: '✅ Progress saved/updated',
-      data: updated,
-      debug: {
-        receivedTopicId: {
-          original: topicId,
-          type: typeof topicId,
-          stringified: JSON.stringify(topicId)
-        },
-        processedTopicId: finalTopicId,
-        fromLesson: !req.body.topicId && !!finalTopicId
-      }
-    });
-
-  } catch (error) {
-    console.error('\n❌ ERROR in POST /api/progress:');
-    console.error('Error name:', error.name);
-    console.error('Error message:', error.message);
-    console.error('Error stack:', error.stack);
-    
-    // Enhanced error reporting for specific error types
-    if (error.name === 'CastError') {
-      console.error('❌ CAST ERROR Details:');
-      console.error('  Field causing error:', error.path);
-      console.error('  Invalid value:', error.value);
-      console.error('  Expected type:', error.kind);
-      console.error('  String representation:', String(error.value));
-      
-      return res.status(400).json({ 
-        message: '❌ Invalid data format - ObjectId casting failed', 
-        error: {
-          field: error.path,
-          receivedValue: error.value,
-          receivedType: typeof error.value,
-          expectedType: error.kind,
-          stringRepresentation: String(error.value)
-        },
-        solution: `The field '${error.path}' must be a valid 24-character hex string ObjectId, not: ${error.value}`
-      });
-    } else if (error.name === 'ValidationError') {
-      const validationErrors = Object.values(error.errors).map(e => ({
-        field: e.path,
-        message: e.message,
-        value: e.value,
-        kind: e.kind
-      }));
-      
-      console.error('❌ VALIDATION ERROR Details:', validationErrors);
-      
-      return res.status(400).json({ 
-        message: '❌ Validation error', 
-        errors: validationErrors
-      });
-    } else if (error.name === 'MongooseError') {
-      console.error('❌ MONGOOSE ERROR:', error.message);
-      return res.status(500).json({
-        message: '❌ Database error',
-        error: error.message
-      });
-    }
-    
-    // Generic error response
-    res.status(500).json({ 
-      message: '❌ Server error', 
-      error: error.message,
-      type: error.name
-    });
-  }
-});
-
+connectDB();
 
 // ========================================
-// 📊 LEARNING PROFILE MODEL (NEW)
+// 🏥 HEALTH CHECK
 // ========================================
 
-const learningProfileSchema = new mongoose.Schema({
-  userId: { 
-    type: String, 
-    required: true, 
-    unique: true,
-    index: true 
-  },
-  
-  // Cognitive Profile
-  cognitiveProfile: {
-    processingSpeed: { type: Number, min: 0, max: 100, default: 50 },
-    workingMemory: { type: Number, min: 0, max: 100, default: 50 },
-    visualSpatial: { type: Number, min: 0, max: 100, default: 50 },
-    verbalLinguistic: { type: Number, min: 0, max: 100, default: 50 },
-    logicalMathematical: { type: Number, min: 0, max: 100, default: 50 }
-  },
-  
-  // Learning Style
-  learningStyle: {
-    primary: { 
-      type: String, 
-      enum: ['visual', 'auditory', 'kinesthetic', 'reading-writing'],
-      default: 'visual'
-    },
-    secondary: { type: String }
-  },
-  
-  // Neurotype Patterns
-  neurotype: {
-    focusPattern: { 
-      type: String, 
-      enum: ['hyperfocus', 'scattered', 'cyclic', 'steady'],
-      default: 'steady'
-    },
-    attentionSpan: {
-      morning: { type: Number, min: 5, max: 120, default: 30 },
-      afternoon: { type: Number, min: 5, max: 120, default: 25 },
-      evening: { type: Number, min: 5, max: 120, default: 20 }
-    }
-  },
-  
-  // Chronotype
-  chronotype: {
-    type: { 
-      type: String, 
-      enum: ['lark', 'owl', 'third-bird', 'variable'],
-      default: 'third-bird'
-    },
-    peakHours: [{ type: Number, min: 0, max: 23 }],
-    optimalSessionLength: { type: Number, min: 5, max: 90, default: 30 }
-  },
-  
-  // Performance Patterns
-  performancePatterns: {
-    optimalDifficulty: { type: Number, min: 0, max: 1, default: 0.7 },
-    averageAccuracy: { type: Number, min: 0, max: 100, default: 50 },
-    completionRate: { type: Number, min: 0, max: 100, default: 50 }
-  },
-  
-  // Adaptive Metrics
-  adaptiveMetrics: {
-    currentStressLevel: { type: Number, min: 0, max: 100, default: 30 },
-    engagementScore: { type: Number, min: 0, max: 100, default: 50 },
-    lastUpdated: { type: Date, default: Date.now }
-  },
-  
-  // Preferred Learning Path
-  preferredPath: {
-    type: String,
-    enum: ['storyteller', 'builder', 'scientist', 'artist', 'gamer', 'social', 'debater'],
-    default: 'storyteller'
-  }
-  
-}, { timestamps: true });
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'OK',
+    timestamp: new Date().toISOString(),
+    database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+  });
+});
 
-// Methods
-learningProfileSchema.methods.updateFromPerformance = function(performanceData) {
-  if (performanceData.speed) {
-    this.cognitiveProfile.processingSpeed = 
-      (this.cognitiveProfile.processingSpeed * 0.8) + (performanceData.speed * 0.2);
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'OK',
+    database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+  });
+});
+
+// ========================================
+// 📁 FILE UPLOADS
+// ========================================
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadType = req.body.type || 'general';
+    const uploadDir = path.join('uploads', uploadType);
+    fs.mkdirSync(uploadDir, { recursive: true });
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    cb(null, `${Date.now()}_${uuidv4()}${path.extname(file.originalname)}`);
   }
-  
-  if (performanceData.accuracy) {
-    this.performancePatterns.averageAccuracy = 
-      (this.performancePatterns.averageAccuracy * 0.8) + (performanceData.accuracy * 0.2);
+});
+
+const upload = multer({
+  storage: storage,
+  limits: { fileSize: 10 * 1024 * 1024 }
+});
+
+app.post('/api/upload', upload.single('file'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ success: false, message: 'No file uploaded' });
   }
-  
-  this.adaptiveMetrics.lastUpdated = new Date();
-  return this.save();
+  const baseUrl = process.env.NODE_ENV === 'production' ? 'https://api.aced.live' : `${req.protocol}://${req.get('host')}`;
+  const fileUrl = `${baseUrl}/uploads/${req.body.type || 'general'}/${req.file.filename}`;
+  res.json({ success: true, data: { url: fileUrl, filename: req.file.filename } });
+});
+
+app.use('/uploads', express.static('uploads'));
+
+// ========================================
+// 📚 MOUNT ALL ROUTES
+// ========================================
+
+console.log('🔧 Mounting routes...');
+
+// Helper function to safely mount routes
+const mountRoute = (path, routeFile, description) => {
+  try {
+    const route = require(routeFile);
+    app.use(path, route);
+    console.log(`✅ ${description || path}`);
+    return true;
+  } catch (error) {
+    console.error(`❌ Failed to mount ${path}:`, error.message);
+    return false;
+  }
 };
 
-learningProfileSchema.statics.getOrCreate = async function(userId) {
-  let profile = await this.findOne({ userId });
-  
-  if (!profile) {
-    profile = await this.create({ userId });
-  }
-  
-  return profile;
-};
-
-const LearningProfile = mongoose.models.LearningProfile || 
-  mongoose.model('LearningProfile', learningProfileSchema);
-
 // ========================================
-// 🧬 LEARNING PROFILE ROUTES (NEW)
+// CORE ROUTES (CRITICAL - MUST BE FIRST)
 // ========================================
 
-// GET /api/progress/learning-profile/:userId
-router.get('/learning-profile/:userId', async (req, res) => {
-  try {
-    const { userId } = req.params;
-    
-    const profile = await LearningProfile.getOrCreate(userId);
-    
-    res.json({
-      success: true,
-      profile,
-      insights: generateInsights(profile)
-    });
-    
-  } catch (error) {
-    console.error('❌ Error fetching learning profile:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch learning profile'
-    });
-  }
-});
+// Auth routes (basic endpoints)
+mountRoute('/api/auth', './routes/authRoutes', 'Auth routes');
 
-// POST /api/progress/learning-profile/:userId/update
-router.post('/learning-profile/:userId/update', async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const performanceData = req.body;
-    
-    const profile = await LearningProfile.findOne({ userId });
-    
-    if (!profile) {
-      return res.status(404).json({
-        success: false,
-        error: 'Profile not found'
-      });
-    }
-    
-    await profile.updateFromPerformance(performanceData);
-    
-    res.json({
-      success: true,
-      profile,
-      message: 'Profile updated based on performance'
-    });
-    
-  } catch (error) {
-    console.error('❌ Error updating profile:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to update profile'
-    });
-  }
-});
-
-// GET /api/progress/learning-profile/:userId/recommendation
-router.get('/learning-profile/:userId/recommendation', async (req, res) => {
-  try {
-    const { userId } = req.params;
-    
-    const profile = await LearningProfile.findOne({ userId });
-    
-    if (!profile) {
-      return res.status(404).json({
-        success: false,
-        error: 'Profile not found'
-      });
-    }
-    
-    const recommendation = {
-      preferredPath: profile.preferredPath,
-      optimalTime: getCurrentOptimalTime(profile.chronotype),
-      sessionLength: profile.chronotype.optimalSessionLength,
-      difficultyLevel: profile.performancePatterns.optimalDifficulty,
-      tips: generateLearningTips(profile)
-    };
-    
-    res.json({
-      success: true,
-      recommendation
-    });
-    
-  } catch (error) {
-    console.error('❌ Error generating recommendation:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to generate recommendation'
-    });
-  }
-});
+// User routes (CRITICAL)
+mountRoute('/api/users', './routes/userRoutes', 'User management routes');
+mountRoute('/api/user', './routes/userRoutes', 'User routes (legacy)');
 
 // ========================================
-// 🔧 HELPER FUNCTIONS (FOR LEARNING PROFILE) (NEW)
+// PAYMENT ROUTES (IMPORTANT ORDER!)
 // ========================================
 
-function generateInsights(profile) {
-  const insights = [];
-  
-  if (profile.chronotype.type === 'lark') {
-    insights.push('🌅 You learn best in the morning! Try studying between 6-10 AM.');
-  } else if (profile.chronotype.type === 'owl') {
-    insights.push('🦉 You\'re a night owl! Your peak learning time is 8 PM - midnight.');
-  }
-  
-  const avgAttention = (
-    profile.neurotype.attentionSpan.morning +
-    profile.neurotype.attentionSpan.afternoon +
-    profile.neurotype.attentionSpan.evening
-  ) / 3;
-  
-  if (avgAttention < 20) {
-    insights.push('⚡ Short, frequent sessions work best for you. Try 15-minute focused bursts.');
-  } else if (avgAttention > 45) {
-    insights.push('🎯 You can maintain deep focus! Consider 45-60 minute deep work sessions.');
-  }
-  
-  if (profile.learningStyle.primary === 'visual') {
-    insights.push('👁️ Visual learner detected! Lessons with diagrams and images suit you best.');
-  }
-  
-  return insights;
+// 1. Multicard routes FIRST (most specific paths)
+mountRoute('/api/payments/multicard', './routes/multicardRoutes', 'Multicard payment routes');
+
+// 2. Main payments routes (includes PayMe and general payment logic)
+mountRoute('/api/payments', './routes/payments', 'Main payment routes');
+
+// 3. PayMe specific routes (if separate file exists)
+try {
+  mountRoute('/api/payments', './routes/paymeRoutes', 'PayMe routes');
+} catch (e) {
+  console.log('⚠️ paymeRoutes not found, using main payments');
 }
 
-function getCurrentOptimalTime(chronotype) {
-  const now = new Date().getHours();
-  
-  if (chronotype.peakHours && chronotype.peakHours.length > 0) {
-    const closestPeakHour = chronotype.peakHours.reduce((prev, curr) => 
-      Math.abs(curr - now) < Math.abs(prev - now) ? curr : prev
-    );
-    
-    return {
-      isOptimal: chronotype.peakHours.includes(now),
-      nextOptimal: closestPeakHour,
-      hoursUntilOptimal: closestPeakHour - now
-    };
-  }
-  
-  return null;
+// 4. Promocode routes
+mountRoute('/api/promocodes', './routes/promocodeRoutes', 'Promocode routes');
+
+// ========================================
+// PROGRESS & ANALYTICS ROUTES
+// ========================================
+
+// User progress routes (CRITICAL)
+mountRoute('/api/user-progress', './routes/userProgressRoutes', 'User progress routes (main)');
+mountRoute('/api/progress', './routes/userProgressRoutes', 'Progress routes (alias)');
+
+// Analytics routes
+mountRoute('/api/analytics', './routes/userAnalytics', 'User analytics routes');
+
+// ========================================
+// EDUCATIONAL CONTENT ROUTES
+// ========================================
+
+// Core educational routes
+mountRoute('/api/subjects', './routes/subjectRoutes', 'Subject routes');
+mountRoute('/api/topics', './routes/topicRoutes', 'Topic routes');
+mountRoute('/api/lessons', './routes/lessonRoutes', 'Lesson routes');
+
+// Vocabulary routes
+try {
+  mountRoute('/api/vocabulary', './routes/vocabularyRoutes', 'Vocabulary routes');
+} catch (e) {
+  console.log('⚠️ vocabularyRoutes not found, skipping');
 }
 
-function generateLearningTips(profile) {
-  const tips = [];
-  
-  if (profile.neurotype.focusPattern === 'hyperfocus') {
-    tips.push('Use your hyperfocus superpower, but remember to take breaks!');
-  } else if (profile.neurotype.focusPattern === 'scattered') {
-    tips.push('Try the Pomodoro Technique: 25 min focus + 5 min break');
-  }
-  
-  return tips;
+// User lesson routes
+try {
+  mountRoute('/api/user-lessons', './routes/userLessonRoutes', 'User lesson routes');
+} catch (e) {
+  console.log('⚠️ userLessonRoutes not found, skipping');
 }
 
+// Recommendations
+try {
+  mountRoute('/api/recommendations', './routes/recommendationRoutes', 'Recommendation routes');
+} catch (e) {
+  console.log('⚠️ recommendationRoutes not found, skipping');
+}
 
-// ✅ Enhanced error handling middleware
-router.use((error, req, res, next) => {
-  console.error('\n🔥 UserProgress Route Error Handler:');
-  console.error('URL:', req.originalUrl);
-  console.error('Method:', req.method);
-  console.error('Error:', error.message);
-  console.error('Error Type:', error.name);
-  
-  if (error.name === 'CastError') {
-    return res.status(400).json({
-      message: '❌ Invalid ObjectId format',
-      field: error.path,
-      value: error.value,
-      expected: '24-character hex string',
-      url: req.originalUrl
-    });
-  }
-  
-  if (error.name === 'ValidationError') {
-    const errors = Object.values(error.errors).map(e => ({
-      field: e.path,
-      message: e.message,
-      value: e.value
-    }));
-    
-    return res.status(400).json({
-      message: '❌ Validation failed',
-      errors: errors,
-      url: req.originalUrl
-    });
-  }
-  
-  // Pass to global error handler if not handled here
-  next(error);
+// ========================================
+// HOMEWORK & TESTS ROUTES
+// ========================================
+
+mountRoute('/api/homeworks', './routes/homeworkRoutes', 'Homework routes');
+mountRoute('/api/tests', './routes/testRoutes', 'Test routes');
+
+// ========================================
+// COMMUNICATION ROUTES
+// ========================================
+
+mountRoute('/api/chat', './routes/chatRoutes', 'Chat/AI routes');
+mountRoute('/api/email', './routes/emailRoutes', 'Email routes');
+
+// ========================================
+// COURSES, GUIDES & BOOKS ROUTES
+// ========================================
+
+// Updated Courses (main frontend)
+mountRoute('/api/updated-courses', './routes/updatedCourses', 'Updated courses routes');
+
+// Guides & Books
+try {
+  mountRoute('/api/guides', './routes/guides', 'Guides routes');
+} catch (e) {
+  console.log('⚠️ guides routes not found, skipping');
+}
+
+try {
+  mountRoute('/api/books', './routes/books', 'Books routes');
+} catch (e) {
+  console.log('⚠️ books routes not found, skipping');
+}
+
+console.log('✅ All routes mounted successfully\n');
+
+// ========================================
+// 🚫 ERROR HANDLERS
+// ========================================
+
+// API 404 handler
+app.use('/api/*', (req, res) => {
+  res.status(404).json({
+    error: 'API endpoint not found',
+    path: req.originalUrl,
+    method: req.method
+  });
 });
 
-module.exports = router;
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error('Error:', err.message);
+  res.status(err.status || 500).json({
+    error: err.message || 'Internal server error'
+  });
+});
+
+// ========================================
+// 🎨 FRONTEND (if exists)
+// ========================================
+
+const distPath = path.join(__dirname, 'dist');
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(distPath, 'index.html'));
+  });
+} else {
+  console.warn('⚠️ No /dist directory found. Static file serving is inactive.');
+}
+
+// ========================================
+// 🚀 START SERVER
+// ========================================
+
+app.listen(PORT, () => {
+  console.log('\n🚀 Server started');
+  console.log(`   Port: ${PORT}`);
+  console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`   Database: ${mongoose.connection.readyState === 1 ? '✅ Connected' : '⚠️ Disconnected'}`);
+  console.log('✅ Ready\n');
+});
+
+module.exports = app;
