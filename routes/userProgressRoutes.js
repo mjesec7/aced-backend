@@ -490,6 +490,272 @@ router.post('/', verifyToken, async (req, res) => {
   }
 });
 
+
+// ========================================
+// 📊 LEARNING PROFILE MODEL (NEW)
+// ========================================
+
+const learningProfileSchema = new mongoose.Schema({
+  userId: { 
+    type: String, 
+    required: true, 
+    unique: true,
+    index: true 
+  },
+  
+  // Cognitive Profile
+  cognitiveProfile: {
+    processingSpeed: { type: Number, min: 0, max: 100, default: 50 },
+    workingMemory: { type: Number, min: 0, max: 100, default: 50 },
+    visualSpatial: { type: Number, min: 0, max: 100, default: 50 },
+    verbalLinguistic: { type: Number, min: 0, max: 100, default: 50 },
+    logicalMathematical: { type: Number, min: 0, max: 100, default: 50 }
+  },
+  
+  // Learning Style
+  learningStyle: {
+    primary: { 
+      type: String, 
+      enum: ['visual', 'auditory', 'kinesthetic', 'reading-writing'],
+      default: 'visual'
+    },
+    secondary: { type: String }
+  },
+  
+  // Neurotype Patterns
+  neurotype: {
+    focusPattern: { 
+      type: String, 
+      enum: ['hyperfocus', 'scattered', 'cyclic', 'steady'],
+      default: 'steady'
+    },
+    attentionSpan: {
+      morning: { type: Number, min: 5, max: 120, default: 30 },
+      afternoon: { type: Number, min: 5, max: 120, default: 25 },
+      evening: { type: Number, min: 5, max: 120, default: 20 }
+    }
+  },
+  
+  // Chronotype
+  chronotype: {
+    type: { 
+      type: String, 
+      enum: ['lark', 'owl', 'third-bird', 'variable'],
+      default: 'third-bird'
+    },
+    peakHours: [{ type: Number, min: 0, max: 23 }],
+    optimalSessionLength: { type: Number, min: 5, max: 90, default: 30 }
+  },
+  
+  // Performance Patterns
+  performancePatterns: {
+    optimalDifficulty: { type: Number, min: 0, max: 1, default: 0.7 },
+    averageAccuracy: { type: Number, min: 0, max: 100, default: 50 },
+    completionRate: { type: Number, min: 0, max: 100, default: 50 }
+  },
+  
+  // Adaptive Metrics
+  adaptiveMetrics: {
+    currentStressLevel: { type: Number, min: 0, max: 100, default: 30 },
+    engagementScore: { type: Number, min: 0, max: 100, default: 50 },
+    lastUpdated: { type: Date, default: Date.now }
+  },
+  
+  // Preferred Learning Path
+  preferredPath: {
+    type: String,
+    enum: ['storyteller', 'builder', 'scientist', 'artist', 'gamer', 'social', 'debater'],
+    default: 'storyteller'
+  }
+  
+}, { timestamps: true });
+
+// Methods
+learningProfileSchema.methods.updateFromPerformance = function(performanceData) {
+  if (performanceData.speed) {
+    this.cognitiveProfile.processingSpeed = 
+      (this.cognitiveProfile.processingSpeed * 0.8) + (performanceData.speed * 0.2);
+  }
+  
+  if (performanceData.accuracy) {
+    this.performancePatterns.averageAccuracy = 
+      (this.performancePatterns.averageAccuracy * 0.8) + (performanceData.accuracy * 0.2);
+  }
+  
+  this.adaptiveMetrics.lastUpdated = new Date();
+  return this.save();
+};
+
+learningProfileSchema.statics.getOrCreate = async function(userId) {
+  let profile = await this.findOne({ userId });
+  
+  if (!profile) {
+    profile = await this.create({ userId });
+  }
+  
+  return profile;
+};
+
+const LearningProfile = mongoose.models.LearningProfile || 
+  mongoose.model('LearningProfile', learningProfileSchema);
+
+// ========================================
+// 🧬 LEARNING PROFILE ROUTES (NEW)
+// ========================================
+
+// GET /api/learning-profile/:userId
+router.get('/api/learning-profile/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    const profile = await LearningProfile.getOrCreate(userId);
+    
+    res.json({
+      success: true,
+      profile,
+      insights: generateInsights(profile)
+    });
+    
+  } catch (error) {
+    console.error('❌ Error fetching learning profile:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch learning profile'
+    });
+  }
+});
+
+// POST /api/learning-profile/:userId/update
+router.post('/api/learning-profile/:userId/update', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const performanceData = req.body;
+    
+    const profile = await LearningProfile.findOne({ userId });
+    
+    if (!profile) {
+      return res.status(404).json({
+        success: false,
+        error: 'Profile not found'
+      });
+    }
+    
+    await profile.updateFromPerformance(performanceData);
+    
+    res.json({
+      success: true,
+      profile,
+      message: 'Profile updated based on performance'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error updating profile:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update profile'
+    });
+  }
+});
+
+// GET /api/learning-profile/:userId/recommendation
+router.get('/api/learning-profile/:userId/recommendation', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    const profile = await LearningProfile.findOne({ userId });
+    
+    if (!profile) {
+      return res.status(4404).json({
+        success: false,
+        error: 'Profile not found'
+      });
+    }
+    
+    const recommendation = {
+      preferredPath: profile.preferredPath,
+      optimalTime: getCurrentOptimalTime(profile.chronotype),
+      sessionLength: profile.chronotype.optimalSessionLength,
+      difficultyLevel: profile.performancePatterns.optimalDifficulty,
+      tips: generateLearningTips(profile)
+    };
+    
+    res.json({
+      success: true,
+      recommendation
+    });
+    
+  } catch (error) {
+    console.error('❌ Error generating recommendation:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to generate recommendation'
+    });
+  }
+});
+
+// ========================================
+// 🔧 HELPER FUNCTIONS (FOR LEARNING PROFILE) (NEW)
+// ========================================
+
+function generateInsights(profile) {
+  const insights = [];
+  
+  if (profile.chronotype.type === 'lark') {
+    insights.push('🌅 You learn best in the morning! Try studying between 6-10 AM.');
+  } else if (profile.chronotype.type === 'owl') {
+    insights.push('🦉 You\'re a night owl! Your peak learning time is 8 PM - midnight.');
+  }
+  
+  const avgAttention = (
+    profile.neurotype.attentionSpan.morning +
+    profile.neurotype.attentionSpan.afternoon +
+    profile.neurotype.attentionSpan.evening
+  ) / 3;
+  
+  if (avgAttention < 20) {
+    insights.push('⚡ Short, frequent sessions work best for you. Try 15-minute focused bursts.');
+  } else if (avgAttention > 45) {
+    insights.push('🎯 You can maintain deep focus! Consider 45-60 minute deep work sessions.');
+  }
+  
+  if (profile.learningStyle.primary === 'visual') {
+    insights.push('👁️ Visual learner detected! Lessons with diagrams and images suit you best.');
+  }
+  
+  return insights;
+}
+
+function getCurrentOptimalTime(chronotype) {
+  const now = new Date().getHours();
+  
+  if (chronotype.peakHours && chronotype.peakHours.length > 0) {
+    const closestPeakHour = chronotype.peakHours.reduce((prev, curr) => 
+      Math.abs(curr - now) < Math.abs(prev - now) ? curr : prev
+    );
+    
+    return {
+      isOptimal: chronotype.peakHours.includes(now),
+      nextOptimal: closestPeakHour,
+      hoursUntilOptimal: closestPeakHour - now
+    };
+  }
+  
+  return null;
+}
+
+function generateLearningTips(profile) {
+  const tips = [];
+  
+  if (profile.neurotype.focusPattern === 'hyperfocus') {
+    tips.push('Use your hyperfocus superpower, but remember to take breaks!');
+  } else if (profile.neurotype.focusPattern === 'scattered') {
+    tips.push('Try the Pomodoro Technique: 25 min focus + 5 min break');
+  }
+  
+  return tips;
+}
+
+
 // ✅ Enhanced error handling middleware
 router.use((error, req, res, next) => {
   console.error('\n🔥 UserProgress Route Error Handler:');

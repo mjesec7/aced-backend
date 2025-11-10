@@ -789,7 +789,7 @@ router.get('/admin/users', verifyToken, async (req, res) => {
       success: false,
       error: 'Failed to fetch users',
       details: error.message
-    });
+  });
   }
 });
 
@@ -2438,6 +2438,329 @@ router.post('/:firebaseId/diary', validateFirebaseId, verifyToken, verifyOwnersh
     });
   }
 });
+
+
+// ========================================
+// 🎮 REWARD SYSTEM MODEL (NEW)
+// ========================================
+
+const rewardSystemSchema = new mongoose.Schema({
+  userId: { 
+    type: String, 
+    required: true, 
+    unique: true,
+    index: true 
+  },
+  
+  // Points & Level
+  totalPoints: { type: Number, default: 0 },
+  level: { type: Number, default: 1 },
+  currentLevelProgress: { type: Number, default: 0 },
+  
+  // Streaks
+  streaks: {
+    current: { type: Number, default: 0 },
+    longest: { type: Number, default: 0 },
+    lastActivityDate: { type: Date }
+  },
+  
+  // Achievements
+  achievements: [{
+    id: { type: String, required: true },
+    name: { type: String, required: true },
+    description: String,
+    icon: String,
+    rarity: { 
+      type: String, 
+      enum: ['common', 'rare', 'epic', 'legendary'],
+      default: 'common'
+    },
+    unlockedAt: { type: Date, default: Date.now },
+    progress: { type: Number, default: 100 },
+    maxProgress: { type: Number, default: 100 }
+  }],
+  
+  // Variable Ratio Reinforcement
+  reinforcementPattern: {
+    lastRewardStep: { type: Number, default: 0 },
+    nextRewardIn: { type: Number, default: 7 },
+    rewardHistory: [{
+      step: Number,
+      reward: String,
+      timestamp: Date
+    }]
+  },
+  
+  // Near-Miss Tracking
+  nearMisses: {
+    total: { type: Number, default: 0 },
+    lastOccurrence: Date
+  }
+  
+}, { timestamps: true });
+
+// Methods
+rewardSystemSchema.methods.shouldReward = function(currentStep) {
+  const stepsSinceLastReward = currentStep - this.reinforcementPattern.lastRewardStep;
+  return stepsSinceLastReward >= this.reinforcementPattern.nextRewardIn;
+};
+
+rewardSystemSchema.methods.giveReward = async function(currentStep, rewardType) {
+  this.reinforcementPattern.lastRewardStep = currentStep;
+  this.reinforcementPattern.nextRewardIn = Math.floor(Math.random() * 10) + 5;
+  
+  this.reinforcementPattern.rewardHistory.push({
+    step: currentStep,
+    reward: rewardType,
+    timestamp: new Date()
+  });
+  
+  if (this.reinforcementPattern.rewardHistory.length > 50) {
+    this.reinforcementPattern.rewardHistory.shift();
+  }
+  
+  return this.save();
+};
+
+rewardSystemSchema.methods.addPoints = async function(points) {
+  this.totalPoints += points;
+  const pointsForNextLevel = this.level * 100;
+  
+  if (this.currentLevelProgress >= 100) {
+    this.level++;
+    this.currentLevelProgress = 0;
+    return { leveledUp: true, newLevel: this.level };
+  } else {
+    this.currentLevelProgress = (this.totalPoints % pointsForNextLevel) / pointsForNextLevel * 100;
+    return { leveledUp: false, progress: this.currentLevelProgress };
+  }
+};
+
+rewardSystemSchema.methods.updateStreak = async function() {
+  const now = new Date();
+  const lastActivity = this.streaks.lastActivityDate;
+  
+  if (!lastActivity) {
+    this.streaks.current = 1;
+    this.streaks.longest = 1;
+  } else {
+    const daysSinceLastActivity = Math.floor((now - lastActivity) / (1000 * 60 * 60 * 24));
+    
+    if (daysSinceLastActivity === 0) {
+      return this;
+    } else if (daysSinceLastActivity === 1) {
+      this.streaks.current++;
+      if (this.streaks.current > this.streaks.longest) {
+        this.streaks.longest = this.streaks.current;
+      }
+    } else {
+      this.streaks.current = 1;
+    }
+  }
+  
+  this.streaks.lastActivityDate = now;
+  return this.save();
+};
+
+const RewardSystem = mongoose.models.RewardSystem || 
+  mongoose.model('RewardSystem', rewardSystemSchema);
+
+// ========================================
+// 🎮 REWARD SYSTEM ROUTES (NEW)
+// ========================================
+
+// GET /api/rewards/:userId
+router.get('/api/rewards/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    let rewards = await RewardSystem.findOne({ userId });
+    
+    if (!rewards) {
+      rewards = await RewardSystem.create({ userId });
+    }
+    
+    res.json({
+      success: true,
+      rewards: {
+        totalPoints: rewards.totalPoints,
+        level: rewards.level,
+        currentLevelProgress: rewards.currentLevelProgress,
+        streak: rewards.streaks.current,
+        longestStreak: rewards.streaks.longest,
+        achievements: rewards.achievements,
+        nextRewardIn: rewards.reinforcementPattern.nextRewardIn
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Error fetching rewards:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch rewards'
+    });
+  }
+});
+
+// POST /api/rewards/:userId/check
+router.post('/api/rewards/:userId/check', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { currentStep } = req.body;
+    
+    let rewards = await RewardSystem.findOne({ userId });
+    
+    if (!rewards) {
+      rewards = await RewardSystem.create({ userId });
+    }
+    
+    const shouldReward = rewards.shouldReward(currentStep);
+    
+    if (shouldReward) {
+      const rewardType = generateReward(rewards);
+      
+      await rewards.giveReward(currentStep, rewardType.type);
+      const levelResult = await rewards.addPoints(rewardType.points);
+      
+      res.json({
+        success: true,
+        reward: {
+          ...rewardType,
+          leveledUp: levelResult.leveledUp,
+          newLevel: levelResult.newLevel
+        }
+      });
+    } else {
+      const stepsSinceLastReward = currentStep - rewards.reinforcementPattern.lastRewardStep;
+      const isNearMiss = stepsSinceLastReward >= rewards.reinforcementPattern.nextRewardIn - 2;
+      
+      if (isNearMiss) {
+        rewards.nearMisses.total++;
+        rewards.nearMisses.lastOccurrence = new Date();
+        await rewards.save();
+        
+        res.json({
+          success: true,
+          nearMiss: true,
+          message: 'So close! Just one more step!',
+          progress: 0.95
+        });
+      } else {
+        res.json({
+          success: true,
+          reward: null,
+          progress: stepsSinceLastReward / rewards.reinforcementPattern.nextRewardIn
+        });
+      }
+    }
+    
+  } catch (error) {
+    console.error('❌ Error checking reward:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to check reward'
+    });
+  }
+});
+
+// POST /api/rewards/:userId/streak
+router.post('/api/rewards/:userId/streak', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    let rewards = await RewardSystem.findOne({ userId });
+    
+    if (!rewards) {
+      rewards = await RewardSystem.create({ userId });
+    }
+    
+    await rewards.updateStreak();
+    
+    const newAchievements = checkStreakAchievements(rewards.streaks.current);
+    
+    if (newAchievements.length > 0) {
+      rewards.achievements.push(...newAchievements);
+      await rewards.save();
+    }
+    
+    res.json({
+      success: true,
+      streak: rewards.streaks.current,
+      longestStreak: rewards.streaks.longest,
+      newAchievements
+    });
+    
+  } catch (error) {
+    console.error('❌ Error updating streak:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update streak'
+    });
+  }
+});
+
+// ========================================
+// 🔧 HELPER FUNCTIONS (FOR REWARDS) (NEW)
+// ========================================
+
+function generateReward(rewards) {
+  const random = Math.random();
+  
+  if (random < 0.1) {
+    return {
+      type: 'legendary-badge',
+      name: '🏆 Legendary Achievement!',
+      message: 'You\'ve earned a legendary badge!',
+      points: 100,
+      visual: 'legendary-animation'
+    };
+  } else if (random < 0.3) {
+    return {
+      type: 'epic-badge',
+      name: '⭐ Epic Badge',
+      message: 'Awesome! Epic badge unlocked!',
+      points: 50,
+      visual: 'epic-animation'
+    };
+  } else {
+    return {
+      type: 'points',
+      name: '💎 Points!',
+      message: `+${Math.floor(Math.random() * 20) + 10} points!`,
+      points: Math.floor(Math.random() * 20) + 10,
+      visual: 'points-animation'
+    };
+  }
+}
+
+function checkStreakAchievements(streak) {
+  const achievements = [];
+  
+  const milestones = [
+    { days: 3, name: '3-Day Streak', icon: '🔥', rarity: 'common' },
+    { days: 7, name: 'Week Warrior', icon: '⚡', rarity: 'rare' },
+    { days: 30, name: 'Month Master', icon: '🌟', rarity: 'epic' },
+    { days: 100, name: 'Century Club', icon: '👑', rarity: 'legendary' }
+  ];
+  
+  milestones.forEach(milestone => {
+    if (streak === milestone.days) {
+      achievements.push({
+        id: `streak-${milestone.days}`,
+        name: milestone.name,
+        description: `Maintained a ${milestone.days}-day streak!`,
+        icon: milestone.icon,
+        rarity: milestone.rarity,
+        unlockedAt: new Date(),
+        progress: 100,
+        maxProgress: 100
+      });
+    }
+  });
+  
+  return achievements;
+}
+
 
 // ========================================
 // 🔄 LEGACY HOMEWORK ROUTES (BACKWARD COMPATIBILITY)
