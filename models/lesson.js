@@ -1,240 +1,687 @@
-// models/lesson.js - FULLY UPDATED & ENHANCED MODEL
+// models/lesson.js - ENHANCED LESSON MODEL WITH VALIDATION
 const mongoose = require('mongoose');
 
-// =================================================================
-// 🧱 SUB-SCHEMAS: Building blocks for the main lesson schema
-// =================================================================
-
-// ✅ ENHANCED: A flexible schema for various exercise types.
-// This schema now includes specific fields for matching, fill-in-the-blank,
-// error correction, and more, making it highly adaptable.
-const exerciseSchema = new mongoose.Schema({
-  // --- Core Fields ---
-  type: { type: String, default: 'short-answer', trim: true }, // e.g., 'multiple-choice', 'fill-blank', 'matching'
-  question: { type: String, required: true, trim: true },
-  instruction: { type: String, default: '', trim: true },
-
-  // --- Answer Fields ---
-  answer: { type: String, trim: true }, // For simple short-answer
-  correctAnswer: { type: mongoose.Schema.Types.Mixed }, // Can be a string, number (index), or boolean
-
-  // --- Type-Specific Fields ---
-  questions: { type: [mongoose.Schema.Types.Mixed], default: [] }, // For multi-question formats like 'reading'
-  options: { type: [mongoose.Schema.Types.Mixed], default: [] }, // For multiple-choice, can be strings or {text, value} objects
-  template: { type: String, trim: true }, // For fill-blanks, e.g., "He ___ to the store."
-  blanks: { type: [mongoose.Schema.Types.Mixed], default: [] }, // For fill-blanks answers
-  pairs: { type: [mongoose.Schema.Types.Mixed], default: [] }, // For matching, e.g., [{left, right}]
-  words: { type: [String], default: [] }, // For sentence structure
-  correctOrder: { type: [String], default: [] }, // For sentence structure
-  items: { type: [String], default: [] }, // For ordering exercises
-  statement: { type: String, trim: true }, // For true-false exercises
-  correctSentence: { type: String, trim: true }, // For error-correction
-  dragItems: { type: [String], default: [] }, // For drag-and-drop
-  dropZones: { type: [String], default: [] }, // For drag-and-drop
-
-  // --- Metadata ---
-  points: { type: Number, default: 1 },
-  includeInHomework: { type: Boolean, default: false },
-  hint: { type: String, default: '', trim: true },
-  explanation: { type: String, default: '', trim: true }
-}, { _id: false });
-
-// ✅ Standardized Quiz schema
-const quizSchema = new mongoose.Schema({
-  question: { type: String, required: true },
-  type: {
-    type: String,
-    enum: ['multiple-choice', 'true-false', 'short-answer'],
-    default: 'multiple-choice'
-  },
-  options: { type: [mongoose.Schema.Types.Mixed], default: [] },
-  correctAnswer: { type: mongoose.Schema.Types.Mixed, required: true },
-  explanation: { type: String, default: '' }
-}, { _id: false });
-
-// ✅ Standardized Vocabulary schema
-const vocabSchema = new mongoose.Schema({
-  term: { type: String, required: true },
-  definition: { type: String, required: true },
-  example: { type: String, default: '' },
-  pronunciation: { type: String, default: '' }
-}, { _id: false });
-
-// ✅ ENHANCED: The core Step schema using Mixed type for maximum flexibility.
-// This allows any data structure within a step, accommodating all current
-// and future exercise and content types.
-const stepSchema = new mongoose.Schema({
+// Step configuration schema
+const stepConfigSchema = new mongoose.Schema({
   type: {
     type: String,
     required: true,
     enum: [
-      'explanation', 'example', 'practice', 'exercise',
-      'vocabulary', 'quiz', 'video', 'audio',
-      'reading', 'writing', 'image' // Added 'image' type
+      'introduction',      // Lesson intro
+      'explanation',       // Core explanation
+      'example',           // Detailed examples
+      'demonstration',     // Visual demonstration
+      'practice',          // Guided practice
+      'exercise',          // Interactive exercises
+      'quiz',              // Knowledge check
+      'vocabulary',        // Terms and definitions
+      'reading',           // Reading comprehension
+      'listening',         // Audio exercises
+      'writing',           // Writing practice
+      'speaking',          // Speaking practice
+      'video',             // Video content
+      'game',              // Gamified learning
+      'discussion',        // Discussion prompts
+      'project',           // Mini-projects
+      'assessment',        // Formal assessment
+      'review',            // Review section
+      'summary',           // Lesson summary
+      'homework'           // Take-home work
     ]
   },
-  data: {
+  required: { type: Boolean, default: false },
+  minCount: { type: Number, default: 0 },
+  maxCount: { type: Number, default: null },
+  order: { type: Number, default: 0 },
+  metadata: {
+    estimatedMinutes: Number,
+    difficulty: String,
+    adaptable: Boolean
+  }
+});
+
+// Step schema with enhanced validation
+const lessonStepSchema = new mongoose.Schema({
+  type: {
+    type: String,
+    required: [true, 'Step type is required'],
+    enum: {
+      values: [
+        'introduction', 'explanation', 'example', 'demonstration',
+        'practice', 'exercise', 'quiz', 'vocabulary',
+        'reading', 'listening', 'writing', 'speaking',
+        'video', 'game', 'discussion', 'project',
+        'assessment', 'review', 'summary', 'homework'
+      ],
+      message: '{VALUE} is not a valid step type'
+    }
+  },
+  
+  order: {
+    type: Number,
+    required: true,
+    min: [0, 'Order must be non-negative']
+  },
+  
+  title: {
+    type: String,
+    required: [true, 'Step title is required'],
+    trim: true,
+    maxlength: [200, 'Title cannot exceed 200 characters']
+  },
+  
+  instructions: {
+    type: String,
+    required: [true, 'Step instructions are required'],
+    trim: true
+  },
+  
+  content: {
     type: mongoose.Schema.Types.Mixed,
     required: true,
     validate: {
-      validator: function(data) {
-        // Basic validation: ensure data is not null or undefined
-        if (data === null || data === undefined) return false;
-        // Ensure data is an object or an array, not just a primitive (unless it's a simple explanation)
-        if (typeof data !== 'object' && this.type !== 'explanation') return false;
-        return true;
+      validator: function(v) {
+        // Validate based on step type
+        switch(this.type) {
+          case 'explanation':
+            return v.text && v.text.length >= 100;
+          case 'exercise':
+            return Array.isArray(v.exercises) && v.exercises.length > 0;
+          case 'quiz':
+            return Array.isArray(v.questions) && v.questions.length > 0;
+          case 'vocabulary':
+            return Array.isArray(v.terms) && v.terms.length > 0;
+          default:
+            return v !== null && v !== undefined;
+        }
       },
-      message: '❌ Invalid data format for the given step type.'
+      message: 'Content validation failed for step type'
     }
-  }
-}, { _id: false });
-
-// =================================================================
-// 📖 MAIN LESSON SCHEMA
-// =================================================================
-
-const lessonSchema = new mongoose.Schema({
-  // --- Core Identification ---
-  subject: { type: String, required: true, trim: true, index: true },
-  level: { type: Number, required: true, min: 1, max: 12 },
-  topic: { type: String, required: true, trim: true },
-  topicId: {
-    type: mongoose.Schema.Types.ObjectId,
+  },
+  
+  // Adaptive difficulty
+  difficulty: {
+    type: String,
+    enum: ['beginner', 'elementary', 'intermediate', 'advanced', 'expert'],
+    required: true
+  },
+  
+  // Time management
+  estimatedDuration: {
+    type: Number, // in minutes
     required: true,
-    ref: 'Topic',
+    min: [1, 'Duration must be at least 1 minute'],
+    max: [120, 'Duration cannot exceed 120 minutes']
+  },
+  
+  // Scoring and assessment
+  scoring: {
+    maxPoints: { type: Number, default: 10 },
+    passingScore: { type: Number, default: 7 },
+    weight: { type: Number, default: 1 }, // Weight in final grade
+    allowRetry: { type: Boolean, default: true },
+    maxRetries: { type: Number, default: 3 }
+  },
+  
+  // Adaptive learning
+  adaptive: {
+    skipIfMastered: { type: Boolean, default: false },
+    requiredForNext: { type: Boolean, default: true },
+    prerequisites: [{ type: String }], // Step IDs
+    unlocks: [{ type: String }] // Step IDs
+  },
+  
+  // Media and resources
+  media: {
+    images: [{
+      url: String,
+      caption: String,
+      alt: String
+    }],
+    videos: [{
+      url: String,
+      duration: Number,
+      transcript: String
+    }],
+    audio: [{
+      url: String,
+      duration: Number,
+      transcript: String
+    }],
+    documents: [{
+      url: String,
+      type: String,
+      size: Number
+    }]
+  },
+  
+  // Interactivity
+  interactive: {
+    enabled: { type: Boolean, default: true },
+    features: [String], // ['drag-drop', 'highlighting', 'annotation']
+    collaborative: { type: Boolean, default: false }
+  },
+  
+  // Analytics tracking
+  analytics: {
+    averageCompletionTime: Number,
+    averageScore: Number,
+    completionRate: Number,
+    difficultyRating: Number,
+    studentFeedback: Number
+  },
+  
+  // AI enhancement
+  ai: {
+    enabled: { type: Boolean, default: true },
+    hints: { type: Boolean, default: true },
+    explanations: { type: Boolean, default: true },
+    personalization: { type: Boolean, default: true }
+  },
+  
+  metadata: {
+    version: { type: Number, default: 1 },
+    lastUpdated: { type: Date, default: Date.now },
+    author: String,
+    tags: [String],
+    isOptional: { type: Boolean, default: false },
+    isHidden: { type: Boolean, default: false }
+  }
+}, {
+  timestamps: true
+});
+
+// Main Lesson Schema
+const lessonSchema = new mongoose.Schema({
+  // Basic Information
+  lessonName: {
+    type: String,
+    required: [true, 'Lesson name is required'],
+    trim: true,
+    maxlength: [200, 'Lesson name cannot exceed 200 characters'],
     index: true
   },
-  lessonName: { type: String, required: true, trim: true },
-  description: { type: String, required: true, trim: true },
+  
+  description: {
+    type: String,
+    required: [true, 'Lesson description is required'],
+    trim: true,
+    maxlength: [1000, 'Description cannot exceed 1000 characters']
+  },
+  
+  // Organization
+  subject: {
+    type: String,
+    required: [true, 'Subject is required'],
+    index: true
+  },
+  
+  topicId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Topic',
+    required: true,
+    index: true
+  },
+  
+  level: {
+    type: Number,
+    required: true,
+    min: [1, 'Level must be at least 1'],
+    max: [20, 'Level cannot exceed 20'],
+    index: true
+  },
+  
+  difficulty: {
+    type: String,
+    enum: ['beginner', 'elementary', 'intermediate', 'advanced', 'expert'],
+    required: true,
+    index: true
+  },
+  
+  // Step Configuration
+  stepRequirements: {
+    explanation: {
+      required: { type: Boolean, default: true },
+      minCount: { type: Number, default: 1 },
+      maxCount: { type: Number, default: 3 }
+    },
+    exercise: {
+      required: { type: Boolean, default: true },
+      minCount: { type: Number, default: 7 },
+      maxCount: { type: Number, default: 20 }
+    },
+    quiz: {
+      required: { type: Boolean, default: false },
+      minCount: { type: Number, default: 3 },
+      maxCount: { type: Number, default: 10 }
+    },
+    practice: {
+      required: { type: Boolean, default: false },
+      minCount: { type: Number, default: 2 },
+      maxCount: { type: Number, default: 5 }
+    }
+  },
+  
+  // Steps array with validation
+  steps: {
+    type: [lessonStepSchema],
+    validate: {
+      validator: function(steps) {
+        // Validate minimum required steps
+        const typeCounts = {};
+        steps.forEach(step => {
+          typeCounts[step.type] = (typeCounts[step.type] || 0) + 1;
+        });
+        
+        // Check required explanations
+        if (this.stepRequirements.explanation.required) {
+          const count = typeCounts['explanation'] || 0;
+          if (count < this.stepRequirements.explanation.minCount) {
+            return false;
+          }
+        }
+        
+        // Check required exercises
+        if (this.stepRequirements.exercise.required) {
+          const count = typeCounts['exercise'] || 0;
+          if (count < this.stepRequirements.exercise.minCount) {
+            return false;
+          }
+        }
+        
+        return true;
+      },
+      message: 'Lesson does not meet minimum step requirements'
+    }
+  },
+  
+  // Learning Path
+  learningPath: {
+    prerequisites: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Lesson'
+    }],
+    nextLessons: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Lesson'
+    }],
+    relatedLessons: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Lesson'
+    }]
+  },
+  
+  // Adaptive Learning Configuration
+  adaptive: {
+    enabled: { type: Boolean, default: true },
+    personalizedPaths: { type: Boolean, default: true },
+    difficultyAdjustment: { type: Boolean, default: true },
+    paceAdjustment: { type: Boolean, default: true },
+    
+    rules: [{
+      condition: String, // "score < 70"
+      action: String,    // "add_practice"
+      parameters: mongoose.Schema.Types.Mixed
+    }]
+  },
+  
+  // Assessment Configuration
+  assessment: {
+    enabled: { type: Boolean, default: true },
+    passingScore: { type: Number, default: 70 },
+    certificateEligible: { type: Boolean, default: false },
+    
+    grading: {
+      exercises: { weight: Number, default: 40 },
+      quizzes: { weight: Number, default: 30 },
+      participation: { weight: Number, default: 20 },
+      homework: { weight: Number, default: 10 }
+    }
+  },
+  
+  // Gamification
+  gamification: {
+    enabled: { type: Boolean, default: true },
+    points: { type: Number, default: 100 },
+    badges: [{
+      id: String,
+      name: String,
+      icon: String,
+      condition: String
+    }],
+    achievements: [{
+      id: String,
+      name: String,
+      description: String,
+      points: Number
+    }]
+  },
+  
+  // Time Management
+  timing: {
+    estimatedDuration: { type: Number, required: true }, // in minutes
+    minDuration: Number,
+    maxDuration: Number,
+    timeLimit: Number, // optional time limit
+    
+    schedule: {
+      recommendedTime: String, // "morning", "afternoon", "evening"
+      recommendedDays: Number, // days to complete
+      deadline: Date
+    }
+  },
+  
+  // Resources
+  resources: {
+    materials: [{
+      type: String, // 'pdf', 'video', 'link'
+      title: String,
+      url: String,
+      size: Number,
+      required: Boolean
+    }],
+    
+    references: [{
+      title: String,
+      author: String,
+      url: String,
+      type: String // 'book', 'article', 'website'
+    }],
+    
+    glossary: [{
+      term: String,
+      definition: String,
+      pronunciation: String
+    }]
+  },
+  
+  // Collaboration
+  collaboration: {
+    enabled: { type: Boolean, default: false },
+    type: String, // 'peer-review', 'group-work', 'discussion'
+    maxGroupSize: Number,
+    features: [String]
+  },
+  
+  // Analytics & Tracking
+  analytics: {
+    totalViews: { type: Number, default: 0 },
+    totalCompletions: { type: Number, default: 0 },
+    averageScore: { type: Number, default: 0 },
+    averageTime: { type: Number, default: 0 },
+    completionRate: { type: Number, default: 0 },
+    difficultyRating: { type: Number, default: 0 },
+    satisfactionRating: { type: Number, default: 0 },
+    
+    stepAnalytics: [{
+      stepType: String,
+      averageTime: Number,
+      completionRate: Number,
+      averageScore: Number
+    }]
+  },
+  
+  // AI Integration
+  ai: {
+    enabled: { type: Boolean, default: true },
+    chatbot: { type: Boolean, default: true },
+    voiceAssistant: { type: Boolean, default: false },
+    autoGrading: { type: Boolean, default: true },
+    contentGeneration: { type: Boolean, default: false },
+    
+    personalizedHints: { type: Boolean, default: true },
+    adaptiveQuestions: { type: Boolean, default: true },
+    learningAnalytics: { type: Boolean, default: true }
+  },
+  
+  // Accessibility
+  accessibility: {
+    wcagLevel: { type: String, default: 'AA' },
+    screenReader: { type: Boolean, default: true },
+    captions: { type: Boolean, default: true },
+    transcripts: { type: Boolean, default: true },
+    signLanguage: { type: Boolean, default: false },
+    simplifiedVersion: { type: Boolean, default: false }
+  },
+  
+  // Status and Publishing
+  status: {
+    type: String,
+    enum: ['draft', 'review', 'approved', 'published', 'archived'],
+    default: 'draft',
+    index: true
+  },
+  
+  visibility: {
+    type: String,
+    enum: ['public', 'private', 'restricted'],
+    default: 'public'
+  },
+  
   type: {
     type: String,
-    enum: ['free', 'premium'],
-    default: 'free'
+    enum: ['free', 'premium', 'trial'],
+    default: 'free',
+    index: true
   },
-
-  // --- Content Structure ---
-  steps: {
-    type: [stepSchema],
-    default: [],
-    validate: [ (val) => val.length > 0, '❌ A lesson must have at least one step.' ]
-  },
-
-  // --- Legacy Content Fields (for backward compatibility) ---
-  explanations: { type: [String], default: [] },
-  quiz: { type: [quizSchema], default: [] },
-
-  // --- Homework (Embedded Summary) ---
-  homework: {
-    exercises: { type: [exerciseSchema], default: [] },
-    quizzes: { type: [quizSchema], default: [] },
-    totalExercises: { type: Number, default: 0 }
-  },
-
-  // --- Metadata & Relations ---
-  relatedSubjects: { type: [String], default: [] },
-  translations: { type: mongoose.Schema.Types.Mixed, default: {} },
+  
+  // Metadata
   metadata: {
-    difficulty: {
-      type: String,
-      enum: ['beginner', 'intermediate', 'advanced'],
-      default: 'beginner'
-    },
-    estimatedDuration: { type: Number, default: 20 }, // in minutes
-    prerequisites: { type: [String], default: [] },
-    learningObjectives: { type: [String], default: [] }
+    version: { type: Number, default: 1 },
+    language: { type: String, default: 'en' },
+    targetAudience: [String],
+    keywords: [String],
+    seoTitle: String,
+    seoDescription: String,
+    
+    qualityScore: Number,
+    reviewedBy: String,
+    reviewedAt: Date,
+    
+    source: String,
+    license: String,
+    attribution: String
   },
-
-  // --- Analytics & Stats ---
-  stats: {
-    viewCount: { type: Number, default: 0 },
-    completionRate: { type: Number, default: 0 },
-    averageRating: { type: Number, default: 0 },
-    totalRatings: { type: Number, default: 0 }
+  
+  // System fields
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
   },
-
-  // --- Status & Timestamps ---
-  isActive: { type: Boolean, default: true, index: true },
-  isDraft: { type: Boolean, default: false },
-  publishedAt: { type: Date },
-
+  
+  updatedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  
+  deletedAt: Date,
+  isActive: { type: Boolean, default: true, index: true }
+  
 }, {
-  timestamps: true, // Automatically adds createdAt and updatedAt
-  strict: true,     // Ensures no unexpected fields are saved
-  toJSON: { virtuals: true },   // Include virtuals when converting to JSON
-  toObject: { virtuals: true } // Include virtuals when converting to Object
+  timestamps: true,
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
 });
 
-// =================================================================
-// ⚡ VIRTUALS: Computed properties for convenience
-// =================================================================
+// Indexes for performance
+lessonSchema.index({ subject: 1, level: 1, difficulty: 1 });
+lessonSchema.index({ topicId: 1, status: 1 });
+lessonSchema.index({ 'steps.type': 1 });
+lessonSchema.index({ createdAt: -1 });
+lessonSchema.index({ 'analytics.completionRate': -1 });
 
-// ✅ Virtual for a quick homework count
-lessonSchema.virtual('homeworkCount').get(function() {
-  return this.homework?.totalExercises || 0;
+// Virtual for total steps
+lessonSchema.virtual('totalSteps').get(function() {
+  return this.steps ? this.steps.length : 0;
 });
 
-// =================================================================
-// ⚙️ MIDDLEWARE (HOOKS): Logic that runs on certain actions
-// =================================================================
+// Virtual for exercise count
+lessonSchema.virtual('exerciseCount').get(function() {
+  return this.steps ? this.steps.filter(s => s.type === 'exercise').length : 0;
+});
 
-// ✅ Pre-save middleware to automatically calculate totals and set dates
-lessonSchema.pre('save', function(next) {
-  // Automatically calculate the total number of homework exercises
-  if (this.isModified('homework')) {
-    this.homework.totalExercises = (this.homework.exercises?.length || 0) + (this.homework.quizzes?.length || 0);
+// Methods
+lessonSchema.methods.validateStepRequirements = function() {
+  const typeCounts = {};
+  this.steps.forEach(step => {
+    typeCounts[step.type] = (typeCounts[step.type] || 0) + 1;
+  });
+  
+  const errors = [];
+  
+  // Check each requirement
+  Object.keys(this.stepRequirements).forEach(stepType => {
+    const req = this.stepRequirements[stepType];
+    const count = typeCounts[stepType] || 0;
+    
+    if (req.required && count < req.minCount) {
+      errors.push(`Lesson requires at least ${req.minCount} ${stepType} step(s), found ${count}`);
+    }
+    
+    if (req.maxCount && count > req.maxCount) {
+      errors.push(`Lesson allows maximum ${req.maxCount} ${stepType} step(s), found ${count}`);
+    }
+  });
+  
+  return { valid: errors.length === 0, errors };
+};
+
+lessonSchema.methods.getAdaptivePath = function(studentProfile) {
+  // Generate personalized learning path based on student profile
+  const path = [];
+  
+  this.steps.forEach(step => {
+    // Skip if student has mastered this type
+    if (step.adaptive.skipIfMastered && 
+        studentProfile.masteredTypes?.includes(step.type)) {
+      return;
+    }
+    
+    // Add extra practice for struggling areas
+    if (studentProfile.strugglingAreas?.includes(step.type)) {
+      path.push({
+        ...step.toObject(),
+        modified: true,
+        reason: 'Additional practice added'
+      });
+      
+      // Add a simplified version
+      if (step.type === 'exercise') {
+        path.push({
+          ...step.toObject(),
+          difficulty: 'beginner',
+          modified: true,
+          reason: 'Simplified version for practice'
+        });
+      }
+    } else {
+      path.push(step);
+    }
+  });
+  
+  return path;
+};
+
+lessonSchema.methods.calculateProgress = function(completedSteps) {
+  const totalRequired = this.steps.filter(s => !s.metadata.isOptional).length;
+  const completed = completedSteps.length;
+  return Math.round((completed / totalRequired) * 100);
+};
+
+// Statics
+lessonSchema.statics.generateLessonTemplate = function(level, difficulty) {
+  const templates = {
+    beginner: {
+      stepRequirements: {
+        explanation: { required: true, minCount: 2, maxCount: 4 },
+        exercise: { required: true, minCount: 7, maxCount: 10 },
+        practice: { required: true, minCount: 3, maxCount: 5 }
+      },
+      suggestedSteps: [
+        { type: 'introduction', order: 0 },
+        { type: 'explanation', order: 1 },
+        { type: 'example', order: 2 },
+        { type: 'practice', order: 3 },
+        { type: 'exercise', order: 4 },
+        { type: 'review', order: 5 }
+      ]
+    },
+    intermediate: {
+      stepRequirements: {
+        explanation: { required: true, minCount: 1, maxCount: 3 },
+        exercise: { required: true, minCount: 10, maxCount: 15 },
+        quiz: { required: true, minCount: 3, maxCount: 5 },
+        practice: { required: true, minCount: 2, maxCount: 4 }
+      },
+      suggestedSteps: [
+        { type: 'introduction', order: 0 },
+        { type: 'explanation', order: 1 },
+        { type: 'demonstration', order: 2 },
+        { type: 'practice', order: 3 },
+        { type: 'exercise', order: 4 },
+        { type: 'quiz', order: 5 },
+        { type: 'project', order: 6 },
+        { type: 'summary', order: 7 }
+      ]
+    },
+    advanced: {
+      stepRequirements: {
+        explanation: { required: true, minCount: 1, maxCount: 2 },
+        exercise: { required: true, minCount: 12, maxCount: 20 },
+        quiz: { required: true, minCount: 5, maxCount: 8 },
+        project: { required: true, minCount: 1, maxCount: 2 },
+        assessment: { required: true, minCount: 1, maxCount: 1 }
+      },
+      suggestedSteps: [
+        { type: 'introduction', order: 0 },
+        { type: 'explanation', order: 1 },
+        { type: 'demonstration', order: 2 },
+        { type: 'exercise', order: 3 },
+        { type: 'discussion', order: 4 },
+        { type: 'project', order: 5 },
+        { type: 'quiz', order: 6 },
+        { type: 'assessment', order: 7 },
+        { type: 'summary', order: 8 }
+      ]
+    }
+  };
+  
+  return templates[difficulty] || templates.beginner;
+};
+
+// Middleware
+lessonSchema.pre('save', async function(next) {
+  // Auto-sort steps by order
+  if (this.steps && this.steps.length > 0) {
+    this.steps.sort((a, b) => a.order - b.order);
   }
-
-  // Set the published date automatically when a lesson goes live
-  if (this.isModified('isDraft') && !this.isDraft && !this.publishedAt) {
-    this.publishedAt = new Date();
+  
+  // Validate step requirements
+  const validation = this.validateStepRequirements();
+  if (!validation.valid) {
+    return next(new Error(validation.errors.join(', ')));
   }
-
+  
+  // Calculate estimated duration
+  if (this.steps && !this.timing.estimatedDuration) {
+    this.timing.estimatedDuration = this.steps.reduce((total, step) => {
+      return total + (step.estimatedDuration || 5);
+    }, 0);
+  }
+  
   next();
 });
 
-// =================================================================
-//  STATIC & INSTANCE METHODS: Custom model functions
-// =================================================================
-
-// ✅ Static method to find all lessons that have associated homework
-lessonSchema.statics.findWithHomework = function() {
-  return this.find({
-    $or: [
-      { 'homework.exercises.0': { $exists: true } },
-      { 'homework.quizzes.0': { $exists: true } }
-    ]
+lessonSchema.post('save', async function(doc) {
+  // Update topic statistics
+  const Topic = mongoose.model('Topic');
+  await Topic.findByIdAndUpdate(doc.topicId, {
+    $inc: { lessonCount: 1 },
+    $set: { lastUpdated: new Date() }
   });
-};
-
-// ✅ Instance method to extract all exercises suitable for a standalone homework assignment
-lessonSchema.methods.extractHomework = function() {
-  const homeworkItems = [];
-
-  // Extract from steps marked for homework
-  this.steps.forEach(step => {
-    if (step.type === 'exercise' && Array.isArray(step.data)) {
-      step.data.forEach(exercise => {
-        if (exercise.includeInHomework) {
-          homeworkItems.push(exercise);
-        }
-      });
-    }
-    // Also extract quizzes as homework items
-    if (step.type === 'quiz' && Array.isArray(step.data)) {
-      homeworkItems.push(...step.data);
-    }
-  });
-
-  // Include legacy homework as well
-  if (this.homework?.exercises) homeworkItems.push(...this.homework.exercises);
-  if (this.homework?.quizzes) homeworkItems.push(...this.homework.quizzes);
-
-  return homeworkItems;
-};
-
-// =================================================================
-// 🚀 EXPORT
-// =================================================================
+});
 
 const Lesson = mongoose.model('Lesson', lessonSchema);
+
 module.exports = Lesson;

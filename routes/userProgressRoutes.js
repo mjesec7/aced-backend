@@ -674,7 +674,7 @@ const Rewards = mongoose.models.Rewards ||
   mongoose.model('Rewards', rewardsSchema);
 
 // ========================================
-// 🧬 LEARNING PROFILE ROUTES (PATHS FIXED)
+// 🧬 LEARNING PROFILE ROUTES (UPDATED LOGIC)
 // ========================================
 
 // GET /api/progress/learning-profile/:userId
@@ -682,22 +682,125 @@ router.get('/learning-profile/:userId', verifyToken, async (req, res) => {
   try {
     const { userId } = req.params;
     
-    const profile = await LearningProfile.getOrCreate(userId);
+    // Check if user has enough activity to generate a profile
+    const userProgress = await UserProgress.find({ userId }).limit(5);
+    
+    if (userProgress.length < 3) {
+      // Not enough data yet
+      return res.json({
+        success: true,
+        profile: null,
+        message: 'Complete at least 3 lessons to unlock your Learning DNA',
+        requirements: {
+          current: userProgress.length,
+          required: 3,
+          remaining: 3 - userProgress.length
+        }
+      });
+    }
+    
+    // Get or create profile
+    let profile = await LearningProfile.findOne({ userId });
+    
+    if (!profile) {
+      // Create initial profile based on existing progress
+      profile = await createInitialProfile(userId, userProgress);
+    }
     
     res.json({
       success: true,
       profile,
       insights: generateInsights(profile)
     });
-    
+      
   } catch (error) {
     console.error('❌ Error fetching learning profile:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to fetch learning profile'
+      error: 'Failed to fetch learning profile',
+      message: error.message
     });
   }
 });
+
+// Helper function to create initial profile from progress data
+async function createInitialProfile(userId, progressData) {
+  // Analyze user's performance patterns
+  const avgAccuracy = progressData.reduce((sum, p) => {
+    const accuracy = p.mistakes > 0 
+       ? ((p.completedSteps.length / (p.completedSteps.length + p.mistakes)) * 100)
+      : 100;
+    return sum + accuracy;
+  }, 0) / progressData.length;
+  
+  const avgDuration = progressData.reduce((sum, p) => sum + (p.duration || 0), 0) / progressData.length;
+  const avgStars = progressData.reduce((sum, p) => sum + (p.stars || 0), 0) / progressData.length;
+  
+  // Determine learning style based on performance
+  let primaryStyle = 'visual'; // Default
+  if (avgDuration < 300) primaryStyle = 'kinesthetic'; // Fast completion
+  else if (avgAccuracy > 90) primaryStyle = 'reading-writing'; // High accuracy
+  
+  // Determine chronotype based on activity times
+  const activityHours = progressData
+    .filter(p => p.completedAt)
+    .map(p => new Date(p.completedAt).getHours());
+    
+  const avgHour = activityHours.reduce((sum, h) => sum + h, 0) / activityHours.length;
+  let chronotype = 'third-bird';
+  let peakHours = [9, 10, 11];
+  
+  if (avgHour < 10) {
+    chronotype = 'lark';
+    peakHours = [6, 7, 8, 9];
+  } else if (avgHour > 18) {
+    chronotype = 'owl';
+    peakHours = [20, 21, 22, 23];
+  }
+  
+  // Create profile
+  const profile = await LearningProfile.create({
+    userId,
+    cognitiveProfile: {
+      processingSpeed: Math.min(100, (300 / avgDuration) * 50),
+      workingMemory: Math.min(100, avgAccuracy * 0.8),
+      visualSpatial: 50,
+      verbalLinguistic: 50,
+      logicalMathematical: Math.min(100, avgStars * 25)
+    },
+    learningStyle: {
+      primary: primaryStyle,
+      secondary: 'visual'
+    },
+    neurotype: {
+      focusPattern: avgDuration > 600 ? 'hyperfocus' : 'steady',
+      attentionSpan: {
+        morning: Math.min(120, avgDuration / 60),
+        afternoon: Math.min(120, avgDuration / 60 * 0.8),
+        evening: Math.min(120, avgDuration / 60 * 0.6)
+      }
+    },
+    chronotype: {
+      type: chronotype,
+      peakHours: peakHours,
+      optimalSessionLength: Math.round(avgDuration / 60)
+    },
+    performancePatterns: {
+      optimalDifficulty: avgAccuracy / 100,
+      averageAccuracy: avgAccuracy,
+      completionRate: (progressData.filter(p => p.completed).length / progressData.length) * 100
+    },
+    adaptiveMetrics: {
+      currentStressLevel: avgAccuracy < 70 ? 50 : 30,
+      engagementScore: avgStars * 20,
+      lastUpdated: new Date()
+    },
+    preferredPath: avgAccuracy > 85 ? 'scientist' : 'storyteller'
+  });
+  
+  return profile;
+}
+
 
 // POST /api/progress/learning-profile/:userId/update
 router.post('/learning-profile/:userId/update', verifyToken, async (req, res) => {
@@ -736,12 +839,23 @@ router.get('/learning-profile/:userId/recommendation', verifyToken, async (req, 
   try {
     const { userId } = req.params;
     
+    // Check if profile exists
     const profile = await LearningProfile.findOne({ userId });
     
     if (!profile) {
-      return res.status(404).json({ // Fixed typo: 4404 -> 404
-        success: false,
-        error: 'Profile not found'
+      // Check if user has enough data
+      const progressCount = await UserProgress.countDocuments({ userId });
+      
+      return res.json({
+        success: true,
+        recommendation: null,
+        message: progressCount < 3 
+           ? 'Complete more lessons to unlock personalized recommendations'
+          : 'Learning profile not yet generated',
+        requirements: {
+          current: progressCount,
+          required: 3
+        }
       });
     }
     
@@ -757,12 +871,13 @@ router.get('/learning-profile/:userId/recommendation', verifyToken, async (req, 
       success: true,
       recommendation
     });
-    
+      
   } catch (error) {
     console.error('❌ Error generating recommendation:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to generate recommendation'
+      error: 'Failed to generate recommendation',
+      message: error.message
     });
   }
 });
