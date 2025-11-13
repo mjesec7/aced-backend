@@ -1184,5 +1184,155 @@ module.exports = [
         ],
         correctAnswer: 1,
         category: "climatology"
-    }
+    },
+
+    // ========================================
+    // COMPUTER SCIENCE QUESTIONS
+    // ========================================
+
+    // Easy (1-3)
+    { subject: "Computer Science", difficulty: 1, level: 1, questionText: "What does 'AI' stand for?", options: ["Automated Intelligence", "Artificial Intelligence", "Advanced Internet", "Application Interface"], correctAnswer: 1, category: "basics" },
+    { subject: "Computer Science", difficulty: 1, level: 1, questionText: "What does HTML stand for?", options: ["HyperText Markup Language", "High Tech Modern Language", "Home Tool Markup Language", "Hyperlinks and Text Markup Language"], correctAnswer: 0, category: "web" },
+    { subject: "Computer Science", difficulty: 2, level: 2, questionText: "What is a variable in programming?", options: ["A fixed value", "A container for storing data", "A type of loop", "A function"], correctAnswer: 1, category: "programming" },
+    { subject: "Computer Science", difficulty: 2, level: 2, questionText: "Which company created ChatGPT?", options: ["Google", "Microsoft", "OpenAI", "Meta"], correctAnswer: 2, category: "ai" },
+    { subject: "Computer Science", difficulty: 3, level: 3, questionText: "What does API stand for?", options: ["Application Programming Interface", "Advanced Program Integration", "Automated Processing Input", "Application Protocol Internet"], correctAnswer: 0, category: "software" },
+    { subject: "Computer Science", difficulty: 3, level: 3, questionText: "What is Python?", options: ["A snake", "A programming language", "A database", "An operating system"], correctAnswer: 1, category: "programming" },
+
+    // Medium (4-6)
+    { subject: "Computer Science", difficulty: 4, level: 5, questionText: "What is machine learning?", options: ["Computers learning from data", "Teaching computers manually", "Hardware upgrades", "Software installation"], correctAnswer: 0, category: "ai" },
+    { subject: "Computer Science", difficulty: 4, level: 5, questionText: "What is Git used for?", options: ["Image editing", "Version control", "Video streaming", "Database management"], correctAnswer: 1, category: "tools" },
+    { subject: "Computer Science", difficulty: 5, level: 7, questionText: "What is a neural network?", options: ["Internet cables", "AI model inspired by brain structure", "Computer hardware", "Network security"], correctAnswer: 1, category: "ai" },
+    { subject: "Computer Science", difficulty: 5, level: 7, questionText: "What does SQL stand for?", options: ["Structured Query Language", "Simple Question Language", "System Quality Language", "Software Query Logic"], correctAnswer: 0, category: "database" },
+    { subject: "Computer Science", difficulty: 6, level: 9, questionText: "What is the difference between frontend and backend?", options: ["No difference", "Frontend is UI, backend is server logic", "Frontend is harder", "Backend is obsolete"], correctAnswer: 1, category: "web" },
+    { subject: "Computer Science", difficulty: 6, level: 9, questionText: "What is React?", options: ["A database", "A JavaScript library for UI", "An operating system", "A programming language"], correctAnswer: 1, category: "web" },
+
+    // Hard (7-10)
+    { subject: "Computer Science", difficulty: 7, level: 11, questionText: "What is blockchain?", options: ["A type of database", "Distributed ledger technology", "Cloud storage", "Antivirus software"], correctAnswer: 1, category: "emerging-tech" },
+    { subject: "Computer Science", difficulty: 7, level: 11, questionText: "What is Big O notation used for?", options: ["Naming variables", "Analyzing algorithm efficiency", "Database queries", "Network protocols"], correctAnswer: 1, category: "algorithms" },
+    { subject: "Computer Science", difficulty: 8, level: 13, questionText: "What is the transformer architecture in AI?", options: ["Hardware component", "Neural network architecture using attention mechanisms", "Data storage method", "Programming paradigm"], correctAnswer: 1, category: "ai" },
+    { subject: "Computer Science", difficulty: 8, level: 13, questionText: "What is Docker?", options: ["A programming language", "Containerization platform", "Database system", "Text editor"], correctAnswer: 1, category: "devops" },
+    { subject: "Computer Science", difficulty: 9, level: 16, questionText: "What is the CAP theorem?", options: ["Computer Algorithm Protocol", "Consistency, Availability, Partition tolerance tradeoff", "Computer Architecture Pattern", "Central Access Point"], correctAnswer: 1, category: "distributed-systems" },
+    { subject: "Computer Science", difficulty: 9, level: 16, questionText: "What is WebAssembly?", options: ["A web framework", "Binary instruction format for web", "JavaScript library", "HTML version"], correctAnswer: 1, category: "web" },
+    { subject: "Computer Science", difficulty: 10, level: 18, questionText: "What is a Turing complete system?", options: ["Fast computer", "System that can simulate any Turing machine", "Quantum computer", "AI system"], correctAnswer: 1, category: "theory" },
+    { subject: "Computer Science", difficulty: 10, level: 18, questionText: "What is the halting problem?", options: ["Computer crashes", "Undecidable problem about program termination", "Network latency", "Memory leak"], correctAnswer: 1, category: "theory" },
+
+    // ========================================
+    // LITERATURE QUESTIONS
+    // ========================================
+
+    // Easy (1-3)
+    { subject: "Literature", difficulty: 1, level: 1, questionText: "Who wrote 'Harry Potter'?", options: ["J.R.R. Tolkien", "J.K. Rowling", "Suzanne Collins", "Rick Riordan"], correctAnswer: 1, category: "modern" },
+    { subject: "Literature", difficulty: 1, level: 1, questionText: "What is a protagonist?", options: ["Villain", "Main character", "Setting", "Theme"], correctAnswer: 1, category: "terms" },
+    { subject: "Literature", difficulty: 2, level: 2, questionText: "Who wrote 'Romeo and Juliet'?", options: ["Charles Dickens", "William Shakespeare", "Jane Austen", "Mark Twain"], correctAnswer: 1, category: "classic" },
+    { subject: "Literature", difficulty: 2, level: 2, questionText: "What is a metaphor?", options: ["Direct comparison using 'like' or 'as'", "Comparison without using 'like' or 'as'", "Exaggeration", "Sound repetition"], correctAnswer: 1, category: "literary-devices" },
+    { subject: "Literature", difficulty: 3, level: 3, questionText: "Who wrote '1984'?", options: ["Aldous Huxley", "George Orwell", "Ray Bradbury", "Isaac Asimov"], correctAnswer: 1, category: "dystopian" },
+    { subject: "Literature", difficulty: 3, level: 3, questionText: "What is foreshadowing?", options: ["Flashback to the past", "Hints about future events", "Character description", "Setting description"], correctAnswer: 1, category: "literary-devices" },
+
+    // Medium (4-6)
+    { subject: "Literature", difficulty: 4, level: 5, questionText: "Who wrote 'The Hunger Games'?", options: ["Veronica Roth", "Suzanne Collins", "Stephenie Meyer", "Cassandra Clare"], correctAnswer: 1, category: "ya-fiction" },
+    { subject: "Literature", difficulty: 4, level: 5, questionText: "What is an allegory?", options: ["Simple story", "Story with symbolic meaning", "Historical account", "Biography"], correctAnswer: 1, category: "literary-devices" },
+    { subject: "Literature", difficulty: 5, level: 7, questionText: "Who won the Nobel Prize in Literature 2023?", options: ["Haruki Murakami", "Jon Fosse", "Margaret Atwood", "Salman Rushdie"], correctAnswer: 1, category: "contemporary" },
+    { subject: "Literature", difficulty: 5, level: 7, questionText: "What is magical realism?", options: ["Pure fantasy", "Realistic setting with magical elements", "Science fiction", "Horror genre"], correctAnswer: 1, category: "genre" },
+    { subject: "Literature", difficulty: 6, level: 9, questionText: "Who wrote 'One Hundred Years of Solitude'?", options: ["Pablo Neruda", "Gabriel García Márquez", "Isabel Allende", "Jorge Luis Borges"], correctAnswer: 1, category: "latin-american" },
+    { subject: "Literature", difficulty: 6, level: 9, questionText: "What is stream of consciousness?", options: ["Linear narrative", "Narrative depicting continuous flow of thoughts", "Dialogue-only writing", "Third-person narration"], correctAnswer: 1, category: "technique" },
+
+    // Hard (7-10)
+    { subject: "Literature", difficulty: 7, level: 11, questionText: "What is the significance of unreliable narrator?", options: ["Always tells truth", "Credibility is compromised, adds complexity", "No significance", "Only in comedy"], correctAnswer: 1, category: "narrative" },
+    { subject: "Literature", difficulty: 7, level: 11, questionText: "Who wrote 'The Waste Land'?", options: ["W.B. Yeats", "T.S. Eliot", "Ezra Pound", "Robert Frost"], correctAnswer: 1, category: "modernist" },
+    { subject: "Literature", difficulty: 8, level: 13, questionText: "What is postcolonial literature?", options: ["Writing during colonial period", "Literature examining colonial legacy and identity", "Historical fiction", "Travel writing"], correctAnswer: 1, category: "theory" },
+    { subject: "Literature", difficulty: 8, level: 13, questionText: "Who wrote 'Things Fall Apart'?", options: ["Wole Soyinka", "Chinua Achebe", "Ngugi wa Thiong'o", "Ben Okri"], correctAnswer: 1, category: "african" },
+    { subject: "Literature", difficulty: 9, level: 16, questionText: "What is metafiction?", options: ["Historical fiction", "Fiction that self-consciously addresses devices of fiction", "Science fiction", "Crime fiction"], correctAnswer: 1, category: "postmodern" },
+    { subject: "Literature", difficulty: 9, level: 16, questionText: "What is the Bloomsbury Group?", options: ["Publishing house", "Influential literary and intellectual collective", "Literary genre", "Writing style"], correctAnswer: 1, category: "literary-history" },
+    { subject: "Literature", difficulty: 10, level: 18, questionText: "What is the New Criticism approach?", options: ["Modern writing", "Close reading focusing on text itself", "Historical context analysis", "Biographical criticism"], correctAnswer: 1, category: "criticism" },
+    { subject: "Literature", difficulty: 10, level: 18, questionText: "What is intertextuality?", options: ["Bad writing", "Relationship between texts and meaning-making", "Simple references", "Plagiarism"], correctAnswer: 1, category: "theory" },
+
+    // ========================================
+    // PHYSICS QUESTIONS
+    // ========================================
+
+    // Easy (1-3)
+    { subject: "Physics", difficulty: 1, level: 1, questionText: "What is the speed of light?", options: ["100,000 km/s", "300,000 km/s", "500,000 km/s", "1,000,000 km/s"], correctAnswer: 1, category: "constants" },
+    { subject: "Physics", difficulty: 1, level: 1, questionText: "What is energy?", options: ["Ability to do work", "Type of matter", "Force", "Velocity"], correctAnswer: 0, category: "basics" },
+    { subject: "Physics", difficulty: 2, level: 2, questionText: "What is the SI unit of force?", options: ["Joule", "Newton", "Watt", "Pascal"], correctAnswer: 1, category: "units" },
+    { subject: "Physics", difficulty: 2, level: 2, questionText: "What keeps planets in orbit?", options: ["Magnetism", "Gravity", "Air pressure", "Electricity"], correctAnswer: 1, category: "mechanics" },
+    { subject: "Physics", difficulty: 3, level: 3, questionText: "What is Newton's First Law?", options: ["F=ma", "Object in motion stays in motion unless acted upon", "Action-reaction", "E=mc²"], correctAnswer: 1, category: "mechanics" },
+    { subject: "Physics", difficulty: 3, level: 3, questionText: "What is frequency?", options: ["Distance traveled", "Number of waves per second", "Wave height", "Wave speed"], correctAnswer: 1, category: "waves" },
+
+    // Medium (4-6)
+    { subject: "Physics", difficulty: 4, level: 5, questionText: "What is kinetic energy?", options: ["Stored energy", "Energy of motion", "Heat energy", "Light energy"], correctAnswer: 1, category: "energy" },
+    { subject: "Physics", difficulty: 4, level: 5, questionText: "What is electric current?", options: ["Static electricity", "Flow of electric charge", "Magnetic field", "Voltage"], correctAnswer: 1, category: "electricity" },
+    { subject: "Physics", difficulty: 5, level: 7, questionText: "What is the Doppler effect?", options: ["Light bending", "Change in frequency due to relative motion", "Sound absorption", "Wave interference"], correctAnswer: 1, category: "waves" },
+    { subject: "Physics", difficulty: 5, level: 7, questionText: "What is electromagnetic induction?", options: ["Static charge", "Generating current from changing magnetic field", "Battery charging", "Light emission"], correctAnswer: 1, category: "electromagnetism" },
+    { subject: "Physics", difficulty: 6, level: 9, questionText: "What is special relativity about?", options: ["Gravity", "Physics at high speeds approaching light speed", "Quantum mechanics", "Thermodynamics"], correctAnswer: 1, category: "modern-physics" },
+    { subject: "Physics", difficulty: 6, level: 9, questionText: "What is momentum?", options: ["Force", "Mass times velocity", "Energy", "Acceleration"], correctAnswer: 1, category: "mechanics" },
+
+    // Hard (7-10)
+    { subject: "Physics", difficulty: 7, level: 11, questionText: "What is the uncertainty principle?", options: ["Measurements are inaccurate", "Cannot know position and momentum simultaneously with precision", "Particles are random", "Time is relative"], correctAnswer: 1, category: "quantum" },
+    { subject: "Physics", difficulty: 7, level: 11, questionText: "What is the photoelectric effect?", options: ["Light absorption", "Electrons emitted from material when light hits it", "Light reflection", "Color change"], correctAnswer: 1, category: "quantum" },
+    { subject: "Physics", difficulty: 8, level: 13, questionText: "What is quantum entanglement?", options: ["Particles close together", "Particles connected regardless of distance", "Particle collision", "Wave function"], correctAnswer: 1, category: "quantum" },
+    { subject: "Physics", difficulty: 8, level: 13, questionText: "What is general relativity?", options: ["Time dilation", "Theory of gravity as spacetime curvature", "Quantum theory", "Particle physics"], correctAnswer: 1, category: "relativity" },
+    { subject: "Physics", difficulty: 9, level: 16, questionText: "What is the Standard Model?", options: ["Economic theory", "Theory describing fundamental particles and forces", "Climate model", "Atomic model"], correctAnswer: 1, category: "particle-physics" },
+    { subject: "Physics", difficulty: 9, level: 16, questionText: "What is dark matter?", options: ["Black holes", "Invisible matter inferred from gravitational effects", "Burnt stars", "Empty space"], correctAnswer: 1, category: "cosmology" },
+    { subject: "Physics", difficulty: 10, level: 18, questionText: "What is supersymmetry?", options: ["Perfect symmetry", "Theory proposing partner particles for known particles", "Mirror reflection", "Time reversal"], correctAnswer: 1, category: "theoretical" },
+    { subject: "Physics", difficulty: 10, level: 18, questionText: "What is quantum field theory?", options: ["Magnetic fields", "Framework combining quantum mechanics and special relativity", "Electric fields", "Gravitational fields"], correctAnswer: 1, category: "advanced" },
+
+    // ========================================
+    // CHEMISTRY QUESTIONS
+    // ========================================
+
+    // Easy (1-3)
+    { subject: "Chemistry", difficulty: 1, level: 1, questionText: "What is the chemical symbol for water?", options: ["H2O", "CO2", "O2", "H2SO4"], correctAnswer: 0, category: "basics" },
+    { subject: "Chemistry", difficulty: 1, level: 1, questionText: "What is the smallest unit of matter?", options: ["Molecule", "Atom", "Cell", "Particle"], correctAnswer: 1, category: "structure" },
+    { subject: "Chemistry", difficulty: 2, level: 2, questionText: "What is the pH of pure water?", options: ["5", "7", "9", "11"], correctAnswer: 1, category: "acids-bases" },
+    { subject: "Chemistry", difficulty: 2, level: 2, questionText: "What is an element?", options: ["Mixture of substances", "Pure substance with one type of atom", "Compound", "Solution"], correctAnswer: 1, category: "basics" },
+    { subject: "Chemistry", difficulty: 3, level: 3, questionText: "What is the periodic table?", options: ["Time table", "Organized chart of elements", "Math table", "Calendar"], correctAnswer: 1, category: "periodic-table" },
+    { subject: "Chemistry", difficulty: 3, level: 3, questionText: "What is photosynthesis in chemistry terms?", options: ["Burning", "Converting CO2 and H2O to glucose using light", "Evaporation", "Freezing"], correctAnswer: 1, category: "reactions" },
+
+    // Medium (4-6)
+    { subject: "Chemistry", difficulty: 4, level: 5, questionText: "What is a covalent bond?", options: ["Metal bond", "Sharing of electrons between atoms", "Transfer of electrons", "Magnetic attraction"], correctAnswer: 1, category: "bonding" },
+    { subject: "Chemistry", difficulty: 4, level: 5, questionText: "What is oxidation?", options: ["Gaining electrons", "Losing electrons", "Neutral reaction", "No change"], correctAnswer: 1, category: "redox" },
+    { subject: "Chemistry", difficulty: 5, level: 7, questionText: "What is molarity?", options: ["Mass concentration", "Moles of solute per liter of solution", "Volume percentage", "Weight ratio"], correctAnswer: 1, category: "solutions" },
+    { subject: "Chemistry", difficulty: 5, level: 7, questionText: "What are catalysts?", options: ["Reactants", "Substances that speed up reactions without being consumed", "Products", "Inhibitors"], correctAnswer: 1, category: "kinetics" },
+    { subject: "Chemistry", difficulty: 6, level: 9, questionText: "What is Le Chatelier's Principle?", options: ["Conservation of mass", "System at equilibrium shifts to counteract disturbance", "Energy conservation", "Gas law"], correctAnswer: 1, category: "equilibrium" },
+    { subject: "Chemistry", difficulty: 6, level: 9, questionText: "What is electronegativity?", options: ["Electron charge", "Tendency to attract electrons in a bond", "Positive charge", "Ion formation"], correctAnswer: 1, category: "bonding" },
+
+    // Hard (7-10)
+    { subject: "Chemistry", difficulty: 7, level: 11, questionText: "What is the Haber process?", options: ["Water purification", "Industrial ammonia synthesis from N2 and H2", "Oil refining", "Metal extraction"], correctAnswer: 1, category: "industrial" },
+    { subject: "Chemistry", difficulty: 7, level: 11, questionText: "What is chirality?", options: ["Color property", "Non-superimposable mirror image property", "Smell", "Taste"], correctAnswer: 1, category: "organic" },
+    { subject: "Chemistry", difficulty: 8, level: 13, questionText: "What is the Born-Haber cycle?", options: ["Water cycle", "Thermodynamic cycle for lattice energy calculation", "Carbon cycle", "Nitrogen cycle"], correctAnswer: 1, category: "thermodynamics" },
+    { subject: "Chemistry", difficulty: 8, level: 13, questionText: "What is nucleophilic substitution?", options: ["Addition reaction", "Nucleophile replaces leaving group", "Elimination", "Oxidation"], correctAnswer: 1, category: "organic" },
+    { subject: "Chemistry", difficulty: 9, level: 16, questionText: "What is the Nernst equation used for?", options: ["Gas pressure", "Electrode potential under non-standard conditions", "Boiling point", "Melting point"], correctAnswer: 1, category: "electrochemistry" },
+    { subject: "Chemistry", difficulty: 9, level: 16, questionText: "What is quantum tunneling in chemistry?", options: ["Pipe reaction", "Particle passing through energy barrier", "Electron removal", "Ion transfer"], correctAnswer: 1, category: "physical" },
+    { subject: "Chemistry", difficulty: 10, level: 18, questionText: "What is computational chemistry?", options: ["Calculator use", "Using computers to solve chemical problems", "Math in chemistry", "Chemistry software"], correctAnswer: 1, category: "modern" },
+    { subject: "Chemistry", difficulty: 10, level: 18, questionText: "What is the Marcus theory?", options: ["Acid-base theory", "Electron transfer theory", "Gas theory", "Crystal theory"], correctAnswer: 1, category: "advanced" },
+
+    // ========================================
+    // BIOLOGY QUESTIONS
+    // ========================================
+
+    // Easy (1-3)
+    { subject: "Biology", difficulty: 1, level: 1, questionText: "What is DNA?", options: ["A protein", "Genetic material carrying instructions", "A cell", "An organ"], correctAnswer: 1, category: "genetics" },
+    { subject: "Biology", difficulty: 1, level: 1, questionText: "What is the basic unit of life?", options: ["Atom", "Cell", "Organ", "Tissue"], correctAnswer: 1, category: "cell-biology" },
+    { subject: "Biology", difficulty: 2, level: 2, questionText: "What is photosynthesis?", options: ["Breathing", "Plants making food from sunlight", "Cell division", "Digestion"], correctAnswer: 1, category: "plant-biology" },
+    { subject: "Biology", difficulty: 2, level: 2, questionText: "What is evolution?", options: ["Aging", "Change in species over time", "Growth", "Development"], correctAnswer: 1, category: "evolution" },
+    { subject: "Biology", difficulty: 3, level: 3, questionText: "What are mitochondria?", options: ["Cell wall", "Powerhouses producing energy", "Genetic material", "Cell membrane"], correctAnswer: 1, category: "cell-biology" },
+    { subject: "Biology", difficulty: 3, level: 3, questionText: "What is homeostasis?", options: ["Cell division", "Maintaining stable internal conditions", "Growth", "Reproduction"], correctAnswer: 1, category: "physiology" },
+
+    // Medium (4-6)
+    { subject: "Biology", difficulty: 4, level: 5, questionText: "What is mRNA?", options: ["Muscle cell", "Messenger RNA carrying genetic code", "Membrane protein", "Mineral"], correctAnswer: 1, category: "molecular" },
+    { subject: "Biology", difficulty: 4, level: 5, questionText: "What is natural selection?", options: ["Artificial breeding", "Survival and reproduction of best adapted", "Random selection", "Human choice"], correctAnswer: 1, category: "evolution" },
+    { subject: "Biology", difficulty: 5, level: 7, questionText: "What is CRISPR?", options: ["Cell type", "Gene-editing technology", "Protein", "Disease"], correctAnswer: 1, category: "biotechnology" },
+    { subject: "Biology", difficulty: 5, level: 7, questionText: "What is the human microbiome?", options: ["Small organs", "Collection of microorganisms living in/on body", "Tiny cells", "Blood cells"], correctAnswer: 1, category: "microbiology" },
+    { subject: "Biology", difficulty: 6, level: 9, questionText: "What is epigenetics?", options: ["Gene mutations", "Heritable changes in gene expression without DNA changes", "Evolution", "Cell division"], correctAnswer: 1, category: "genetics" },
+    { subject: "Biology", difficulty: 6, level: 9, questionText: "What is the Central Dogma?", options: ["Cell theory", "DNA → RNA → Protein information flow", "Evolution theory", "Germ theory"], correctAnswer: 1, category: "molecular" },
+
+    // Hard (7-10)
+    { subject: "Biology", difficulty: 7, level: 11, questionText: "What is the gut-brain axis?", options: ["Nerve in stomach", "Bidirectional communication between gut and brain", "Brain region", "Digestive enzyme"], correctAnswer: 1, category: "neuroscience" },
+    { subject: "Biology", difficulty: 7, level: 11, questionText: "What is immunotherapy?", options: ["Vitamin therapy", "Using immune system to fight disease like cancer", "Antibiotic treatment", "Surgery"], correctAnswer: 1, category: "medicine" },
+    { subject: "Biology", difficulty: 8, level: 13, questionText: "What is the SARS-CoV-2 spike protein?", options: ["Human protein", "Viral protein enabling cell entry", "Antibody", "Vaccine"], correctAnswer: 1, category: "virology" },
+    { subject: "Biology", difficulty: 8, level: 13, questionText: "What is optogenetics?", options: ["Eye surgery", "Using light to control genetically modified neurons", "Microscopy technique", "Gene therapy"], correctAnswer: 1, category: "neuroscience" },
+    { subject: "Biology", difficulty: 9, level: 16, questionText: "What are induced pluripotent stem cells?", options: ["Natural stem cells", "Adult cells reprogrammed to stem cell state", "Embryonic cells", "Cancer cells"], correctAnswer: 1, category: "stem-cells" },
+    { subject: "Biology", difficulty: 9, level: 16, questionText: "What is the holobiont concept?", options: ["Single organism", "Host and its microbiome as ecological unit", "Cell organelle", "Gene cluster"], correctAnswer: 1, category: "ecology" },
+    { subject: "Biology", difficulty: 10, level: 18, questionText: "What is systems biology?", options: ["Body systems", "Computational modeling of biological systems", "Taxonomy", "Evolution"], correctAnswer: 1, category: "computational" },
+    { subject: "Biology", difficulty: 10, level: 18, questionText: "What is synthetic biology?", options: ["Plastic biology", "Engineering biological systems for new functions", "Study of synthesis", "Chemical biology"], correctAnswer: 1, category: "biotechnology" }
 ];
