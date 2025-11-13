@@ -332,10 +332,10 @@ const lessonSchema = new mongoose.Schema({
     certificateEligible: { type: Boolean, default: false },
     
     grading: {
-      exercises: { weight: Number, default: 40 },
-      quizzes: { weight: Number, default: 30 },
-      participation: { weight: Number, default: 20 },
-      homework: { weight: Number, default: 10 }
+      exercises: { type: Number, default: 40 },
+      quizzes: { type: Number, default: 30 },
+      participation: { type: Number, default: 20 },
+      homework: { type: Number, default: 10 }
     }
   },
   
