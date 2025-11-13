@@ -165,9 +165,20 @@ router.post('/placement-test/:userId/start', verifyToken, async (req, res) => {
 
     } catch (error) {
         console.error('Error starting placement test:', error);
+
+        // Provide specific error messages for common issues
+        if (error.message && error.message.includes('No questions found')) {
+            return res.status(503).json({
+                error: 'Question bank not initialized',
+                message: 'The question database is empty. Please run the seed script: node scripts/seedQuestions.js',
+                details: error.message
+            });
+        }
+
         res.status(500).json({
             error: 'Failed to start placement test',
-            message: error.message
+            message: error.message,
+            details: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
     }
 });
