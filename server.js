@@ -239,6 +239,16 @@ try {
 }
 
 // ========================================
+// DUAL-MODE LEARNING SYSTEM ROUTES
+// ========================================
+
+// Learning mode routes (mode switching, placement tests, school/study centre features)
+mountRoute('/api/learning-mode', './routes/learningModeRoutes', 'Dual-mode learning system routes');
+
+// Dashboard routes (mode-differentiated dashboards)
+mountRoute('/api/dashboard', './routes/dashboardRoutes', 'Mode-differentiated dashboard routes');
+
+// ========================================
 // HOMEWORK & TESTS ROUTES
 // ========================================
 

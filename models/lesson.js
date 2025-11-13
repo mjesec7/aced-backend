@@ -443,7 +443,69 @@ const lessonSchema = new mongoose.Schema({
     signLanguage: { type: Boolean, default: false },
     simplifiedVersion: { type: Boolean, default: false }
   },
-  
+
+  // --- 🎓 DUAL-MODE CONFIGURATION ---
+  modeRestrictions: {
+    schoolOnly: { type: Boolean, default: false },
+    studyCentreOnly: { type: Boolean, default: false },
+    availableInBothModes: { type: Boolean, default: true },
+
+    // School Mode Requirements
+    schoolRequirements: {
+      prerequisiteLessons: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Lesson'
+      }],
+      minimumGrade: {
+        type: String,
+        enum: ['A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'Expert', 'Master']
+      },
+      mustCompleteInOrder: { type: Boolean, default: true },
+      isMandatory: { type: Boolean, default: false },
+      allowedRetakes: { type: Number, default: 2 }
+    },
+
+    // Study Centre Features
+    studyCentreFeatures: {
+      allowSkipping: { type: Boolean, default: true },
+      showHints: { type: Boolean, default: true },
+      unlimitedAttempts: { type: Boolean, default: true },
+      selfPaced: { type: Boolean, default: true }
+    }
+  },
+
+  // --- 📊 DIFFICULTY ADAPTATION ---
+  difficultyVariants: {
+    simplified: {
+      enabled: { type: Boolean, default: false },
+      content: mongoose.Schema.Types.Mixed,
+      exercises: [mongoose.Schema.Types.Mixed]
+    },
+    standard: {
+      content: mongoose.Schema.Types.Mixed,
+      exercises: [mongoose.Schema.Types.Mixed]
+    },
+    advanced: {
+      enabled: { type: Boolean, default: false },
+      content: mongoose.Schema.Types.Mixed,
+      exercises: [mongoose.Schema.Types.Mixed]
+    }
+  },
+
+  // --- 🔒 PROGRESSION GATES ---
+  progressionGates: [{
+    gateType: {
+      type: String,
+      enum: ['quiz', 'assignment', 'time', 'score', 'prerequisite']
+    },
+    requirement: mongoose.Schema.Types.Mixed,
+    unlocksLessons: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Lesson'
+    }],
+    isActive: { type: Boolean, default: true }
+  }],
+
   // Status and Publishing
   status: {
     type: String,
@@ -587,6 +649,123 @@ lessonSchema.methods.calculateProgress = function(completedSteps) {
   const totalRequired = this.steps.filter(s => !s.metadata.isOptional).length;
   const completed = completedSteps.length;
   return Math.round((completed / totalRequired) * 100);
+};
+
+/**
+ * Gets appropriate content for a user based on their mode and level.
+ * @param {Object} user - The user object
+ * @returns {Object} Content tailored to the user
+ */
+lessonSchema.methods.getContentForUser = function(user) {
+  if (user.learningMode === 'school') {
+    // Return structured content with gates and restrictions
+    const userGrade = user.schoolProfile?.currentGrade || 'A1';
+
+    let content = this.steps;
+    let allowedFeatures = {
+      hints: this.modeRestrictions?.studyCentreFeatures?.showHints || false,
+      skipping: false,
+      unlimitedAttempts: false
+    };
+
+    // Select difficulty variant based on grade
+    if (userGrade < 'B1' && this.difficultyVariants?.simplified?.enabled) {
+      content = this.difficultyVariants.simplified.content || this.steps;
+    } else if (userGrade >= 'C1' && this.difficultyVariants?.advanced?.enabled) {
+      content = this.difficultyVariants.advanced.content || this.steps;
+    }
+
+    return {
+      content,
+      mode: 'school',
+      features: allowedFeatures,
+      restrictions: {
+        mustCompleteInOrder: this.modeRestrictions?.schoolRequirements?.mustCompleteInOrder !== false,
+        maxRetakes: this.modeRestrictions?.schoolRequirements?.allowedRetakes || 2,
+        requiresGrade: this.modeRestrictions?.schoolRequirements?.minimumGrade
+      }
+    };
+  }
+
+  // Study Centre gets full access with all difficulty options
+  return {
+    content: {
+      simplified: this.difficultyVariants?.simplified?.enabled ? this.difficultyVariants.simplified.content : null,
+      standard: this.steps,
+      advanced: this.difficultyVariants?.advanced?.enabled ? this.difficultyVariants.advanced.content : null
+    },
+    mode: 'study_centre',
+    features: {
+      hints: true,
+      skipping: true,
+      unlimitedAttempts: true,
+      chooseOwnDifficulty: true
+    },
+    restrictions: {}
+  };
+};
+
+/**
+ * Checks if a user can access this lesson based on mode and requirements.
+ * @param {Object} user - The user object
+ * @returns {Object} Access status and reason
+ */
+lessonSchema.methods.canUserAccess = function(user) {
+  // Study Centre has unlimited access
+  if (user.learningMode === 'study_centre') {
+    if (this.modeRestrictions?.schoolOnly) {
+      return {
+        canAccess: false,
+        reason: 'This lesson is only available in School Mode'
+      };
+    }
+    return { canAccess: true };
+  }
+
+  // School Mode checks
+  if (user.learningMode === 'school') {
+    // Check if lesson is study centre only
+    if (this.modeRestrictions?.studyCentreOnly) {
+      return {
+        canAccess: false,
+        reason: 'This lesson is only available in Study Centre Mode'
+      };
+    }
+
+    // Check level access
+    if (!user.canAccessLevel(this.level)) {
+      return {
+        canAccess: false,
+        reason: `Level ${this.level} is not yet unlocked. Complete previous levels first.`,
+        requiredLevel: this.level,
+        currentLevel: user.schoolProfile?.currentLevelCap || 1
+      };
+    }
+
+    // Check grade requirement
+    const minGrade = this.modeRestrictions?.schoolRequirements?.minimumGrade;
+    if (minGrade && user.schoolProfile?.currentGrade < minGrade) {
+      return {
+        canAccess: false,
+        reason: `Minimum grade ${minGrade} required. Your current grade: ${user.schoolProfile.currentGrade}`
+      };
+    }
+
+    // Check prerequisites
+    // This would require additional database queries, so return a flag
+    if (this.modeRestrictions?.schoolRequirements?.prerequisiteLessons?.length > 0) {
+      return {
+        canAccess: true,
+        checkPrerequisites: true,
+        prerequisiteLessons: this.modeRestrictions.schoolRequirements.prerequisiteLessons
+      };
+    }
+
+    return { canAccess: true };
+  }
+
+  // Hybrid mode - combine rules
+  return { canAccess: true };
 };
 
 // Statics
