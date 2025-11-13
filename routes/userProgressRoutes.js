@@ -678,7 +678,7 @@ const Rewards = mongoose.models.Rewards ||
 // ========================================
 
 // GET /api/progress/learning-profile/:userId
-router.get('/learning-profile/:userId', verifyToken, async (req, res) => {
+router.get('/learning-profile/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
     
@@ -835,7 +835,7 @@ router.post('/learning-profile/:userId/update', verifyToken, async (req, res) =>
 });
 
 // GET /api/progress/learning-profile/:userId/recommendation
-router.get('/learning-profile/:userId/recommendation', verifyToken, async (req, res) => {
+router.get('/learning-profile/:userId/recommendation', async (req, res) => {
   try {
     const { userId } = req.params;
     
@@ -949,7 +949,7 @@ function generateLearningTips(profile) {
 // ========================================
 
 // GET /api/progress/rewards/:userId - Get user rewards
-router.get('/rewards/:userId', verifyToken, async (req, res) => {
+router.get('/rewards/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
     
@@ -1054,7 +1054,7 @@ router.post('/rewards/:userId/check', verifyToken, async (req, res) => {
 });
 
 // POST /api/progress/rewards/:userId/streak - Update daily streak
-router.post('/rewards/:userId/streak', verifyToken, async (req, res) => {
+router.post('/rewards/:userId/streak', async (req, res) => {
   try {
     const { userId } = req.params;
     
