@@ -245,6 +245,9 @@ try {
 // Learning mode routes (mode switching, placement tests, school/study centre features)
 mountRoute('/api/learning-mode', './routes/learningModeRoutes', 'Dual-mode learning system routes');
 
+// Seed routes (questions database)
+mountRoute('/api/seed', './routes/seedRoutes', 'Seed routes (questions database)');
+
 // Dashboard routes (mode-differentiated dashboards)
 mountRoute('/api/dashboard', './routes/dashboardRoutes', 'Mode-differentiated dashboard routes');
 
