@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "nodemon server.js",
     "start": "node server.js",
-    "fetch:harvard": "node scripts/fetchHarvardWithPuppeteer.js"
+    "fetch:harvard": "node scripts/fetchHarvardWithPuppeteer.js",
+    "seed:questions": "node scripts/seedQuestions.js",
+    "test:placement": "node scripts/testPlacementTest.js",
+    "deploy:placement": "node scripts/seedQuestions.js && node scripts/testPlacementTest.js"
   },
   "keywords": [],
   "author": "",
