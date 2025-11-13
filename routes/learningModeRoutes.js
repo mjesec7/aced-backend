@@ -6,6 +6,7 @@ const User = require('../models/user');
 const Lesson = require('../models/lesson');
 const PlacementTest = require('../models/placementTest');
 const UserProgress = require('../models/userProgress');
+const Question = require('../models/question');
 const verifyToken = require('../middlewares/authMiddleware');
 const { LEARNING_MODES, MODE_LABELS, SCHOOL_SETTINGS } = require('../constants/learningModes');
 const platformSettings = require('../config/platformSettings');
@@ -132,13 +133,31 @@ router.post('/placement-test/:userId/start', verifyToken, async (req, res) => {
             startedAt: new Date()
         });
 
-        // Get first question (this would connect to a question bank in production)
-        const firstQuestion = await getAdaptiveQuestion(5, 'English');
+        // Get first question
+        const firstSubject = test.config.subjects[0];
+        const firstQuestion = await getAdaptiveQuestion(5, firstSubject);
 
+        // Store first question in test (with correctAnswer for server-side tracking)
+        test.questions.push({
+            questionId: firstQuestion._id,
+            subject: firstSubject,
+            difficulty: 5,
+            questionText: firstQuestion.questionText,
+            options: firstQuestion.options,
+            correctAnswer: firstQuestion.correctAnswer
+        });
+
+        await test.save();
+
+        // Send to frontend WITHOUT correctAnswer
         res.json({
             success: true,
             testId: test._id,
-            question: firstQuestion,
+            question: {
+                questionText: firstQuestion.questionText,
+                options: firstQuestion.options,
+                difficulty: firstQuestion.difficulty
+            },
             questionNumber: 1,
             totalQuestions: test.config.totalQuestions,
             timeLimit: test.config.timeLimit
@@ -159,25 +178,37 @@ router.post('/placement-test/:userId/start', verifyToken, async (req, res) => {
  */
 router.post('/placement-test/:testId/answer', verifyToken, async (req, res) => {
     try {
-        const { answer, timeSpent } = req.body;
+        const { answer, timeSpent } = req.body; // answer is index (0-3)
         const test = await PlacementTest.findById(req.params.testId);
 
         if (!test) {
             return res.status(404).json({ error: 'Test not found' });
         }
 
-        // Get the last question (current question)
+        // Get the current question (last question in array)
         const currentQuestionIndex = test.questions.length - 1;
-        const lastQuestion = test.questions[currentQuestionIndex];
+        const currentQuestion = test.questions[currentQuestionIndex];
 
-        // Record answer
-        lastQuestion.userAnswer = answer;
-        lastQuestion.timeSpent = timeSpent;
-        lastQuestion.isCorrect = checkAnswer(lastQuestion.questionId, answer);
+        // Record answer - answer is the INDEX (0, 1, 2, 3)
+        currentQuestion.userAnswer = answer;
+        currentQuestion.timeSpent = timeSpent;
+
+        // Check if correct (both are indices)
+        currentQuestion.isCorrect = (answer === currentQuestion.correctAnswer);
+
+        // Record usage analytics for the question
+        try {
+            const questionDoc = await Question.findById(currentQuestion.questionId);
+            if (questionDoc) {
+                await questionDoc.recordUsage(currentQuestion.isCorrect, timeSpent);
+            }
+        } catch (err) {
+            console.error('Error recording question usage:', err);
+            // Non-critical, continue
+        }
 
         // Check if test complete
         if (test.questions.length >= test.config.totalQuestions) {
-            // Calculate final results
             const results = test.analyzeResults();
             test.results = results;
             test.status = 'completed';
@@ -196,29 +227,49 @@ router.post('/placement-test/:testId/answer', verifyToken, async (req, res) => {
             return res.json({
                 success: true,
                 testComplete: true,
-                results
+                results: {
+                    overallScore: results.overallScore,
+                    percentile: results.percentile,
+                    recommendedLevel: results.recommendedLevel,
+                    confidence: results.confidenceScore,
+                    subjectScores: results.subjectScores
+                }
             });
         }
 
         // Get next question based on performance
-        const nextDifficulty = test.getNextQuestion(lastQuestion.isCorrect);
+        const nextDifficulty = test.getNextQuestion(currentQuestion.isCorrect);
         const nextSubject = test.config.subjects[test.questions.length % test.config.subjects.length];
-        const nextQuestion = await getAdaptiveQuestion(nextDifficulty, nextSubject);
 
+        // Get list of already asked question IDs to avoid repeats
+        const askedQuestionIds = test.questions.map(q => q.questionId);
+        const nextQuestion = await getAdaptiveQuestion(nextDifficulty, nextSubject, askedQuestionIds);
+
+        if (!nextQuestion) {
+            throw new Error('No more questions available');
+        }
+
+        // Store question with correctAnswer for backend tracking
         test.questions.push({
             questionId: nextQuestion._id,
             subject: nextSubject,
             difficulty: nextDifficulty,
-            questionText: nextQuestion.text,
+            questionText: nextQuestion.questionText,
             options: nextQuestion.options,
             correctAnswer: nextQuestion.correctAnswer
         });
 
         await test.save();
 
+        // Send to frontend WITHOUT correctAnswer
         res.json({
             success: true,
-            question: nextQuestion,
+            testComplete: false,
+            question: {
+                questionText: nextQuestion.questionText,
+                options: nextQuestion.options,
+                difficulty: nextQuestion.difficulty
+            },
             questionNumber: test.questions.length,
             totalQuestions: test.config.totalQuestions,
             progress: (test.questions.length / test.config.totalQuestions) * 100
@@ -714,24 +765,55 @@ async function checkLevelRequirements(user, level) {
 /**
  * Get adaptive question for placement test
  */
-async function getAdaptiveQuestion(difficulty, subject) {
-    // This is a placeholder - in production, this would query a question bank
-    return {
-        _id: new require('mongoose').Types.ObjectId(),
-        text: `Sample ${subject} question at difficulty ${difficulty}`,
-        options: ['Option A', 'Option B', 'Option C', 'Option D'],
-        correctAnswer: 'Option A',
-        subject,
-        difficulty
-    };
+async function getAdaptiveQuestion(difficulty, subject, excludeIds = []) {
+    try {
+        // Find questions within difficulty range
+        const questions = await Question.find({
+            subject: subject,
+            difficulty: {
+                $gte: Math.max(1, difficulty - 0.5),
+                $lte: Math.min(10, difficulty + 0.5)
+            },
+            isActive: true,
+            _id: { $nin: excludeIds }
+        });
+
+        if (questions.length === 0) {
+            // Fallback to any question for this subject (excluding already asked)
+            const fallback = await Question.findOne({
+                subject,
+                isActive: true,
+                _id: { $nin: excludeIds }
+            });
+
+            if (!fallback) {
+                throw new Error(`No questions found for subject: ${subject}`);
+            }
+            return fallback;
+        }
+
+        // Return random question from available ones
+        return questions[Math.floor(Math.random() * questions.length)];
+    } catch (error) {
+        console.error('Error fetching question:', error);
+        throw error;
+    }
 }
 
 /**
  * Check if an answer is correct
+ * @param {Object} question - The question object with correctAnswer
+ * @param {Number} answerIndex - The index of the selected answer (0-3)
+ * @returns {Boolean} Whether the answer is correct
  */
-function checkAnswer(questionId, answer) {
-    // This is a placeholder - in production, this would check against the actual answer
-    return Math.random() > 0.5; // 50% correct for demo
+function checkAnswer(question, answerIndex) {
+    if (typeof question.correctAnswer === 'number') {
+        return answerIndex === question.correctAnswer;
+    }
+
+    // Fallback: if correctAnswer is stored as text
+    const selectedOption = question.options[answerIndex];
+    return selectedOption === question.correctAnswer;
 }
 
 /**
