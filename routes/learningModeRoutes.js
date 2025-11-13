@@ -126,22 +126,40 @@ router.post('/placement-test/:userId/start', verifyToken, async (req, res) => {
             });
         }
 
-        // Create new test session
+        // Get subject from request body
+        const { subject } = req.body;
+
+        // Validate subject
+        const { PLACEMENT_TEST_CONFIG } = require('../constants/learningModes');
+        if (!subject || !PLACEMENT_TEST_CONFIG.SUBJECTS.includes(subject)) {
+            return res.status(400).json({
+                error: 'Invalid subject',
+                message: `Please choose one of: ${PLACEMENT_TEST_CONFIG.SUBJECTS.join(', ')}`,
+                availableSubjects: PLACEMENT_TEST_CONFIG.SUBJECTS
+            });
+        }
+
+        // Create new test session with ONLY the chosen subject
         const test = await PlacementTest.create({
             userId: req.params.userId,
             status: 'in_progress',
-            startedAt: new Date()
+            startedAt: new Date(),
+            config: {
+                subjects: [subject], // Only test this ONE subject
+                totalQuestions: 20, // Reduced since we're only testing one subject
+                timeLimit: 20,
+                adaptiveMode: true
+            }
         });
 
-        // Get first question
-        const firstSubject = test.config.subjects[0];
-        const firstQuestion = await getAdaptiveQuestion(5, firstSubject);
+        // Get first question (difficulty 1 - start easy!)
+        const firstQuestion = await getAdaptiveQuestion(1, subject);
 
         // Store first question in test (with correctAnswer for server-side tracking)
         test.questions.push({
             questionId: firstQuestion._id,
-            subject: firstSubject,
-            difficulty: 5,
+            subject: subject,
+            difficulty: 1, // Start easy!
             questionText: firstQuestion.questionText,
             options: firstQuestion.options,
             correctAnswer: firstQuestion.correctAnswer
@@ -153,6 +171,7 @@ router.post('/placement-test/:userId/start', verifyToken, async (req, res) => {
         res.json({
             success: true,
             testId: test._id,
+            subject: subject, // Let frontend know which subject
             question: {
                 questionText: firstQuestion.questionText,
                 options: firstQuestion.options,
