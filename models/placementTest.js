@@ -49,10 +49,10 @@ const placementTestSchema = new mongoose.Schema({
         },
         questionText: String,
         options: [String],
-        correctAnswer: String,
+        correctAnswer: Number, // Index of correct answer (0-3)
 
         // User Response
-        userAnswer: String,
+        userAnswer: Number, // Index of selected answer (0-3)
         isCorrect: Boolean,
         timeSpent: Number, // seconds
 
