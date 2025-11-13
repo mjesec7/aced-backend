@@ -3,10 +3,8 @@
 const express = require('express');
 const router = express.Router();
 
-// Questions data will be loaded from the file you provided
-// This is a simplified version - you'll paste the full 200 questions
-
-const questionsData = require('../seedData/questions200');
+// Import questions data - FIXED PATH
+const questionsData = require('../seedData/questions');
 
 /**
  * GET /api/seed/init
@@ -77,6 +75,30 @@ router.get('/status', async (req, res) => {
             message: count > 0 
                 ? `✅ Database has ${count} questions across ${bySubject.length} subjects` 
                 : '❌ Database is empty - visit /api/seed/init to seed'
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * DELETE /api/seed/clear
+ * Clear all questions from database (use with caution!)
+ */
+router.delete('/clear', async (req, res) => {
+    try {
+        const Question = require('../models/question');
+
+        const result = await Question.deleteMany({});
+
+        res.json({
+            success: true,
+            message: `✅ Deleted ${result.deletedCount} questions`,
+            deletedCount: result.deletedCount
         });
 
     } catch (error) {
