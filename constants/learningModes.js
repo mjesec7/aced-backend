@@ -60,8 +60,19 @@ const PLACEMENT_TEST_CONFIG = {
   TIME_LIMIT: 45, // minutes
   STARTING_DIFFICULTY: 5,
   DIFFICULTY_RANGE: { MIN: 1, MAX: 10 },
-  SUBJECTS: ['English', 'Mathematics', 'Science', 'History', 'Geography'],
-  QUESTION_TYPES: ['multiple-choice', 'true-false', 'fill-blank']
+  SUBJECTS: [
+    'English',
+    'Mathematics',
+    'Science',
+    'History',
+    'Geography',
+    'Computer Science',
+    'Literature',
+    'Physics',
+    'Chemistry',
+    'Biology'
+  ],
+  QUESTION_TYPES: ['multiple-choice']
 };
 
 const GRADE_LEVELS = {
