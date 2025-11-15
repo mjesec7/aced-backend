@@ -856,6 +856,91 @@ function getNextMilestone(currentLevel) {
 }
 
 /**
+ * POST /api/learning-mode/placement-test/:userId/complete
+ * Complete a placement test and save results
+ */
+router.post('/placement-test/:userId/complete', verifyToken, async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const {
+            subject,
+            totalQuestions,
+            correctAnswers,
+            wrongAnswers,
+            scorePercentage,
+            recommendedLevel,
+            answers
+        } = req.body;
+
+        console.log(`📝 Completing placement test for user ${userId}, subject: ${subject}`);
+
+        const user = await User.findOne({ firebaseId: userId });
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: 'User not found'
+            });
+        }
+
+        // Calculate level assignment based on score
+        let levelAssigned = 1;
+        if (scorePercentage >= 90) levelAssigned = 6;
+        else if (scorePercentage >= 75) levelAssigned = 5;
+        else if (scorePercentage >= 60) levelAssigned = 4;
+        else if (scorePercentage >= 45) levelAssigned = 3;
+        else if (scorePercentage >= 30) levelAssigned = 2;
+
+        // Create placement test results
+        const testResults = {
+            overallScore: scorePercentage,
+            levelAssigned: levelAssigned,
+            percentile: Math.min(99, Math.round(scorePercentage * 1.2)),
+            subjects: [{
+                name: subject,
+                score: scorePercentage,
+                recommendedLevel: levelAssigned,
+                correctAnswers: correctAnswers,
+                totalQuestions: totalQuestions
+            }]
+        };
+
+        // Record the placement test using the user method
+        await user.recordPlacementTest(testResults);
+
+        console.log(`✅ Placement test completed - Level ${levelAssigned} assigned to user ${userId}`);
+
+        res.json({
+            success: true,
+            message: 'Placement test completed successfully',
+            results: {
+                scorePercentage,
+                levelAssigned,
+                recommendedLevel,
+                subject,
+                totalQuestions,
+                correctAnswers,
+                wrongAnswers
+            },
+            profile: {
+                placementTestTaken: true,
+                currentLevelCap: user.schoolProfile.currentLevelCap,
+                accessibleLevels: user.schoolProfile.accessibleLevels,
+                currentGrade: user.schoolProfile.currentGrade
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error completing placement test:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to complete placement test',
+            message: error.message
+        });
+    }
+});
+
+/**
  * Generate recommendations
  */
 async function generateRecommendations(user, explorationHistory) {
