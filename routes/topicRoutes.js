@@ -45,6 +45,159 @@ function logRequest(req, res, next) {
   next();
 }
 
+// ✅ NEW ENDPOINT: Get topics grouped by subject and level (School Mode)
+router.get('/grouped', logRequest, async (req, res) => {
+  try {
+    console.log('📚 Fetching topics grouped by subject and level (School Mode)');
+
+    // Check database connection
+    if (mongoose.connection.readyState !== 1) {
+      console.error('❌ Database not connected for grouped topics');
+      return res.status(503).json({
+        success: false,
+        message: '❌ Database connection unavailable',
+        error: 'DATABASE_NOT_CONNECTED'
+      });
+    }
+
+    const topics = await Topic.find({ isActive: true })
+      .sort({ subject: 1, level: 1, order: 1 })
+      .lean();
+
+    console.log(`✅ Found ${topics.length} active topics`);
+
+    // Group by subject, then by level
+    const grouped = topics.reduce((acc, topic) => {
+      const subject = topic.subject || 'Uncategorized';
+      const level = topic.level || 1;
+
+      if (!acc[subject]) {
+        acc[subject] = {};
+      }
+
+      if (!acc[subject][level]) {
+        acc[subject][level] = [];
+      }
+
+      acc[subject][level].push({
+        _id: topic._id,
+        name: topic.name || topic.topicName,
+        description: topic.description || '',
+        lessonCount: 0 // Will be populated
+      });
+
+      return acc;
+    }, {});
+
+    // Count lessons for each topic
+    for (const subject in grouped) {
+      for (const level in grouped[subject]) {
+        for (const topic of grouped[subject][level]) {
+          const lessonCount = await Lesson.countDocuments({
+            topicId: topic._id
+          });
+          topic.lessonCount = lessonCount;
+        }
+      }
+    }
+
+    console.log(`✅ Grouped topics by ${Object.keys(grouped).length} subjects`);
+
+    res.json({
+      success: true,
+      data: grouped,
+      mode: 'school'
+    });
+  } catch (error) {
+    console.error('❌ Error grouping topics:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch grouped topics',
+      details: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
+// ✅ NEW ENDPOINT: Get topics as flat course cards (Study Centre Mode)
+router.get('/as-courses', logRequest, async (req, res) => {
+  try {
+    const { search, subject, level } = req.query;
+
+    console.log('🎓 Fetching topics as course cards (Study Centre Mode)', { search, subject, level });
+
+    // Check database connection
+    if (mongoose.connection.readyState !== 1) {
+      console.error('❌ Database not connected for course cards');
+      return res.status(503).json({
+        success: false,
+        message: '❌ Database connection unavailable',
+        error: 'DATABASE_NOT_CONNECTED'
+      });
+    }
+
+    const filter = { isActive: true };
+    if (subject) filter.subject = subject;
+    if (level) filter.level = parseInt(level);
+
+    let topics = await Topic.find(filter)
+      .sort({ createdAt: -1 })
+      .lean();
+
+    console.log(`✅ Found ${topics.length} topics matching filters`);
+
+    // Enrich with lesson count and progress
+    const enrichedTopics = await Promise.all(
+      topics.map(async (topic) => {
+        const lessonCount = await Lesson.countDocuments({
+          topicId: topic._id
+        });
+
+        return {
+          _id: topic._id,
+          id: topic._id,
+          title: topic.name || topic.topicName,
+          name: topic.name || topic.topicName,
+          description: topic.description || '',
+          subject: topic.subject,
+          level: topic.level,
+          lessonCount: lessonCount,
+          type: topic.type || 'free',
+          thumbnail: `/api/placeholder/course-${topic.subject}.jpg`,
+          // Study Centre specific fields
+          displayAs: 'course',
+          mode: 'study-centre'
+        };
+      })
+    );
+
+    // Filter by search if provided
+    let filtered = enrichedTopics;
+    if (search) {
+      const searchLower = search.toLowerCase();
+      filtered = enrichedTopics.filter(t =>
+        t.name.toLowerCase().includes(searchLower) ||
+        t.description?.toLowerCase().includes(searchLower)
+      );
+    }
+
+    console.log(`✅ Returning ${filtered.length} course cards`);
+
+    res.json({
+      success: true,
+      data: filtered,
+      total: filtered.length,
+      mode: 'study-centre'
+    });
+  } catch (error) {
+    console.error('❌ Error fetching course cards:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch courses',
+      details: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
 // ✅ COMPLETELY FIXED: Get topic by ID with comprehensive error handling
 router.get('/:id', logRequest, validateObjectId, async (req, res) => {
   const id = req.params.id;

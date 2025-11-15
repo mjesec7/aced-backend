@@ -639,6 +639,143 @@ router.get('/:userId/subscription-status', validateUserId, verifyToken, async (r
   }
 });
 
+
+// ✅ NEW ENDPOINT: Get accessible content based on learning mode
+router.get('/:userId/accessible-content', verifyToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    console.log('🔍 Fetching accessible content for user:', userId);
+
+    const user = await User.findOne({
+      $or: [
+        { firebaseId: userId },
+        { _id: mongoose.Types.ObjectId.isValid(userId) ? userId : null }
+      ]
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    const mode = user.learningMode || 'study_centre';
+
+    if (mode === 'school') {
+      // School Mode: Filter by accessible levels
+      const currentLevelCap = user.schoolProfile?.currentLevelCap || 1;
+      const accessibleLevels = user.schoolProfile?.accessibleLevels || [1];
+
+      const topics = await Topic.find({
+        isActive: true,
+        level: { $in: accessibleLevels, $lte: currentLevelCap }
+      }).lean();
+
+      return res.json({
+        success: true,
+        mode: 'school',
+        data: {
+          currentLevel: currentLevelCap,
+          accessibleLevels: accessibleLevels,
+          topics: topics
+        }
+      });
+    } else {
+      // Study Centre Mode: All content accessible
+      const topics = await Topic.find({ isActive: true }).lean();
+
+      return res.json({
+        success: true,
+        mode: 'study-centre',
+        data: {
+          topics: topics,
+          unrestricted: true
+        }
+      });
+    }
+  } catch (error) {
+    console.error('❌ Error fetching accessible content:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch accessible content',
+      details: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
+// ✅ NEW ENDPOINT: Check lesson access based on mode
+router.get('/:userId/lessons/:lessonId/access', verifyToken, async (req, res) => {
+  try {
+    const { userId, lessonId } = req.params;
+
+    console.log('🔐 Checking lesson access for user:', userId, 'lesson:', lessonId);
+
+    const user = await User.findOne({
+      $or: [
+        { firebaseId: userId },
+        { _id: mongoose.Types.ObjectId.isValid(userId) ? userId : null }
+      ]
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        canAccess: false,
+        reason: 'User not found'
+      });
+    }
+
+    const lesson = await Lesson.findById(lessonId).lean();
+
+    if (!lesson) {
+      return res.status(404).json({
+        success: false,
+        canAccess: false,
+        reason: 'Lesson not found'
+      });
+    }
+
+    const mode = user.learningMode || 'study_centre';
+
+    if (mode === 'study_centre') {
+      // Study Centre: All content accessible
+      return res.json({
+        success: true,
+        canAccess: true,
+        reason: 'Study Centre mode - unrestricted access'
+      });
+    } else {
+      // School Mode: Check level restrictions
+      const lessonLevel = lesson.level || 1;
+      const currentLevelCap = user.schoolProfile?.currentLevelCap || 1;
+      const accessibleLevels = user.schoolProfile?.accessibleLevels || [1];
+
+      const canAccess = accessibleLevels.includes(lessonLevel) &&
+                       lessonLevel <= currentLevelCap;
+
+      return res.json({
+        success: true,
+        canAccess: canAccess,
+        reason: canAccess
+          ? 'Level unlocked'
+          : 'Locked - Complete previous level first',
+        currentLevel: currentLevelCap,
+        requiredLevel: lessonLevel
+      });
+    }
+  } catch (error) {
+    console.error('❌ Error checking lesson access:', error);
+    res.status(500).json({
+      success: false,
+      canAccess: false,
+      reason: 'Server error',
+      details: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
 // ========================================
 // 👑 ADMIN & MISC ROUTES
 // ========================================
