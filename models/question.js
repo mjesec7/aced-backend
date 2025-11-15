@@ -21,6 +21,15 @@ const questionSchema = new mongoose.Schema({
         index: true
     },
 
+    // Question Type: multiple-choice, fill-in-blank, true-false, matching
+    questionType: {
+        type: String,
+        required: true,
+        enum: ['multiple-choice', 'fill-in-blank', 'true-false', 'matching'],
+        default: 'multiple-choice',
+        index: true
+    },
+
     difficulty: {
         type: Number,
         required: true,
@@ -43,28 +52,90 @@ const questionSchema = new mongoose.Schema({
         trim: true
     },
 
+    // For multiple-choice and true-false
     options: {
         type: [String],
-        required: true,
         validate: {
             validator: function(v) {
-                return v.length === 4;
+                if (this.questionType === 'multiple-choice') {
+                    return v && v.length >= 2 && v.length <= 6;
+                }
+                if (this.questionType === 'true-false') {
+                    return v && v.length === 2;
+                }
+                if (this.questionType === 'matching') {
+                    return v && v.length >= 3;
+                }
+                return true; // For fill-in-blank, options are optional (hints)
             },
-            message: 'Question must have exactly 4 options'
+            message: 'Invalid number of options for question type'
         }
     },
 
+    // For multiple-choice and true-false (index of correct option)
     correctAnswer: {
-        type: Number,
-        required: true,
-        min: 0,
-        max: 3,
+        type: mongoose.Schema.Types.Mixed,
+        required: function() {
+            return ['multiple-choice', 'true-false'].includes(this.questionType);
+        },
         validate: {
             validator: function(v) {
-                return v >= 0 && v <= 3;
+                if (this.questionType === 'multiple-choice' || this.questionType === 'true-false') {
+                    return typeof v === 'number' && v >= 0 && v < this.options.length;
+                }
+                if (this.questionType === 'fill-in-blank') {
+                    return typeof v === 'string' || Array.isArray(v);
+                }
+                if (this.questionType === 'matching') {
+                    return Array.isArray(v);
+                }
+                return true;
             },
-            message: 'Correct answer must be index 0-3'
+            message: 'Invalid correct answer for question type'
         }
+    },
+
+    // For fill-in-blank: accepted answers (case-insensitive matching)
+    acceptedAnswers: {
+        type: [String],
+        validate: {
+            validator: function(v) {
+                if (this.questionType === 'fill-in-blank') {
+                    return v && v.length > 0;
+                }
+                return true;
+            },
+            message: 'Fill-in-blank questions must have at least one accepted answer'
+        }
+    },
+
+    // For matching questions: pairs of items to match
+    matchingPairs: {
+        type: [{
+            left: String,
+            right: String
+        }],
+        validate: {
+            validator: function(v) {
+                if (this.questionType === 'matching') {
+                    return v && v.length >= 3;
+                }
+                return true;
+            },
+            message: 'Matching questions must have at least 3 pairs'
+        }
+    },
+
+    // Hints for fill-in-blank or difficult questions
+    hints: {
+        type: [String],
+        default: []
+    },
+
+    // Explanation shown after answering
+    explanation: {
+        type: String,
+        trim: true
     },
 
     category: {
@@ -106,6 +177,34 @@ const questionSchema = new mongoose.Schema({
 // Indexes for efficient queries
 questionSchema.index({ subject: 1, difficulty: 1, isActive: 1 });
 questionSchema.index({ subject: 1, level: 1, isActive: 1 });
+questionSchema.index({ subject: 1, questionType: 1, isActive: 1 });
+
+// Method to validate answer based on question type
+questionSchema.methods.validateAnswer = function(userAnswer) {
+    switch (this.questionType) {
+        case 'multiple-choice':
+        case 'true-false':
+            return userAnswer === this.correctAnswer;
+
+        case 'fill-in-blank':
+            if (!userAnswer || typeof userAnswer !== 'string') return false;
+            const normalizedAnswer = userAnswer.trim().toLowerCase();
+            return this.acceptedAnswers.some(accepted =>
+                accepted.toLowerCase() === normalizedAnswer
+            );
+
+        case 'matching':
+            if (!Array.isArray(userAnswer)) return false;
+            if (userAnswer.length !== this.matchingPairs.length) return false;
+            // userAnswer should be array of indices matching the order
+            return userAnswer.every((rightIndex, leftIndex) =>
+                this.matchingPairs[leftIndex].right === this.matchingPairs[rightIndex].right
+            );
+
+        default:
+            return false;
+    }
+};
 
 // Method to record usage
 questionSchema.methods.recordUsage = async function(isCorrect, timeSpent = 30) {
