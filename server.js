@@ -252,6 +252,13 @@ mountRoute('/api/seed', './routes/seedRoutes', 'Seed routes (questions database)
 mountRoute('/api/dashboard', './routes/dashboardRoutes', 'Mode-differentiated dashboard routes');
 
 // ========================================
+// GAME SYSTEM ROUTES
+// ========================================
+
+// Gamified exercise system routes
+mountRoute('/api/games', './routes/gameRoutes', 'Game system routes');
+
+// ========================================
 // HOMEWORK & TESTS ROUTES
 // ========================================
 

@@ -186,6 +186,69 @@ const lessonStepSchema = new mongoose.Schema({
     tags: [String],
     isOptional: { type: Boolean, default: false },
     isHidden: { type: Boolean, default: false }
+  },
+
+  // 🎮 GAME CONFIGURATION
+  gameType: {
+    type: String,
+    enum: [
+      'basket-catch',
+      'memory-cards',
+      'whack-a-mole',
+      'tower-builder',
+      'target-practice',
+      'maze-runner',
+      'bubble-pop',
+      'lightning-round',
+      'scale-balance',
+      'pattern-builder'
+    ],
+    default: null
+  },
+
+  gameConfig: {
+    difficulty: {
+      type: String,
+      enum: ['easy', 'medium', 'hard'],
+      default: 'medium'
+    },
+    timeLimit: {
+      type: Number, // seconds
+      default: 60
+    },
+    targetScore: {
+      type: Number,
+      default: 100
+    },
+    lives: {
+      type: Number,
+      default: 3
+    },
+    speed: {
+      type: Number, // 1-10
+      default: 5,
+      min: 1,
+      max: 10
+    },
+    items: [{
+      id: String,
+      content: mongoose.Schema.Types.Mixed,
+      isCorrect: Boolean,
+      points: Number,
+      position: mongoose.Schema.Types.Mixed,
+      metadata: mongoose.Schema.Types.Mixed
+    }],
+    correctAnswers: [mongoose.Schema.Types.Mixed],
+    wrongAnswers: [mongoose.Schema.Types.Mixed],
+    gameplayData: mongoose.Schema.Types.Mixed
+  },
+
+  // Rewards for completing game
+  rewards: {
+    stars: { type: Number, default: 1, min: 1, max: 3 },
+    points: { type: Number, default: 10 },
+    badges: [String],
+    unlocks: [String]
   }
 }, {
   timestamps: true

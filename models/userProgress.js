@@ -220,8 +220,79 @@ const userProgressSchema = new mongoose.Schema({
     type: Number,
     default: 0,
     min: [0, 'Best streak cannot be negative']
-  }
-}, { 
+  },
+
+  // 🎮 GAME TRACKING FIELDS
+  totalPoints: {
+    type: Number,
+    default: 0,
+    min: [0, 'Total points cannot be negative'],
+    validate: {
+      validator: function(v) {
+        return Number.isInteger(v);
+      },
+      message: 'Total points must be an integer'
+    }
+  },
+
+  gamesCompleted: {
+    type: Number,
+    default: 0,
+    min: [0, 'Games completed cannot be negative'],
+    validate: {
+      validator: function(v) {
+        return Number.isInteger(v);
+      },
+      message: 'Games completed must be an integer'
+    }
+  },
+
+  gameResults: [{
+    stepIndex: {
+      type: Number,
+      required: true
+    },
+    gameType: {
+      type: String,
+      required: true,
+      enum: [
+        'basket-catch',
+        'memory-cards',
+        'whack-a-mole',
+        'tower-builder',
+        'target-practice',
+        'maze-runner',
+        'bubble-pop',
+        'lightning-round',
+        'scale-balance',
+        'pattern-builder'
+      ]
+    },
+    score: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+    stars: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 3
+    },
+    completed: {
+      type: Boolean,
+      default: false
+    },
+    timeSpent: {
+      type: Number,
+      default: 0
+    },
+    completedAt: {
+      type: Date,
+      default: Date.now
+    }
+  }]
+}, {
   timestamps: true,
   // Optimize queries
   toJSON: { 
