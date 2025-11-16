@@ -1,5 +1,6 @@
 // controllers/gameController.js - Game Management Controller
 
+const mongoose = require('mongoose');
 const GameGenerator = require('../services/gameGenerator');
 const GameAnalytics = require('../models/gameAnalytics');
 const Lesson = require('../models/lesson');
@@ -164,6 +165,37 @@ exports.submitGameResults = async (req, res) => {
       );
     } catch (progressError) {
       console.error('⚠️ Failed to update user progress:', progressError);
+      // Non-critical, continue
+    }
+
+    // Update user's global stats (totalPoints, xp, badges)
+    try {
+      const updateData = {
+        $inc: {
+          totalPoints: points,
+          xp: points // XP = points earned
+        }
+      };
+
+      // Add perfect game badge if 3 stars
+      if (stars === 3) {
+        updateData.$addToSet = {
+          badges: 'perfect-game'
+        };
+      }
+
+      await User.findOneAndUpdate(
+        {
+          $or: [
+            { firebaseId: userId },
+            { _id: mongoose.Types.ObjectId.isValid(userId) ? userId : null }
+          ]
+        },
+        updateData,
+        { new: true }
+      );
+    } catch (userError) {
+      console.error('⚠️ Failed to update user global stats:', userError);
       // Non-critical, continue
     }
 
