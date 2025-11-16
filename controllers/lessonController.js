@@ -10,6 +10,49 @@ const VocabularyProgress = require('../models/vocabularyProgress');
 const UserProgress = require('../models/userProgress');
 const mongoose = require('mongoose');
 
+/**
+ * Normalize lesson step structure for frontend compatibility
+ * CRITICAL FIX: Frontend expects 'data' field, backend saves 'content' field
+ */
+const normalizeLessonSteps = (lesson) => {
+  if (!lesson || !lesson.steps || !Array.isArray(lesson.steps)) {
+    return lesson;
+  }
+
+  lesson.steps = lesson.steps.map(step => {
+    const normalizedStep = { ...step };
+
+    // Ensure 'data' field exists (frontend expects 'data', not 'content')
+    if (step.content && !step.data) {
+      normalizedStep.data = step.content;
+    }
+
+    // For exercise steps, flatten structure
+    if (step.type === 'exercise') {
+      if (step.content && step.content.exercises) {
+        normalizedStep.data = step.content.exercises;
+      } else if (step.content && Array.isArray(step.content)) {
+        normalizedStep.data = step.content;
+      } else if (step.data && step.data.exercises) {
+        normalizedStep.data = step.data.exercises;
+      }
+    }
+
+    // For quiz steps
+    if (step.type === 'quiz') {
+      if (step.content && step.content.questions) {
+        normalizedStep.data = step.content.questions;
+      } else if (step.data && step.data.questions) {
+        normalizedStep.data = step.data.questions;
+      }
+    }
+
+    return normalizedStep;
+  });
+
+  return lesson;
+};
+
 // ✅ Enhanced lesson creation with topic-centric approach
 exports.addLesson = async (req, res) => {
   try {
@@ -802,7 +845,7 @@ exports.getLesson = async (req, res) => {
       return res.status(400).json({ error: '❌ Invalid lesson ID' });
     }
 
-    const lesson = await Lesson.findById(lessonId)
+    let lesson = await Lesson.findById(lessonId)
       .populate('topicId', 'name description subject level')
       .lean();
 
@@ -810,12 +853,15 @@ exports.getLesson = async (req, res) => {
       return res.status(404).json({ error: '❌ Lesson not found' });
     }
 
+    // ✅ CRITICAL FIX: Normalize before sending
+    lesson = normalizeLessonSteps(lesson);
+
     // ✅ Increment view count
-    await Lesson.findByIdAndUpdate(lessonId, { 
-      $inc: { 'stats.viewCount': 1 } 
+    await Lesson.findByIdAndUpdate(lessonId, {
+      $inc: { 'stats.viewCount': 1 }
     });
 
-    
+
     const response = {
       success: true,
       lesson,
@@ -834,7 +880,7 @@ exports.getLesson = async (req, res) => {
 
   } catch (error) {
     console.error('❌ Error retrieving enhanced lesson:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: '❌ Failed to retrieve lesson',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Please try again'
     });
@@ -863,10 +909,13 @@ exports.getLessonsByTopic = async (req, res) => {
       sortOptions = { [sortBy]: sortOrder };
     }
 
-    const lessons = await Lesson.find(filter)
+    let lessons = await Lesson.find(filter)
       .populate('topicId', 'name description')
       .sort(sortOptions)
       .lean();
+
+    // ✅ CRITICAL FIX: Normalize all lessons
+    lessons = lessons.map(lesson => normalizeLessonSteps(lesson));
 
 
     // ✅ Calculate detailed stats if requested
