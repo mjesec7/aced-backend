@@ -68,14 +68,27 @@ router.get('/grouped', logRequest, async (req, res) => {
     // Group lessons by topic to create topic cards
     const topicsMap = new Map();
 
-    lessons.forEach(lesson => {
+    lessons.forEach((lesson, index) => {
       const topicId = lesson.topicId?.toString() || lesson.topic || 'uncategorized';
+
+      // Extract topic name from various possible fields
+      const topicName = lesson.topicName || lesson.topic || lesson.lessonName || 'Untitled Topic';
+
+      if (index < 3) {
+        console.log(`📝 Lesson ${index}:`, {
+          lessonName: lesson.lessonName,
+          topicName: lesson.topicName,
+          topic: lesson.topic,
+          topicId: topicId,
+          extractedName: topicName
+        });
+      }
 
       if (!topicsMap.has(topicId)) {
         topicsMap.set(topicId, {
           topicId: topicId,
           _id: topicId,
-          name: lesson.topic || 'Untitled Topic',
+          name: topicName,
           subject: lesson.subject || 'Uncategorized',
           level: lesson.level || 1,
           type: lesson.type || 'free',
@@ -87,7 +100,7 @@ router.get('/grouped', logRequest, async (req, res) => {
 
       const topic = topicsMap.get(topicId);
       topic.lessonCount++;
-      topic.totalTime += lesson.estimatedTime || 10;
+      topic.totalTime += lesson.estimatedTime || lesson.timing?.estimatedDuration || 10;
       topic.lessons.push(lesson);
     });
 
@@ -171,17 +184,30 @@ router.get('/as-courses', logRequest, async (req, res) => {
     // Group lessons by topic to create course cards
     const topicsMap = new Map();
 
-    lessons.forEach(lesson => {
+    lessons.forEach((lesson, index) => {
       const topicId = lesson.topicId?.toString() || lesson.topic || 'uncategorized';
+
+      // Extract topic name from various possible fields
+      const topicName = lesson.topicName || lesson.topic || lesson.lessonName || 'Untitled Topic';
+
+      if (index < 3) {
+        console.log(`🎓 Study Centre Lesson ${index}:`, {
+          lessonName: lesson.lessonName,
+          topicName: lesson.topicName,
+          topic: lesson.topic,
+          topicId: topicId,
+          extractedName: topicName
+        });
+      }
 
       if (!topicsMap.has(topicId)) {
         topicsMap.set(topicId, {
           _id: topicId,
           topicId: topicId,
           id: topicId,
-          name: lesson.topic || 'Untitled Topic',
-          title: lesson.topic || 'Untitled Topic',
-          description: `Course with lessons on ${lesson.topic || 'various topics'}`,
+          name: topicName,
+          title: topicName,
+          description: `Course with lessons on ${topicName}`,
           subject: lesson.subject || 'Uncategorized',
           level: lesson.level || 1,
           type: lesson.type || 'free',
@@ -195,7 +221,7 @@ router.get('/as-courses', logRequest, async (req, res) => {
 
       const topic = topicsMap.get(topicId);
       topic.lessonCount++;
-      topic.totalTime += lesson.estimatedTime || 10;
+      topic.totalTime += lesson.estimatedTime || lesson.timing?.estimatedDuration || 10;
     });
 
     // Convert to array
@@ -269,24 +295,35 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
         const lessons = await Lesson.find({
           $or: [
             { topicId: id },
-            { topic: id }
+            { topic: id },
+            { topicName: id }
           ]
         }).sort({ order: 1, createdAt: 1 });
 
         if (lessons.length > 0) {
           const firstLesson = lessons[0];
 
+          // Extract topic name from various possible fields
+          const topicName = firstLesson.topicName || firstLesson.topic || firstLesson.lessonName || 'Untitled Topic';
+
+          console.log(`🔨 Building topic from lesson:`, {
+            lessonName: firstLesson.lessonName,
+            topicName: firstLesson.topicName,
+            topic: firstLesson.topic,
+            extractedName: topicName
+          });
+
           // Build topic from lessons
           topic = {
             _id: id,
             id: id,
-            name: firstLesson.topic || 'Untitled Topic',
-            topicName: firstLesson.topic || 'Untitled Topic',
+            name: topicName,
+            topicName: topicName,
             subject: firstLesson.subject,
             level: firstLesson.level,
-            description: `Course with ${lessons.length} lessons on ${firstLesson.topic || 'various topics'}`,
+            description: `Course with ${lessons.length} lessons on ${topicName}`,
             lessonCount: lessons.length,
-            totalTime: lessons.reduce((sum, l) => sum + (l.estimatedTime || 10), 0),
+            totalTime: lessons.reduce((sum, l) => sum + (l.estimatedTime || l.timing?.estimatedDuration || 10), 0),
             type: firstLesson.type || 'free',
             lessons: lessons,
             isConstructed: true
@@ -330,7 +367,8 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
         lessons = await Lesson.find({
           $or: [
             { topicId: topic._id },
-            { topic: topic.name }
+            { topic: topic.name },
+            { topicName: topic.name }
           ]
         }).sort({ order: 1, createdAt: 1 });
 
