@@ -1,19 +1,17 @@
 const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
-const Topic = require('../models/topic'); // Assuming Topic model is updated to use 'name: String'
+const Topic = require('../models/topic');
 const Lesson = require('../models/lesson');
 
 // ✅ Enhanced ObjectId validation
 function validateObjectId(req, res, next) {
   const { id, topicId } = req.params;
   const idToValidate = id || topicId;
-  
-  
+
   if (idToValidate) {
-    // ✅ CRITICAL FIX: More robust ObjectId validation
     if (!mongoose.Types.ObjectId.isValid(idToValidate)) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
         exists: false,
         message: '❌ Invalid ID format',
@@ -21,10 +19,9 @@ function validateObjectId(req, res, next) {
         providedId: idToValidate
       });
     }
-    
-    // ✅ Additional check for proper ObjectId length and format
+
     if (idToValidate.length !== 24 || !/^[0-9a-fA-F]{24}$/.test(idToValidate)) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
         exists: false,
         message: '❌ Invalid ObjectId format - must be 24 hex characters',
@@ -34,23 +31,24 @@ function validateObjectId(req, res, next) {
       });
     }
   }
-  
+
   next();
 }
 
 // ✅ Enhanced logging middleware
 function logRequest(req, res, next) {
+  console.log(`📥 ${req.method} ${req.path}`, req.query);
   if (req.body && Object.keys(req.body).length > 0) {
+    console.log('📦 Body:', req.body);
   }
   next();
 }
 
-// ✅ NEW ENDPOINT: Get topics grouped by subject and level (School Mode)
+// ✅ FIXED: Get topics grouped by subject and level (School Mode)
 router.get('/grouped', logRequest, async (req, res) => {
   try {
     console.log('📚 Fetching topics grouped by subject and level (School Mode)');
 
-    // Check database connection
     if (mongoose.connection.readyState !== 1) {
       console.error('❌ Database not connected for grouped topics');
       return res.status(503).json({
@@ -60,14 +58,43 @@ router.get('/grouped', logRequest, async (req, res) => {
       });
     }
 
-    const topics = await Topic.find({ isActive: true })
-      .sort({ subject: 1, level: 1, order: 1 })
+    // Get all active lessons (not topics!)
+    const lessons = await Lesson.find({ isActive: true })
+      .sort({ subject: 1, level: 1, createdAt: 1 })
       .lean();
 
-    console.log(`✅ Found ${topics.length} active topics`);
+    console.log(`✅ Found ${lessons.length} active lessons`);
 
-    // Group by subject, then by level
-    const grouped = topics.reduce((acc, topic) => {
+    // Group lessons by topic to create topic cards
+    const topicsMap = new Map();
+
+    lessons.forEach(lesson => {
+      const topicId = lesson.topicId?.toString() || lesson.topic || 'uncategorized';
+
+      if (!topicsMap.has(topicId)) {
+        topicsMap.set(topicId, {
+          topicId: topicId,
+          _id: topicId,
+          name: lesson.topic || 'Untitled Topic',
+          subject: lesson.subject || 'Uncategorized',
+          level: lesson.level || 1,
+          type: lesson.type || 'free',
+          lessonCount: 0,
+          totalTime: 0,
+          lessons: []
+        });
+      }
+
+      const topic = topicsMap.get(topicId);
+      topic.lessonCount++;
+      topic.totalTime += lesson.estimatedTime || 10;
+      topic.lessons.push(lesson);
+    });
+
+    // Convert to array and group by subject and level
+    const topicsArray = Array.from(topicsMap.values());
+
+    const grouped = topicsArray.reduce((acc, topic) => {
       const subject = topic.subject || 'Uncategorized';
       const level = topic.level || 1;
 
@@ -80,33 +107,28 @@ router.get('/grouped', logRequest, async (req, res) => {
       }
 
       acc[subject][level].push({
-        _id: topic._id,
-        name: topic.name || topic.topicName,
-        description: topic.description || '',
-        lessonCount: 0 // Will be populated
+        _id: topic.topicId,
+        topicId: topic.topicId,
+        name: topic.name,
+        description: `Course with ${topic.lessonCount} lessons`,
+        subject: topic.subject,
+        level: topic.level,
+        lessonCount: topic.lessonCount,
+        totalTime: topic.totalTime,
+        type: topic.type
       });
 
       return acc;
     }, {});
 
-    // Count lessons for each topic
-    for (const subject in grouped) {
-      for (const level in grouped[subject]) {
-        for (const topic of grouped[subject][level]) {
-          const lessonCount = await Lesson.countDocuments({
-            topicId: topic._id
-          });
-          topic.lessonCount = lessonCount;
-        }
-      }
-    }
-
-    console.log(`✅ Grouped topics by ${Object.keys(grouped).length} subjects`);
+    console.log(`✅ Grouped ${topicsArray.length} topics by ${Object.keys(grouped).length} subjects`);
 
     res.json({
       success: true,
       data: grouped,
-      mode: 'school'
+      mode: 'school',
+      totalTopics: topicsArray.length,
+      totalLessons: lessons.length
     });
   } catch (error) {
     console.error('❌ Error grouping topics:', error);
@@ -118,14 +140,13 @@ router.get('/grouped', logRequest, async (req, res) => {
   }
 });
 
-// ✅ NEW ENDPOINT: Get topics as flat course cards (Study Centre Mode)
+// ✅ FIXED: Get topics as flat course cards (Study Centre Mode)
 router.get('/as-courses', logRequest, async (req, res) => {
   try {
     const { search, subject, level } = req.query;
 
     console.log('🎓 Fetching topics as course cards (Study Centre Mode)', { search, subject, level });
 
-    // Check database connection
     if (mongoose.connection.readyState !== 1) {
       console.error('❌ Database not connected for course cards');
       return res.status(503).json({
@@ -135,57 +156,68 @@ router.get('/as-courses', logRequest, async (req, res) => {
       });
     }
 
+    // Build filter for lessons
     const filter = { isActive: true };
     if (subject) filter.subject = subject;
     if (level) filter.level = parseInt(level);
 
-    let topics = await Topic.find(filter)
+    // Get all matching lessons
+    const lessons = await Lesson.find(filter)
       .sort({ createdAt: -1 })
       .lean();
 
-    console.log(`✅ Found ${topics.length} topics matching filters`);
+    console.log(`✅ Found ${lessons.length} lessons matching filters`);
 
-    // Enrich with lesson count and progress
-    const enrichedTopics = await Promise.all(
-      topics.map(async (topic) => {
-        const lessonCount = await Lesson.countDocuments({
-          topicId: topic._id
-        });
+    // Group lessons by topic to create course cards
+    const topicsMap = new Map();
 
-        return {
-          _id: topic._id,
-          id: topic._id,
-          title: topic.name || topic.topicName,
-          name: topic.name || topic.topicName,
-          description: topic.description || '',
-          subject: topic.subject,
-          level: topic.level,
-          lessonCount: lessonCount,
-          type: topic.type || 'free',
-          thumbnail: `/api/placeholder/course-${topic.subject}.jpg`,
-          // Study Centre specific fields
+    lessons.forEach(lesson => {
+      const topicId = lesson.topicId?.toString() || lesson.topic || 'uncategorized';
+
+      if (!topicsMap.has(topicId)) {
+        topicsMap.set(topicId, {
+          _id: topicId,
+          topicId: topicId,
+          id: topicId,
+          name: lesson.topic || 'Untitled Topic',
+          title: lesson.topic || 'Untitled Topic',
+          description: `Course with lessons on ${lesson.topic || 'various topics'}`,
+          subject: lesson.subject || 'Uncategorized',
+          level: lesson.level || 1,
+          type: lesson.type || 'free',
+          lessonCount: 0,
+          totalTime: 0,
+          thumbnail: `/api/placeholder/course-${lesson.subject || 'general'}.jpg`,
           displayAs: 'course',
           mode: 'study-centre'
-        };
-      })
-    );
+        });
+      }
+
+      const topic = topicsMap.get(topicId);
+      topic.lessonCount++;
+      topic.totalTime += lesson.estimatedTime || 10;
+    });
+
+    // Convert to array
+    let enrichedTopics = Array.from(topicsMap.values());
 
     // Filter by search if provided
-    let filtered = enrichedTopics;
     if (search) {
       const searchLower = search.toLowerCase();
-      filtered = enrichedTopics.filter(t =>
+      enrichedTopics = enrichedTopics.filter(t =>
         t.name.toLowerCase().includes(searchLower) ||
-        t.description?.toLowerCase().includes(searchLower)
+        t.description?.toLowerCase().includes(searchLower) ||
+        t.subject?.toLowerCase().includes(searchLower)
       );
     }
 
-    console.log(`✅ Returning ${filtered.length} course cards`);
+    console.log(`✅ Returning ${enrichedTopics.length} course cards`);
 
     res.json({
       success: true,
-      data: filtered,
-      total: filtered.length,
+      data: enrichedTopics,
+      courses: enrichedTopics, // Also add as 'courses' for compatibility
+      total: enrichedTopics.length,
       mode: 'study-centre'
     });
   } catch (error) {
@@ -198,13 +230,13 @@ router.get('/as-courses', logRequest, async (req, res) => {
   }
 });
 
-// ✅ COMPLETELY FIXED: Get topic by ID with comprehensive error handling
+// ✅ FIXED: Get topic by ID with comprehensive error handling
 router.get('/:id', logRequest, validateObjectId, async (req, res) => {
   const id = req.params.id;
-  
+
   try {
-    
-    // ✅ CRITICAL FIX: Check database connection first
+    console.log(`🔍 Looking up topic/course: ${id}`);
+
     if (mongoose.connection.readyState !== 1) {
       console.error('❌ Database not connected, state:', mongoose.connection.readyState);
       return res.status(503).json({
@@ -215,108 +247,73 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
         dbState: mongoose.connection.readyState
       });
     }
-    
-    // ✅ CRITICAL FIX: Try multiple search strategies
+
+    // Strategy 1: Try to find actual Topic document
     let topic = null;
     let searchStrategy = '';
-    
+
     try {
-      // Strategy 1: Direct ObjectId search
-                topic = await Topic.findById(id);
+      topic = await Topic.findById(id);
       if (topic) {
-        searchStrategy = 'direct_objectid';
+        searchStrategy = 'direct_topic';
+        console.log(`✅ Found topic in Topics collection: ${topic.name}`);
       }
-    } catch (objectIdError) {
+    } catch (topicError) {
+      console.log('⚠️ Topic not found in Topics collection, searching lessons...');
     }
-    
-    // Strategy 2: Manual ObjectId construction and search
+
+    // Strategy 2: Build topic from lessons (PRIMARY STRATEGY)
     if (!topic) {
       try {
-        const objectId = new mongoose.Types.ObjectId(id);
-        topic = await Topic.findOne({ _id: objectId });
-        if (topic) {
-          searchStrategy = 'manual_objectid';
-        }
-      } catch (manualError) {
-      }
-    }
-    
-    // Strategy 3: Search by string representation (updated for 'name' field)
-    if (!topic) {
-      try {
-        topic = await Topic.findOne({ 
+        // Find all lessons that match this topicId
+        const lessons = await Lesson.find({
           $or: [
-            { _id: id },
-            { name: id }, // Changed from 'name.en'
-            { topicName: id }
+            { topicId: id },
+            { topic: id }
           ]
-        });
-        if (topic) {
-          searchStrategy = 'string_search';
+        }).sort({ order: 1, createdAt: 1 });
+
+        if (lessons.length > 0) {
+          const firstLesson = lessons[0];
+
+          // Build topic from lessons
+          topic = {
+            _id: id,
+            id: id,
+            name: firstLesson.topic || 'Untitled Topic',
+            topicName: firstLesson.topic || 'Untitled Topic',
+            subject: firstLesson.subject,
+            level: firstLesson.level,
+            description: `Course with ${lessons.length} lessons on ${firstLesson.topic || 'various topics'}`,
+            lessonCount: lessons.length,
+            totalTime: lessons.reduce((sum, l) => sum + (l.estimatedTime || 10), 0),
+            type: firstLesson.type || 'free',
+            lessons: lessons,
+            isConstructed: true
+          };
+
+          searchStrategy = 'constructed_from_lessons';
+          console.log(`✅ Constructed topic from ${lessons.length} lessons: ${topic.name}`);
         }
-      } catch (stringError) {
+      } catch (lessonError) {
+        console.error('❌ Error searching lessons:', lessonError);
       }
     }
-    
-    // Strategy 4: Case-insensitive search (updated for 'name' field)
+
+    // If still not found, return 404
     if (!topic) {
-      try {
-        topic = await Topic.findOne({ 
-          $or: [
-            { name: { $regex: new RegExp(`^${id}$`, 'i') } }, // Changed from 'name.en'
-            { topicName: { $regex: new RegExp(`^${id}$`, 'i') } }
-          ]
-        });
-        if (topic) {
-          searchStrategy = 'case_insensitive_search';
-        }
-      } catch (caseError) {
-      }
-    }
-    
-    // ✅ CRITICAL DEBUG: If still not found, check what's actually in the database
-    if (!topic) {
-      
-      try {
-        // Get sample topics to see the data structure
-        const sampleTopics = await Topic.find().limit(5).lean();
-        
-        
-        // Try to find by exact ObjectId string match
-        const exactMatch = await Topic.findOne({ 
-          _id: { $eq: id }
-        });
-        
-        // Check if the ID exists as a string in the collection
-        const stringMatch = await Topic.findOne({
-          $or: [
-            { _id: id },
-            { 'name': id },
-            { 'topicName': id }
-          ]
-        });
-        
-      } catch (debugError) {
-        console.error(`❌ Debug search failed:`, debugError.message);
-      }
-    }
-    
-    // ✅ If topic still not found, return comprehensive 404
-    if (!topic) {
-      
-      return res.status(404).json({ 
+      console.log(`❌ Topic/course not found: ${id}`);
+      return res.status(404).json({
         success: false,
         exists: false,
         message: '❌ Topic not found',
         error: 'TOPIC_NOT_FOUND',
         requestedId: id,
         searchStrategies: [
-          'direct_objectid',
-          'manual_objectid',
-          'string_search',
-          'case_insensitive_search'
+          'direct_topic',
+          'constructed_from_lessons'
         ],
-        suggestion: 'Please verify the topic ID is correct and the topic exists',
+        suggestion: 'Please verify the topic ID is correct and the topic has lessons',
         debug: {
           idLength: id.length,
           isValidObjectId: mongoose.Types.ObjectId.isValid(id),
@@ -326,104 +323,70 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
       });
     }
 
-    
-    // ✅ CRITICAL: Fetch associated lessons with better error handling
-    let lessons = [];
-    let lessonError = null;
-    let lessonSearchStrategy = '';
-    
-    try {
-      
-      // Try multiple lesson search strategies
-      
-      // Strategy 1: Direct topicId match
-      lessons = await Lesson.find({ topicId: topic._id }).sort({ order: 1, createdAt: 1 });
-      if (lessons.length > 0) {
-        lessonSearchStrategy = 'direct_topicId';
-      } else {
-        
-        // Strategy 2: String-based topic ID match
-        lessons = await Lesson.find({ topicId: id }).sort({ order: 1, createdAt: 1 });
-        if (lessons.length > 0) {
-          lessonSearchStrategy = 'string_topicId';
-        } else {
-          
-          // Strategy 3: Topic name match (updated for 'name' field)
-          lessons = await Lesson.find({ topic: topic.name }).sort({ order: 1, createdAt: 1 });
-          if (lessons.length > 0) {
-            lessonSearchStrategy = 'topic_name';
-          } else {
-            
-            // Strategy 4: Check all lessons and match manually
-            const allLessons = await Lesson.find().lean();
-            lessons = allLessons.filter(lesson => {
-              return lesson.topicId?.toString() === topic._id.toString() ||
-                     lesson.topicId?.toString() === id ||
-                     lesson.topic === topic.name ||
-                     lesson.topic === id;
-            });
-            
-            if (lessons.length > 0) {
-              lessonSearchStrategy = 'manual_filter';
-            } else {
-            }
-          }
-        }
+    // Get lessons for the topic if not already included
+    let lessons = topic.lessons || [];
+    if (!lessons.length) {
+      try {
+        lessons = await Lesson.find({
+          $or: [
+            { topicId: topic._id },
+            { topic: topic.name }
+          ]
+        }).sort({ order: 1, createdAt: 1 });
+
+        console.log(`✅ Found ${lessons.length} lessons for topic`);
+      } catch (lessonErr) {
+        console.error(`⚠️ Error fetching lessons for topic ${id}:`, lessonErr.message);
+        lessons = [];
       }
-      
-    } catch (lessonErr) {
-      console.error(`⚠️ Error fetching lessons for topic ${id}:`, lessonErr.message);
-      lessonError = lessonErr.message;
-      lessons = [];
     }
 
-    // ✅ CRITICAL: Inject topicId into each lesson for frontend use
+    // Inject topicId into each lesson for frontend use
     const lessonsWithTopicId = lessons.map(lesson => ({
       ...lesson.toObject ? lesson.toObject() : lesson,
-      topicId: topic._id
+      topicId: topic._id || topic.id
     }));
 
-    // ✅ CONSISTENT: Return standardized response structure with enhanced debug info
+    // Build response
     const response = {
       success: true,
       exists: true,
       message: '✅ Topic loaded successfully',
       data: {
-        // ✅ Ensure topic has all necessary fields with fallbacks
-        _id: topic._id,
-        id: topic._id,
-        name: topic.name || topic.topicName, // Changed from topic.name?.en
-        topicName: topic.name || topic.topicName, // Changed from topic.name?.en
+        _id: topic._id || topic.id,
+        id: topic._id || topic.id,
+        topicId: topic._id || topic.id,
+        name: topic.name || topic.topicName,
+        topicName: topic.name || topic.topicName,
         subject: topic.subject,
         level: topic.level,
         description: topic.description || '',
+        lessonCount: lessons.length,
+        totalTime: topic.totalTime || lessons.reduce((sum, l) => sum + (l.estimatedTime || 10), 0),
+        type: topic.type || 'free',
         createdAt: topic.createdAt,
         updatedAt: topic.updatedAt,
-        
-        // Lesson information
         lessons: lessonsWithTopicId,
-        lessonsCount: lessons.length,
-        lessonError: lessonError
+        lessonsCount: lessons.length
       },
       meta: {
         topicId: id,
-        actualTopicId: topic._id,
+        actualTopicId: topic._id || topic.id,
         searchStrategy: searchStrategy,
-        lessonSearchStrategy: lessonSearchStrategy,
         lessonsFound: lessons.length,
-        hasLessonError: !!lessonError
+        isConstructed: topic.isConstructed || false
       }
     };
 
+    console.log(`✅ Returning topic with ${lessons.length} lessons`);
     res.json(response);
-    
+
   } catch (err) {
     console.error(`❌ Error fetching topic ${id}:`, err.message);
     console.error('📍 Stack trace:', err.stack);
-    
-    // ✅ Enhanced error handling
+
     if (err.name === 'CastError') {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
         exists: false,
         message: '❌ Invalid topic ID format',
@@ -432,32 +395,8 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
         details: 'The provided ID is not a valid MongoDB ObjectId format'
       });
     }
-    
-    if (err.name === 'ValidationError') {
-      return res.status(400).json({ 
-        success: false,
-        exists: false,
-        message: '❌ Topic validation error',
-        error: 'VALIDATION_ERROR',
-        requestedId: id,
-        details: err.message
-      });
-    }
-    
-    // Database connection errors
-    if (err.message.includes('connection') || err.code === 'ENOTFOUND') {
-      return res.status(503).json({ 
-        success: false,
-        exists: false,
-        message: '❌ Database connection error',
-        error: 'DATABASE_CONNECTION_ERROR',
-        requestedId: id,
-        details: 'Unable to connect to the database'
-      });
-    }
-    
-    // Generic server error
-    res.status(500).json({ 
+
+    res.status(500).json({
       success: false,
       exists: false,
       message: '❌ Server error while fetching topic data',
@@ -468,11 +407,11 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
   }
 });
 
-// ✅ FIXED: Get all topics with enhanced error handling
+// Keep all other existing routes unchanged...
 router.get('/', logRequest, async (req, res) => {
   try {
-    
-    // Check database connection
+    console.log('📚 Fetching all topics');
+
     if (mongoose.connection.readyState !== 1) {
       console.error('❌ Database not connected for topics list');
       return res.status(503).json({
@@ -481,10 +420,11 @@ router.get('/', logRequest, async (req, res) => {
         error: 'DATABASE_NOT_CONNECTED'
       });
     }
-    
+
     const topics = await Topic.find().sort({ createdAt: -1 });
-    
-    
+
+    console.log(`✅ Found ${topics.length} topics`);
+
     res.json({
       success: true,
       count: topics.length,
@@ -492,8 +432,7 @@ router.get('/', logRequest, async (req, res) => {
     });
   } catch (err) {
     console.error('❌ Failed to fetch topics:', err.message);
-    console.error('📍 Stack trace:', err.stack);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
       message: '❌ Server error while fetching topics',
       error: 'DATABASE_ERROR',
@@ -502,30 +441,24 @@ router.get('/', logRequest, async (req, res) => {
   }
 });
 
-// ✅ Enhanced health check with database testing
 router.get('/health/check', async (req, res) => {
   try {
-          
-    // Test database connection
     const dbConnected = mongoose.connection.readyState === 1;
     let topicCount = 0;
     let lessonCount = 0;
     let dbError = null;
-    
+
     if (dbConnected) {
       try {
         topicCount = await Topic.countDocuments();
         lessonCount = await Lesson.countDocuments();
-        
-        // Test actual query
         await Topic.findOne();
-        
       } catch (queryError) {
         dbError = queryError.message;
         console.error('❌ Database query test failed:', queryError);
       }
     }
-    
+
     const healthStatus = {
       success: true,
       message: dbConnected && !dbError ? '✅ Topic routes are healthy' : '⚠️ Issues detected',
@@ -540,20 +473,12 @@ router.get('/health/check', async (req, res) => {
         topics: topicCount,
         lessons: lessonCount,
         timestamp: new Date().toISOString()
-      },
-      endpoints: {
-        'GET /topics': 'List all topics',
-        'GET /topics/:id': 'Get topic by ID',
-        'GET /topics/:id/lessons': 'Get lessons for topic',
-        'POST /topics': 'Create new topic',
-        'PUT /topics/:id': 'Update topic',
-        'DELETE /topics/:id': 'Delete topic'
       }
     };
-    
+
     const statusCode = dbConnected && !dbError ? 200 : 503;
     res.status(statusCode).json(healthStatus);
-    
+
   } catch (err) {
     console.error('❌ Health check failed:', err.message);
     res.status(500).json({
@@ -565,39 +490,32 @@ router.get('/health/check', async (req, res) => {
   }
 });
 
-// Keep other existing routes unchanged
+// Keep all other routes (POST, PUT, DELETE) unchanged...
 router.post('/', logRequest, async (req, res) => {
   const { subject, level, name, description } = req.body;
 
-  // ✅ MODIFIED: Changed validation to check for 'name' directly
-  if (!subject || !level || !name) { 
-    return res.status(400).json({ 
+  if (!subject || !level || !name) {
+    return res.status(400).json({
       success: false,
-      message: '❌ Required fields missing: subject, level, name', // Updated error message
+      message: '❌ Required fields missing: subject, level, name',
       error: 'VALIDATION_ERROR'
     });
   }
 
   try {
-    // ✅ MODIFIED: Changed duplicate check to use 'name' directly
-    const duplicate = await Topic.findOne({ 
-      subject, 
-      level, 
-      name: name // Changed from 'name.en': name.en
-    });
-    
+    const duplicate = await Topic.findOne({ subject, level, name });
+
     if (duplicate) {
-      return res.status(409).json({ 
+      return res.status(409).json({
         success: false,
         message: '⚠️ Topic with this name already exists',
         error: 'DUPLICATE_TOPIC'
       });
     }
 
-    // Assuming 'name' is now a direct string in the Topic model
     const newTopic = new Topic({ subject, level, name, description });
     const saved = await newTopic.save();
-    
+
     res.status(201).json({
       success: true,
       message: '✅ Topic created successfully',
@@ -605,7 +523,7 @@ router.post('/', logRequest, async (req, res) => {
     });
   } catch (err) {
     console.error('❌ Failed to create topic:', err.message);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
       message: '❌ Server error while creating topic',
       error: 'DATABASE_ERROR'
@@ -615,20 +533,19 @@ router.post('/', logRequest, async (req, res) => {
 
 router.get('/:id/lessons', logRequest, validateObjectId, async (req, res) => {
   const id = req.params.id;
-  
+
   try {
-    (`🔍 Checking if topic exists: ${id}`);
-    
+    console.log(`🔍 Checking if topic exists: ${id}`);
+
     const topicExists = await Topic.exists({ _id: id });
     if (!topicExists) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
         message: '❌ Topic not found',
         error: 'TOPIC_NOT_FOUND'
       });
     }
 
-    
     const lessons = await Lesson.find({ topicId: id }).sort({ order: 1, createdAt: 1 });
 
     const lessonsWithTopicId = lessons.map(lesson => ({
@@ -642,10 +559,10 @@ router.get('/:id/lessons', logRequest, validateObjectId, async (req, res) => {
       count: lessons.length,
       data: lessonsWithTopicId
     });
-    
+
   } catch (err) {
     console.error(`❌ Error fetching lessons for topic ${id}:`, err.message);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
       message: '❌ Server error while fetching lessons',
       error: 'DATABASE_ERROR'
@@ -655,11 +572,11 @@ router.get('/:id/lessons', logRequest, validateObjectId, async (req, res) => {
 
 router.delete('/:id', logRequest, validateObjectId, async (req, res) => {
   const id = req.params.id;
-  
+
   try {
     const topic = await Topic.findById(id);
     if (!topic) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
         message: '❌ Topic not found',
         error: 'TOPIC_NOT_FOUND'
@@ -668,22 +585,20 @@ router.delete('/:id', logRequest, validateObjectId, async (req, res) => {
 
     const lessonDeleteResult = await Lesson.deleteMany({ topicId: id });
     await Topic.findByIdAndDelete(id);
-    
-    // ✅ MODIFIED: Changed console log to use 'topic.name'
 
     res.json({
       success: true,
       message: '✅ Topic and associated lessons deleted successfully',
       deletedTopic: {
         id: id,
-        name: topic.name // Changed from topic.name.en
+        name: topic.name
       },
       deletedLessonsCount: lessonDeleteResult.deletedCount
     });
-    
+
   } catch (err) {
     console.error(`❌ Error deleting topic ${id}:`, err.message);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
       message: '❌ Server error while deleting topic',
       error: 'DATABASE_ERROR'
@@ -694,32 +609,31 @@ router.delete('/:id', logRequest, validateObjectId, async (req, res) => {
 router.put('/:id', logRequest, validateObjectId, async (req, res) => {
   const id = req.params.id;
   const updates = req.body;
-  
+
   try {
     const topic = await Topic.findByIdAndUpdate(
-      id, 
-      updates, 
+      id,
+      updates,
       { new: true, runValidators: true }
     );
-    
+
     if (!topic) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
         message: '❌ Topic not found',
         error: 'TOPIC_NOT_FOUND'
       });
     }
 
-    // ✅ MODIFIED: Changed console log to use 'topic.name'
     res.json({
       success: true,
       message: '✅ Topic updated successfully',
       data: topic
     });
-    
+
   } catch (err) {
     console.error(`❌ Error updating topic ${id}:`, err.message);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
       message: '❌ Server error while updating topic',
       error: 'DATABASE_ERROR'
