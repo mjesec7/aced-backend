@@ -1904,18 +1904,49 @@ router.get('/:id', validateObjectId, async (req, res) => {
       .lean();
 
     if (!lesson) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        error: '❌ Lesson not found' 
+        error: '❌ Lesson not found'
+      });
+    }
+
+    // ✅ FIX: Process steps to ensure data is in the right place
+    if (lesson.steps && Array.isArray(lesson.steps)) {
+      lesson.steps = lesson.steps.map(step => {
+        // If step has content.exercises but data is empty, move it
+        if (step.type === 'exercise' &&
+            step.content?.exercises &&
+            Array.isArray(step.content.exercises) &&
+            (!step.data || step.data.length === 0)) {
+
+          console.log('🔧 Fixing exercise step data location');
+          return {
+            ...step,
+            data: step.content.exercises,
+            content: step.content
+          };
+        }
+
+        // If step has gameType and gameConfig, ensure proper structure
+        if (step.gameType && step.gameConfig) {
+          console.log('🎮 Processing game-type step');
+          return {
+            ...step,
+            data: step.content?.exercises || step.data || []
+          };
+        }
+
+        return step;
       });
     }
 
     // Increment view count
-    await Lesson.findByIdAndUpdate(lessonId, { 
-      $inc: { 'stats.viewCount': 1 } 
+    await Lesson.findByIdAndUpdate(lessonId, {
+      $inc: { 'stats.viewCount': 1 }
     });
 
-    
+    console.log('✅ Lesson retrieved with', lesson.steps?.length, 'steps');
+
     res.json({
       success: true,
       lesson,
