@@ -1910,21 +1910,27 @@ router.get('/:id', validateObjectId, async (req, res) => {
       });
     }
 
-    // ✅ FIX: Process steps to ensure data is in the right place
+    // ✅ FIX: Process steps to ensure exercises are in the correct location
     if (lesson.steps && Array.isArray(lesson.steps)) {
-      lesson.steps = lesson.steps.map(step => {
-        // If step has content.exercises but data is empty, move it
-        if (step.type === 'exercise' &&
-            step.content?.exercises &&
-            Array.isArray(step.content.exercises) &&
-            (!step.data || step.data.length === 0)) {
+      lesson.steps = lesson.steps.map((step, index) => {
+        console.log(`Processing step ${index + 1} (${step.type})`);
 
-          console.log('🔧 Fixing exercise step data location');
-          return {
-            ...step,
-            data: step.content.exercises,
-            content: step.content
-          };
+        // For exercise steps, ensure data is properly structured
+        if (step.type === 'exercise' && !step.gameType) {
+          // If data exists and is an array, it's correct
+          if (Array.isArray(step.data)) {
+            console.log(`✅ Step ${index + 1}: Exercise data is correctly structured (${step.data.length} exercises)`);
+          }
+          // If data is an object with exercises array, flatten it
+          else if (step.data?.exercises && Array.isArray(step.data.exercises)) {
+            console.log(`🔧 Step ${index + 1}: Moving exercises from data.exercises to data`);
+            step.data = step.data.exercises;
+          }
+          // If content has exercises, move them to data
+          else if (step.content?.exercises && Array.isArray(step.content.exercises)) {
+            console.log(`🔧 Step ${index + 1}: Moving exercises from content.exercises to data`);
+            step.data = step.content.exercises;
+          }
         }
 
         // If step has gameType and gameConfig, ensure proper structure
