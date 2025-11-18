@@ -727,29 +727,29 @@ router.get('/learning-profile/:userId', async (req, res) => {
 async function createInitialProfile(userId, progressData) {
   // Analyze user's performance patterns
   const avgAccuracy = progressData.reduce((sum, p) => {
-    const accuracy = p.mistakes > 0 
+    const accuracy = p.mistakes > 0
        ? ((p.completedSteps.length / (p.completedSteps.length + p.mistakes)) * 100)
       : 100;
     return sum + accuracy;
   }, 0) / progressData.length;
-  
+
   const avgDuration = progressData.reduce((sum, p) => sum + (p.duration || 0), 0) / progressData.length;
   const avgStars = progressData.reduce((sum, p) => sum + (p.stars || 0), 0) / progressData.length;
-  
+
   // Determine learning style based on performance
   let primaryStyle = 'visual'; // Default
   if (avgDuration < 300) primaryStyle = 'kinesthetic'; // Fast completion
   else if (avgAccuracy > 90) primaryStyle = 'reading-writing'; // High accuracy
-  
+
   // Determine chronotype based on activity times
   const activityHours = progressData
     .filter(p => p.completedAt)
     .map(p => new Date(p.completedAt).getHours());
-    
+
   const avgHour = activityHours.reduce((sum, h) => sum + h, 0) / activityHours.length;
   let chronotype = 'third-bird';
   let peakHours = [9, 10, 11];
-  
+
   if (avgHour < 10) {
     chronotype = 'lark';
     peakHours = [6, 7, 8, 9];
@@ -757,12 +757,16 @@ async function createInitialProfile(userId, progressData) {
     chronotype = 'owl';
     peakHours = [20, 21, 22, 23];
   }
-  
+
+  // FIX: Ensure duration is treated as seconds if coming from progress, then converted to minutes
+  // and clamped to minimum 5 minutes to satisfy Mongoose schema
+  const avgDurationMinutes = (avgDuration || 300) / 60;
+
   // Create profile
   const profile = await LearningProfile.create({
     userId,
     cognitiveProfile: {
-      processingSpeed: Math.min(100, (300 / avgDuration) * 50),
+      processingSpeed: Math.min(100, (300 / (avgDuration || 300)) * 50), // Handle 0 division
       workingMemory: Math.min(100, avgAccuracy * 0.8),
       visualSpatial: 50,
       verbalLinguistic: 50,
@@ -775,15 +779,17 @@ async function createInitialProfile(userId, progressData) {
     neurotype: {
       focusPattern: avgDuration > 600 ? 'hyperfocus' : 'steady',
       attentionSpan: {
-        morning: Math.min(120, avgDuration / 60),
-        afternoon: Math.min(120, avgDuration / 60 * 0.8),
-        evening: Math.min(120, avgDuration / 60 * 0.6)
+        // ✅ FIX: Enforce minimum of 5
+        morning: Math.max(5, Math.min(120, avgDurationMinutes)),
+        afternoon: Math.max(5, Math.min(120, avgDurationMinutes * 0.8)),
+        evening: Math.max(5, Math.min(120, avgDurationMinutes * 0.6))
       }
     },
     chronotype: {
       type: chronotype,
       peakHours: peakHours,
-      optimalSessionLength: Math.round(avgDuration / 60)
+      // ✅ FIX: Enforce minimum of 5
+      optimalSessionLength: Math.max(5, Math.round(avgDurationMinutes))
     },
     performancePatterns: {
       optimalDifficulty: avgAccuracy / 100,
@@ -797,7 +803,7 @@ async function createInitialProfile(userId, progressData) {
     },
     preferredPath: avgAccuracy > 85 ? 'scientist' : 'storyteller'
   });
-  
+
   return profile;
 }
 
