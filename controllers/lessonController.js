@@ -27,14 +27,45 @@ const normalizeLessonSteps = (lesson) => {
       normalizedStep.data = step.content;
     }
 
-    // For exercise steps, flatten structure
+    // For exercise steps, flatten structure and add exercises field for game integration
     if (step.type === 'exercise') {
+      let exercisesArray = null;
+
       if (step.content && step.content.exercises) {
-        normalizedStep.data = step.content.exercises;
+        exercisesArray = step.content.exercises;
       } else if (step.content && Array.isArray(step.content)) {
-        normalizedStep.data = step.content;
+        exercisesArray = step.content;
       } else if (step.data && step.data.exercises) {
-        normalizedStep.data = step.data.exercises;
+        exercisesArray = step.data.exercises;
+      } else if (step.data && Array.isArray(step.data)) {
+        exercisesArray = step.data;
+      }
+
+      if (exercisesArray) {
+        // Normalize exercise data for game integration
+        const normalizedExercises = exercisesArray.map(exercise => {
+          const normalizedExercise = { ...exercise };
+
+          // Convert correctAnswer to number if it's a numeric string
+          if (typeof exercise.correctAnswer === 'string' && !isNaN(exercise.correctAnswer)) {
+            normalizedExercise.correctAnswer = Number(exercise.correctAnswer);
+          }
+
+          // Convert options to numbers if they're numeric strings
+          if (exercise.options && Array.isArray(exercise.options)) {
+            normalizedExercise.options = exercise.options.map(opt => {
+              if (typeof opt === 'string' && !isNaN(opt)) {
+                return Number(opt);
+              }
+              return opt;
+            });
+          }
+
+          return normalizedExercise;
+        });
+
+        normalizedStep.data = normalizedExercises;
+        normalizedStep.exercises = normalizedExercises;  // Add exercises field for game integration
       }
     }
 
