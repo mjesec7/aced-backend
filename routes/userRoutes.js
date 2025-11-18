@@ -152,68 +152,67 @@ function validateObjectId(req, res, next) {
 
 router.post('/save', async (req, res) => {
   const { token, name, subscriptionPlan } = req.body;
-  
 
-  
   if (!token || !name) {
-    return res.status(400).json({ 
+    return res.status(400).json({
       success: false,
       error: '❌ Missing token or name',
       required: ['token', 'name'],
       server: 'api.aced.live'
     });
   }
-  
+
   try {
     const decoded = await admin.auth().verifyIdToken(token);
     const firebaseId = decoded.uid;
     const email = decoded.email;
 
-    // ✅ CRITICAL: Find existing user and preserve their subscription status
-    let user = await User.findOne({ firebaseId });
-    let currentSubscriptionPlan = 'free';
-    
-    if (!user) {
-      currentSubscriptionPlan = subscriptionPlan || 'free';
-      
-      user = new User({ 
-        firebaseId, 
-        email, 
-        name, 
-        Login: email,
-        subscriptionPlan: currentSubscriptionPlan,
-        diary: [],
-        studyList: [],
-        homeworkUsage: new Map(),
-        aiUsage: new Map(),
-        lastResetCheck: new Date()
-      });
-    } else {
-      
-      // ✅ CRITICAL: PRESERVE existing subscription status
-      currentSubscriptionPlan = user.subscriptionPlan || 'free';
-      
-      // Only upgrade if provided status is better
-      if (subscriptionPlan) {
-        const statusHierarchy = { 'free': 0, 'start': 1, 'pro': 2, 'premium': 3 };
-        const currentLevel = statusHierarchy[currentSubscriptionPlan] || 0;
-        const providedLevel = statusHierarchy[subscriptionPlan] || 0;
-        
-        if (providedLevel > currentLevel) {
-          currentSubscriptionPlan = subscriptionPlan;
-        } else {
-        }
-      }
-      
-      user.email = email;
-      user.name = name;
-      user.Login = email;
-      user.subscriptionPlan = currentSubscriptionPlan;
-      user.lastLoginAt = new Date();
+    // Define updates
+    const updateData = {
+      email: email,
+      name: name,
+      Login: email,
+      lastLoginAt: new Date()
+    };
+
+    // Logic to handle subscription upgrade (only upgrade, don't downgrade via this route)
+    if (subscriptionPlan) {
+       // We need to check existing status first to decide on upgrade
+       const existingUser = await User.findOne({ firebaseId }).select('subscriptionPlan');
+       if (existingUser) {
+         const statusHierarchy = { 'free': 0, 'start': 1, 'pro': 2, 'premium': 3 };
+         const currentLevel = statusHierarchy[existingUser.subscriptionPlan] || 0;
+         const providedLevel = statusHierarchy[subscriptionPlan] || 0;
+
+         if (providedLevel > currentLevel) {
+           updateData.subscriptionPlan = subscriptionPlan;
+         }
+       } else {
+         // New user
+         updateData.subscriptionPlan = subscriptionPlan || 'free';
+         updateData.diary = [];
+         updateData.studyList = [];
+         updateData.homeworkUsage = new Map();
+         updateData.aiUsage = new Map();
+         updateData.lastResetCheck = new Date();
+       }
     }
 
-    await user.save();
-    
+    // ✅ FIX: Use findOneAndUpdate with upsert to prevent VersionError
+    const user = await User.findOneAndUpdate(
+      { firebaseId },
+      {
+        $set: updateData,
+        $setOnInsert: { firebaseId: firebaseId } // Fields to set only on creation
+      },
+      {
+        new: true,
+        upsert: true,
+        setDefaultsOnInsert: true,
+        runValidators: true
+      }
+    );
+
     // ✅ CRITICAL: Return all status fields
     const responseUser = {
       firebaseId: user.firebaseId,
@@ -222,20 +221,18 @@ router.post('/save', async (req, res) => {
       email: user.email,
       name: user.name,
       displayName: user.name,
-      // All status variations
       subscriptionPlan: user.subscriptionPlan,
       userStatus: user.subscriptionPlan,
       plan: user.subscriptionPlan,
       subscription: user.subscriptionPlan,
       status: user.subscriptionPlan,
-      // Other data
       studyList: user.studyList || [],
       progress: user.progress || {},
       totalPoints: user.totalPoints || 0,
       createdAt: user.createdAt,
       lastLoginAt: user.lastLoginAt
     };
-    
+
     res.json({
       success: true,
       user: responseUser,
@@ -244,10 +241,10 @@ router.post('/save', async (req, res) => {
       subscriptionPlan: user.subscriptionPlan,
       userStatus: user.subscriptionPlan
     });
-    
+
   } catch (err) {
     console.error('❌ User save error:', err);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
       error: '❌ Server error',
       details: err.message
