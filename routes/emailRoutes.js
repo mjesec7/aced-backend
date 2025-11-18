@@ -2,7 +2,8 @@
 const express = require('express');
 const router = express.Router();
 const nodemailer = require('nodemailer');
-const htmlPdf = require('html-pdf');
+// ❌ COMMENTED OUT: html-pdf relies on PhantomJS which is deprecated and crashes in modern environments
+// const htmlPdf = require('html-pdf');
 const User = require('../models/user'); // Assuming you need email/uid verification
 
 // PDF content generator (simplified)
@@ -33,6 +34,17 @@ router.post('/send-analytics', async (req, res) => {
     return res.status(400).json({ error: '❌ Missing required data' });
   }
 
+  // ❌ TEMPORARILY DISABLED: PDF generation with html-pdf causes PhantomJS crashes
+  // TODO: Replace with puppeteer or another modern PDF library
+  console.warn('⚠️ PDF generation is currently disabled due to PhantomJS compatibility issues');
+
+  return res.status(503).json({
+    error: '⚠️ PDF generation temporarily unavailable',
+    message: 'This feature is being upgraded. Please try again later.',
+    status: 'disabled'
+  });
+
+  /* DISABLED CODE - Uncomment when migrating to puppeteer
   const htmlContent = generateHtmlContent({ period, selectedStats, analytics });
 
   htmlPdf.create(htmlContent).toBuffer(async (err, buffer) => {
@@ -70,6 +82,7 @@ router.post('/send-analytics', async (req, res) => {
       res.status(500).json({ error: 'Failed to send email' });
     }
   });
+  */
 });
 
 module.exports = router;
