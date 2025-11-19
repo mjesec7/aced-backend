@@ -201,7 +201,7 @@ exports.submitGameResults = async (req, res) => {
 
     // Generate response message
     let message = '🎮 Game completed!';
-    if (stars === 3) message = '🌟 Perfect! You're amazing!';
+    if (stars === 3) message = '🌟 Perfect! You are amazing!';
     else if (stars === 2) message = '🎉 Excellent work!';
     else if (stars === 1) message = '👍 Good job! Keep practicing!';
     else message = '💪 Keep trying! You can do it!';
