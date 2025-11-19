@@ -758,5 +758,6 @@ userSchema.index({ subscriptionExpiryDate: 1 });
 userSchema.index({ subscriptionPlan: 1 });
 userSchema.index({ 'schoolProfile.currentLevelCap': 1 });
 
-const User = mongoose.model('User', userSchema);
+// ✅ Check if model already exists to prevent "Cannot overwrite model" errors in hot-reload scenarios
+const User = mongoose.models.User || mongoose.model('User', userSchema);
 module.exports = User;
