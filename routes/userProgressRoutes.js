@@ -129,6 +129,38 @@ router.get('/', async (req, res) => {
   }
 });
 
+// ✅ FIX: Support client-side URL pattern (user/:userId/lesson/:lessonId)
+router.get('/user/:userId/lesson/:lessonId', async (req, res) => {
+  try {
+    const { userId, lessonId } = req.params;
+
+    // Forward to the handler logic (or just duplicate logic for safety)
+    const validLessonId = extractValidObjectId(lessonId, 'lessonId');
+    if (!validLessonId) {
+      return res.status(400).json({ success: false, message: '❌ Invalid lessonId' });
+    }
+
+    const progress = await UserProgress.findOne({ userId, lessonId: validLessonId })
+      .populate('lessonId', 'lessonName subject level');
+
+    if (!progress) {
+      return res.json({ success: true, progress: null, hasProgress: false });
+    }
+
+    res.json({
+      success: true,
+      progress: {
+        ...progress.toObject(),
+        completedSteps: progress.completedSteps || []
+      },
+      hasProgress: true
+    });
+  } catch (error) {
+    console.error('❌ Error getting progress (Legacy Path):', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // ✅ ENHANCED: GET /api/progress/lesson/:lessonId/user/:userId - Get specific lesson progress
 router.get('/lesson/:lessonId/user/:userId', async (req, res) => {
   try {
