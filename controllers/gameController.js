@@ -7,11 +7,17 @@ const Lesson = require('../models/lesson');
 const UserProgress = require('../models/userProgress');
 const User = require('../models/user');
 
+console.log('🎮 [GameController] Game controller loaded');
+
 /**
  * Generate game from exercise/step
  * POST /api/games/generate
  */
 exports.generateGame = async (req, res) => {
+  console.log('🎮 [GameController] generateGame called');
+  console.log('🔍 [GameController] Request body:', JSON.stringify(req.body, null, 2));
+  console.log('🔍 [GameController] User:', req.user?.uid || 'No user');
+
   try {
     const { lessonId, stepIndex, gameType, difficulty } = req.body;
 
@@ -76,6 +82,10 @@ exports.generateGame = async (req, res) => {
  * POST /api/games/submit
  */
 exports.submitGameResults = async (req, res) => {
+  console.log('📊 [GameController] submitGameResults called');
+  console.log('🔍 [GameController] Request body:', JSON.stringify(req.body, null, 2));
+  console.log('🔍 [GameController] User:', req.user?.uid || 'No user');
+
   try {
     const {
       userId,
@@ -450,6 +460,8 @@ exports.convertExerciseToGame = async (req, res) => {
  * GET /api/games/types
  */
 exports.getGameTypes = async (req, res) => {
+  console.log('📋 [GameController] getGameTypes called');
+
   try {
     const gameTypes = [
       {
