@@ -753,11 +753,9 @@ userSchema.methods.createPersonalPath = async function(name, description, course
 };
 
 // --- Indexes for Performance ---
-userSchema.index({ firebaseId: 1 });
-userSchema.index({ email: 1 });
+// ✅ FIXED: Removed duplicate indexes (firebaseId, email, learningMode already have index: true inline)
 userSchema.index({ subscriptionExpiryDate: 1 });
 userSchema.index({ subscriptionPlan: 1 });
-userSchema.index({ learningMode: 1 });
 userSchema.index({ 'schoolProfile.currentLevelCap': 1 });
 
 const User = mongoose.model('User', userSchema);
