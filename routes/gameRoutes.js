@@ -3,8 +3,8 @@
 const express = require('express');
 const router = express.Router();
 const gameController = require('../controllers/gameController');
-// ✅ FIX: Correct folder name is 'middlewares' (plural), not 'middleware'
-const { verifyToken } = require('../middlewares/authMiddleware');
+// ✅ CORRECT FIX: Remove curly braces because authMiddleware exports the function directly
+const verifyToken = require('../middlewares/authMiddleware');
 
 /**
  * POST /api/games/generate
