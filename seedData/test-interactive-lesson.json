@@ -1,0 +1,213 @@
+{
+    "lessonName": "Interactive Learning - Complete Demo",
+    "subject": "Mixed",
+    "level": 5,
+    "topic": "Interactive Exercises Showcase",
+    "topicDescription": "Demonstration of all new interactive exercise types",
+    "description": "A comprehensive lesson showcasing all 8 new interactive exercise types including Math, Science, and Language exercises",
+    "type": "free",
+    "steps": [
+        {
+            "type": "data_analysis",
+            "prompt": "Analyze the student test scores below. Calculate the mean (average) score.",
+            "numericKey": "score",
+            "numericLabel": "Score",
+            "data": [
+                {
+                    "label": "Student A",
+                    "score": 65
+                },
+                {
+                    "label": "Student B",
+                    "score": 72
+                },
+                {
+                    "label": "Student C",
+                    "score": 85
+                },
+                {
+                    "label": "Student D",
+                    "score": 90
+                },
+                {
+                    "label": "Student E",
+                    "score": 48
+                }
+            ],
+            "correctAnswer": 72,
+            "tolerance": 1
+        },
+        {
+            "type": "fraction_visual",
+            "prompt": "The left grid shows 1/2. Click cells on the right grid to create an equivalent fraction using 8 blocks.",
+            "targetNumerator": 1,
+            "targetDenominator": 2,
+            "userTotalBlocks": 8,
+            "requiredShaded": 4
+        },
+        {
+            "type": "geometry_poly",
+            "prompt": "Look at the shape below. What type of shape is this?",
+            "shapes": [
+                "Circle",
+                "Square",
+                "Triangle",
+                "Pentagon",
+                "Hexagon"
+            ],
+            "correctShape": "Pentagon"
+        },
+        {
+            "type": "chem_mixing",
+            "prompt": "Mix the correct proportions of acid and base to create a stable neutral solution. Target: 30ml acid + 70ml base.",
+            "substances": [
+                {
+                    "id": "A",
+                    "name": "Acid (HCl)",
+                    "color": "#38bdf8",
+                    "maxVolume": 100,
+                    "targetVolume": 30
+                },
+                {
+                    "id": "B",
+                    "name": "Base (NaOH)",
+                    "color": "#a855f7",
+                    "maxVolume": 100,
+                    "targetVolume": 70
+                }
+            ],
+            "tolerance": 5,
+            "successColor": "#22c55e",
+            "failColor": "#ef4444"
+        },
+        {
+            "type": "chem_matching",
+            "prompt": "Match each chemical compound name with its correct formula.",
+            "pairs": [
+                {
+                    "id": "1",
+                    "name": "Water",
+                    "formula": "H₂O"
+                },
+                {
+                    "id": "2",
+                    "name": "Carbon Dioxide",
+                    "formula": "CO₂"
+                },
+                {
+                    "id": "3",
+                    "name": "Sodium Chloride",
+                    "formula": "NaCl"
+                },
+                {
+                    "id": "4",
+                    "name": "Glucose",
+                    "formula": "C₆H₁₂O₆"
+                }
+            ]
+        },
+        {
+            "type": "english_sentence_fix",
+            "prompt": "Fix the grammar errors in this sentence. Tap the highlighted words to choose the correct form.",
+            "originalSentence": "She go to school every day.",
+            "tokens": [
+                "She",
+                "go",
+                "to",
+                "school",
+                "every",
+                "day."
+            ],
+            "errors": [
+                {
+                    "index": 1,
+                    "correct": "goes",
+                    "options": [
+                        "go",
+                        "goes",
+                        "went",
+                        "going"
+                    ],
+                    "explanation": "With she/he/it, use the -s/-es form in Present Simple tense."
+                }
+            ]
+        },
+        {
+            "type": "english_sentence_order",
+            "prompt": "Drag and drop the words to form a grammatically correct sentence.",
+            "correctOrder": [
+                "She",
+                "usually",
+                "eats",
+                "breakfast",
+                "at",
+                "8",
+                "o'clock."
+            ],
+            "scrambledOptions": [
+                "eats",
+                "She",
+                "at",
+                "usually",
+                "8",
+                "breakfast",
+                "o'clock."
+            ]
+        },
+        {
+            "type": "language_noun_bag",
+            "prompt": "Drag all the NOUNS into the suitcase. Leave verbs and adjectives outside.",
+            "words": [
+                {
+                    "text": "house",
+                    "pos": "noun"
+                },
+                {
+                    "text": "run",
+                    "pos": "verb"
+                },
+                {
+                    "text": "beautiful",
+                    "pos": "adj"
+                },
+                {
+                    "text": "book",
+                    "pos": "noun"
+                },
+                {
+                    "text": "eat",
+                    "pos": "verb"
+                },
+                {
+                    "text": "big",
+                    "pos": "adj"
+                },
+                {
+                    "text": "teacher",
+                    "pos": "noun"
+                },
+                {
+                    "text": "write",
+                    "pos": "verb"
+                },
+                {
+                    "text": "happy",
+                    "pos": "adj"
+                },
+                {
+                    "text": "computer",
+                    "pos": "noun"
+                }
+            ],
+            "targetPos": "noun",
+            "availableLabel": "Parole disponibili",
+            "bagLabel": "Valigia dei sostantivi",
+            "emptyAvailableMessage": "Tutte le parole sono nella valigia.",
+            "emptyBagMessage": "Trascina qui le parole (Drag words here)",
+            "checkButtonLabel": "Check Valigia",
+            "successMessage": "✅ Perfetto! Tutti i sostantivi sono nella valigia.",
+            "extraWordsMessage": "❌ Hai messo anche verbi o aggettivi nella valigia. Toglili.",
+            "missingWordsMessage": "❌ Non hai ancora messo tutti i sostantivi nella valigia."
+        }
+    ]
+}
