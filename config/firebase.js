@@ -1,3 +1,5 @@
+require('dotenv').config(); // ✅ MUST BE FIRST - Load env vars before anything else
+
 // ✅ Firebase Admin SDK configuration for backend (CommonJS)
 const admin = require('firebase-admin');
 
@@ -7,8 +9,12 @@ const {
   FIREBASE_PRIVATE_KEY,
 } = process.env;
 
-// 🔍 CRITICAL DEBUG - Enhanced Firebase ENV checking
-
+// 🔍 DEBUG - Log what we received (without exposing secrets)
+console.log('🔍 Firebase ENV check:', {
+  projectId: FIREBASE_PROJECT_ID ? '✅ Set' : '❌ Missing',
+  clientEmail: FIREBASE_CLIENT_EMAIL ? '✅ Set' : '❌ Missing',
+  privateKey: FIREBASE_PRIVATE_KEY ? `✅ Set (${FIREBASE_PRIVATE_KEY.length} chars)` : '❌ Missing'
+});
 
 // ❗ CRITICAL: Exit if any required env vars are missing
 if (!FIREBASE_PROJECT_ID || !FIREBASE_CLIENT_EMAIL || !FIREBASE_PRIVATE_KEY) {
@@ -39,40 +45,43 @@ function initializeFirebase() {
   }
 
   try {
+    console.log('🔧 Processing Firebase private key...');
     
     // ✅ Enhanced private key processing
     let processedPrivateKey = FIREBASE_PRIVATE_KEY;
     
-    // Remove surrounding quotes if present
-    if (processedPrivateKey.startsWith('"') && processedPrivateKey.endsWith('"')) {
+    // Remove surrounding quotes if present (single or double)
+    if ((processedPrivateKey.startsWith('"') && processedPrivateKey.endsWith('"')) ||
+        (processedPrivateKey.startsWith("'") && processedPrivateKey.endsWith("'"))) {
       processedPrivateKey = processedPrivateKey.slice(1, -1);
     }
     
     // Handle double-escaped newlines first (\\n -> \n)
     if (processedPrivateKey.includes('\\\\n')) {
-      processedPrivateKey = processedPrivateKey.replace(/\\\\n/g, '\\n');
+      processedPrivateKey = processedPrivateKey.replace(/\\\\n/g, '\n');
+      console.log('  ↳ Converted double-escaped newlines');
     }
     
     // Then handle single-escaped newlines (\n -> actual newline)
     if (processedPrivateKey.includes('\\n')) {
       processedPrivateKey = processedPrivateKey.replace(/\\n/g, '\n');
+      console.log('  ↳ Converted single-escaped newlines');
     }
-    
-    // Debug the processed key
-
     
     // Validate private key format
     if (!processedPrivateKey.includes('-----BEGIN PRIVATE KEY-----')) {
       console.error('❌ Invalid private key format - missing header');
-      console.error('Key start:', processedPrivateKey.slice(0, 100));
+      console.error('Key start:', processedPrivateKey.slice(0, 50) + '...');
       throw new Error('Invalid private key format - missing header');
     }
     
     if (!processedPrivateKey.includes('-----END PRIVATE KEY-----')) {
       console.error('❌ Invalid private key format - missing footer');
-      console.error('Key end:', processedPrivateKey.slice(-100));
+      console.error('Key end:', '...' + processedPrivateKey.slice(-50));
       throw new Error('Invalid private key format - missing footer');
     }
+    
+    console.log('✅ Private key format validated');
     
     // Create credential
     const credential = admin.credential.cert({
@@ -87,6 +96,7 @@ function initializeFirebase() {
       projectId: FIREBASE_PROJECT_ID.trim()
     });
 
+    console.log('✅ Firebase Admin SDK initialized successfully');
     
     return adminApp;
     
