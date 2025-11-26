@@ -14,34 +14,82 @@ const mongoose = require('mongoose');
  * Normalize lesson step structure for frontend compatibility
  * CRITICAL FIX: Frontend expects 'data' field, backend saves 'content' field
  */
+/**
+ * Normalize lesson step structure for frontend compatibility
+ * CRITICAL FIX: Handles BOTH old format (data array) AND new format (content.type)
+ * 
+ * OLD FORMAT (traditional exercises):
+ * { type: 'exercise', data: [ { question: '...', answer: '...' } ] }
+ * 
+ * NEW FORMAT (interactive types like histogram, map, etc.):
+ * { type: 'exercise', content: { type: 'histogram', data: { ... } } }
+ */
 const normalizeLessonSteps = (lesson) => {
   if (!lesson || !lesson.steps || !Array.isArray(lesson.steps)) {
     return lesson;
   }
 
-  lesson.steps = lesson.steps.map(step => {
+  lesson.steps = lesson.steps.map((step, index) => {
     const normalizedStep = { ...step };
 
-    // Ensure 'data' field exists (frontend expects 'data', not 'content')
-    if (step.content && !step.data) {
-      normalizedStep.data = step.content;
+    console.log(`Normalizing step ${index + 1}: type=${step.type}`);
+
+    // ✅ NEW: Handle steps with content.type (histogram, map, block-coding, etc.)
+    // These are interactive exercise types with nested content structure
+    if (step.content && typeof step.content === 'object' && step.content.type) {
+      console.log(`  → Found content.type: ${step.content.type}`);
+
+      // CRITICAL: Preserve the content structure for frontend
+      // Frontend expects: step.content.type and step.content.data
+      normalizedStep.content = step.content;
+      normalizedStep.exerciseType = step.content.type;
+
+      // Also set data for backwards compatibility (some frontend code checks data)
+      // But DON'T overwrite with empty array!
+      if (!normalizedStep.data || (Array.isArray(normalizedStep.data) && normalizedStep.data.length === 0)) {
+        normalizedStep.data = step.content;
+      }
+
+      return normalizedStep;
     }
 
-    // For exercise steps, flatten structure and add exercises field for game integration
+    // ✅ Handle direct interactive step types (when type itself is the interactive type)
+    const directInteractiveTypes = [
+      'data_analysis', 'fraction_visual', 'geometry_poly',
+      'chem_mixing', 'chem_matching',
+      'english_sentence_fix', 'english_sentence_order',
+      'language_noun_bag', 'histogram', 'map', 'block-coding'
+    ];
+
+    if (directInteractiveTypes.includes(step.type)) {
+      console.log(`  → Direct interactive type: ${step.type}`);
+      normalizedStep.exerciseType = step.type;
+      // Ensure content and data both have the step data
+      normalizedStep.content = step.content || step.data || step;
+      normalizedStep.data = step.data || step.content || step;
+      return normalizedStep;
+    }
+
+    // ✅ Handle traditional exercise steps (array of exercises)
     if (step.type === 'exercise') {
       let exercisesArray = null;
 
-      if (step.content && step.content.exercises) {
+      // Check various locations for exercise data
+      if (step.content && step.content.exercises && Array.isArray(step.content.exercises)) {
         exercisesArray = step.content.exercises;
+        console.log(`  → Found ${exercisesArray.length} exercises in content.exercises`);
       } else if (step.content && Array.isArray(step.content)) {
         exercisesArray = step.content;
-      } else if (step.data && step.data.exercises) {
+        console.log(`  → Found ${exercisesArray.length} exercises in content (array)`);
+      } else if (step.data && step.data.exercises && Array.isArray(step.data.exercises)) {
         exercisesArray = step.data.exercises;
-      } else if (step.data && Array.isArray(step.data)) {
+        console.log(`  → Found ${exercisesArray.length} exercises in data.exercises`);
+      } else if (step.data && Array.isArray(step.data) && step.data.length > 0) {
         exercisesArray = step.data;
+        console.log(`  → Found ${exercisesArray.length} exercises in data (array)`);
       }
 
-      if (exercisesArray) {
+      if (exercisesArray && exercisesArray.length > 0) {
         // Normalize exercise data for game integration
         const normalizedExercises = exercisesArray.map(exercise => {
           const normalizedExercise = { ...exercise };
@@ -67,15 +115,43 @@ const normalizeLessonSteps = (lesson) => {
         normalizedStep.data = normalizedExercises;
         normalizedStep.exercises = normalizedExercises;  // Add exercises field for game integration
       }
+      // If no exercises found but content exists with a type, preserve it
+      else if (step.content && step.content.type) {
+        console.log(`  → Exercise step with content.type: ${step.content.type}`);
+        normalizedStep.exerciseType = step.content.type;
+        normalizedStep.data = step.content;
+      }
     }
 
-    // For quiz steps
+    // ✅ Handle quiz steps
     if (step.type === 'quiz') {
       if (step.content && step.content.questions) {
         normalizedStep.data = step.content.questions;
+        console.log(`  → Found ${step.content.questions.length} quiz questions`);
       } else if (step.data && step.data.questions) {
         normalizedStep.data = step.data.questions;
       }
+    }
+
+    // ✅ Handle vocabulary steps
+    if (step.type === 'vocabulary') {
+      if (step.content && step.content.terms) {
+        normalizedStep.data = step.content.terms;
+        console.log(`  → Found ${step.content.terms.length} vocabulary terms`);
+      } else if (step.data && step.data.terms) {
+        normalizedStep.data = step.data.terms;
+      }
+    }
+
+    // ✅ Handle game steps
+    if (step.type === 'game' || step.gameType) {
+      console.log(`  → Game step: ${step.gameType || 'unknown'}`);
+      normalizedStep.data = step.gameConfig?.items || step.data || [];
+    }
+
+    // Ensure 'data' field exists (fallback)
+    if (step.content && !normalizedStep.data) {
+      normalizedStep.data = step.content;
     }
 
     return normalizedStep;
@@ -110,14 +186,14 @@ exports.addLesson = async (req, res) => {
 
     // ✅ Enhanced validation
     if (!subject || !level || !topic || !lessonName || !description) {
-      return res.status(400).json({ 
-        error: '❌ Required fields missing: subject, level, topic, lessonName, description' 
+      return res.status(400).json({
+        error: '❌ Required fields missing: subject, level, topic, lessonName, description'
       });
     }
 
     if (!steps || !Array.isArray(steps) || steps.length === 0) {
-      return res.status(400).json({ 
-        error: '❌ At least one lesson step is required' 
+      return res.status(400).json({
+        error: '❌ At least one lesson step is required'
       });
     }
 
@@ -131,18 +207,18 @@ exports.addLesson = async (req, res) => {
     }
 
     // Find existing topic or create new one
-    resolvedTopic = await Topic.findOne({ 
-      subject: subject.trim(), 
-      level: parseInt(level), 
-      name: topicName 
+    resolvedTopic = await Topic.findOne({
+      subject: subject.trim(),
+      level: parseInt(level),
+      name: topicName
     });
 
     if (!resolvedTopic) {
-      resolvedTopic = new Topic({ 
-        name: topicName, 
-        subject: subject.trim(), 
-        level: parseInt(level), 
-        description: topicDesc 
+      resolvedTopic = new Topic({
+        name: topicName,
+        subject: subject.trim(),
+        level: parseInt(level),
+        description: topicDesc
       });
       await resolvedTopic.save();
     } else {
@@ -168,29 +244,29 @@ exports.addLesson = async (req, res) => {
       lessonName: String(lessonName).trim(),
       description: String(description).trim(),
       type: type || 'free',
-      
+
       // Enhanced step structure
       steps: processedSteps,
-      
+
       // Legacy support for explanations
       explanations: extractExplanationsFromSteps(processedSteps),
-      
+
       // Homework configuration
       homework: {
         exercises: homeworkData.exercises,
         quizzes: homeworkData.quizzes,
         totalExercises: homeworkData.exercises.length + homeworkData.quizzes.length
       },
-      
+
       // Additional fields
       relatedSubjects: Array.isArray(relatedSubjects) ? relatedSubjects : [],
       translations: typeof translations === 'object' ? translations : {},
       metadata: processMetadata(metadata),
-      
+
       // Status
       isDraft: Boolean(isDraft),
       isActive: !Boolean(isDraft),
-      
+
       // Stats initialization
       stats: {
         viewCount: 0,
@@ -204,7 +280,7 @@ exports.addLesson = async (req, res) => {
     const newLesson = new Lesson(lessonData);
     await newLesson.save();
 
-    
+
     // ✅ Return enhanced response with homework info
     const response = {
       success: true,
@@ -238,21 +314,21 @@ exports.addLesson = async (req, res) => {
 
   } catch (error) {
     console.error('❌ Enhanced lesson creation error:', error);
-    
+
     if (error.name === 'ValidationError') {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: '❌ Validation failed',
         details: Object.values(error.errors).map(err => err.message)
       });
     }
-    
+
     if (error.code === 11000) {
-      return res.status(409).json({ 
-        error: '❌ Duplicate lesson: similar lesson already exists' 
+      return res.status(409).json({
+        error: '❌ Duplicate lesson: similar lesson already exists'
       });
     }
-    
-    res.status(500).json({ 
+
+    res.status(500).json({
       error: '❌ Internal server error',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Please try again'
     });
@@ -264,11 +340,11 @@ exports.completeLesson = async (req, res) => {
   try {
     const lessonId = req.params.id;
     const { userId, progress, stars, score, timeSpent } = req.body;
-    
+
     if (!lessonId || !mongoose.Types.ObjectId.isValid(lessonId)) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        error: '❌ Invalid lesson ID' 
+        error: '❌ Invalid lesson ID'
       });
     }
 
@@ -279,7 +355,7 @@ exports.completeLesson = async (req, res) => {
       });
     }
 
-    
+
     // Get the lesson
     const lesson = await Lesson.findById(lessonId);
     if (!lesson) {
@@ -294,7 +370,7 @@ exports.completeLesson = async (req, res) => {
     const currentStep = progress?.currentStep || 0;
     const totalSteps = lesson.steps.length;
     const completionPercentage = totalSteps > 0 ? (currentStep / totalSteps) * 100 : 0;
-    
+
     if (completionPercentage < completionThreshold) {
       return res.status(400).json({
         success: false,
@@ -304,7 +380,7 @@ exports.completeLesson = async (req, res) => {
 
     // Process lesson completion and extract content
     const extractionResult = await handleLessonCompletion(userId, lessonId, progress, lesson);
-    
+
     // Update user progress
     const userProgress = await UserProgress.findOneAndUpdate(
       { userId, lessonId },
@@ -324,16 +400,16 @@ exports.completeLesson = async (req, res) => {
 
     // Update lesson completion stats
     await Lesson.findByIdAndUpdate(lessonId, {
-      $inc: { 
+      $inc: {
         'stats.viewCount': 1,
-        'stats.totalRatings': 1 
+        'stats.totalRatings': 1
       },
       $set: {
         'stats.averageRating': stars || 0 // Simplified - you can make this more sophisticated
       }
     });
-    
-    
+
+
     res.json({
       success: true,
       message: '🎉 Lesson completed successfully!',
@@ -354,7 +430,7 @@ exports.completeLesson = async (req, res) => {
         }
       }
     });
-    
+
   } catch (error) {
     console.error('❌ Error completing lesson:', error);
     res.status(500).json({
@@ -368,7 +444,7 @@ exports.completeLesson = async (req, res) => {
 // ✅ NEW: Handle lesson completion and extract content
 const handleLessonCompletion = async (userId, lessonId, lessonProgress, lesson = null) => {
   try {
-    
+
     // Get the completed lesson if not provided
     if (!lesson) {
       lesson = await Lesson.findById(lessonId);
@@ -387,9 +463,9 @@ const handleLessonCompletion = async (userId, lessonId, lessonProgress, lesson =
 
     // 🔥 EXTRACT AND CREATE HOMEWORK
     const homeworkExercises = await extractHomeworkFromLesson(lesson);
-    
+
     if (homeworkExercises.length > 0) {
-      
+
       // Check if homework already exists for this lesson
       const existingHomework = await Homework.findOne({
         linkedLessonIds: lessonId,
@@ -397,7 +473,7 @@ const handleLessonCompletion = async (userId, lessonId, lessonProgress, lesson =
       });
 
       let homeworkId;
-      
+
       if (!existingHomework) {
         // Create new standalone homework
         const homework = new Homework({
@@ -406,27 +482,27 @@ const handleLessonCompletion = async (userId, lessonId, lessonProgress, lesson =
           level: getDifficultyFromLevel(lesson.level),
           description: `Homework exercises extracted from lesson: ${lesson.lessonName}`,
           instructions: `Complete these exercises based on what you learned in "${lesson.lessonName}"`,
-          
+
           // Map lesson exercises to homework format
           exercises: homeworkExercises,
-          
+
           linkedLessonIds: [lessonId],
-          
+
           // Settings
           isActive: true,
           allowRetakes: true,
           showResults: true,
           showCorrectAnswers: true,
-          
+
           // Auto-calculated
           totalPoints: homeworkExercises.reduce((sum, ex) => sum + (ex.points || 1), 0),
           estimatedDuration: Math.max(10, homeworkExercises.length * 2), // 2 min per exercise
-          difficulty: lesson.metadata?.difficulty === 'advanced' ? 5 : 
-                     lesson.metadata?.difficulty === 'intermediate' ? 3 : 1,
-          
+          difficulty: lesson.metadata?.difficulty === 'advanced' ? 5 :
+            lesson.metadata?.difficulty === 'intermediate' ? 3 : 1,
+
           category: lesson.topic || 'General',
           tags: [lesson.subject, lesson.topic, 'auto-generated'].filter(Boolean),
-          
+
           createdBy: 'system',
           createdAt: new Date(),
           updatedAt: new Date()
@@ -436,7 +512,7 @@ const handleLessonCompletion = async (userId, lessonId, lessonProgress, lesson =
         homeworkId = homework._id;
         results.homeworkCreated = true;
         results.homeworkId = homeworkId;
-        
+
       } else {
         homeworkId = existingHomework._id;
       }
@@ -468,9 +544,9 @@ const handleLessonCompletion = async (userId, lessonId, lessonProgress, lesson =
 
     // 🔥 EXTRACT AND ADD VOCABULARY
     const vocabularyWords = await extractVocabularyFromLesson(lesson, userId);
-    
+
     if (vocabularyWords.length > 0) {
-      
+
       // Add to user's vocabulary collection
       for (const vocabData of vocabularyWords) {
         // Check if word already exists
@@ -481,7 +557,7 @@ const handleLessonCompletion = async (userId, lessonId, lessonProgress, lesson =
         });
 
         let vocabularyId;
-        
+
         if (!existingVocab) {
           // Create new vocabulary word
           const vocabulary = new Vocabulary(vocabData);
@@ -514,7 +590,7 @@ const handleLessonCompletion = async (userId, lessonId, lessonProgress, lesson =
 
         results.vocabularyCount++;
       }
-      
+
       results.vocabularyAdded = true;
     }
 
@@ -528,7 +604,7 @@ const handleLessonCompletion = async (userId, lessonId, lessonProgress, lesson =
     }
     results.message = message;
 
-    
+
     return results;
 
   } catch (error) {
@@ -547,7 +623,7 @@ const handleLessonCompletion = async (userId, lessonId, lessonProgress, lesson =
 // ✅ Extract homework exercises from lesson steps
 const extractHomeworkFromLesson = async (lesson) => {
   const homeworkExercises = [];
-  
+
   lesson.steps.forEach((step, stepIndex) => {
     if (step.type === 'exercise' && Array.isArray(step.data)) {
       step.data.forEach((exercise, exerciseIndex) => {
@@ -560,12 +636,12 @@ const extractHomeworkFromLesson = async (lesson) => {
             instruction: exercise.instruction || `From lesson: ${lesson.lessonName}`,
             correctAnswer: exercise.correctAnswer || exercise.answer,
             points: exercise.points || 1,
-            difficulty: lesson.metadata?.difficulty === 'advanced' ? 5 : 
-                       lesson.metadata?.difficulty === 'intermediate' ? 3 : 1,
+            difficulty: lesson.metadata?.difficulty === 'advanced' ? 5 :
+              lesson.metadata?.difficulty === 'intermediate' ? 3 : 1,
             category: lesson.topic || 'General',
             tags: ['auto-generated', lesson.subject, lesson.topic].filter(Boolean),
             explanation: exercise.explanation || `This exercise is from the lesson: ${lesson.lessonName}`,
-            
+
             // Type-specific fields
             options: exercise.options || [],
             template: exercise.template || '',
@@ -576,12 +652,12 @@ const extractHomeworkFromLesson = async (lesson) => {
             dragItems: exercise.dragItems || [],
             dropZones: exercise.dropZones || []
           };
-          
+
           homeworkExercises.push(homeworkExercise);
         }
       });
     }
-    
+
     // Also include quiz questions as homework exercises
     if (step.type === 'quiz' && Array.isArray(step.data)) {
       step.data.forEach((quiz, quizIndex) => {
@@ -592,27 +668,27 @@ const extractHomeworkFromLesson = async (lesson) => {
           instruction: `Quiz question from lesson: ${lesson.lessonName}`,
           correctAnswer: quiz.correctAnswer,
           points: 1,
-          difficulty: lesson.metadata?.difficulty === 'advanced' ? 5 : 
-                     lesson.metadata?.difficulty === 'intermediate' ? 3 : 1,
+          difficulty: lesson.metadata?.difficulty === 'advanced' ? 5 :
+            lesson.metadata?.difficulty === 'intermediate' ? 3 : 1,
           category: lesson.topic || 'General',
           tags: ['auto-generated', 'quiz', lesson.subject].filter(Boolean),
           explanation: quiz.explanation || `This quiz question is from: ${lesson.lessonName}`,
-          
+
           options: quiz.options || []
         };
-        
+
         homeworkExercises.push(homeworkExercise);
       });
     }
   });
-  
+
   return homeworkExercises;
 };
 
 // ✅ Extract vocabulary words from lesson steps
 const extractVocabularyFromLesson = async (lesson, userId) => {
   const vocabularyWords = [];
-  
+
   lesson.steps.forEach((step, stepIndex) => {
     if (step.type === 'vocabulary' && Array.isArray(step.data)) {
       step.data.forEach((vocabItem, vocabIndex) => {
@@ -621,46 +697,46 @@ const extractVocabularyFromLesson = async (lesson, userId) => {
             word: vocabItem.term.trim(),
             translation: vocabItem.definition.trim(),
             pronunciation: vocabItem.pronunciation || '',
-            
+
             // Language detection (you can enhance this)
             language: detectLanguage(lesson.subject) || 'english',
             translationLanguage: 'russian',
-            
+
             // Organization
             subject: lesson.subject,
             topic: lesson.topic || 'General',
             subtopic: lesson.lessonName,
-            
+
             // Word details
             partOfSpeech: detectPartOfSpeech(vocabItem.term) || 'noun',
             difficulty: lesson.metadata?.difficulty || 'beginner',
-            
+
             // Additional info
             definition: vocabItem.definition,
             examples: vocabItem.example ? [{
               sentence: vocabItem.example,
               translation: `Пример использования: ${vocabItem.term}`
             }] : [],
-            
+
             // Metadata
             frequency: 1,
-            importance: lesson.metadata?.difficulty === 'advanced' ? 5 : 
-                       lesson.metadata?.difficulty === 'intermediate' ? 3 : 1,
-            
+            importance: lesson.metadata?.difficulty === 'advanced' ? 5 :
+              lesson.metadata?.difficulty === 'intermediate' ? 3 : 1,
+
             isActive: true,
             createdBy: userId,
             tags: ['auto-generated', lesson.subject, lesson.topic].filter(Boolean),
-            
+
             createdAt: new Date(),
             updatedAt: new Date()
           };
-          
+
           vocabularyWords.push(vocabularyWord);
         }
       });
     }
   });
-  
+
   return vocabularyWords;
 };
 
@@ -669,7 +745,7 @@ exports.migrateContentFromCompletedLessons = async (req, res) => {
   try {
     const { userId } = req.params;
     const { lessonIds } = req.body; // Optional: specific lessons
-    
+
     // Verify user access
     if (req.user?.uid !== userId) {
       return res.status(403).json({
@@ -677,9 +753,9 @@ exports.migrateContentFromCompletedLessons = async (req, res) => {
         error: 'Access denied: user mismatch'
       });
     }
-    
+
     let completedLessons;
-    
+
     if (lessonIds && Array.isArray(lessonIds)) {
       // Extract from specific lessons
       completedLessons = await UserProgress.find({
@@ -699,8 +775,8 @@ exports.migrateContentFromCompletedLessons = async (req, res) => {
         ]
       }).populate('lessonId');
     }
-    
-    
+
+
     const results = {
       processedLessons: 0,
       homeworkCreated: 0,
@@ -709,18 +785,18 @@ exports.migrateContentFromCompletedLessons = async (req, res) => {
       errors: [],
       processedLessonDetails: []
     };
-    
+
     for (const progress of completedLessons) {
       if (!progress.lessonId) continue;
-      
+
       try {
         const extractionResult = await handleLessonCompletion(
-          userId, 
-          progress.lessonId._id, 
+          userId,
+          progress.lessonId._id,
           progress,
           progress.lessonId
         );
-        
+
         if (extractionResult.homeworkCreated || extractionResult.vocabularyAdded) {
           results.processedLessons++;
           if (extractionResult.homeworkCreated) results.homeworkCreated++;
@@ -728,7 +804,7 @@ exports.migrateContentFromCompletedLessons = async (req, res) => {
             results.vocabularyAdded++;
             results.totalVocabularyWords += extractionResult.vocabularyCount;
           }
-          
+
           results.processedLessonDetails.push({
             lessonId: progress.lessonId._id,
             lessonName: progress.lessonId.lessonName,
@@ -751,13 +827,13 @@ exports.migrateContentFromCompletedLessons = async (req, res) => {
         });
       }
     }
-    
+
     res.json({
       success: true,
       data: results,
       message: `✅ Processed ${results.processedLessons} lessons. Created ${results.homeworkCreated} homework assignments and added ${results.totalVocabularyWords} vocabulary words.`
     });
-    
+
   } catch (error) {
     console.error('❌ Error migrating content from completed lessons:', error);
     res.status(500).json({
@@ -777,13 +853,13 @@ exports.updateLesson = async (req, res) => {
     }
 
     const updates = req.body;
-    
-    
+
+
     // ✅ Process steps if provided
     if (updates.steps) {
       updates.steps = await processLessonSteps(updates.steps);
     }
-    
+
     // ✅ Process homework if provided
     if (updates.steps) {
       const homeworkData = processHomeworkFromSteps(updates.steps, updates.createHomework);
@@ -801,22 +877,22 @@ exports.updateLesson = async (req, res) => {
 
     // ✅ Update topic if needed
     if (updates.topic && updates.subject && updates.level) {
-      let resolvedTopic = await Topic.findOne({ 
-        subject: updates.subject, 
-        level: updates.level, 
-        name: updates.topic 
+      let resolvedTopic = await Topic.findOne({
+        subject: updates.subject,
+        level: updates.level,
+        name: updates.topic
       });
-      
+
       if (!resolvedTopic) {
-        resolvedTopic = new Topic({ 
-          name: updates.topic, 
-          subject: updates.subject, 
-          level: updates.level, 
-          description: updates.topicDescription || '' 
+        resolvedTopic = new Topic({
+          name: updates.topic,
+          subject: updates.subject,
+          level: updates.level,
+          description: updates.topicDescription || ''
         });
         await resolvedTopic.save();
       }
-      
+
       updates.topicId = resolvedTopic._id;
     }
 
@@ -824,10 +900,10 @@ exports.updateLesson = async (req, res) => {
     updates.updatedAt = new Date();
 
     const updatedLesson = await Lesson.findByIdAndUpdate(
-      lessonId, 
-      updates, 
-      { 
-        new: true, 
+      lessonId,
+      updates,
+      {
+        new: true,
         runValidators: true,
         context: 'query'
       }
@@ -837,7 +913,7 @@ exports.updateLesson = async (req, res) => {
       return res.status(404).json({ error: '❌ Lesson not found' });
     }
 
-    
+
     const response = {
       success: true,
       lesson: updatedLesson,
@@ -853,15 +929,15 @@ exports.updateLesson = async (req, res) => {
 
   } catch (error) {
     console.error('❌ Error updating enhanced lesson:', error);
-    
+
     if (error.name === 'ValidationError') {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: '❌ Validation failed',
         details: Object.values(error.errors).map(err => err.message)
       });
     }
-    
-    res.status(500).json({ 
+
+    res.status(500).json({
       error: '❌ Update failed',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Please try again'
     });
@@ -990,7 +1066,7 @@ exports.getLessonsByTopic = async (req, res) => {
 
   } catch (error) {
     console.error('❌ Error fetching lessons by topic:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: '❌ Failed to fetch lessons',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Please try again'
     });
@@ -1010,7 +1086,7 @@ exports.deleteLesson = async (req, res) => {
       return res.status(404).json({ error: '❌ Lesson not found' });
     }
 
-    res.json({ 
+    res.json({
       success: true,
       message: '✅ Lesson deleted successfully',
       deletedLesson: {
@@ -1022,7 +1098,7 @@ exports.deleteLesson = async (req, res) => {
 
   } catch (error) {
     console.error('❌ Error deleting lesson:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: '❌ Failed to delete lesson',
       message: process.env.NODE_ENV === 'development' ? error.message : 'Please try again'
     });
@@ -1034,28 +1110,28 @@ async function processLessonSteps(steps) {
   if (!Array.isArray(steps)) {
     return [];
   }
-  
-  
+
+
   const validStepTypes = [
-    'explanation', 'example', 'practice', 'exercise', 
-    'vocabulary', 'quiz', 'video', 'audio', 
+    'explanation', 'example', 'practice', 'exercise',
+    'vocabulary', 'quiz', 'video', 'audio',
     'reading', 'writing'
   ];
-  
+
   const processedSteps = [];
-  
+
   for (let index = 0; index < steps.length; index++) {
     const step = steps[index];
-    
+
     try {
       const stepType = step.type || 'explanation';
-      
+
       if (!validStepTypes.includes(stepType)) {
         step.type = 'explanation';
       }
-      
+
       let processedData;
-      
+
       switch (stepType) {
         case 'explanation':
         case 'example':
@@ -1063,52 +1139,60 @@ async function processLessonSteps(steps) {
           processedData = await processContentStep(step, index);
           break;
         }
-          
+
         case 'exercise': {
-          processedData = await processExerciseStep(step, index);
+          // ✅ NEW: Check if this is a NEW interactive type (has content.type)
+          if (step.content && step.content.type) {
+            // Preserve the entire content structure - DON'T process it
+            processedData = step.content;
+            console.log(`Preserving interactive exercise: ${step.content.type}`);
+          } else {
+            // Traditional exercise processing (array of questions)
+            processedData = await processExerciseStep(step, index);
+          }
           break;
         }
-          
+
         case 'practice': {
           processedData = await processPracticeStep(step, index);
           break;
         }
-          
+
         case 'vocabulary': {
           processedData = await processVocabularyStep(step, index);
           break;
         }
-          
+
         case 'quiz': {
           processedData = await processQuizStep(step, index);
           break;
         }
-          
+
         case 'video':
         case 'audio': {
           processedData = await processMediaStep(step, index);
           break;
         }
-          
+
         case 'writing': {
           processedData = await processWritingStep(step, index);
           break;
         }
-          
+
         default:
           processedData = step.data || step.content || {};
       }
-      
-      const finalStep = { 
-        type: stepType, 
-        data: processedData 
+
+      const finalStep = {
+        type: stepType,
+        data: processedData
       };
-      
+
       processedSteps.push(finalStep);
-      
+
     } catch (stepError) {
       console.error(`❌ Error processing step ${index + 1}:`, stepError);
-      
+
       // Add error step instead of failing
       processedSteps.push({
         type: 'explanation',
@@ -1120,13 +1204,13 @@ async function processLessonSteps(steps) {
       });
     }
   }
-  
+
   return processedSteps;
 }
 
 async function processContentStep(step, index) {
   let content = '';
-  
+
   if (typeof step.content === 'string') {
     content = step.content;
   } else if (step.data && typeof step.data.content === 'string') {
@@ -1136,11 +1220,11 @@ async function processContentStep(step, index) {
   } else if (typeof step === 'string') {
     content = step;
   }
-  
+
   if (!content.trim()) {
     content = `Content for ${step.type} step ${index + 1} is not available.`;
   }
-  
+
   return {
     content: content.trim(),
     questions: step.questions || step.data?.questions || []
@@ -1175,7 +1259,7 @@ async function processExerciseStep(step, index) {
       instruction: String(exercise.instruction || '').trim(),
       hint: String(exercise.hint || '').trim(),
       explanation: String(exercise.explanation || '').trim(),
-      
+
       // Add all new potential fields
       options: exercise.options || [],
       template: exercise.template || '',
@@ -1194,9 +1278,9 @@ async function processExerciseStep(step, index) {
 }
 
 async function processQuizStep(step, index) {
-  
+
   let quizzes = [];
-  
+
   if (step.quizzes && Array.isArray(step.quizzes)) {
     quizzes = step.quizzes;
   } else if (Array.isArray(step.data)) {
@@ -1208,20 +1292,20 @@ async function processQuizStep(step, index) {
   } else if (step.question) {
     quizzes = [step];
   }
-  
+
   const validatedQuizzes = [];
-  
+
   for (let qIndex = 0; qIndex < quizzes.length; qIndex++) {
     const quiz = quizzes[qIndex];
-    
+
     if (!quiz.question || !String(quiz.question).trim()) {
       continue;
     }
-    
+
     if (quiz.correctAnswer === undefined || quiz.correctAnswer === null) {
       continue;
     }
-    
+
     const validatedQuiz = {
       id: quiz.id || `quiz_${index}_${qIndex}`,
       question: String(quiz.question).trim(),
@@ -1230,7 +1314,7 @@ async function processQuizStep(step, index) {
       explanation: String(quiz.explanation || '').trim(),
       points: Number(quiz.points) || 1
     };
-    
+
     if (validatedQuiz.type === 'multiple-choice') {
       if (Array.isArray(quiz.options) && quiz.options.length > 0) {
         validatedQuiz.options = quiz.options.map(opt => {
@@ -1242,7 +1326,7 @@ async function processQuizStep(step, index) {
             return { text: String(opt), value: String(opt) };
           }
         }).filter(opt => opt.text && opt.text.trim());
-        
+
         if (validatedQuiz.options.length === 0) {
           validatedQuiz.options = [
             { text: 'Option A', value: 'A' },
@@ -1257,13 +1341,13 @@ async function processQuizStep(step, index) {
           { text: 'Option C', value: 'C' }
         ];
       }
-      
+
       if (typeof validatedQuiz.correctAnswer === 'number') {
         if (validatedQuiz.correctAnswer >= validatedQuiz.options.length || validatedQuiz.correctAnswer < 0) {
           validatedQuiz.correctAnswer = 0;
         }
       } else if (typeof validatedQuiz.correctAnswer === 'string') {
-        const answerIndex = validatedQuiz.options.findIndex(opt => 
+        const answerIndex = validatedQuiz.options.findIndex(opt =>
           opt.text.toLowerCase().trim() === validatedQuiz.correctAnswer.toLowerCase().trim() ||
           opt.value.toLowerCase().trim() === validatedQuiz.correctAnswer.toLowerCase().trim()
         );
@@ -1278,7 +1362,7 @@ async function processQuizStep(step, index) {
         { text: 'True', value: true },
         { text: 'False', value: false }
       ];
-      
+
       if (typeof validatedQuiz.correctAnswer === 'string') {
         validatedQuiz.correctAnswer = validatedQuiz.correctAnswer.toLowerCase() === 'true' ? 0 : 1;
       } else if (typeof validatedQuiz.correctAnswer === 'boolean') {
@@ -1287,10 +1371,10 @@ async function processQuizStep(step, index) {
         validatedQuiz.correctAnswer = validatedQuiz.correctAnswer ? 0 : 1;
       }
     }
-    
+
     validatedQuizzes.push(validatedQuiz);
   }
-  
+
   if (validatedQuizzes.length === 0) {
     validatedQuizzes.push({
       id: `default_quiz_${index}`,
@@ -1306,7 +1390,7 @@ async function processQuizStep(step, index) {
       points: 1
     });
   }
-  
+
   return validatedQuizzes;
 }
 
@@ -1337,7 +1421,7 @@ async function processVocabularyStep(step, index) {
 async function processPracticeStep(step, index) {
   let instructions = '';
   let practiceType = 'guided';
-  
+
   if (step.instructions) {
     instructions = step.instructions;
     practiceType = step.practiceType || 'guided';
@@ -1349,11 +1433,11 @@ async function processPracticeStep(step, index) {
       practiceType = step.data.type || step.data.practiceType || 'guided';
     }
   }
-  
+
   if (!instructions.trim()) {
     instructions = "Practice instructions not provided.";
   }
-  
+
   return {
     instructions: instructions.trim(),
     type: practiceType
@@ -1363,7 +1447,7 @@ async function processPracticeStep(step, index) {
 async function processMediaStep(step, index) {
   let url = '';
   let description = '';
-  
+
   if (step.url) {
     url = step.url;
     description = step.description || '';
@@ -1375,11 +1459,11 @@ async function processMediaStep(step, index) {
       description = step.data.description || '';
     }
   }
-  
+
   if (!url.trim()) {
     url = "https://example.com/media-placeholder";
   }
-  
+
   return {
     url: url.trim(),
     description: description.trim()
@@ -1389,7 +1473,7 @@ async function processMediaStep(step, index) {
 async function processWritingStep(step, index) {
   let prompt = '';
   let wordLimit = 100;
-  
+
   if (step.prompt) {
     prompt = step.prompt;
     wordLimit = step.wordLimit || 100;
@@ -1401,11 +1485,11 @@ async function processWritingStep(step, index) {
       wordLimit = step.data.wordLimit || 100;
     }
   }
-  
+
   if (!prompt.trim()) {
     prompt = "Writing prompt not provided.";
   }
-  
+
   return {
     prompt: prompt.trim(),
     wordLimit: Number(wordLimit) || 100
@@ -1415,16 +1499,16 @@ async function processWritingStep(step, index) {
 function processHomeworkFromSteps(steps, createHomework) {
   const exercises = [];
   const quizzes = [];
-  
+
   if (!createHomework || !Array.isArray(steps)) {
     return { exercises, quizzes };
   }
-  
+
   steps.forEach((step, stepIndex) => {
     try {
       if (step.type === 'exercise') {
         let exerciseData = [];
-        
+
         if (step.exercises && Array.isArray(step.exercises)) {
           exerciseData = step.exercises;
         } else if (step.data && Array.isArray(step.data)) {
@@ -1432,12 +1516,12 @@ function processHomeworkFromSteps(steps, createHomework) {
         } else if (step.data && step.data.exercises && Array.isArray(step.data.exercises)) {
           exerciseData = step.data.exercises;
         }
-        
+
         exerciseData.forEach((exercise, exerciseIndex) => {
-          if (exercise.includeInHomework && 
-              exercise.question && 
-              (exercise.answer || exercise.correctAnswer)) {
-            
+          if (exercise.includeInHomework &&
+            exercise.question &&
+            (exercise.answer || exercise.correctAnswer)) {
+
             const homeworkExercise = {
               question: exercise.question,
               answer: exercise.answer || exercise.correctAnswer,
@@ -1448,7 +1532,7 @@ function processHomeworkFromSteps(steps, createHomework) {
               hint: exercise.hint || '',
               explanation: exercise.explanation || ''
             };
-            
+
             switch (exercise.type) {
               case 'abc':
               case 'multiple-choice':
@@ -1472,15 +1556,15 @@ function processHomeworkFromSteps(steps, createHomework) {
                 homeworkExercise.dropZones = exercise.dropZones || [];
                 break;
             }
-            
+
             exercises.push(homeworkExercise);
           }
         });
       }
-      
+
       if (step.type === 'quiz') {
         let quizData = [];
-        
+
         if (step.quizzes && Array.isArray(step.quizzes)) {
           quizData = step.quizzes;
         } else if (step.data && Array.isArray(step.data)) {
@@ -1488,7 +1572,7 @@ function processHomeworkFromSteps(steps, createHomework) {
         } else if (step.data && step.data.quizzes && Array.isArray(step.data.quizzes)) {
           quizData = step.data.quizzes;
         }
-        
+
         quizData.forEach((quiz, quizIndex) => {
           if (quiz.question && quiz.correctAnswer !== undefined) {
             quizzes.push({
@@ -1505,7 +1589,7 @@ function processHomeworkFromSteps(steps, createHomework) {
     } catch (stepError) {
     }
   });
-  
+
   return { exercises, quizzes };
 }
 
@@ -1525,7 +1609,7 @@ function processMetadata(metadata) {
       learningObjectives: []
     };
   }
-  
+
   return {
     difficulty: metadata.difficulty || 'beginner',
     estimatedDuration: metadata.estimatedDuration || 30,
@@ -1545,7 +1629,7 @@ function getStepTypesCount(steps) {
 // Helper functions for content extraction
 const getDifficultyFromLevel = (level) => {
   if (level <= 4) return 'Beginner';
-  if (level <= 8) return 'Intermediate'; 
+  if (level <= 8) return 'Intermediate';
   return 'Advanced';
 };
 
@@ -1560,7 +1644,7 @@ const detectLanguage = (subject) => {
     'German': 'german',
     'Немецкий': 'german'
   };
-  
+
   return languageMap[subject] || 'english';
 };
 
@@ -1569,7 +1653,7 @@ const detectPartOfSpeech = (word) => {
   if (word.endsWith('ly')) return 'adverb';
   if (word.endsWith('tion') || word.endsWith('sion')) return 'noun';
   if (word.endsWith('ed')) return 'verb';
-  
+
   return 'noun';
 };
 

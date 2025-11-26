@@ -1961,6 +1961,7 @@ router.post('/', verifyToken, (req, res) => {
 });
 
 // ✅ GET: Lesson by ID (Enhanced with fallback) - MUST come after specific routes
+// ✅ GET: Lesson by ID (Enhanced with proper content handling)
 router.get('/:id', validateObjectId, async (req, res) => {
   try {
     if (!Lesson) {
@@ -1982,35 +1983,120 @@ router.get('/:id', validateObjectId, async (req, res) => {
       });
     }
 
-    // ✅ FIX: Process steps to ensure exercises are in the correct location
+    // ✅ CRITICAL FIX: Process steps to ensure ALL content structures are preserved
     if (lesson.steps && Array.isArray(lesson.steps)) {
       lesson.steps = lesson.steps.map((step, index) => {
         console.log(`Processing step ${index + 1} (${step.type})`);
 
-        // For exercise steps, ensure data is properly structured
+        // ✅ NEW: Handle steps with content.type (histogram, map, block-coding, etc.)
+        // These are NEW interactive step types that have a different structure
+        if (step.content && step.content.type) {
+          console.log(`📊 Step ${index + 1}: Found content.type = ${step.content.type}`);
+          // Keep the content structure intact - frontend expects it
+          // Also set exerciseType for frontend compatibility
+          return {
+            ...step,
+            exerciseType: step.content.type,
+            // Ensure data field exists for backwards compatibility
+            data: step.data || step.content
+          };
+        }
+
+        // ✅ Handle direct interactive step types (data_analysis, fraction_visual, etc.)
+        const directInteractiveTypes = [
+          'data_analysis', 'fraction_visual', 'geometry_poly',
+          'chem_mixing', 'chem_matching',
+          'english_sentence_fix', 'english_sentence_order',
+          'language_noun_bag', 'histogram', 'map', 'block-coding'
+        ];
+
+        if (directInteractiveTypes.includes(step.type)) {
+          console.log(`🎯 Step ${index + 1}: Direct interactive type ${step.type}`);
+          return {
+            ...step,
+            exerciseType: step.type,
+            content: step.content || step.data || step,
+            data: step.data || step.content || step
+          };
+        }
+
+        // ✅ Handle traditional exercise steps with array of exercises
         if (step.type === 'exercise' && !step.gameType) {
-          // If data exists and is an array, it's correct
-          if (Array.isArray(step.data)) {
-            console.log(`✅ Step ${index + 1}: Exercise data is correctly structured (${step.data.length} exercises)`);
+          // If data exists and is an array, it's the old format
+          if (Array.isArray(step.data) && step.data.length > 0) {
+            console.log(`✅ Step ${index + 1}: Traditional exercise array (${step.data.length} exercises)`);
+            return step;
           }
+
           // If data is an object with exercises array, flatten it
-          else if (step.data?.exercises && Array.isArray(step.data.exercises)) {
+          if (step.data?.exercises && Array.isArray(step.data.exercises)) {
             console.log(`🔧 Step ${index + 1}: Moving exercises from data.exercises to data`);
-            step.data = step.data.exercises;
+            return {
+              ...step,
+              data: step.data.exercises
+            };
           }
+
           // If content has exercises, move them to data
-          else if (step.content?.exercises && Array.isArray(step.content.exercises)) {
+          if (step.content?.exercises && Array.isArray(step.content.exercises)) {
             console.log(`🔧 Step ${index + 1}: Moving exercises from content.exercises to data`);
-            step.data = step.content.exercises;
+            return {
+              ...step,
+              data: step.content.exercises
+            };
+          }
+
+          // ✅ NEW: If data is empty array but content exists, use content
+          if (Array.isArray(step.data) && step.data.length === 0 && step.content) {
+            console.log(`🔧 Step ${index + 1}: Data is empty, using content instead`);
+            return {
+              ...step,
+              data: step.content,
+              content: step.content
+            };
           }
         }
 
-        // If step has gameType and gameConfig, ensure proper structure
-        if (step.gameType && step.gameConfig) {
-          console.log('🎮 Processing game-type step');
+        // ✅ Handle game-type steps
+        if (step.gameType || step.type === 'game') {
+          console.log(`🎮 Step ${index + 1}: Game step (${step.gameType || 'unknown'})`);
           return {
             ...step,
-            data: step.content?.exercises || step.data || []
+            data: step.gameConfig?.items || step.content?.exercises || step.data || []
+          };
+        }
+
+        // ✅ Handle vocabulary steps
+        if (step.type === 'vocabulary') {
+          console.log(`📚 Step ${index + 1}: Vocabulary step`);
+          let vocabData = step.data;
+
+          if (step.content?.terms) {
+            vocabData = step.content.terms;
+          } else if (step.data?.terms) {
+            vocabData = step.data.terms;
+          }
+
+          return {
+            ...step,
+            data: vocabData
+          };
+        }
+
+        // ✅ Handle quiz steps
+        if (step.type === 'quiz') {
+          console.log(`❓ Step ${index + 1}: Quiz step`);
+          let quizData = step.data;
+
+          if (step.content?.questions) {
+            quizData = step.content.questions;
+          } else if (step.data?.questions) {
+            quizData = step.data.questions;
+          }
+
+          return {
+            ...step,
+            data: quizData
           };
         }
 
