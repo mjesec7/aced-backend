@@ -7,10 +7,11 @@ import axios from 'axios';
 // CONFIGURATION AND CONSTANTS
 // ================================================
 
-// Payment amounts in tiyin (UZS * 100) - FIXED AMOUNTS
+// Payment amounts in tiyin (UZS * 100) - PRO PLAN DURATION TIERS
 const PAYMENT_AMOUNTS = {
-  start: 26000000,  // 260,000 UZS in tiyin
-  pro: 45500000     // 455,000 UZS in tiyin
+  'pro-1': 25000000,   // 250,000 UZS for 1 month
+  'pro-3': 67500000,   // 675,000 UZS for 3 months (10% discount)
+  'pro-6': 120000000   // 1,200,000 UZS for 6 months (20% discount)
 };
 
 // Transaction states according to PayMe specification
@@ -36,13 +37,13 @@ const PaymeErrorCode = {
   TRANSACTION_NOT_FOUND: -31003,
   ORDER_COMPLETED: -31007,
   UNABLE_TO_PERFORM_OPERATION: -31008,
-  
+
   // Account errors (-31099 to -31050)
   INVALID_ACCOUNT: -31050,
   ACCOUNT_NOT_FOUND: -31050,
   ACCOUNT_BLOCKED: -31051,
   ACCOUNT_PROCESSING: -31052,
-  
+
   // Merchant errors from documentation
   MERCHANT_NOT_FOUND: -31601,
   INVALID_FIELD_VALUE: -31610,
@@ -51,7 +52,7 @@ const PaymeErrorCode = {
   MERCHANT_SERVICE_UNAVAILABLE: -31622,
   MERCHANT_SERVICE_INCORRECT: -31623,
   CARD_ERROR: -31630,
-  
+
   // JSON-RPC errors
   PARSE_ERROR: -32700,
   METHOD_NOT_FOUND: -32601,
@@ -72,16 +73,16 @@ let currentMerchantKey = null;
 const validatePaymeAuth = (req) => {
   try {
     const authHeader = req.headers.authorization;
-    
+
 
     if (!authHeader) {
       return { valid: false, error: 'MISSING_AUTH_HEADER' };
     }
-    
+
     if (!authHeader.startsWith('Basic ')) {
       return { valid: false, error: 'INVALID_AUTH_FORMAT' };
     }
-    
+
     // Decode credentials
     let credentials;
     try {
@@ -89,29 +90,29 @@ const validatePaymeAuth = (req) => {
     } catch (decodeError) {
       return { valid: false, error: 'DECODE_ERROR' };
     }
-    
+
     const [username, password] = credentials.split(':');
-    
-    
-    
+
+
+
     // ✅ CRITICAL: PayMe documentation specifies username must be "Paycom"
     if (username !== 'Paycom') {
       return { valid: false, error: 'INVALID_USERNAME' };
     }
-    
+
     // Validate password (your merchant key)
     const expectedPassword = currentMerchantKey || process.env.PAYME_MERCHANT_KEY;
-    
+
     if (!expectedPassword) {
       return { valid: false, error: 'NO_MERCHANT_KEY' };
     }
-    
+
     if (password !== expectedPassword) {
       return { valid: false, error: 'INVALID_PASSWORD' };
     }
-    
+
     return { valid: true };
-    
+
   } catch (error) {
     console.error('❌ Authorization validation error:', error);
     return { valid: false, error: 'VALIDATION_ERROR' };
@@ -127,7 +128,7 @@ const createErrorResponse = (id, code, data = null) => {
   const messages = {
     [PaymeErrorCode.INVALID_ACCOUNT]: {
       ru: "Неверный account",
-      en: "Invalid account", 
+      en: "Invalid account",
       uz: "Noto'g'ri account"
     },
     [PaymeErrorCode.INVALID_AMOUNT]: {
@@ -136,7 +137,7 @@ const createErrorResponse = (id, code, data = null) => {
       uz: "Noto'g'ri summa"
     },
     [PaymeErrorCode.TRANSACTION_NOT_FOUND]: {
-      ru: "Транзакция не найдена", 
+      ru: "Транзакция не найдена",
       en: "Transaction not found",
       uz: "Tranzaksiya topilmadi"
     },
@@ -162,11 +163,11 @@ const createErrorResponse = (id, code, data = null) => {
     },
     [PaymeErrorCode.INVALID_AUTHORIZATION]: {
       ru: "Неверная авторизация",
-      en: "Invalid authorization", 
+      en: "Invalid authorization",
       uz: "Noto'g'ri avtorizatsiya"
     }
   };
-  
+
   const response = {
     jsonrpc: "2.0",
     id: id,
@@ -174,12 +175,12 @@ const createErrorResponse = (id, code, data = null) => {
       code: code,
       message: messages[code] || {
         ru: "Неизвестная ошибка",
-        en: "Unknown error", 
+        en: "Unknown error",
         uz: "Noma'lum xatolik"
       }
     }
   };
-  
+
   // ✅ FIXED: Return correct field name for account errors
   if (code >= -31099 && code <= -31050 && data !== false) {
     // PayMe expects the field name that's missing or invalid
@@ -187,7 +188,7 @@ const createErrorResponse = (id, code, data = null) => {
   } else if (data !== null && data !== false) {
     response.error.data = data;
   }
-  
+
   return response;
 };
 
@@ -204,64 +205,64 @@ const getAccountFieldName = () => {
 
 const generatePaymeGetUrl = (merchantId, account, amount, options = {}) => {
   try {
-    
+
     if (!merchantId || merchantId === 'undefined') {
       throw new Error('Valid merchant ID required');
     }
-    
+
     if (!account || !account.Login) {  // ✅ CHANGED: Check for Login instead of Login
       throw new Error('Account Login required');
     }
-    
+
     if (!amount || amount <= 0) {
       throw new Error('Valid amount required');
     }
-    
+
     const params = [];
-    
+
     // Required parameters
     params.push(`m=${merchantId}`);
     params.push(`a=${amount}`);
-    
+
     // ✅ CRITICAL FIX: Use ac.Login instead of ac.Login
     params.push(`ac.Login=${account.Login}`);
-    
+
     // Optional parameters
     if (options.lang && ['ru', 'uz', 'en'].includes(options.lang)) {
       params.push(`l=${options.lang}`);
     }
-    
+
     if (options.callback) {
       params.push(`c=${encodeURIComponent(options.callback)}`);
     }
-    
+
     if (options.callback_timeout && Number.isInteger(Number(options.callback_timeout))) {
       params.push(`ct=${options.callback_timeout}`);
     }
-    
+
     if (options.currency) {
       params.push(`cr=${options.currency}`);
     }
-    
+
     // ✅ Join with semicolon as per PayMe documentation
     const paramString = params.join(';');
-    
-    
+
+
     if (paramString.includes('undefined') || paramString.includes('null')) {
       throw new Error('Parameter string contains invalid values: ' + paramString);
     }
-    
+
     const base64Params = Buffer.from(paramString, 'utf8').toString('base64');
     const checkoutUrl = 'https://checkout.paycom.uz';
     const finalUrl = `${checkoutUrl}/${base64Params}`;
-    
+
     const decoded = Buffer.from(base64Params, 'base64').toString('utf8');
     if (decoded !== paramString) {
       throw new Error('URL encoding verification failed');
     }
-    
+
     return finalUrl;
-    
+
   } catch (error) {
     console.error('❌ GET URL generation failed:', error);
     throw error;
@@ -274,27 +275,27 @@ const generatePaymeGetUrl = (merchantId, account, amount, options = {}) => {
 
 const generatePaymePostForm = (userId, plan, options = {}) => {
   try {
-    
+
     const merchantId = process.env.PAYME_MERCHANT_ID;
     if (!merchantId) {
       throw new Error('PAYME_MERCHANT_ID not configured');
     }
-    
+
     const amount = PAYMENT_AMOUNTS[plan];
     if (!amount) {
       throw new Error(`Invalid plan: ${plan}`);
     }
-    
+
     const timestamp = Date.now();
     const randomStr = Math.random().toString(36).substr(2, 9);
     const baseOrderId = `aced${timestamp}${randomStr}`;
     const orderId = baseOrderId.replace(/[^a-zA-Z0-9]/g, '');
-    
+
     // ✅ CRITICAL FIX: Use Login instead of Login
     const accountData = {
       Login: options.userId || userId  // Use Firebase ID as Login
     };
-    
+
     // Create detail object as per documentation
     const detail = {
       receipt_type: 0,
@@ -307,7 +308,7 @@ const generatePaymePostForm = (userId, plan, options = {}) => {
         package_code: "1"
       }]
     };
-    
+
     let detailBase64;
     try {
       const detailJson = JSON.stringify(detail);
@@ -316,10 +317,10 @@ const generatePaymePostForm = (userId, plan, options = {}) => {
       console.error('❌ Detail encoding failed:', encodingError);
       detailBase64 = '';
     }
-    
-    const callbackUrl = options.callback || 
+
+    const callbackUrl = options.callback ||
       `https://api.aced.live/api/payments/payme/return/success?transaction=${orderId}&userId=${userId}`;
-    
+
     // ✅ CRITICAL FIX: Use account[Login] in form
     const formHtml = `
 <form method="POST" action="https://checkout.paycom.uz/" id="payme-form" style="display: none;">
@@ -357,8 +358,8 @@ const generatePaymePostForm = (userId, plan, options = {}) => {
     setTimeout(submitPaymeForm, 1000);
   }
 </script>`;
-    
-    
+
+
     return {
       success: true,
       formHtml,
@@ -371,7 +372,7 @@ const generatePaymePostForm = (userId, plan, options = {}) => {
         accountData
       }
     };
-    
+
   } catch (error) {
     console.error('❌ POST form generation failed:', error);
     return {
@@ -388,23 +389,23 @@ const generatePaymePostForm = (userId, plan, options = {}) => {
 
 const validateAccountAndState = async (account) => {
   try {
-    
+
     if (!account) {
       return { exists: false, state: 'not_exists' };
     }
-    
+
     // ✅ CRITICAL FIX: Check for Login field instead of Login
     let accountValue = null;
     let fieldType = null;
-    
+
     if (account.Login) {
       accountValue = account.Login;
       fieldType = 'Login';
     } else {
       return { exists: false, state: 'not_exists' };
     }
-    
-    
+
+
     // For Firebase ID validation (longer than 20 characters usually)
     if (accountValue.length >= 20) {
       try {
@@ -417,19 +418,19 @@ const validateAccountAndState = async (account) => {
         console.error('❌ Database error:', error.message);
       }
     }
-    
+
     // For order ID format (if you use order IDs as Login sometimes)
     if (accountValue.startsWith('aced') && accountValue.length > 10) {
       return { exists: true, state: 'waiting_payment' };
     }
-    
+
     // For any other valid-looking identifier
     if (accountValue && accountValue.length > 3) {
       return { exists: true, state: 'waiting_payment' };
     }
-    
+
     return { exists: false, state: 'not_exists' };
-    
+
   } catch (error) {
     console.error('❌ Error validating account:', error.message);
     return { exists: false, state: 'not_exists' };
@@ -440,28 +441,28 @@ const validateAccountAndState = async (account) => {
 // ================================================
 
 const handleCheckPerformTransaction = async (req, res, id, params) => {
-  
+
   // Validate required parameters
   if (!params?.amount || !params?.account) {
     return res.status(200).json(createErrorResponse(id, PaymeErrorCode.INVALID_PARAMS));
   }
-  
+
   const { amount, account } = params;
-  
+
   // Validate amount against allowed amounts
   const validAmounts = Object.values(PAYMENT_AMOUNTS);
   if (!validAmounts.includes(amount)) {
     return res.status(200).json(createErrorResponse(id, PaymeErrorCode.INVALID_AMOUNT));
   }
-  
+
   // ✅ FIXED: Validate account according to your business logic
   const accountValidation = await validateAccountAndState(account);
-  
+
   if (!accountValidation.exists) {
     return res.status(200).json(createErrorResponse(id, PaymeErrorCode.INVALID_ACCOUNT, getAccountFieldName()));
   }
-  
-  
+
+
   return res.status(200).json({
     jsonrpc: "2.0",
     id: id,
@@ -483,14 +484,14 @@ const handleCheckPerformTransaction = async (req, res, id, params) => {
 };
 
 const handleCreateTransaction = async (req, res, id, params) => {
-  
+
   // Validate required parameters
   if (!params?.id || !params?.time || !params?.amount || !params?.account) {
     return res.status(200).json(createErrorResponse(id, PaymeErrorCode.INVALID_PARAMS));
   }
-  
+
   const { id: txId, time, amount, account } = params;
-  
+
   // Check if transaction already exists
   const existingTransaction = sandboxTransactions.get(txId);
   if (existingTransaction) {
@@ -505,19 +506,19 @@ const handleCreateTransaction = async (req, res, id, params) => {
       }
     });
   }
-  
+
   // Validate amount
   const validAmounts = Object.values(PAYMENT_AMOUNTS);
   if (!validAmounts.includes(amount)) {
     return res.status(200).json(createErrorResponse(id, PaymeErrorCode.INVALID_AMOUNT));
   }
-  
+
   // ✅ FIXED: Validate account
   const accountValidation = await validateAccountAndState(account);
   if (!accountValidation.exists) {
     return res.status(200).json(createErrorResponse(id, PaymeErrorCode.INVALID_ACCOUNT, getAccountFieldName()));
   }
-  
+
   // Create new transaction
   const newTransaction = {
     id: txId,
@@ -532,11 +533,11 @@ const handleCreateTransaction = async (req, res, id, params) => {
     reason: null,
     receivers: null
   };
-  
+
   // Store transaction
   sandboxTransactions.set(txId, newTransaction);
-  
-  
+
+
   return res.status(200).json({
     jsonrpc: "2.0",
     id: id,
@@ -560,13 +561,13 @@ const handlePerformTransaction = async (req, res, id, params) => {
   }
   if (transaction.state === TransactionState.COMPLETED) {
     return res.status(200).json({
-        jsonrpc: "2.0",
-        id: id,
-        result: {
-          transaction: transaction.transaction,
-          perform_time: transaction.perform_time,
-          state: transaction.state
-        }
+      jsonrpc: "2.0",
+      id: id,
+      result: {
+        transaction: transaction.transaction,
+        perform_time: transaction.perform_time,
+        state: transaction.state
+      }
     });
   }
   if (transaction.state < 0) {
@@ -585,9 +586,15 @@ const handlePerformTransaction = async (req, res, id, params) => {
       const user = await User.findOne({ firebaseId: accountLogin });
 
       if (user) {
-        const plan = (transaction.amount === PAYMENT_AMOUNTS.pro) ? 'pro' : 'start';
-        // Give the user a 30-day subscription using the new method from your user model
-        await user.grantSubscription(plan, 30, 'payment');
+        // Determine duration based on amount paid
+        let durationDays = 30;
+        if (transaction.amount === PAYMENT_AMOUNTS['pro-3']) {
+          durationDays = 90;  // 3 months
+        } else if (transaction.amount === PAYMENT_AMOUNTS['pro-6']) {
+          durationDays = 180; // 6 months
+        }
+        // Grant Pro subscription for the determined duration
+        await user.grantSubscription('pro', durationDays, 'payment');
       }
     }
   } catch (dbError) {
@@ -602,9 +609,9 @@ const handlePerformTransaction = async (req, res, id, params) => {
   // --- Start of PayMe Success Response (UNCHANGED) ---
   transaction.state = TransactionState.COMPLETED;
   transaction.perform_time = Date.now();
-  
+
   return res.status(200).json({
-    jsonrpc: "2.0", 
+    jsonrpc: "2.0",
     id: id,
     result: {
       transaction: transaction.transaction,
@@ -616,18 +623,18 @@ const handlePerformTransaction = async (req, res, id, params) => {
 
 
 const handleCancelTransaction = async (req, res, id, params) => {
-  
+
   if (!params?.id) {
     return res.status(200).json(createErrorResponse(id, PaymeErrorCode.INVALID_PARAMS));
   }
-  
+
   const transaction = sandboxTransactions.get(params.id);
   if (!transaction) {
     return res.status(200).json(createErrorResponse(id, PaymeErrorCode.TRANSACTION_NOT_FOUND));
   }
-  
+
   const originalState = transaction.state;
-  
+
   // Already cancelled
   if (transaction.state < 0) {
     return res.status(200).json({
@@ -640,7 +647,7 @@ const handleCancelTransaction = async (req, res, id, params) => {
       }
     });
   }
-  
+
   // Determine new state and reason
   let newState, reason;
   if (originalState === TransactionState.CREATED) {
@@ -653,14 +660,14 @@ const handleCancelTransaction = async (req, res, id, params) => {
   } else {
     return res.status(200).json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
   }
-  
+
   // Update transaction
   transaction.state = newState;
   transaction.cancel_time = Date.now();
   transaction.reason = reason;
   transaction.cancelled = true;
-  
-  
+
+
   return res.status(200).json({
     jsonrpc: "2.0",
     id: id,
@@ -674,16 +681,16 @@ const handleCancelTransaction = async (req, res, id, params) => {
 
 // ✅ FIXED: CheckTransaction handler
 const handleCheckTransaction = async (req, res, id, params) => {
-  
+
   if (!params?.id) {
     return res.status(200).json(createErrorResponse(id, PaymeErrorCode.INVALID_PARAMS));
   }
-  
+
   const transaction = sandboxTransactions.get(params.id);
   if (!transaction) {
     return res.status(200).json(createErrorResponse(id, PaymeErrorCode.TRANSACTION_NOT_FOUND));
   }
-  
+
   let result = {
     create_time: transaction.create_time,
     perform_time: 0,
@@ -692,7 +699,7 @@ const handleCheckTransaction = async (req, res, id, params) => {
     state: transaction.state,
     reason: null
   };
-  
+
   switch (transaction.state) {
     case TransactionState.CREATED:
       result.perform_time = 0;
@@ -715,8 +722,8 @@ const handleCheckTransaction = async (req, res, id, params) => {
       result.reason = transaction.reason || 5;
       break;
   }
-  
-  
+
+
   return res.status(200).json({
     jsonrpc: "2.0",
     id: id,
@@ -726,10 +733,10 @@ const handleCheckTransaction = async (req, res, id, params) => {
 
 // FIXED: GetStatement handler
 const handleGetStatement = (req, res, id, params) => {
-  
+
   const from = params?.from || 0;
   const to = params?.to || Date.now();
-  
+
   const transactions = [];
   for (const [transactionId, transaction] of sandboxTransactions.entries()) {
     if (transaction.create_time >= from && transaction.create_time <= to) {
@@ -748,8 +755,8 @@ const handleGetStatement = (req, res, id, params) => {
       });
     }
   }
-  
-  
+
+
   return res.status(200).json({
     jsonrpc: "2.0",
     id: id,
@@ -761,9 +768,9 @@ const handleGetStatement = (req, res, id, params) => {
 
 // FIXED: ChangePassword handler
 const handleChangePassword = (req, res, id, params) => {
-  
+
   // In sandbox, always return success
-  
+
   return res.status(200).json({
     jsonrpc: "2.0",
     id: id,
@@ -779,11 +786,11 @@ const handleChangePassword = (req, res, id, params) => {
 
 const handleSandboxPayment = async (req, res) => {
   try {
- 
-    
+
+
     // Parse JSON-RPC request
     const { method, params, id } = req.body;
-    
+
     // Validate JSON-RPC format
     if (!method) {
       return res.status(200).json({
@@ -795,10 +802,10 @@ const handleSandboxPayment = async (req, res) => {
         }
       });
     }
-    
+
     if (id === undefined) {
       return res.status(200).json({
-        jsonrpc: "2.0", 
+        jsonrpc: "2.0",
         id: null,
         error: {
           code: -32602,
@@ -806,7 +813,7 @@ const handleSandboxPayment = async (req, res) => {
         }
       });
     }
-    
+
     // STEP 1: Validate authorization FIRST
     const authResult = validatePaymeAuth(req);
     if (!authResult.valid) {
@@ -819,32 +826,32 @@ const handleSandboxPayment = async (req, res) => {
         }
       });
     }
-    
-    
+
+
     // STEP 2: Route to method handlers
     switch (method) {
       case 'CheckPerformTransaction':
         return handleCheckPerformTransaction(req, res, id, params);
-        
+
       case 'CreateTransaction':
         return handleCreateTransaction(req, res, id, params);
-        
+
       case 'PerformTransaction':
         return handlePerformTransaction(req, res, id, params);
-        
+
       case 'CancelTransaction':
         return handleCancelTransaction(req, res, id, params);
-        
+
       case 'CheckTransaction':
         return handleCheckTransaction(req, res, id, params);
-        
+
       case 'GetStatement':
         return handleGetStatement(req, res, id, params);
-        
+
       case 'ChangePassword':
         return handleChangePassword(req, res, id, params);
-        
-              default:
+
+      default:
         return res.status(200).json({
           jsonrpc: "2.0",
           id: id,
@@ -855,7 +862,7 @@ const handleSandboxPayment = async (req, res) => {
           }
         });
     }
-    
+
   } catch (error) {
     console.error('❌ Sandbox error:', error);
     return res.status(200).json({
@@ -890,7 +897,7 @@ const getPaymentAmounts = () => {
 // Safe error response helper
 const safeErrorResponse = (res, statusCode, error, context = 'Operation') => {
   let errorMessage = `${context} failed`;
-  
+
   if (typeof error === 'string') {
     errorMessage = error;
   } else if (error && typeof error.message === 'string') {
@@ -902,7 +909,7 @@ const safeErrorResponse = (res, statusCode, error, context = 'Operation') => {
       errorMessage = `${context} failed with complex error`;
     }
   }
-  
+
   return res.status(statusCode).json({
     success: false,
     error: errorMessage,
@@ -914,38 +921,38 @@ const safeErrorResponse = (res, statusCode, error, context = 'Operation') => {
 // FIXED: Generate direct PayMe URL (GET method)
 const generateDirectPaymeUrl = async (userId, plan, options = {}) => {
   try {
-    
+
     // Get merchant ID with validation
     const merchantId = process.env.PAYME_MERCHANT_ID;
-    
+
     if (!merchantId || merchantId === 'undefined' || typeof merchantId !== 'string') {
       console.error('❌ Merchant ID not loaded properly');
       throw new Error('PayMe Merchant ID not configured. Check your .env file.');
     }
-    
-    
+
+
     const amounts = getPaymentAmounts();
     const planAmount = amounts[plan]?.tiyin;
-    
+
     if (!planAmount) {
       throw new Error(`Plan "${plan}" not found. Available: start, pro`);
     }
-    
+
     // Generate clean order ID (alphanumeric only)
     const timestamp = Date.now();
     const randomPart = Math.random().toString(36).substr(2, 6);
     const baseOrderId = `aced${timestamp}${randomPart}`;
     const orderId = baseOrderId.replace(/[^a-zA-Z0-9]/g, '');
-    
-   
-    
+
+
+
     // Create account object with Login
     const account = { Login: orderId };
-    
+
     // Use the fixed generatePaymeGetUrl function
     const paymentUrl = generatePaymeGetUrl(merchantId, account, planAmount, options);
-    
-    
+
+
     return {
       success: true,
       paymentUrl,
@@ -956,7 +963,7 @@ const generateDirectPaymeUrl = async (userId, plan, options = {}) => {
         plan
       }
     };
-    
+
   } catch (error) {
     console.error('❌ GET URL generation failed:', error);
     return {
@@ -969,39 +976,39 @@ const generateDirectPaymeUrl = async (userId, plan, options = {}) => {
 // FIXED: Generate direct PayMe form (POST method)
 const generateDirectPaymeForm = async (userId, plan, options = {}) => {
   try {
-    
+
     const merchantId = process.env.PAYME_MERCHANT_ID;
-    
+
     if (!merchantId || merchantId === 'undefined' || merchantId.length < 10) {
       throw new Error('Invalid PayMe Merchant ID configuration');
     }
-    
+
     const amounts = getPaymentAmounts();
     const planAmount = amounts[plan]?.tiyin;
-    
+
     if (!planAmount) {
       throw new Error(`Unknown plan: ${plan}`);
     }
-    
+
     // Generate clean order ID
     const timestamp = Date.now();
     const randomStr = Math.random().toString(36).substr(2, 9);
     const baseOrderId = options.Login || `aced${timestamp}${randomStr}`;
     const orderId = baseOrderId.replace(/[^a-zA-Z0-9]/g, '');
-    
-    
+
+
     // Use the fixed generatePaymePostForm function
     const result = generatePaymePostForm(userId, plan, {
       ...options,
       Login: orderId
     });
-    
+
     if (result.success) {
       return result;
     } else {
       throw new Error(result.error || 'Form generation failed');
     }
-    
+
   } catch (error) {
     console.error('❌ POST form generation failed:', error);
     return {
@@ -1015,61 +1022,61 @@ const generateDirectPaymeForm = async (userId, plan, options = {}) => {
 const initiatePaymePayment = async (req, res) => {
   try {
     const { userId, plan, additionalData = {}, method: requestMethod } = req.body;
-    
-    
+
+
     // Validation
     if (!userId || typeof userId !== 'string') {
       return safeErrorResponse(res, 400, 'Valid userId is required', 'Payment initiation');
     }
-    
+
     if (!plan || !['start', 'pro'].includes(plan)) {
       return safeErrorResponse(res, 400, 'Valid plan (start or pro) is required', 'Payment initiation');
     }
-    
+
     // Environment validation
     const merchantId = process.env.PAYME_MERCHANT_ID;
-    
+
     if (!merchantId || merchantId === 'undefined') {
       console.error('❌ PAYME_MERCHANT_ID not properly set');
       return safeErrorResponse(res, 500, 'PayMe merchant configuration error', 'Payment initiation');
     }
-    
+
     const amount = PAYMENT_AMOUNTS[plan];
     if (!amount) {
       return safeErrorResponse(res, 400, 'Invalid plan amount', 'Payment initiation');
     }
-    
+
     // Generate clean order ID
     const timestamp = Date.now();
     const randomStr = Math.random().toString(36).substr(2, 9);
     const baseOrderId = `aced${timestamp}${randomStr}`;
     const cleanOrderId = baseOrderId.replace(/[^a-zA-Z0-9]/g, '');
-    
-    
+
+
     const isProduction = process.env.NODE_ENV === 'production';
-    
+
     if (isProduction && merchantId) {
       const useGetMethod = requestMethod === 'get' || additionalData.useGetMethod;
-      
+
       if (useGetMethod) {
         // Clean options for GET method
         const urlOptions = {
           lang: ['ru', 'uz', 'en'].includes(additionalData.lang) ? additionalData.lang : 'ru',
-          callback: additionalData.callback || 
-                   `https://api.aced.live/api/payments/payme/return/success?transaction=${cleanOrderId}&userId=${userId}`,
+          callback: additionalData.callback ||
+            `https://api.aced.live/api/payments/payme/return/success?transaction=${cleanOrderId}&userId=${userId}`,
           callback_timeout: Number(additionalData.callback_timeout) || 15000
         };
-        
-        
+
+
         const result = await generateDirectPaymeUrl(userId, plan, urlOptions);
-        
+
         if (result.success) {
           // Final URL validation
           if (!result.paymentUrl || result.paymentUrl.includes('undefined') || result.paymentUrl.includes('[object Object]')) {
             throw new Error('Generated URL contains invalid data');
           }
-          
-          
+
+
           return res.json({
             success: true,
             message: '✅ PayMe checkout URL generated',
@@ -1090,13 +1097,13 @@ const initiatePaymePayment = async (req, res) => {
         const result = await generateDirectPaymeForm(userId, plan, {
           Login: cleanOrderId,
           lang: additionalData.lang || 'ru',
-          callback: additionalData.callback || 
-                   `https://api.aced.live/api/payments/payme/return/success?transaction=${cleanOrderId}&userId=${userId}`,
+          callback: additionalData.callback ||
+            `https://api.aced.live/api/payments/payme/return/success?transaction=${cleanOrderId}&userId=${userId}`,
           callback_timeout: Number(additionalData.callback_timeout) || 15000
         });
-        
+
         if (result.success) {
-          
+
           return res.json({
             success: true,
             message: '✅ PayMe checkout form generated',
@@ -1135,7 +1142,7 @@ const initiatePaymePayment = async (req, res) => {
         }
       });
     }
-    
+
   } catch (error) {
     console.error('❌ Payment initiation error:', error);
     return safeErrorResponse(res, 500, error.message || 'Payment initiation failed', 'Payment initiation');
@@ -1155,9 +1162,9 @@ const validateUserRoute = async (req, res) => {
         valid: false
       });
     }
-    
+
     let user = null;
-    
+
     if (userId.length >= 20 && !userId.match(/^[0-9a-fA-F]{24}$/)) {
       user = await User.findOne({ firebaseId: userId });
     } else if (userId.match(/^[0-9a-fA-F]{24}$/)) {
@@ -1175,7 +1182,7 @@ const validateUserRoute = async (req, res) => {
         ]
       });
     }
-    
+
     if (!user) {
       return res.status(404).json({
         message: '❌ User not found',
@@ -1184,9 +1191,9 @@ const validateUserRoute = async (req, res) => {
         searchedBy: 'Multiple strategies attempted'
       });
     }
-    
-   
-    
+
+
+
     return res.status(200).json({
       message: '✅ User validation successful',
       valid: true,
@@ -1204,7 +1211,7 @@ const validateUserRoute = async (req, res) => {
     console.error('❌ User validation error:', error);
     let errorMessage = '❌ Server error during user validation';
     let statusCode = 500;
-    
+
     if (error.name === 'CastError') {
       errorMessage = '❌ Invalid user ID format';
       statusCode = 400;
@@ -1212,7 +1219,7 @@ const validateUserRoute = async (req, res) => {
       errorMessage = '❌ User data validation error';
       statusCode = 400;
     }
-    
+
     res.status(statusCode).json({
       message: errorMessage,
       valid: false,
@@ -1227,7 +1234,7 @@ const getUserInfo = async (req, res) => {
   try {
     const { userId } = req.params;
     let user = null;
-    
+
     if (userId.length >= 20 && !userId.match(/^[0-9a-fA-F]{24}$/)) {
       user = await User.findOne({ firebaseId: userId });
     } else if (userId.match(/^[0-9a-fA-F]{24}$/)) {
@@ -1237,11 +1244,11 @@ const getUserInfo = async (req, res) => {
         $or: [{ firebaseId: userId }, { email: userId }, { Login: userId }]
       });
     }
-    
+
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
-    
+
     res.json({
       user: {
         id: user._id,
@@ -1263,7 +1270,7 @@ const updateUserProfile = async (req, res) => {
     const { userId } = req.params;
     const updateData = req.body;
     let user = null;
-    
+
     if (userId.length >= 20 && !userId.match(/^[0-9a-fA-F]{24}$/)) {
       user = await User.findOne({ firebaseId: userId });
     } else if (userId.match(/^[0-9a-fA-F]{24}$/)) {
@@ -1273,20 +1280,20 @@ const updateUserProfile = async (req, res) => {
         $or: [{ firebaseId: userId }, { email: userId }]
       });
     }
-    
+
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
-    
+
     const allowedFields = ['name', 'phone', 'subscriptionPlan', 'paymentStatus'];
     allowedFields.forEach(field => {
       if (updateData[field] !== undefined) {
         user[field] = updateData[field];
       }
     });
-    
+
     await user.save();
-    
+
     res.json({
       message: 'User updated successfully',
       user: {
@@ -1307,14 +1314,14 @@ const updateUserProfile = async (req, res) => {
 const saveUser = async (req, res) => {
   try {
     const { token, name, subscriptionPlan, email, firebaseId } = req.body;
-    
+
     if (!firebaseId && !token) {
       return res.status(400).json({ message: 'Firebase ID or token required' });
     }
-    
+
     let userFirebaseId = firebaseId;
     let userEmail = email;
-    
+
     if (token && !firebaseId) {
       try {
         const admin = await import('firebase-admin');
@@ -1325,13 +1332,13 @@ const saveUser = async (req, res) => {
         return res.status(401).json({ message: 'Invalid Firebase token' });
       }
     }
-    
+
     if (!userFirebaseId) {
       return res.status(400).json({ message: 'Firebase ID is required' });
     }
-    
+
     let user = await User.findOne({ firebaseId: userFirebaseId });
-    
+
     if (!user) {
       user = new User({
         firebaseId: userFirebaseId,
@@ -1347,9 +1354,9 @@ const saveUser = async (req, res) => {
       if (subscriptionPlan) user.subscriptionPlan = subscriptionPlan;
       user.Login = userEmail || user.email;
     }
-    
+
     await user.save();
-    
+
     res.json({
       message: 'User saved successfully',
       user: {
@@ -1371,7 +1378,7 @@ const getUserStatus = async (req, res) => {
   try {
     const { userId } = req.params;
     let user = null;
-    
+
     if (userId.length >= 20 && !userId.match(/^[0-9a-fA-F]{24}$/)) {
       user = await User.findOne({ firebaseId: userId });
     } else if (userId.match(/^[0-9a-fA-F]{24}$/)) {
@@ -1381,14 +1388,14 @@ const getUserStatus = async (req, res) => {
         $or: [{ firebaseId: userId }, { email: userId }]
       });
     }
-    
+
     if (!user) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         message: 'User not found',
         status: 'free'
       });
     }
-    
+
     res.json({
       status: user.subscriptionPlan || 'free',
       paymentStatus: user.paymentStatus || 'unpaid',
@@ -1400,10 +1407,10 @@ const getUserStatus = async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Get user status error:', error);
-    res.status(500).json({ 
-      message: 'Server error', 
+    res.status(500).json({
+      message: 'Server error',
       status: 'free',
-      error: error.message 
+      error: error.message
     });
   }
 };
@@ -1435,20 +1442,20 @@ const getTransactionStateText = (state) => {
 const checkPaymentStatus = async (req, res) => {
   try {
     const { transactionId, userId } = req.params;
-    
+
     if (!transactionId) {
       return res.status(400).json({
         message: '❌ Transaction ID is required',
         success: false
       });
     }
-    
+
     const isProduction = process.env.NODE_ENV === 'production';
     const sandboxTransaction = findTransactionById(transactionId);
-    
+
     if (sandboxTransaction) {
       const user = await User.findById(userId);
-      
+
       if (sandboxTransaction.state === TransactionState.COMPLETED && user) {
         let plan = 'free';
         if (sandboxTransaction.amount === PAYMENT_AMOUNTS.start) {
@@ -1456,14 +1463,14 @@ const checkPaymentStatus = async (req, res) => {
         } else if (sandboxTransaction.amount === PAYMENT_AMOUNTS.pro) {
           plan = 'pro';
         }
-        
+
         if (user.subscriptionPlan !== plan || user.paymentStatus !== 'paid') {
           user.subscriptionPlan = plan;
           user.paymentStatus = 'paid';
           await user.save();
         }
       }
-      
+
       return res.json({
         message: '✅ Transaction status retrieved',
         success: true,
@@ -1480,7 +1487,7 @@ const checkPaymentStatus = async (req, res) => {
         sandbox: true
       });
     }
-    
+
     if (!isProduction) {
       return res.json({
         message: '❌ Transaction not found in sandbox',
@@ -1490,7 +1497,7 @@ const checkPaymentStatus = async (req, res) => {
         sandbox: true
       });
     }
-    
+
     // Production payment status check would go here
     res.json({
       message: '⚠️ Production payment status check not implemented',
@@ -1512,7 +1519,7 @@ const checkPaymentStatus = async (req, res) => {
 const listTransactions = async (req, res) => {
   try {
     const transactions = [];
-    
+
     for (const [id, transaction] of sandboxTransactions.entries()) {
       transactions.push({
         id: transaction.id,
@@ -1526,7 +1533,7 @@ const listTransactions = async (req, res) => {
         cancel_time: transaction.cancel_time ? new Date(transaction.cancel_time).toISOString() : null
       });
     }
-    
+
     res.json({
       message: '✅ All sandbox transactions',
       count: transactions.length,
@@ -1547,7 +1554,7 @@ const clearSandboxTransactions = async (req, res) => {
     const count = sandboxTransactions.size;
     sandboxTransactions.clear();
     accountStates.clear();
-    
+
     res.json({
       message: '✅ Sandbox transactions and account states cleared',
       clearedCount: count,
@@ -1569,30 +1576,30 @@ const clearSandboxTransactions = async (req, res) => {
 const applyPromoCode = async (req, res) => {
   try {
     const { userId, plan, promoCode } = req.body;
-    
+
     if (!userId || !plan || !promoCode) {
       return res.status(400).json({ message: '❌ All fields required: userId, plan, promoCode' });
     }
-    
+
     const validPromoCode = 'acedpromocode2406';
     if (promoCode.trim() !== validPromoCode) {
       return res.status(400).json({ message: '❌ Invalid promo code' });
     }
-    
+
     const allowedPlans = ['start', 'pro'];
     if (!allowedPlans.includes(plan)) {
       return res.status(400).json({ message: '❌ Invalid plan. Allowed: start, pro' });
     }
-    
+
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ message: '❌ User not found' });
     }
-    
+
     user.subscriptionPlan = plan;
     user.paymentStatus = 'paid';
     await user.save();
-    
+
     return res.status(200).json({
       message: '✅ Promo code applied successfully',
       unlocked: true,
@@ -1610,17 +1617,17 @@ const applyPromoCode = async (req, res) => {
 
 const handlePaymeWebhook = async (req, res) => {
   try {
-  
-    
+
+
     const authResult = validatePaymeAuth(req);
     if (!authResult.valid) {
       return res.status(401).json({
         error: 'Unauthorized webhook request'
       });
     }
-    
+
     const { method, params } = req.body;
-    
+
     switch (method) {
       case 'PaymentCompleted':
         if (params?.account?.Login && params?.state === TransactionState.COMPLETED) {
@@ -1640,7 +1647,7 @@ const handlePaymeWebhook = async (req, res) => {
               user.paymentStatus = 'paid';
               user.lastPaymentDate = new Date();
               await user.save();
-              
+
             }
           }
         }
@@ -1650,7 +1657,7 @@ const handlePaymeWebhook = async (req, res) => {
         }
         break;
     }
-    
+
     res.json({
       success: true,
       message: 'Webhook processed'
@@ -1671,21 +1678,21 @@ const handlePaymeWebhook = async (req, res) => {
 const handlePaymeReturnSuccess = async (req, res) => {
   try {
     const { transaction: transactionId, userId } = req.query;
-    
+
     if (!transactionId) {
       return res.redirect('https://aced.live/payment/error?message=No transaction ID');
     }
-    
+
     const transaction = findTransactionById(transactionId);
     if (!transaction) {
       return res.redirect('https://aced.live/payment/error?message=Transaction not found');
     }
-    
+
     // Mark transaction as completed if not already
     if (transaction.state === TransactionState.CREATED) {
       transaction.state = TransactionState.COMPLETED;
       transaction.perform_time = Date.now();
-      
+
       // Update user subscription if userId provided
       if (userId) {
         try {
@@ -1707,10 +1714,10 @@ const handlePaymeReturnSuccess = async (req, res) => {
         }
       }
     }
-    
+
     const successUrl = `https://aced.live/payment/success?transaction=${transactionId}&amount=${transaction.amount}&plan=${transaction.plan || 'unknown'}`;
     return res.redirect(successUrl);
-    
+
   } catch (error) {
     console.error('❌ PayMe return success error:', error);
     return res.redirect('https://aced.live/payment/error?message=Processing error');
@@ -1720,7 +1727,7 @@ const handlePaymeReturnSuccess = async (req, res) => {
 const handlePaymeReturnError = async (req, res) => {
   try {
     const { transaction: transactionId, error: errorCode } = req.query;
-    
+
     if (transactionId) {
       const transaction = findTransactionById(transactionId);
       if (transaction && transaction.state === TransactionState.CREATED) {
@@ -1729,10 +1736,10 @@ const handlePaymeReturnError = async (req, res) => {
         transaction.reason = 3;
       }
     }
-    
+
     const errorUrl = `https://aced.live/payment/error?transaction=${transactionId || 'unknown'}&error=${errorCode || 'unknown'}`;
     return res.redirect(errorUrl);
-    
+
   } catch (error) {
     console.error('❌ PayMe return error handler error:', error);
     return res.redirect('https://aced.live/payment/error?message=Handler error');
@@ -1746,7 +1753,7 @@ const handlePaymeReturnError = async (req, res) => {
 const testPaymeIntegration = async (req, res) => {
   try {
     const { userId, plan } = req.body;
-    
+
     // Validate input
     if (!userId || !plan) {
       return res.status(400).json({
@@ -1760,23 +1767,23 @@ const testPaymeIntegration = async (req, res) => {
         error: 'Plan must be "start" or "pro"'
       });
     }
-    
+
     const amount = PAYMENT_AMOUNTS[plan];
     const orderId = `aced${Date.now()}${Math.random().toString(36).substr(2, 6)}`;
     const merchantId = process.env.PAYME_MERCHANT_ID;
-    
+
     // Create account data as per PayMe documentation (FIXED: using Login)
     const accountData = {
       Login: orderId
     };
-    
+
     // Test PayMe GET URL generation with proper format
     const getUrl = generatePaymeGetUrl(merchantId, accountData, amount, {
       lang: 'ru',
       callback: `https://api.aced.live/api/payments/payme/return/success?transaction=${orderId}`,
       callback_timeout: 15000
     });
-    
+
     // Test PayMe POST format (FIXED: using account[Login])
     const postParams = new URLSearchParams({
       'merchant': merchantId,
@@ -1786,9 +1793,9 @@ const testPaymeIntegration = async (req, res) => {
       'callback': `https://api.aced.live/api/payments/payme/return/success?transaction=${orderId}`
     });
     const postUrl = `https://checkout.paycom.uz?${postParams.toString()}`;
-    
-   
-    
+
+
+
     // Simulate CheckPerformTransaction for testing
     const checkResult = await new Promise((resolve) => {
       const mockRes = {
@@ -1796,7 +1803,7 @@ const testPaymeIntegration = async (req, res) => {
           json: (data) => resolve(data)
         })
       };
-      
+
       handleCheckPerformTransaction(
         { body: { method: 'CheckPerformTransaction' }, headers: {} },
         mockRes,
@@ -1804,7 +1811,7 @@ const testPaymeIntegration = async (req, res) => {
         { amount: amount, account: accountData }
       );
     });
-    
+
     res.json({
       success: true,
       testResults: {
@@ -1887,17 +1894,17 @@ const getPaymentConfig = async (req, res) => {
       },
       errorCodes: {
         transaction: Object.fromEntries(
-          Object.entries(PaymeErrorCode).filter(([key, value]) => 
+          Object.entries(PaymeErrorCode).filter(([key, value]) =>
             value >= -31099 && value <= -31001
           )
         ),
         system: Object.fromEntries(
-          Object.entries(PaymeErrorCode).filter(([key, value]) => 
+          Object.entries(PaymeErrorCode).filter(([key, value]) =>
             value >= -32700 && value <= -32504
           )
         ),
         merchant: Object.fromEntries(
-          Object.entries(PaymeErrorCode).filter(([key, value]) => 
+          Object.entries(PaymeErrorCode).filter(([key, value]) =>
             value >= -31630 && value <= -31601
           )
         )
@@ -1930,7 +1937,7 @@ const getPaymentHealth = async (req, res) => {
         connected: true
       }
     };
-    
+
     try {
       await User.findOne().limit(1);
       health.database.connected = true;
@@ -1938,7 +1945,7 @@ const getPaymentHealth = async (req, res) => {
       health.database.connected = false;
       health.database.error = dbError.message;
     }
-    
+
     const statusCode = health.database.connected ? 200 : 503;
     res.status(statusCode).json(health);
   } catch (error) {
@@ -1978,7 +1985,7 @@ const getPaymentStats = async (req, res) => {
         }
       }
     };
-    
+
     for (const transaction of sandboxTransactions.values()) {
       switch (transaction.state) {
         case TransactionState.CREATED:
@@ -1995,7 +2002,7 @@ const getPaymentStats = async (req, res) => {
       }
       stats.sandbox.totalAmount += transaction.amount;
     }
-    
+
     try {
       const userCounts = await User.aggregate([
         { $group: { _id: '$subscriptionPlan', count: { $sum: 1 } } }
@@ -2005,7 +2012,7 @@ const getPaymentStats = async (req, res) => {
       stats.users.paid = stats.users.total - stats.users.free;
     } catch (dbError) {
     }
-    
+
     res.json(stats);
   } catch (error) {
     console.error('❌ Get payment stats error:', error);
@@ -2077,7 +2084,7 @@ const getDebugInfo = (req, res) => {
   if (process.env.NODE_ENV === 'production') {
     return res.status(403).json({ message: 'Not available in production' });
   }
-  
+
   res.json({
     config: {
       merchantId: process.env.PAYME_MERCHANT_ID ? 'configured' : 'not_configured',
@@ -2154,28 +2161,28 @@ const completeTestTransaction = async (req, res) => {
 const getErrorCodeInfo = (req, res) => {
   const { code } = req.params;
   const numericCode = parseInt(code);
-  
+
   if (isNaN(numericCode)) {
     return res.status(400).json({ message: 'Invalid error code format' });
   }
-  
+
   const errorName = Object.keys(PaymeErrorCode).find(
     key => PaymeErrorCode[key] === numericCode
   );
-  
+
   if (!errorName) {
     return res.status(404).json({ message: 'Error code not found' });
   }
-  
+
   // Create a sample error response
   const sampleResponse = createErrorResponse(12345, numericCode, 'Login'); // FIXED: Use Login
-  
+
   res.json({
     code: numericCode,
     name: errorName,
     category: numericCode >= -31099 && numericCode <= -31001 ? 'transaction' :
-              numericCode >= -32700 && numericCode <= -32504 ? 'system' :
-              numericCode >= -31630 && numericCode <= -31601 ? 'merchant' : 'unknown',
+      numericCode >= -32700 && numericCode <= -32504 ? 'system' :
+        numericCode >= -31630 && numericCode <= -31601 ? 'merchant' : 'unknown',
     sampleResponse: sampleResponse,
     description: sampleResponse.error.message
   });
@@ -2186,10 +2193,10 @@ const getAllErrorCodes = (req, res) => {
     name,
     code,
     category: code >= -31099 && code <= -31001 ? 'transaction' :
-              code >= -32700 && code <= -32504 ? 'system' :
-              code >= -31630 && code <= -31601 ? 'merchant' : 'unknown'
+      code >= -32700 && code <= -32504 ? 'system' :
+        code >= -31630 && code <= -31601 ? 'merchant' : 'unknown'
   }));
-  
+
   res.json({
     total: errorCodes.length,
     errorCodes: errorCodes.sort((a, b) => a.code - b.code)
@@ -2250,53 +2257,53 @@ setInterval(cleanupOldTransactions, 24 * 60 * 60 * 1000);
 //what to doo
 export {
   // Main PayMe functions
-  applyPromoCode, 
+  applyPromoCode,
   initiatePaymePayment,
   handleSandboxPayment,
   handlePaymeWebhook,
-  
+
   // PayMe URL generation (FIXED)
   generatePaymeGetUrl,
   generateDirectPaymeUrl,
   generateDirectPaymeForm,
-  
+
   // Return URL handlers
   handlePaymeReturnSuccess,
   handlePaymeReturnError,
-  
+
   // Test integration
   testPaymeIntegration,
-  
+
   // User management functions  
   validateUserRoute,
   getUserInfo,
   getUserStatus,
   saveUser,
   updateUserProfile,
-  
+
   // Payment status and monitoring
   checkPaymentStatus,
   listTransactions,
   clearSandboxTransactions,
-  
+
   // Payment configuration and health check
   getPaymentConfig,
   getPaymentHealth,
   getPaymentStats,
-  
+
   // Sandbox utilities
   setAccountState,
   setMerchantKey,
-  
+
   // Debug and testing functions (development only)
   getDebugInfo,
   createTestTransaction,
   completeTestTransaction,
-  
+
   // Error code utilities
   getErrorCodeInfo,
   getAllErrorCodes,
-  
+
   // Internal helpers
   setTransaction,
   validateAmount,
@@ -2309,7 +2316,7 @@ export {
   createErrorResponse,
   getTransactionStateText,
   safeErrorResponse,
-  
+
   // Transaction handlers (FIXED)
   handleCheckPerformTransaction,
   handleCreateTransaction,
@@ -2318,7 +2325,7 @@ export {
   handleCheckTransaction,
   handleGetStatement,
   handleChangePassword,
-  
+
   // Constants
   TransactionState,
   AccountState,
