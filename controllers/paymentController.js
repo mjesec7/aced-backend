@@ -2,17 +2,14 @@
 
 import User from '../models/user.js';
 import axios from 'axios';
+import { PAYMENT_AMOUNTS, getTierById } from '../config/subscriptionConfig.js';
 
 // ================================================
 // CONFIGURATION AND CONSTANTS
 // ================================================
 
 // Payment amounts in tiyin (UZS * 100) - PRO PLAN DURATION TIERS
-const PAYMENT_AMOUNTS = {
-  'pro-1': 25000000,   // 250,000 UZS for 1 month
-  'pro-3': 67500000,   // 675,000 UZS for 3 months (10% discount)
-  'pro-6': 120000000   // 1,200,000 UZS for 6 months (20% discount)
-};
+// Imported from subscriptionConfig.js for centralized management
 
 // Transaction states according to PayMe specification
 const TransactionState = {
@@ -588,13 +585,19 @@ const handlePerformTransaction = async (req, res, id, params) => {
       if (user) {
         // Determine duration based on amount paid
         let durationDays = 30;
+        let durationMonths = 1;
+
         if (transaction.amount === PAYMENT_AMOUNTS['pro-3']) {
           durationDays = 90;  // 3 months
+          durationMonths = 3;
         } else if (transaction.amount === PAYMENT_AMOUNTS['pro-6']) {
           durationDays = 180; // 6 months
+          durationMonths = 6;
         }
+
         // Grant Pro subscription for the determined duration
-        await user.grantSubscription('pro', durationDays, 'payment');
+        await user.grantSubscription('pro', durationDays, 'payment', durationMonths);
+        console.log(`✅ Granted ${durationMonths}-month Pro subscription to user ${user.email}`);
       }
     }
   } catch (dbError) {

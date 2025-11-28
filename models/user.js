@@ -102,6 +102,11 @@ const userSchema = new mongoose.Schema({
         enum: ['payment', 'promocode', 'admin', 'gift', null],
         default: null
     },
+    subscriptionDuration: { // ✅ NEW: Tracks subscription duration tier (1, 3, or 6 months)
+        type: Number,
+        enum: [1, 3, 6, null],
+        default: null
+    },
     paymentStatus: {
         type: String,
         enum: ['pending', 'paid', 'failed', 'unpaid'],
@@ -290,7 +295,7 @@ const userSchema = new mongoose.Schema({
  * This is the single source of truth for checking premium status.
  * @returns {boolean} True if the subscription is active and valid.
  */
-userSchema.methods.hasActiveSubscription = function() {
+userSchema.methods.hasActiveSubscription = function () {
     if (this.subscriptionPlan === 'free' || !this.subscriptionExpiryDate) {
         return false;
     }
@@ -302,7 +307,7 @@ userSchema.methods.hasActiveSubscription = function() {
  * Calculates the number of days remaining until the subscription expires.
  * @returns {number|null} Days remaining, or null if no expiry date is set. Returns 0 if expired.
  */
-userSchema.methods.daysUntilExpiry = function() {
+userSchema.methods.daysUntilExpiry = function () {
     if (!this.subscriptionExpiryDate) {
         return null;
     }
@@ -317,11 +322,26 @@ userSchema.methods.daysUntilExpiry = function() {
  * @param {string} plan - The plan to grant ('start', 'pro', 'premium').
  * @param {number} durationInDays - The validity period of the subscription.
  * @param {string} source - The source of the subscription ('payment', 'promocode', etc.).
+ * @param {number} durationMonths - Optional: The duration tier in months (1, 3, or 6). If not provided, will be calculated.
  */
-userSchema.methods.grantSubscription = async function(plan, durationInDays, source) {
+userSchema.methods.grantSubscription = async function (plan, durationInDays, source, durationMonths = null) {
     const now = new Date();
     this.subscriptionPlan = plan;
     this.subscriptionSource = source;
+
+    // Calculate duration tier in months if not provided
+    if (!durationMonths) {
+        // Approximate: 30 days = 1 month, 90 days = 3 months, 180 days = 6 months
+        if (durationInDays <= 31) {
+            durationMonths = 1;
+        } else if (durationInDays <= 95) {
+            durationMonths = 3;
+        } else {
+            durationMonths = 6;
+        }
+    }
+    this.subscriptionDuration = durationMonths;
+
     // If user already has an active subscription, extend it. Otherwise, create a new one.
     const startDate = this.hasActiveSubscription() ? this.subscriptionExpiryDate : now;
     this.subscriptionExpiryDate = new Date(startDate.getTime() + (durationInDays * 24 * 60 * 60 * 1000));
@@ -332,10 +352,11 @@ userSchema.methods.grantSubscription = async function(plan, durationInDays, sour
  * Revokes an active subscription, typically after a refund.
  * This reverts the user to the 'free' plan and clears their expiry date.
  */
-userSchema.methods.revokeSubscription = async function() {
+userSchema.methods.revokeSubscription = async function () {
     this.subscriptionPlan = 'free';
     this.subscriptionExpiryDate = null;
     this.subscriptionSource = null;
+    this.subscriptionDuration = null; // Clear duration tier
     await this.save();
 };
 
@@ -346,7 +367,7 @@ userSchema.methods.revokeSubscription = async function() {
  * Retrieves or initializes the AI usage data for the current calendar month.
  * @returns {object} The usage object for the current month.
  */
-userSchema.methods.getCurrentMonthAIUsage = function() {
+userSchema.methods.getCurrentMonthAIUsage = function () {
     const now = new Date();
     const monthKey = `${now.getFullYear()}-${now.getMonth()}`;
 
@@ -364,7 +385,7 @@ userSchema.methods.getCurrentMonthAIUsage = function() {
 };
 
 // Backward compatibility alias
-userSchema.methods.getCurrentMonthUsage = function() {
+userSchema.methods.getCurrentMonthUsage = function () {
     return this.getCurrentMonthAIUsage();
 };
 
@@ -377,7 +398,7 @@ userSchema.methods.getCurrentMonthUsage = function() {
  * @param {string|null} [options.lessonId=null] - The ID of the lesson related to the usage.
  * @returns {Promise<object>} The updated usage object for the current month.
  */
-userSchema.methods.incrementAIUsage = async function(options = {}) {
+userSchema.methods.incrementAIUsage = async function (options = {}) {
     const {
         messageCount = 0,
         imageCount = 0,
@@ -419,7 +440,7 @@ userSchema.methods.incrementAIUsage = async function(options = {}) {
 };
 
 // Backward compatibility alias
-userSchema.methods.incrementUsage = async function(messageCount = 0, imageCount = 0) {
+userSchema.methods.incrementUsage = async function (messageCount = 0, imageCount = 0) {
     return this.incrementAIUsage({ messageCount, imageCount });
 };
 
@@ -428,7 +449,7 @@ userSchema.methods.incrementUsage = async function(messageCount = 0, imageCount 
  * Returns the AI usage limits based on the user's current subscription plan.
  * @returns {{messages: number, images: number}}
  */
-userSchema.methods.getUsageLimits = function() {
+userSchema.methods.getUsageLimits = function () {
     const limits = {
         free: { messages: 50, images: 5 },
         start: { messages: -1, images: 20 }, // -1 means unlimited
@@ -443,7 +464,7 @@ userSchema.methods.getUsageLimits = function() {
  * @param {boolean} [hasImage=false] - Whether the upcoming request includes an image.
  * @returns {{allowed: boolean, reason?: string, message?: string, remaining?: {messages: number|string, images: number|string}}}
  */
-userSchema.methods.checkAIUsageLimits = function(hasImage = false) {
+userSchema.methods.checkAIUsageLimits = function (hasImage = false) {
     const currentUsage = this.getCurrentMonthAIUsage();
     const limits = this.getUsageLimits();
 
@@ -473,7 +494,7 @@ userSchema.methods.checkAIUsageLimits = function(hasImage = false) {
 };
 
 // Backward compatibility alias
-userSchema.methods.checkUsageLimits = function(hasImage = false) {
+userSchema.methods.checkUsageLimits = function (hasImage = false) {
     return this.checkAIUsageLimits(hasImage);
 };
 
@@ -483,7 +504,7 @@ userSchema.methods.checkUsageLimits = function(hasImage = false) {
  * Also cleans up usage data older than 6 months.
  * @returns {Promise<boolean>} True if a reset occurred.
  */
-userSchema.methods.checkMonthlyReset = async function() {
+userSchema.methods.checkMonthlyReset = async function () {
     const now = new Date();
     if (!this.lastResetCheck) {
         this.lastResetCheck = now;
@@ -507,7 +528,7 @@ userSchema.methods.checkMonthlyReset = async function() {
                 this.homeworkUsage.delete(key); // Also clear legacy data
             }
         }
-        
+
         await this.save();
         return true; // A reset (or at least a check and potential cleanup) happened
     }
@@ -522,14 +543,14 @@ userSchema.methods.checkMonthlyReset = async function() {
  * @param {number} [months=3] - The number of months to retrieve stats for.
  * @returns {Array<object>} An array of monthly usage statistics.
  */
-userSchema.methods.getAIUsageStats = function(months = 3) {
+userSchema.methods.getAIUsageStats = function (months = 3) {
     const stats = [];
     const now = new Date();
     for (let i = 0; i < months; i++) {
         const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
         const monthKey = `${date.getFullYear()}-${date.getMonth()}`;
         const usage = this.aiUsage.get(monthKey) || { messages: 0, images: 0, contexts: {}, lessonUsage: new Map() };
-        
+
         stats.unshift({
             month: monthKey,
             messages: usage.messages,
@@ -545,7 +566,7 @@ userSchema.methods.getAIUsageStats = function(months = 3) {
  * Gets a breakdown of AI usage by context for the current month.
  * @returns {object} An object with counts and percentages for each context.
  */
-userSchema.methods.getContextUsageBreakdown = function() {
+userSchema.methods.getContextUsageBreakdown = function () {
     const { contexts } = this.getCurrentMonthAIUsage();
     if (!contexts) return {};
 
@@ -571,7 +592,7 @@ userSchema.methods.getContextUsageBreakdown = function() {
  * @param {string} reason - The reason for switching modes
  * @returns {Promise<User>} The updated user document
  */
-userSchema.methods.switchMode = async function(newMode, reason = '') {
+userSchema.methods.switchMode = async function (newMode, reason = '') {
     this.modeHistory.push({
         fromMode: this.learningMode,
         toMode: newMode,
@@ -603,7 +624,7 @@ userSchema.methods.switchMode = async function(newMode, reason = '') {
  * @param {number} level - The level to check access for
  * @returns {boolean} True if the user can access the level
  */
-userSchema.methods.canAccessLevel = function(level) {
+userSchema.methods.canAccessLevel = function (level) {
     if (this.learningMode === 'study_centre') {
         return true; // Study Centre can access everything
     }
@@ -620,7 +641,7 @@ userSchema.methods.canAccessLevel = function(level) {
     // Hybrid mode - more complex logic
     if (this.learningMode === 'hybrid') {
         return this.studyCentreProfile?.preferences?.showAllLevels ||
-               this.schoolProfile?.accessibleLevels?.includes(level);
+            this.schoolProfile?.accessibleLevels?.includes(level);
     }
 
     return false;
@@ -633,7 +654,7 @@ userSchema.methods.canAccessLevel = function(level) {
  * @param {string} certificate - Certificate URL if applicable
  * @returns {Promise<User>} The updated user document
  */
-userSchema.methods.completeLevel = async function(completedLevel, score, certificate = null) {
+userSchema.methods.completeLevel = async function (completedLevel, score, certificate = null) {
     if (this.learningMode !== 'school' || !this.schoolProfile) {
         throw new Error('Level completion is only available in school mode');
     }
@@ -671,7 +692,7 @@ userSchema.methods.completeLevel = async function(completedLevel, score, certifi
  * @param {Object} testResults - The test results object
  * @returns {Promise<User>} The updated user document
  */
-userSchema.methods.recordPlacementTest = async function(testResults) {
+userSchema.methods.recordPlacementTest = async function (testResults) {
     if (!this.schoolProfile) {
         this.schoolProfile = {};
     }
@@ -700,7 +721,7 @@ userSchema.methods.recordPlacementTest = async function(testResults) {
  * @param {string} notes - Optional notes
  * @returns {Promise<User>} The updated user document
  */
-userSchema.methods.addBookmark = async function(courseId, notes = '') {
+userSchema.methods.addBookmark = async function (courseId, notes = '') {
     if (!this.studyCentreProfile) {
         this.studyCentreProfile = { bookmarkedCourses: [] };
     }
@@ -732,7 +753,7 @@ userSchema.methods.addBookmark = async function(courseId, notes = '') {
  * @param {Array} courses - Array of course IDs
  * @returns {Promise<User>} The updated user document
  */
-userSchema.methods.createPersonalPath = async function(name, description, courses = []) {
+userSchema.methods.createPersonalPath = async function (name, description, courses = []) {
     if (!this.studyCentreProfile) {
         this.studyCentreProfile = { personalPaths: [] };
     }
