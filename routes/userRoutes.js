@@ -876,7 +876,7 @@ router.get('/admin/users', verifyToken, async (req, res) => {
 
     const [users, total] = await Promise.all([
       User.find(filter)
-        .sort({ createdAt: -1 })
+        .sort({ lastLoginAt: -1, createdAt: -1 })
         .skip(skip)
         .limit(parseInt(limit))
         .lean(),
@@ -933,7 +933,7 @@ router.get('/all', verifyToken, async (req, res) => {
   try {
     const users = await User.find({})
       .select('firebaseId email name subscriptionPlan isBlocked createdAt lastLoginAt studyList')
-      .sort({ createdAt: -1 })
+      .sort({ lastLoginAt: -1, createdAt: -1 })
       .limit(100)
       .lean();
 
