@@ -40,17 +40,17 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
   : [
-      'https://aced.live',
-      'https://www.aced.live',
-      'https://admin.aced.live',
-      'https://api.aced.live',
-      'http://localhost:3000',
-      'http://localhost:3001',
-      'https://checkout.paycom.uz',
-      'https://checkout.test.paycom.uz',
-      'https://checkout.multicard.uz',
-      'https://dev-checkout.multicard.uz',
-    ];
+    'https://aced.live',
+    'https://www.aced.live',
+    'https://admin.aced.live',
+    'https://api.aced.live',
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'https://checkout.paycom.uz',
+    'https://checkout.test.paycom.uz',
+    'https://checkout.multicard.uz',
+    'https://dev-checkout.multicard.uz',
+  ];
 
 if (process.env.NODE_ENV === 'development') {
   allowedOrigins.push('http://localhost:5173', 'http://localhost:4173', 'http://localhost:8080');
@@ -206,7 +206,7 @@ mountRoute('/api/progress', './routes/userProgressRoutes', 'User Progress, Learn
 mountRoute('/api/user-progress', './routes/userProgressRoutes', 'User progress routes (legacy alias)');
 
 // Analytics routes
-mountRoute('/api/analytics', './routes/userAnalytics', 'User analytics routes');
+mountRoute('/api/analytics', './routes/analyticsRoutes', 'User analytics routes');
 
 // ========================================
 // EDUCATIONAL CONTENT ROUTES
