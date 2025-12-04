@@ -12,6 +12,8 @@ const Homework = require('../models/homework');
 const Test = require('../models/Test');
 const TestResult = require('../models/TestResult');
 const HomeworkProgress = require('../models/homeworkProgress');
+const Rewards = require('../models/rewards');
+const LearningProfile = require('../models/learningProfile');
 
 // ✅ Firebase & Middleware
 const admin = require('../config/firebase');
@@ -864,31 +866,53 @@ router.get('/admin/users-comprehensive', verifyToken, async (req, res) => {
 
     // Fetch ALL progress data in bulk for efficiency
     const firebaseIds = users.map(u => u.firebaseId);
-    const allProgress = await UserProgress.aggregate([
-      { $match: { userId: { $in: firebaseIds } } },
-      {
-        $group: {
-          _id: '$userId',
-          totalLessons: { $sum: 1 },
-          completedLessons: { $sum: { $cond: ['$completed', 1, 0] } },
-          totalPoints: { $sum: '$points' },
-          totalStars: { $sum: '$stars' },
-          totalMistakes: { $sum: '$mistakes' },
-          totalHints: { $sum: '$hintsUsed' },
-          totalDuration: { $sum: '$duration' },
-          goldMedals: { $sum: { $cond: [{ $eq: ['$medal', 'gold'] }, 1, 0] } },
-          silverMedals: { $sum: { $cond: [{ $eq: ['$medal', 'silver'] }, 1, 0] } },
-          bronzeMedals: { $sum: { $cond: [{ $eq: ['$medal', 'bronze'] }, 1, 0] } },
-          perfectScores: { $sum: { $cond: [{ $eq: ['$stars', 3] }, 1, 0] } },
-          gamesCompleted: { $sum: { $ifNull: ['$gamesCompleted', 0] } },
-          lastActivity: { $max: '$lastAccessedAt' }
+
+    // Fetch progress, rewards, and learning profiles in parallel
+    const [allProgress, allRewards, allProfiles] = await Promise.all([
+      UserProgress.aggregate([
+        { $match: { userId: { $in: firebaseIds } } },
+        {
+          $group: {
+            _id: '$userId',
+            totalLessons: { $sum: 1 },
+            completedLessons: { $sum: { $cond: ['$completed', 1, 0] } },
+            totalPoints: { $sum: '$points' },
+            totalStars: { $sum: '$stars' },
+            totalMistakes: { $sum: '$mistakes' },
+            totalHints: { $sum: '$hintsUsed' },
+            totalDuration: { $sum: '$duration' },
+            goldMedals: { $sum: { $cond: [{ $eq: ['$medal', 'gold'] }, 1, 0] } },
+            silverMedals: { $sum: { $cond: [{ $eq: ['$medal', 'silver'] }, 1, 0] } },
+            bronzeMedals: { $sum: { $cond: [{ $eq: ['$medal', 'bronze'] }, 1, 0] } },
+            perfectScores: { $sum: { $cond: [{ $eq: ['$stars', 3] }, 1, 0] } },
+            gamesCompleted: { $sum: { $ifNull: ['$gamesCompleted', 0] } },
+            lastActivity: { $max: '$lastAccessedAt' }
+          }
         }
-      }
+      ]),
+      Rewards.find({ userId: { $in: firebaseIds } }).lean(),
+      LearningProfile.find({ userId: { $in: firebaseIds } }).lean()
     ]);
+
     const progressMap = {};
     allProgress.forEach(p => { progressMap[p._id] = p; });
 
-    const determineLearnerType = (p) => {
+    const rewardsMap = {};
+    allRewards.forEach(r => { rewardsMap[r.userId] = r; });
+
+    const profileMap = {};
+    allProfiles.forEach(lp => { profileMap[lp.userId] = lp; });
+
+    const determineLearnerType = (p, lp) => {
+      if (lp?.cognitiveProfile) {
+        // Use learning profile data if available
+        const cognitive = lp.cognitiveProfile;
+        const strengths = Object.entries(cognitive).sort((a, b) => b[1] - a[1]);
+        const topStrength = strengths[0]?.[0];
+        if (topStrength === 'logicalMathematical') return 'analytical';
+        if (topStrength === 'visualSpatial') return 'visual-learner';
+        if (topStrength === 'verbalLinguistic') return 'verbal-learner';
+      }
       if (!p || !p.totalLessons) return 'new';
       const accuracy = p.totalMistakes > 0 ? (p.completedLessons / (p.completedLessons + p.totalMistakes)) * 100 : 100;
       const avgStars = p.completedLessons > 0 ? p.totalStars / p.completedLessons : 0;
@@ -902,10 +926,18 @@ router.get('/admin/users-comprehensive', verifyToken, async (req, res) => {
 
     const enhancedUsers = users.map(user => {
       const p = progressMap[user.firebaseId] || {};
+      const r = rewardsMap[user.firebaseId] || {};
+      const lp = profileMap[user.firebaseId] || {};
+
+      // Use rewards data (points, streak) - this is the real source
+      const totalPoints = r.totalPoints || p.totalPoints || user.totalPoints || 0;
+      const streak = r.streak || 0;
+      const level = r.level || 1;
+
       return {
         ...user,
         studyListCount: user.studyList?.length || 0,
-        learnerType: determineLearnerType(p),
+        learnerType: determineLearnerType(p, lp),
         learningMode: user.learningMode || 'study_centre',
         userSegment: user.subscriptionPlan === 'free' ? 'free-inactive' : 'premium-active',
         engagementLevel: user.lastLoginAt && (Date.now() - new Date(user.lastLoginAt).getTime()) < (7 * 24 * 60 * 60 * 1000) ? 'high' : 'low',
@@ -913,10 +945,26 @@ router.get('/admin/users-comprehensive', verifyToken, async (req, res) => {
         isActiveStudent: user.studyList?.length > 0,
         accountValue: user.subscriptionPlan === 'pro' ? 455000 : user.subscriptionPlan === 'start' ? 260000 : 0,
         lastActivity: p.lastActivity || user.lastLoginAt || user.updatedAt,
+        // Learning Profile data (Learning DNA)
+        learningProfile: lp ? {
+          learningStyle: lp.learningStyle?.primary || 'visual',
+          chronotype: lp.chronotype?.type || 'third-bird',
+          cognitiveStrengths: lp.cognitiveProfile || {},
+          optimalSessionLength: lp.optimalSessionLength || 30,
+          difficulty: lp.difficulty || 0.7
+        } : null,
+        // Rewards data (Points, Streak, Level)
+        rewards: {
+          totalPoints,
+          streak,
+          level,
+          currentLevelProgress: r.currentLevelProgress || 0,
+          achievements: r.achievements?.length || 0
+        },
         analytics: {
           totalLessonsDone: p.completedLessons || 0,
           totalLessonsStarted: p.totalLessons || 0,
-          totalPoints: p.totalPoints || 0,
+          totalPoints: totalPoints,
           totalStars: p.totalStars || 0,
           totalMistakes: p.totalMistakes || 0,
           totalHints: p.totalHints || 0,
@@ -926,6 +974,8 @@ router.get('/admin/users-comprehensive', verifyToken, async (req, res) => {
           bronzeMedals: p.bronzeMedals || 0,
           perfectScores: p.perfectScores || 0,
           gamesCompleted: p.gamesCompleted || 0,
+          streak: streak,
+          level: level,
           accuracy: p.completedLessons > 0 ? Math.round((p.completedLessons / (p.completedLessons + (p.totalMistakes || 0))) * 100) : 0,
           avgStars: p.completedLessons > 0 ? Math.round((p.totalStars / p.completedLessons) * 100) / 100 : 0
         }
