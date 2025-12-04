@@ -12,8 +12,8 @@ const Homework = require('../models/homework');
 const Test = require('../models/Test');
 const TestResult = require('../models/TestResult');
 const HomeworkProgress = require('../models/homeworkProgress');
-const Rewards = require('../models/rewards');
-const LearningProfile = require('../models/learningProfile');
+// Note: Rewards and LearningProfile are defined inline in userProgressRoutes.js
+// We'll access them via mongoose.models if they exist
 
 // ✅ Firebase & Middleware
 const admin = require('../config/firebase');
@@ -890,8 +890,10 @@ router.get('/admin/users-comprehensive', verifyToken, async (req, res) => {
           }
         }
       ]),
-      Rewards.find({ userId: { $in: firebaseIds } }).lean(),
-      LearningProfile.find({ userId: { $in: firebaseIds } }).lean()
+      // Try to get Rewards model (defined in userProgressRoutes.js)
+      mongoose.models.Rewards ? mongoose.models.Rewards.find({ userId: { $in: firebaseIds } }).lean() : Promise.resolve([]),
+      // Try to get LearningProfile model (defined in userProgressRoutes.js)
+      mongoose.models.LearningProfile ? mongoose.models.LearningProfile.find({ userId: { $in: firebaseIds } }).lean() : Promise.resolve([])
     ]);
 
     const progressMap = {};
