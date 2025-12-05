@@ -945,7 +945,7 @@ router.get('/admin/users-comprehensive', verifyToken, async (req, res) => {
         engagementLevel: user.lastLoginAt && (Date.now() - new Date(user.lastLoginAt).getTime()) < (7 * 24 * 60 * 60 * 1000) ? 'high' : 'low',
         isActivePaidUser: user.subscriptionPlan !== 'free',
         isActiveStudent: user.studyList?.length > 0,
-        accountValue: user.subscriptionPlan === 'pro' ? 455000 : user.subscriptionPlan === 'start' ? 260000 : 0,
+        // accountValue is calculated on frontend based on payments
         lastActivity: p.lastActivity || user.lastLoginAt || user.updatedAt,
         // Learning Profile data (Learning DNA)
         learningProfile: lp ? {
@@ -1051,7 +1051,7 @@ router.get('/admin/users', verifyToken, async (req, res) => {
       riskLevel: 'low',
       isActivePaidUser: user.subscriptionPlan !== 'free',
       isActiveStudent: user.studyList?.length > 0,
-      accountValue: user.subscriptionPlan === 'pro' ? 455000 : user.subscriptionPlan === 'start' ? 260000 : 0,
+      // accountValue is calculated on frontend
       lastActivity: user.lastLoginAt || user.updatedAt,
       analytics: {
         studyDays: user.studyList?.length || 0,

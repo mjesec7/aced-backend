@@ -75,6 +75,35 @@ const aiUsageSchema = new mongoose.Schema({
     }
 }, { _id: false });
 
+const modeHistorySchema = new mongoose.Schema({
+    fromMode: String,
+    toMode: String,
+    switchedAt: { type: Date, default: Date.now },
+    reason: String
+}, { _id: false });
+
+const bookmarkSchema = new mongoose.Schema({
+    courseId: { type: mongoose.Schema.Types.ObjectId, ref: 'Course' },
+    bookmarkedAt: { type: Date, default: Date.now },
+    notes: String
+}, { _id: false });
+
+const personalPathSchema = new mongoose.Schema({
+    name: String,
+    description: String,
+    courses: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Course' }],
+    createdAt: { type: Date, default: Date.now },
+    progress: { type: Number, default: 0 }
+}, { _id: false });
+
+const completedLevelSchema = new mongoose.Schema({
+    level: Number,
+    completedDate: Date,
+    finalScore: Number,
+    certificate: String,
+    unlockedNext: [Number]
+}, { _id: false });
+
 
 // --- Main User Schema ---
 
@@ -93,18 +122,22 @@ const userSchema = new mongoose.Schema({
         enum: ['free', 'start', 'pro', 'premium'],
         default: 'free'
     },
-    subscriptionExpiryDate: { // ✅ CRITICAL: Tracks when the subscription ends
+    subscriptionExpiryDate: {
         type: Date,
         default: null
     },
-    subscriptionSource: { // ✅ CRITICAL: Tracks how the subscription was obtained
+    subscriptionSource: {
         type: String,
         enum: ['payment', 'promocode', 'admin', 'gift', null],
         default: null
     },
-    subscriptionDuration: { // ✅ NEW: Tracks subscription duration tier (1, 3, or 6 months)
+    subscriptionDuration: {
         type: Number,
         enum: [1, 3, 6, null],
+        default: null
+    },
+    subscriptionActivatedAt: {
+        type: Date,
         default: null
     },
     paymentStatus: {
@@ -112,209 +145,78 @@ const userSchema = new mongoose.Schema({
         enum: ['pending', 'paid', 'failed', 'unpaid'],
         default: 'unpaid'
     },
-    isBlocked: { type: Boolean, default: false },
-    lastLoginAt: { type: Date },
 
-    // --- 💳 Card Management ---
-    cardBindingSession: {
-        sessionId: String,
-        formUrl: String,
-        createdAt: Date,
-        expiresAt: Date
+    // --- 🤖 AI Usage Tracking ---
+    aiUsage: {
+        type: Map,
+        of: aiUsageSchema,
+        default: new Map()
     },
-    savedCards: [{
-        cardToken: {
-            type: String,
-            required: true
-        },
-        cardPan: {
-            type: String,
-            required: true
-        },
-        ps: {
-            type: String,
-            enum: ['uzcard', 'humo', 'visa', 'mastercard', 'unionpay']
-        },
-        addedAt: {
-            type: Date,
-            default: Date.now
-        }
-    }],
+    homeworkUsage: {
+        type: Map,
+        of: new mongoose.Schema({
+            messages: { type: Number, default: 0 },
+            images: { type: Number, default: 0 },
+            lastUsed: Date
+        }, { _id: false }),
+        default: new Map()
+    },
+    lastResetCheck: Date,
 
-    // --- 📚 Learning & Progress ---
-    studyList: [studyTopicSchema],
-    progress: { type: Object, default: {} },
-    homeworkSubmissions: [homeworkSubmissionSchema],
-    testResults: [testResultSchema],
-
-    // --- 🎯 Goals & Diary ---
-    goals: [goalSchema],
-    diary: [diaryEntrySchema],
-
-    // --- 🏆 Gamification & Points ---
-    totalPoints: { type: Number, default: 0 },
-    xp: { type: Number, default: 0 },
-    level: { type: Number, default: 1 },
-    badges: { type: [String], default: [] },
-
-    // --- 🤖 AI & Usage Tracking ---
-    aiUsage: { type: Map, of: aiUsageSchema, default: new Map() },
-    homeworkUsage: { type: Map, of: aiUsageSchema, default: new Map() }, // For backward compatibility
-    lastResetCheck: { type: Date, default: Date.now },
-
-    // --- 🎓 DUAL-MODE LEARNING SYSTEM ---
+    // --- 🎓 Learning Mode ---
     learningMode: {
         type: String,
         enum: ['study_centre', 'school', 'hybrid'],
         default: 'study_centre',
         index: true
     },
+    modeHistory: [modeHistorySchema],
 
-    // --- 🏫 SCHOOL MODE PROFILE ---
+    // --- 🏫 School Profile ---
     schoolProfile: {
-        // Placement Test Data
+        currentLevelCap: { type: Number, default: 1 },
+        currentGrade: { type: String, default: 'A1' },
+        accessibleLevels: [Number],
+        lockedLevels: [Number],
+        completedLevels: [completedLevelSchema],
+        progressLocked: { type: Boolean, default: false },
         placementTestTaken: { type: Boolean, default: false },
         placementTestDate: Date,
-        placementTestResults: {
-            overallScore: Number,
-            levelAssigned: Number,
-            percentile: Number,
-            subjects: [{
-                name: String,
-                score: Number,
-                recommendedLevel: Number
-            }]
-        },
-
-        // Academic Progress
-        currentGrade: {
-            type: String,
-            enum: ['A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'Expert', 'Master'],
-            default: 'A1'
-        },
-        currentSemester: { type: Number, default: 1 },
-        academicYear: String,
-
-        // Access Control
-        progressLocked: { type: Boolean, default: true },
-        accessibleLevels: [Number], // Only these levels can be accessed
-        lockedLevels: [Number], // Explicitly locked levels
-        currentLevelCap: { type: Number, default: 1 },
-
-        // Curriculum Tracking
-        mandatoryCourses: [{
-            courseId: mongoose.Schema.Types.ObjectId,
-            status: {
-                type: String,
-                enum: ['not_started', 'in_progress', 'completed'],
-                default: 'not_started'
-            },
-            deadline: Date,
-            grade: String,
-            attempts: { type: Number, default: 0 }
-        }],
-
-        // Completion Requirements
-        completedLevels: [{
-            level: Number,
-            completedDate: Date,
-            finalScore: Number,
-            certificate: String,
-            unlockedNext: [Number] // Levels unlocked by completing this
-        }],
-
-        // School-Specific Settings
-        curriculum: {
-            type: String,
-            enum: ['standard', 'accelerated', 'remedial', 'custom'],
-            default: 'standard'
-        },
-        requiredCoursesPerLevel: { type: Number, default: 5 },
-        minPassingScore: { type: Number, default: 70 }
+        placementTestResults: mongoose.Schema.Types.Mixed
     },
 
-    // --- 🌟 STUDY CENTRE PROFILE ---
+    // --- 📚 Study Centre Profile ---
     studyCentreProfile: {
-        explorationHistory: [{
-            topicId: mongoose.Schema.Types.ObjectId,
-            accessedAt: Date,
-            timeSpent: Number,
-            completed: Boolean
-        }],
-
-        bookmarkedCourses: [{
-            courseId: mongoose.Schema.Types.ObjectId,
-            bookmarkedAt: Date,
-            notes: String
-        }],
-
-        personalPaths: [{
-            name: String,
-            description: String,
-            courses: [mongoose.Schema.Types.ObjectId],
-            createdAt: Date,
-            progress: Number
-        }],
-
+        bookmarkedCourses: [bookmarkSchema],
+        personalPaths: [personalPathSchema],
         preferences: {
-            showAllLevels: { type: Boolean, default: true },
-            allowJumping: { type: Boolean, default: true },
-            explorationMode: { type: Boolean, default: true }
+            showAllLevels: { type: Boolean, default: true }
         }
     },
 
-    // --- 🔄 MODE TRANSITION HISTORY ---
-    modeHistory: [{
-        fromMode: String,
-        toMode: String,
-        switchedAt: Date,
-        reason: String
-    }],
+    // --- 📖 Study Topics & Progress ---
+    studyTopics: [studyTopicSchema],
+    goals: [goalSchema],
+    diary: [diaryEntrySchema],
+    homeworkSubmissions: [homeworkSubmissionSchema],
+    testResults: [testResultSchema],
 
-    // --- 🏅 ACHIEVEMENTS ---
-    achievements: [{
-        id: String,
-        name: String,
-        description: String,
-        icon: String,
-        type: String,
-        unlockedAt: Date,
-        data: mongoose.Schema.Types.Mixed
-    }]
-
-}, {
-    // ✅ Automatically add createdAt and updatedAt timestamps
-    timestamps: true
+    // --- Timestamps ---
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now }
 });
 
 
-// --- 💳 Subscription Helper Methods ---
+// --- Instance Methods ---
 
 /**
- * Determines if the user has an active, non-expired subscription.
- * This is the single source of truth for checking premium status.
- * @returns {boolean} True if the subscription is active and valid.
+ * Checks if the user currently has an active (non-expired) subscription.
+ * @returns {boolean}
  */
 userSchema.methods.hasActiveSubscription = function () {
-    if (this.subscriptionPlan === 'free' || !this.subscriptionExpiryDate) {
-        return false;
-    }
-    // Check if the expiry date is in the future
-    return this.subscriptionExpiryDate > new Date();
-};
-
-/**
- * Calculates the number of days remaining until the subscription expires.
- * @returns {number|null} Days remaining, or null if no expiry date is set. Returns 0 if expired.
- */
-userSchema.methods.daysUntilExpiry = function () {
-    if (!this.subscriptionExpiryDate) {
-        return null;
-    }
-    const now = new Date();
-    const diffTime = this.subscriptionExpiryDate.getTime() - now.getTime();
-    if (diffTime < 0) return 0; // Expired
-    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    if (this.subscriptionPlan === 'free') return false;
+    if (!this.subscriptionExpiryDate) return false;
+    return new Date() < new Date(this.subscriptionExpiryDate);
 };
 
 /**
@@ -322,16 +224,21 @@ userSchema.methods.daysUntilExpiry = function () {
  * @param {string} plan - The plan to grant ('start', 'pro', 'premium').
  * @param {number} durationInDays - The validity period of the subscription.
  * @param {string} source - The source of the subscription ('payment', 'promocode', etc.).
- * @param {number} durationMonths - Optional: The duration tier in months (1, 3, or 6). If not provided, will be calculated.
+ * @param {number} durationMonths - Optional: The duration tier in months (1, 3, or 6).
  */
 userSchema.methods.grantSubscription = async function (plan, durationInDays, source, durationMonths = null) {
     const now = new Date();
+
+    // If not currently active, set the activation date
+    if (!this.hasActiveSubscription()) {
+        this.subscriptionActivatedAt = now;
+    }
+
     this.subscriptionPlan = plan;
     this.subscriptionSource = source;
 
     // Calculate duration tier in months if not provided
     if (!durationMonths) {
-        // Approximate: 30 days = 1 month, 90 days = 3 months, 180 days = 6 months
         if (durationInDays <= 31) {
             durationMonths = 1;
         } else if (durationInDays <= 95) {
@@ -350,13 +257,12 @@ userSchema.methods.grantSubscription = async function (plan, durationInDays, sou
 
 /**
  * Revokes an active subscription, typically after a refund.
- * This reverts the user to the 'free' plan and clears their expiry date.
  */
 userSchema.methods.revokeSubscription = async function () {
     this.subscriptionPlan = 'free';
     this.subscriptionExpiryDate = null;
     this.subscriptionSource = null;
-    this.subscriptionDuration = null; // Clear duration tier
+    this.subscriptionDuration = null;
     await this.save();
 };
 
@@ -392,10 +298,6 @@ userSchema.methods.getCurrentMonthUsage = function () {
 /**
  * Increments AI usage, tracking messages, images, context, and lesson ID.
  * @param {object} options - The usage details.
- * @param {number} [options.messageCount=0] - Number of messages to add.
- * @param {number} [options.imageCount=0] - Number of images to add.
- * @param {string} [options.context='general'] - The context of the usage.
- * @param {string|null} [options.lessonId=null] - The ID of the lesson related to the usage.
  * @returns {Promise<object>} The updated usage object for the current month.
  */
 userSchema.methods.incrementAIUsage = async function (options = {}) {
@@ -408,7 +310,7 @@ userSchema.methods.incrementAIUsage = async function (options = {}) {
 
     const now = new Date();
     const monthKey = `${now.getFullYear()}-${now.getMonth()}`;
-    let currentUsage = this.getCurrentMonthAIUsage(); // This ensures the entry exists
+    let currentUsage = this.getCurrentMonthAIUsage();
 
     // Update totals
     currentUsage.messages += messageCount;
@@ -444,7 +346,6 @@ userSchema.methods.incrementUsage = async function (messageCount = 0, imageCount
     return this.incrementAIUsage({ messageCount, imageCount });
 };
 
-
 /**
  * Returns the AI usage limits based on the user's current subscription plan.
  * @returns {{messages: number, images: number}}
@@ -452,7 +353,7 @@ userSchema.methods.incrementUsage = async function (messageCount = 0, imageCount
 userSchema.methods.getUsageLimits = function () {
     const limits = {
         free: { messages: 50, images: 5 },
-        start: { messages: -1, images: 20 }, // -1 means unlimited
+        start: { messages: -1, images: 20 },
         pro: { messages: -1, images: -1 },
         premium: { messages: -1, images: -1 }
     };
@@ -462,7 +363,7 @@ userSchema.methods.getUsageLimits = function () {
 /**
  * Checks if a user's intended AI usage is within their plan's limits.
  * @param {boolean} [hasImage=false] - Whether the upcoming request includes an image.
- * @returns {{allowed: boolean, reason?: string, message?: string, remaining?: {messages: number|string, images: number|string}}}
+ * @returns {object}
  */
 userSchema.methods.checkAIUsageLimits = function (hasImage = false) {
     const currentUsage = this.getCurrentMonthAIUsage();
@@ -498,10 +399,8 @@ userSchema.methods.checkUsageLimits = function (hasImage = false) {
     return this.checkAIUsageLimits(hasImage);
 };
 
-
 /**
  * Checks if the calendar month has changed and resets monthly usage data if needed.
- * Also cleans up usage data older than 6 months.
  * @returns {Promise<boolean>} True if a reset occurred.
  */
 userSchema.methods.checkMonthlyReset = async function () {
@@ -521,20 +420,21 @@ userSchema.methods.checkMonthlyReset = async function () {
         // Clean up old usage data (older than 6 months)
         const cutoffDate = new Date();
         cutoffDate.setMonth(cutoffDate.getMonth() - 6);
-        for (const [key] of this.aiUsage.keys()) {
+        for (const key of this.aiUsage.keys()) {
             const [year, month] = key.split('-').map(Number);
             if (new Date(year, month) < cutoffDate) {
                 this.aiUsage.delete(key);
-                this.homeworkUsage.delete(key); // Also clear legacy data
+                this.homeworkUsage.delete(key);
             }
         }
 
         await this.save();
-        return true; // A reset (or at least a check and potential cleanup) happened
+        return true;
     }
 
     return false;
 };
+
 
 // --- 📊 AI Analytics Methods ---
 
@@ -626,11 +526,10 @@ userSchema.methods.switchMode = async function (newMode, reason = '') {
  */
 userSchema.methods.canAccessLevel = function (level) {
     if (this.learningMode === 'study_centre') {
-        return true; // Study Centre can access everything
+        return true;
     }
 
     if (this.learningMode === 'school' && this.schoolProfile) {
-        // Check if level is unlocked
         const isAccessible = this.schoolProfile.accessibleLevels?.includes(level);
         const isNotLocked = !this.schoolProfile.lockedLevels?.includes(level);
         const withinCap = level <= (this.schoolProfile.currentLevelCap || 1);
@@ -638,7 +537,6 @@ userSchema.methods.canAccessLevel = function (level) {
         return isAccessible || (isNotLocked && withinCap);
     }
 
-    // Hybrid mode - more complex logic
     if (this.learningMode === 'hybrid') {
         return this.studyCentreProfile?.preferences?.showAllLevels ||
             this.schoolProfile?.accessibleLevels?.includes(level);
@@ -659,7 +557,6 @@ userSchema.methods.completeLevel = async function (completedLevel, score, certif
         throw new Error('Level completion is only available in school mode');
     }
 
-    // Add to completed levels
     this.schoolProfile.completedLevels = this.schoolProfile.completedLevels || [];
     this.schoolProfile.completedLevels.push({
         level: completedLevel,
@@ -669,7 +566,6 @@ userSchema.methods.completeLevel = async function (completedLevel, score, certif
         unlockedNext: [completedLevel + 1]
     });
 
-    // Unlock next level
     this.schoolProfile.currentLevelCap = Math.max(
         this.schoolProfile.currentLevelCap || 1,
         completedLevel + 1
@@ -702,13 +598,11 @@ userSchema.methods.recordPlacementTest = async function (testResults) {
     this.schoolProfile.placementTestResults = testResults;
     this.schoolProfile.currentLevelCap = testResults.levelAssigned || 1;
 
-    // Grant access to all levels up to assigned level
     this.schoolProfile.accessibleLevels = Array.from(
         { length: testResults.levelAssigned || 1 },
         (_, i) => i + 1
     );
 
-    // Set current grade
     const platformSettings = require('../config/platformSettings');
     this.schoolProfile.currentGrade = platformSettings.levelGradeMapping[testResults.levelAssigned] || 'A1';
 
@@ -730,7 +624,6 @@ userSchema.methods.addBookmark = async function (courseId, notes = '') {
         this.studyCentreProfile.bookmarkedCourses = [];
     }
 
-    // Check if already bookmarked
     const existing = this.studyCentreProfile.bookmarkedCourses.find(
         b => b.courseId.toString() === courseId.toString()
     );
@@ -773,12 +666,20 @@ userSchema.methods.createPersonalPath = async function (name, description, cours
     return this.save();
 };
 
+
 // --- Indexes for Performance ---
-// ✅ FIXED: Removed duplicate indexes (firebaseId, email, learningMode already have index: true inline)
 userSchema.index({ subscriptionExpiryDate: 1 });
 userSchema.index({ subscriptionPlan: 1 });
 userSchema.index({ 'schoolProfile.currentLevelCap': 1 });
 
-// ✅ Check if model already exists to prevent "Cannot overwrite model" errors in hot-reload scenarios
+
+// --- Pre-save middleware ---
+userSchema.pre('save', function (next) {
+    this.updatedAt = new Date();
+    next();
+});
+
+
+// --- Export Model ---
 const User = mongoose.models.User || mongoose.model('User', userSchema);
 module.exports = User;
