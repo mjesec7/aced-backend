@@ -3,9 +3,9 @@
 const express = require('express');
 const router = express.Router();
 const User = require('../models/user'); // ✅ User model imported at the top
-const { 
-  applyPromoCode, 
-  initiatePaymePayment, 
+const {
+  applyPromoCode,
+  initiatePaymePayment,
   handleSandboxPayment,
   validateUserRoute,
   checkPaymentStatus,
@@ -46,7 +46,7 @@ const PAYMENT_AMOUNTS = {
 // Middleware for logging requests in development
 const logRequests = (req, res, next) => {
   if (process.env.NODE_ENV !== 'production') {
-  
+
   }
   next();
 };
@@ -62,7 +62,7 @@ router.use(logRequests);
 router.post('/generate-form', async (req, res) => {
   try {
     const { userId, plan, method = 'post', lang = 'ru' } = req.body;
-    
+
     if (!userId || !plan) {
       return res.status(400).json({
         success: false,
@@ -71,7 +71,7 @@ router.post('/generate-form', async (req, res) => {
     }
 
     const user = await User.findOne({ firebaseId: userId });
-    
+
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -82,7 +82,7 @@ router.post('/generate-form', async (req, res) => {
     const amount = PAYMENT_AMOUNTS[plan];
     const merchantId = process.env.PAYME_MERCHANT_ID;
     const transactionId = `aced_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
+
     if (method === 'post') {
       // ✅ CRITICAL FIX: Use account[Login] instead of account[Login]
       const formHtml = `
@@ -100,14 +100,14 @@ router.post('/generate-form', async (req, res) => {
           document.getElementById('payme-form').submit();
         </script>
       `;
-      
+
       return res.json({
         success: true,
         method: 'POST',
         formHtml: formHtml,
         transaction: { id: transactionId, amount: amount, plan: plan }
       });
-      
+
     } else if (method === 'get') {
       // ✅ CRITICAL FIX: Use ac.Login parameter
       const params = {
@@ -118,22 +118,22 @@ router.post('/generate-form', async (req, res) => {
       };
 
       params['ac.Login'] = user._id;  // ✅ FIXED
-      
+
       if (req.body.callback) {
         params.c = req.body.callback;
       } else {
         params.c = `https://api.aced.live/api/payments/payme/return/success?transaction=${transactionId}&userId=${userId}`;
       }
-      
+
       params.ct = 15000;
-      
+
       const paramString = Object.entries(params)
         .map(([key, value]) => `${key}=${value}`)
         .join(';');
-      
+
       const encodedParams = Buffer.from(paramString).toString('base64');
       const paymentUrl = `https://checkout.paycom.uz/${encodedParams}`;
-      
+
       return res.json({
         success: true,
         method: 'GET',
@@ -141,7 +141,7 @@ router.post('/generate-form', async (req, res) => {
         transaction: { id: transactionId, amount, plan }
       });
     }
-    
+
   } catch (error) {
     console.error('❌ Form generation error:', error);
     res.status(500).json({
@@ -155,9 +155,9 @@ router.post('/generate-form', async (req, res) => {
 router.post('/generate-button', async (req, res) => {
   try {
     const { userId, plan, type = 'button', style = 'colored', lang = 'ru' } = req.body;
-    
+
     const user = await User.findOne({ firebaseId: userId });
-    
+
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -168,7 +168,7 @@ router.post('/generate-button', async (req, res) => {
     const amount = PAYMENT_AMOUNTS[plan];
     const merchantId = process.env.PAYME_MERCHANT_ID;
     const transactionId = `aced_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
+
     // Generate HTML according to documentation.
     // Note: For button (and QR) generation, use account[Login] instead of account[Login].
     const buttonHtml = `
@@ -184,7 +184,7 @@ router.post('/generate-button', async (req, res) => {
         <script src="https://cdn.paycom.uz/integration/js/checkout.min.js"></script>
       </body>
     `;
-    
+
     const qrHtml = `
       <body onload="Paycom.QR('#form-payme', '#qr-container')">
         <form id="form-payme" method="POST" action="https://checkout.paycom.uz/">
@@ -198,7 +198,7 @@ router.post('/generate-button', async (req, res) => {
         <script src="https://cdn.paycom.uz/integration/js/checkout.min.js"></script>
       </body>
     `;
-    
+
     return res.json({
       success: true,
       type: type,
@@ -210,7 +210,7 @@ router.post('/generate-button', async (req, res) => {
         plan: plan
       }
     });
-    
+
   } catch (error) {
     console.error('❌ Button generation error:', error);
     res.status(500).json({
@@ -227,10 +227,10 @@ router.post('/generate-button', async (req, res) => {
 
 // ✅ PayMe Success Return Handler
 router.get('/payme/return/success', async (req, res) => {
-  
+
   const transactionId = req.query.transaction || req.query.id || req.query.c;
   const userId = req.query.userId || req.query.user_id;
-  
+
   try {
     if (!transactionId) {
       return res.redirect('https://aced.live/payment-failed?error=missing_transaction_id');
@@ -238,18 +238,18 @@ router.get('/payme/return/success', async (req, res) => {
 
     // Check transaction status in your system
     const transaction = getTransaction(transactionId) || findTransactionById(transactionId);
-    
+
     if (transaction) {
       // Update transaction as completed
       transaction.state = 2; // Completed
       transaction.perform_time = Date.now();
       setTransaction(transactionId, transaction);
-      
+
       // Update user subscription if transaction is valid
       if (transaction.account?.user_id) {
         try {
           const user = await User.findOne({ firebaseId: transaction.account.user_id });
-          
+
           if (user && transaction.plan) {
             user.subscriptionPlan = transaction.plan;
             user.paymentStatus = 'paid';
@@ -259,7 +259,7 @@ router.get('/payme/return/success', async (req, res) => {
         } catch (userUpdateError) {
         }
       }
-      
+
       // Redirect to success page with transaction details
       const successParams = new URLSearchParams({
         transaction: transactionId,
@@ -267,13 +267,13 @@ router.get('/payme/return/success', async (req, res) => {
         amount: transaction.amount || 0,
         source: 'payme'
       });
-      
+
       return res.redirect(`https://aced.live/payment-success?${successParams.toString()}`);
     } else {
       // Still redirect to success, but without details
       return res.redirect(`https://aced.live/payment-success?transaction=${transactionId}&source=payme`);
     }
-    
+
   } catch (error) {
     console.error('❌ Error processing PayMe success return:', error);
     return res.redirect(`https://aced.live/payment-failed?transaction=${transactionId}&error=processing_error&source=payme`);
@@ -282,10 +282,10 @@ router.get('/payme/return/success', async (req, res) => {
 
 // ✅ PayMe Failure Return Handler
 router.get('/payme/return/failure', async (req, res) => {
-  
+
   const transactionId = req.query.transaction || req.query.id || req.query.c;
   const error = req.query.error || req.query.reason || 'payment_failed';
-  
+
   // Update transaction status if we have it
   if (transactionId) {
     const transaction = getTransaction(transactionId);
@@ -296,21 +296,21 @@ router.get('/payme/return/failure', async (req, res) => {
       setTransaction(transactionId, transaction);
     }
   }
-  
+
   const failureParams = new URLSearchParams({
     transaction: transactionId || 'unknown',
     error: error,
     source: 'payme'
   });
-  
+
   res.redirect(`https://aced.live/payment-failed?${failureParams.toString()}`);
 });
 
 // ✅ PayMe Cancel Return Handler
 router.get('/payme/return/cancel', async (req, res) => {
-  
+
   const transactionId = req.query.transaction || req.query.id || req.query.c;
-  
+
   // Update transaction status
   if (transactionId) {
     const transaction = getTransaction(transactionId);
@@ -321,32 +321,32 @@ router.get('/payme/return/cancel', async (req, res) => {
       setTransaction(transactionId, transaction);
     }
   }
-  
+
   const cancelParams = new URLSearchParams({
     transaction: transactionId || 'unknown',
     error: 'payment_cancelled',
     source: 'payme'
   });
-  
+
   res.redirect(`https://aced.live/payment-failed?${cancelParams.toString()}`);
 });
 
 // ✅ PayMe Webhook/Notification Handler
 router.post('/payme/notify', async (req, res) => {
-  
+
   try {
     // PayMe sends JSON-RPC 2.0 notifications
     const { method, params } = req.body;
-    
+
     if (method && params) {
-      
+
       // Handle different notification types
       switch (method) {
         case 'TransactionPerformed':
           if (params.transaction && params.state === 2) {
             const transactionId = params.transaction;
             const transaction = getTransaction(transactionId);
-            
+
             if (transaction) {
               transaction.state = 2; // Completed
               transaction.perform_time = Date.now();
@@ -354,12 +354,12 @@ router.post('/payme/notify', async (req, res) => {
             }
           }
           break;
-          
+
         case 'TransactionCancelled':
           if (params.transaction) {
             const transactionId = params.transaction;
             const transaction = getTransaction(transactionId);
-            
+
             if (transaction) {
               transaction.state = -1; // Cancelled
               transaction.cancel_time = Date.now();
@@ -369,17 +369,17 @@ router.post('/payme/notify', async (req, res) => {
           break;
       }
     }
-    
+
     // Always respond with success to PayMe
-    res.json({ 
+    res.json({
       jsonrpc: '2.0',
       result: { received: true },
       id: req.body.id || null
     });
-    
+
   } catch (error) {
     console.error('❌ Error processing PayMe webhook:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       jsonrpc: '2.0',
       error: { code: -32000, message: 'Internal error' },
       id: req.body?.id || null
@@ -397,41 +397,51 @@ router.post('/promo-code', applyPromoCode);
 // Initiate PayMe payment - UPDATED VERSION
 router.post('/initiate-payme', async (req, res) => {
   try {
-    const { userId, plan, name, phone } = req.body;
+    const { userId, plan, name, phone, amount: reqAmount, duration } = req.body;
 
 
     if (!userId || !plan) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: '❌ userId and plan are required' 
+        message: '❌ userId and plan are required'
       });
     }
 
     const allowedPlans = ['start', 'pro'];
     if (!allowedPlans.includes(plan)) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: '❌ Invalid plan. Allowed: start, pro' 
+        message: '❌ Invalid plan. Allowed: start, pro'
       });
     }
 
     // Find user
     let user = await User.findOne({ firebaseId: userId }).catch(() => null) ||
-               await User.findById(userId).catch(() => null) ||
-               await User.findOne({ email: userId }).catch(() => null);
+      await User.findById(userId).catch(() => null) ||
+      await User.findOne({ email: userId }).catch(() => null);
 
     if (!user) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        message: '❌ User not found' 
+        message: '❌ User not found'
       });
     }
 
-    const amount = PAYMENT_AMOUNTS[plan];
+    let amount = reqAmount;
     if (!amount) {
-      return res.status(400).json({ 
+      // Fallback to defaults if no amount provided
+      if (plan === 'pro') {
+        if (duration == 3) amount = 67500000;
+        else if (duration == 6) amount = 120000000;
+        else amount = 25000000; // 1 month default
+      } else {
+        amount = PAYMENT_AMOUNTS[plan];
+      }
+    }
+    if (!amount) {
+      return res.status(400).json({
         success: false,
-        message: '❌ Invalid plan amount' 
+        message: '❌ Invalid plan amount'
       });
     }
 
@@ -448,9 +458,9 @@ router.post('/initiate-payme', async (req, res) => {
       state: 1, // Created
       create_time: Date.now(),
       perform_time: 0,
-      account: { 
+      account: {
         Login: user._id,
-        user_id: user._id 
+        user_id: user._id
       }
     };
     setTransaction(transactionId, transaction);
@@ -468,7 +478,7 @@ router.post('/initiate-payme', async (req, res) => {
       };
 
       const paymentUrl = `https://checkout.paycom.uz/?${new URLSearchParams(paymeParams).toString()}`;
-      
+
 
       return res.status(200).json({
         success: true,
@@ -538,8 +548,8 @@ router.post('/initiate-payme', async (req, res) => {
 router.post('/initialize', async (req, res) => {
   try {
     const { transactionId, cardNumber, expiryDate, cardHolder, amount, userId, plan } = req.body;
-    
-    
+
+
     // Basic validation
     if (!cardNumber || !expiryDate || !cardHolder) {
       return res.json({
@@ -547,25 +557,25 @@ router.post('/initialize', async (req, res) => {
         message: 'Missing card details'
       });
     }
-    
+
     // Check card type
     const cleanNumber = cardNumber.replace(/\s/g, '');
     let cardType = null;
-    
-    if (cleanNumber.startsWith('8600') || cleanNumber.startsWith('9860') || 
-        cleanNumber.startsWith('5440') || cleanNumber.startsWith('6440')) {
+
+    if (cleanNumber.startsWith('8600') || cleanNumber.startsWith('9860') ||
+      cleanNumber.startsWith('5440') || cleanNumber.startsWith('6440')) {
       cardType = 'Humo';
     } else if (cleanNumber.startsWith('5614') || cleanNumber.startsWith('6262')) {
       cardType = 'UzCard';
     }
-    
+
     if (!cardType) {
       return res.json({
         success: false,
         message: 'Only Humo and UzCard are supported'
       });
     }
-    
+
     // In development, just return success
     // In production, PayMe handles this
     return res.json({
@@ -575,7 +585,7 @@ router.post('/initialize', async (req, res) => {
       cardType: cardType,
       message: 'SMS code sent (development mode - use any 6 digits)'
     });
-    
+
   } catch (error) {
     console.error('Initialize error:', error);
     res.status(500).json({
@@ -589,22 +599,22 @@ router.post('/initialize', async (req, res) => {
 router.post('/verify-sms', async (req, res) => {
   try {
     const { transactionId, smsCode } = req.body;
-    
-    
+
+
     if (!smsCode || smsCode.length !== 6) {
       return res.json({
         success: false,
         message: 'SMS code must be 6 digits'
       });
     }
-    
+
     // In development, accept any 6-digit code
     // In production, PayMe handles this
     return res.json({
       success: true,
       message: 'SMS verified successfully (development mode)'
     });
-    
+
   } catch (error) {
     console.error('SMS verification error:', error);
     res.status(500).json({
@@ -618,36 +628,51 @@ router.post('/verify-sms', async (req, res) => {
 router.post('/complete', async (req, res) => {
   try {
     const { transactionId, userId, plan } = req.body;
-    
+
     let user = await User.findOne({ firebaseId: userId });
-    
+
     if (!user) {
       // Try finding by MongoDB _id as a fallback
       user = await User.findById(userId).catch(() => null);
     }
-    
+
     if (!user) {
       return res.status(404).json({
         success: false,
         message: 'User not found'
       });
     }
-    
-    // ✅ FIX: Grant a 365-day subscription for the successful payment.
-    // This correctly sets the plan, expiry date, and source in the database.
-    await user.grantSubscription(plan, 365, 'payment');
-    
+
+    // Determine duration based on plan/amount if not provided
+    let durationDays = 30;
+    let durationMonths = 1;
+
+    // Check if it's a known plan amount
+    if (plan === 'pro') {
+      // If we have access to PAYMENT_AMOUNTS, use them, otherwise infer from amount if available
+      // For development/manual completion, we might just want to default to 1 month or use a param
+      if (req.body.duration) {
+        durationMonths = parseInt(req.body.duration);
+        durationDays = durationMonths * 30;
+      }
+    }
+
+    // Grant subscription
+    await user.grantSubscription(plan, durationDays, 'payment', durationMonths);
+
     // Update other payment-related fields
     user.paymentStatus = 'paid';
+    user.subscriptionAmount = req.body.amount || 0;
+    user.lastPaymentDate = new Date();
     await user.save();
-    
+
     // Update sandbox transaction if it exists in memory
     if (typeof sandboxTransactions !== 'undefined' && sandboxTransactions.has(transactionId)) {
       const transaction = sandboxTransactions.get(transactionId);
       transaction.state = 2; // Mark as Completed
       transaction.perform_time = Date.now();
     }
-    
+
     return res.json({
       success: true,
       message: 'Payment completed successfully',
@@ -658,7 +683,7 @@ router.post('/complete', async (req, res) => {
         paymentStatus: user.paymentStatus
       }
     });
-    
+
   } catch (error) {
     console.error('Payment completion error:', error);
     res.status(500).json({
@@ -732,7 +757,7 @@ if (process.env.NODE_ENV !== 'production') {
       timestamp: new Date().toISOString()
     });
   });
-  
+
   // Clear all sandbox transactions - UPDATED
   router.delete('/transactions/clear', (req, res) => {
     const count = sandboxTransactions.size;
@@ -742,11 +767,11 @@ if (process.env.NODE_ENV !== 'production') {
       timestamp: new Date().toISOString()
     });
   });
-  
+
   // Test endpoint to simulate different payment scenarios
   router.post('/test/scenario', async (req, res) => {
     const { scenario, userId, plan } = req.body;
-    
+
     try {
       switch (scenario) {
         case 'success':
@@ -760,7 +785,7 @@ if (process.env.NODE_ENV !== 'production') {
             }
           });
           break;
-          
+
         case 'failure':
           res.status(400).json({
             success: false,
@@ -771,7 +796,7 @@ if (process.env.NODE_ENV !== 'production') {
             }
           });
           break;
-          
+
         case 'pending':
           res.json({
             success: true,
@@ -783,7 +808,7 @@ if (process.env.NODE_ENV !== 'production') {
             }
           });
           break;
-          
+
         case 'cancelled':
           res.json({
             success: true,
@@ -795,7 +820,7 @@ if (process.env.NODE_ENV !== 'production') {
             }
           });
           break;
-          
+
         default:
           res.status(400).json({
             message: '❌ Unknown test scenario',
@@ -851,20 +876,20 @@ if (process.env.NODE_ENV !== 'production') {
       }
     });
   });
-  
+
   // Test endpoint to create a sample transaction
   router.post('/test/create-transaction', async (req, res) => {
     const { userId, plan } = req.body;
-    
+
     if (!userId || !plan) {
       return res.status(400).json({
         message: '❌ userId and plan are required'
       });
     }
-    
+
     const transactionId = 'test_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
     const amount = plan === 'pro' ? 45500000 : 26000000;
-    
+
     res.json({
       message: '✅ Test transaction created',
       transaction: {
@@ -957,7 +982,7 @@ router.use('*', (req, res) => {
 // Error handling middleware for payment routes
 router.use((error, req, res, next) => {
   console.error('❌ Payment route error:', error);
-  
+
   // Check if it's a PayMe error format
   if (error.code && typeof error.code === 'number' && error.code < 0) {
     return res.status(200).json({
@@ -970,7 +995,7 @@ router.use((error, req, res, next) => {
       }
     });
   }
-  
+
   // Standard error response
   res.status(error.status || 500).json({
     message: '❌ Payment processing error',

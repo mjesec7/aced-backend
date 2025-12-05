@@ -100,7 +100,7 @@ const autoStoreVariables = (responseBody) => {
                 } else if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
                     // Store only non-null/non-empty values
                     if (value) {
-                       setVariable(newKey, value);
+                        setVariable(newKey, value);
                     }
                 }
             }
@@ -116,196 +116,196 @@ const autoStoreVariables = (responseBody) => {
  * Creates an invoice with Multicard and returns the checkout URL.
  */
 const initiatePayment = async (req, res) => {
-  const { userId, plan, amount, ofd, lang, sms } = req.body;
+    const { userId, plan, amount, ofd, lang, sms } = req.body;
 
-  // Validate required fields
-  if (!userId || !plan || !amount || !ofd) {
-    return res.status(400).json({
-      success: false,
-      error: {
-        code: 'ERROR_FIELDS',
-        details: 'userId, plan, amount, and ofd are required.'
-      }
-    });
-  }
+    // Validate required fields
+    if (!userId || !plan || !amount || !ofd) {
+        return res.status(400).json({
+            success: false,
+            error: {
+                code: 'ERROR_FIELDS',
+                details: 'userId, plan, amount, and ofd are required.'
+            }
+        });
+    }
 
-  try {
-    // Find user by firebaseId or MongoDB _id
-    const user = await User.findOne({
-      $or: [
-        { firebaseId: userId },
-        { _id: mongoose.Types.ObjectId.isValid(userId) ? userId : null }
-      ]
-    });
+    try {
+        // Find user by firebaseId or MongoDB _id
+        const user = await User.findOne({
+            $or: [
+                { firebaseId: userId },
+                { _id: mongoose.Types.ObjectId.isValid(userId) ? userId : null }
+            ]
+        });
 
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        error: {
-          code: 'USER_NOT_FOUND',
-          details: 'User not found'
-        }
-      });
-    }
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: {
+                    code: 'USER_NOT_FOUND',
+                    details: 'User not found'
+                }
+            });
+        }
 
-    // ✅ FIX: Get authentication token with proper credentials
-    const token = await getAuthToken();
-    
-    // ✅ FIX: Create cleaner invoice ID
-    const timestamp = Date.now();
-    const invoiceId = `ACED_${plan.toUpperCase()}_${timestamp}`;
-    
-    const callbackUrl = `${process.env.API_BASE_URL}/api/payments/multicard/webhook`;
+        // ✅ FIX: Get authentication token with proper credentials
+        const token = await getAuthToken();
 
-    // ✅ FIX: Use correct store ID from env
-    const storeId = parseInt(process.env.MULTICARD_STORE_ID) || 2660;
+        // ✅ FIX: Create cleaner invoice ID
+        const timestamp = Date.now();
+        const invoiceId = `ACED_${plan.toUpperCase()}_${timestamp}`;
 
-    // ✅ FIX: Ensure amount is in tiyin (100 tiyin = 1 UZS)
-let finalAmount = amount || (plan === 'pro' ? 455000 : 260000);
+        const callbackUrl = `${process.env.API_BASE_URL}/api/payments/multicard/webhook`;
 
-// Convert UZS to tiyin (Multicard expects tiyin)
-if (finalAmount < 10000000) {
-  finalAmount = finalAmount * 100;
-  console.log(`💰 Amount: ${finalAmount / 100} UZS → ${finalAmount} tiyin`);
-}
-    // Build OFD array according to API specs
-    const ofdData = ofd.map(item => ({
-      qty: item.qty || 1,
-      price: item.price || finalAmount, // Price in tiyin
-      mxik: item.mxik || '10899002001000000',
-      total: item.total || finalAmount, // Total in tiyin
-      package_code: item.package_code || '1236095', // ✅ Use your actual package code
-      name: item.name || `ACED ${plan.toUpperCase()} Plan`,
-      vat: item.vat || 0
-    }));
+        // ✅ FIX: Use correct store ID from env
+        const storeId = parseInt(process.env.MULTICARD_STORE_ID) || 2660;
 
-    const payload = {
-      store_id: storeId,
-      amount: finalAmount, // ✅ Amount in tiyin
-      invoice_id: invoiceId,
-      callback_url: callbackUrl,
-      return_url: `${process.env.FRONTEND_URL}/payment-success`,
-      return_error_url: `${process.env.FRONTEND_URL}/payment-failed`,
-      lang: lang || 'ru',
-      ofd: ofdData,
-      // ✅ ADD: Store name for display
-      store_name: 'ACED Education Platform'
-    };
+        // ✅ FIX: Ensure amount is in tiyin (100 tiyin = 1 UZS)
+        let finalAmount = amount || (plan === 'pro' ? 455000 : 260000);
 
-    // Add optional SMS field if provided
-    if (sms) {
-      payload.sms = sms;
-    }
+        // Convert UZS to tiyin (Multicard expects tiyin)
+        if (finalAmount < 10000000) {
+            finalAmount = finalAmount * 100;
+            console.log(`💰 Amount: ${finalAmount / 100} UZS → ${finalAmount} tiyin`);
+        }
+        // Build OFD array according to API specs
+        const ofdData = ofd.map(item => ({
+            qty: item.qty || 1,
+            price: item.price || finalAmount, // Price in tiyin
+            mxik: item.mxik || '10899002001000000',
+            total: item.total || finalAmount, // Total in tiyin
+            package_code: item.package_code || '1236095', // ✅ Use your actual package code
+            name: item.name || `ACED ${plan.toUpperCase()} Plan`,
+            vat: item.vat || 0
+        }));
 
-    console.log('📤 Creating Multicard invoice:', {
-      invoiceId,
-      amount: finalAmount,
-      amountUZS: finalAmount / 100, // Display in UZS for logging
-      storeId,
-      itemCount: ofdData.length
-    });
+        const payload = {
+            store_id: storeId,
+            amount: finalAmount, // ✅ Amount in tiyin
+            invoice_id: invoiceId,
+            callback_url: callbackUrl,
+            return_url: `${process.env.FRONTEND_URL}/payment-success`,
+            return_error_url: `${process.env.FRONTEND_URL}/payment-failed`,
+            lang: lang || 'ru',
+            ofd: ofdData,
+            // ✅ ADD: Store name for display
+            store_name: 'ACED Education Platform'
+        };
 
-    const response = await axios.post(`${API_URL}/payment/invoice`, payload, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        'X-Application-Id': process.env.MULTICARD_APPLICATION_ID,
-        'X-Secret': process.env.MULTICARD_SECRET
-      },
-    });
+        // Add optional SMS field if provided
+        if (sms) {
+            payload.sms = sms;
+        }
 
-    if (!response.data || !response.data.success) {
-      const errorCode = response.data?.error?.code || 'UNKNOWN_ERROR';
-      const errorDetails = response.data?.error?.details || 'Unknown error occurred';
-      throw new Error(`Failed to create invoice: [${errorCode}] ${errorDetails}`);
-    }
+        console.log('📤 Creating Multicard invoice:', {
+            invoiceId,
+            amount: finalAmount,
+            amountUZS: finalAmount / 100, // Display in UZS for logging
+            storeId,
+            itemCount: ofdData.length
+        });
 
-    const invoiceData = response.data.data;
+        const response = await axios.post(`${API_URL}/payment/invoice`, payload, {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+                'X-Application-Id': process.env.MULTICARD_APPLICATION_ID,
+                'X-Secret': process.env.MULTICARD_SECRET
+            },
+        });
 
-    // ✅ Use MongoDB _id for transaction, and correct amount
-    const transaction = new MulticardTransaction({
-      userId: user._id, // ✅ Use MongoDB ObjectId
-      firebaseUserId: userId, // ✅ Store Firebase UID separately
-      invoiceId,
-      amount: finalAmount, // ✅ Use finalAmount
-      plan,
-      status: 'pending',
-      multicardUuid: invoiceData.uuid,
-      checkoutUrl: invoiceData.checkout_url,
-      shortLink: invoiceData.short_link,
-      deeplink: invoiceData.deeplink,
-    });
-    
-    await transaction.save();
+        if (!response.data || !response.data.success) {
+            const errorCode = response.data?.error?.code || 'UNKNOWN_ERROR';
+            const errorDetails = response.data?.error?.details || 'Unknown error occurred';
+            throw new Error(`Failed to create invoice: [${errorCode}] ${errorDetails}`);
+        }
 
-    console.log('✅ Invoice created successfully');
+        const invoiceData = response.data.data;
 
-    res.json({
-      success: true,
-      data: {
-        uuid: invoiceData.uuid,
-        checkoutUrl: invoiceData.checkout_url,
-        shortLink: invoiceData.short_link,
-        deeplink: invoiceData.deeplink,
-        invoiceId: invoiceId,
-        addedOn: invoiceData.added_on,
-      }
-    });
+        // ✅ Use MongoDB _id for transaction, and correct amount
+        const transaction = new MulticardTransaction({
+            userId: user._id, // ✅ Use MongoDB ObjectId
+            firebaseUserId: userId, // ✅ Store Firebase UID separately
+            invoiceId,
+            amount: finalAmount, // ✅ Use finalAmount
+            plan,
+            status: 'pending',
+            multicardUuid: invoiceData.uuid,
+            checkoutUrl: invoiceData.checkout_url,
+            shortLink: invoiceData.short_link,
+            deeplink: invoiceData.deeplink,
+        });
 
-  } catch (error) {
-    // ✅ ENHANCED ERROR LOGGING
-    console.error('❌ Multicard API Error Details:');
-    
-    if (error.response) {
-      console.error('Status:', error.response.status);
-      console.error('Status Text:', error.response.statusText);
-      console.error('Response Data:', JSON.stringify(error.response.data, null, 2));
-      console.error('Response Headers:', error.response.headers);
-      
-      // Check for specific Multicard error codes
-      if (error.response.data?.error) {
-        console.error('Multicard Error:', error.response.data.error);
-      }
-      if (error.response.data?.errors) {
-        console.error('Multicard Errors:', error.response.data.errors);
-      }
-      
-      // Return more detailed error to frontend
-      return res.status(500).json({
-        success: false,
-        error: {
-          code: 'PAYMENT_INITIATION_FAILED',
-          details: error.response.data?.error?.details || 
-                   error.response.data?.error || 
-                   error.response.data?.message || 
-                   'Multicard API rejected the request',
-          multicardStatus: error.response.status,
-          multicardError: error.response.data
-        }
-      });
-    } else if (error.request) {
-      console.error('No response received from Multicard');
-      console.error('Request:', error.request);
-      
-      return res.status(500).json({
-        success: false,
-        error: {
-          code: 'MULTICARD_NO_RESPONSE',
-          details: 'No response from Multicard API'
-        }
-      });
-    } else {
-      console.error('Error setting up request:', error.message);
-      
-      return res.status(500).json({
-        success: false,
-        error: {
-          code: 'REQUEST_SETUP_ERROR',
-          details: error.message
-        }
-      });
-    }
-  }
+        await transaction.save();
+
+        console.log('✅ Invoice created successfully');
+
+        res.json({
+            success: true,
+            data: {
+                uuid: invoiceData.uuid,
+                checkoutUrl: invoiceData.checkout_url,
+                shortLink: invoiceData.short_link,
+                deeplink: invoiceData.deeplink,
+                invoiceId: invoiceId,
+                addedOn: invoiceData.added_on,
+            }
+        });
+
+    } catch (error) {
+        // ✅ ENHANCED ERROR LOGGING
+        console.error('❌ Multicard API Error Details:');
+
+        if (error.response) {
+            console.error('Status:', error.response.status);
+            console.error('Status Text:', error.response.statusText);
+            console.error('Response Data:', JSON.stringify(error.response.data, null, 2));
+            console.error('Response Headers:', error.response.headers);
+
+            // Check for specific Multicard error codes
+            if (error.response.data?.error) {
+                console.error('Multicard Error:', error.response.data.error);
+            }
+            if (error.response.data?.errors) {
+                console.error('Multicard Errors:', error.response.data.errors);
+            }
+
+            // Return more detailed error to frontend
+            return res.status(500).json({
+                success: false,
+                error: {
+                    code: 'PAYMENT_INITIATION_FAILED',
+                    details: error.response.data?.error?.details ||
+                        error.response.data?.error ||
+                        error.response.data?.message ||
+                        'Multicard API rejected the request',
+                    multicardStatus: error.response.status,
+                    multicardError: error.response.data
+                }
+            });
+        } else if (error.request) {
+            console.error('No response received from Multicard');
+            console.error('Request:', error.request);
+
+            return res.status(500).json({
+                success: false,
+                error: {
+                    code: 'MULTICARD_NO_RESPONSE',
+                    details: 'No response from Multicard API'
+                }
+            });
+        } else {
+            console.error('Error setting up request:', error.message);
+
+            return res.status(500).json({
+                success: false,
+                error: {
+                    code: 'REQUEST_SETUP_ERROR',
+                    details: error.message
+                }
+            });
+        }
+    }
 };
 
 
@@ -426,8 +426,14 @@ const handleWebhook = async (req, res) => {
             // Find the user and grant them their subscription/purchase
             const user = await User.findById(transaction.userId);
             if (user) {
-                const durationDays = transaction.plan === 'pro' ? 365 : 30;
-                await user.grantSubscription(transaction.plan, durationDays, 'multicard');
+                const durationDays = transaction.plan === 'pro' ? (transaction.amount >= 100000000 ? 180 : (transaction.amount >= 60000000 ? 90 : 30)) : 30;
+                const durationMonths = durationDays / 30;
+
+                await user.grantSubscription(transaction.plan, durationDays, 'multicard', durationMonths);
+
+                user.subscriptionAmount = transaction.amount;
+                user.lastPaymentDate = new Date();
+                await user.save();
                 console.log(`✅ Subscription granted for plan "${transaction.plan}" to user ${user.email}.`);
                 console.log(`   Payment ID: ${payment.id}`);
                 console.log(`   Payment System: ${payment.ps}`);
@@ -1092,261 +1098,261 @@ const deleteInvoice = async (req, res) => {
 };
 
 /**
- * Create card binding session - FIXED VERSION
- */
+ * Create card binding session - FIXED VERSION
+ */
 const createCardBindingSession = async (req, res) => {
-  const { userId, redirectUrl, redirectDeclineUrl, callbackUrl } = req.body;
+    const { userId, redirectUrl, redirectDeclineUrl, callbackUrl } = req.body;
 
-  if (!userId || !redirectUrl || !redirectDeclineUrl || !callbackUrl) {
-    return res.status(400).json({
-      success: false,
-      error: {
-        code: 'ERROR_FIELDS',
-        details: 'userId, redirectUrl, redirectDeclineUrl, and callbackUrl are required'
-      }
-    });
-  }
+    if (!userId || !redirectUrl || !redirectDeclineUrl || !callbackUrl) {
+        return res.status(400).json({
+            success: false,
+            error: {
+                code: 'ERROR_FIELDS',
+                details: 'userId, redirectUrl, redirectDeclineUrl, and callbackUrl are required'
+            }
+        });
+    }
 
-  try {
-    // Find user by firebaseId or MongoDB _id
-    const user = await User.findOne({
-      $or: [
-        { firebaseId: userId },
-        { _id: mongoose.Types.ObjectId.isValid(userId) ? userId : null }
-      ]
-    });
+    try {
+        // Find user by firebaseId or MongoDB _id
+        const user = await User.findOne({
+            $or: [
+                { firebaseId: userId },
+                { _id: mongoose.Types.ObjectId.isValid(userId) ? userId : null }
+            ]
+        });
 
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        error: {
-          code: 'USER_NOT_FOUND',
-          details: 'User not found'
-        }
-      });
-    }
-
-    const token = await getAuthToken();
-    const storeId = parseInt(process.env.MULTICARD_STORE_ID);
-    
-    const finalCallbackUrl = callbackUrl || `${process.env.API_BASE_URL}/api/payments/multicard/card-binding/callback`;
-
-    console.log('💳 Creating card binding session for user:', userId);
-    console.log('📞 Callback URL:', finalCallbackUrl);
-
-    const response = await axios.post(
-      `${API_URL}/payment/card/bind`,
-      {
-        redirect_url: redirectUrl,
-        redirect_decline_url: redirectDeclineUrl,
-        store_id: storeId,
-        callback_url: finalCallbackUrl
-      },
-      {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      }
-    );
-
-    if (response.data?.success) {
-      const sessionData = response.data.data;
-
-      // ✅ Store session in MulticardTransaction with type 'card_binding'
-      const bindingSession = new MulticardTransaction({
-        userId: user._id,
-        transactionType: 'card_binding',
-        sessionId: sessionData.session_id,
-        formUrl: sessionData.form_url,
-        redirectUrl,
-        redirectDeclineUrl,
-        callbackUrl: finalCallbackUrl,
-        status: 'pending',
-        expiresAt: new Date(Date.now() + 15 * 60 * 1000) // 15 minutes
-      });
-      await bindingSession.save();
-
-      console.log('✅ Card binding session created');
-      console.log('   Session ID:', sessionData.session_id);
-      console.log('   Form URL:', sessionData.form_url);
-
-      res.json({
-        success: true,
-        data: {
-          sessionId: sessionData.session_id,
-          formUrl: sessionData.form_url,
-          expiresIn: 900 // 15 minutes in seconds
-        }
-      });
-    } else {
-      throw new Error('Failed to create card binding session');
-    }
-
-  } catch (error) {
-    console.error('❌ Error creating card binding session:', error);
-    
-    if (error.response?.status === 401) {
-      return res.status(401).json({
-        success: false,
-        error: {
-          code: 'AUTH_ERROR',
-          details: 'Invalid Bearer token'
-        }
-      });
-    }
-
-    res.status(500).json({
-      success: false,
-      error: {
-        code: 'BINDING_SESSION_ERROR',
-        details: error.response?.data?.error?.details || error.message
-      }
-    });
-  }
-};
-
-/**
- * Handle card binding callback - FIXED VERSION
- */
-const handleCardBindingCallback = async (req, res) => {
-  const callbackData = req.body;
-  console.log('💳 Received card binding callback:', JSON.stringify(callbackData, null, 2));
-
-  const { payer_id, card_token, card_pan, ps, status, phone, holder_name, pinfl } = callbackData;
-
-  try {
-    // ✅ Find session by payer_id (which is the session_id) using the correct model
-    const session = await MulticardTransaction.findOne({ sessionId: payer_id, transactionType: 'card_binding' });
-    
-    if (!session) {
-      console.error(`❌ Session not found for payer_id: ${payer_id}`);
-      return res.status(404).json({
-        success: false,
-        message: 'Session not found'
-      });
-    }
-
-    // Only process if binding was successful
-    if (status === 'active') {
-      // Update session with card details
-      session.status = 'active';
-      // Add card details to a nested object for clarity
-      session.cardDetails = {
-        cardToken: card_token,
-        cardPan: card_pan,
-        ps: ps,
-        phone: phone,
-        holderName: holder_name,
-        pinfl: pinfl,
-      };
-      session.boundAt = new Date();
-      session.callbackPayload = callbackData;
-      
-      await session.save();
-
-      // Also save to user's savedCards array
-      const user = await User.findById(session.userId);
-      if (user) {
-        if (!user.savedCards) {
-          user.savedCards = [];
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: {
+                    code: 'USER_NOT_FOUND',
+                    details: 'User not found'
+                }
+            });
         }
-        const existingCard = user.savedCards.find(card => card.cardToken === card_token);
-        
-        if (!existingCard) {
-          user.savedCards.push({
-            cardToken: card_token,
-            cardPan: card_pan,
-            ps: ps,
-            holderName: holder_name,
-            addedAt: new Date()
-          });
-          await user.save();
-        }
-      }
 
-      console.log(`✅ Card bound successfully`);
-      console.log(`   User: ${user?.email || session.userId}`);
-      console.log(`   Card: ${card_pan}`);
-      console.log(`   PS: ${ps}`);
-      console.log(`   Token: ${card_token}`);
-    } else if (status === 'draft') {
-      session.status = 'pending';
-      await session.save();
-      console.log(`⏳ Card binding in progress for session: ${payer_id}`);
-    } else {
-      session.status = 'failed';
-      session.callbackPayload = callbackData;
-      await session.save();
-      console.warn(`⚠️ Card binding failed with status: ${status}`);
-    }
+        const token = await getAuthToken();
+        const storeId = parseInt(process.env.MULTICARD_STORE_ID);
 
-    res.status(200).json({
-      success: true,
-      message: 'Card binding callback processed'
-    });
+        const finalCallbackUrl = callbackUrl || `${process.env.API_BASE_URL}/api/payments/multicard/card-binding/callback`;
 
-  } catch (error) {
-    console.error('❌ Error processing card binding callback:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error'
-    });
-  }
+        console.log('💳 Creating card binding session for user:', userId);
+        console.log('📞 Callback URL:', finalCallbackUrl);
+
+        const response = await axios.post(
+            `${API_URL}/payment/card/bind`,
+            {
+                redirect_url: redirectUrl,
+                redirect_decline_url: redirectDeclineUrl,
+                store_id: storeId,
+                callback_url: finalCallbackUrl
+            },
+            {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+
+        if (response.data?.success) {
+            const sessionData = response.data.data;
+
+            // ✅ Store session in MulticardTransaction with type 'card_binding'
+            const bindingSession = new MulticardTransaction({
+                userId: user._id,
+                transactionType: 'card_binding',
+                sessionId: sessionData.session_id,
+                formUrl: sessionData.form_url,
+                redirectUrl,
+                redirectDeclineUrl,
+                callbackUrl: finalCallbackUrl,
+                status: 'pending',
+                expiresAt: new Date(Date.now() + 15 * 60 * 1000) // 15 minutes
+            });
+            await bindingSession.save();
+
+            console.log('✅ Card binding session created');
+            console.log('   Session ID:', sessionData.session_id);
+            console.log('   Form URL:', sessionData.form_url);
+
+            res.json({
+                success: true,
+                data: {
+                    sessionId: sessionData.session_id,
+                    formUrl: sessionData.form_url,
+                    expiresIn: 900 // 15 minutes in seconds
+                }
+            });
+        } else {
+            throw new Error('Failed to create card binding session');
+        }
+
+    } catch (error) {
+        console.error('❌ Error creating card binding session:', error);
+
+        if (error.response?.status === 401) {
+            return res.status(401).json({
+                success: false,
+                error: {
+                    code: 'AUTH_ERROR',
+                    details: 'Invalid Bearer token'
+                }
+            });
+        }
+
+        res.status(500).json({
+            success: false,
+            error: {
+                code: 'BINDING_SESSION_ERROR',
+                details: error.response?.data?.error?.details || error.message
+            }
+        });
+    }
 };
 
 /**
- * Check card binding status - FIXED VERSION
- */
+ * Handle card binding callback - FIXED VERSION
+ */
+const handleCardBindingCallback = async (req, res) => {
+    const callbackData = req.body;
+    console.log('💳 Received card binding callback:', JSON.stringify(callbackData, null, 2));
+
+    const { payer_id, card_token, card_pan, ps, status, phone, holder_name, pinfl } = callbackData;
+
+    try {
+        // ✅ Find session by payer_id (which is the session_id) using the correct model
+        const session = await MulticardTransaction.findOne({ sessionId: payer_id, transactionType: 'card_binding' });
+
+        if (!session) {
+            console.error(`❌ Session not found for payer_id: ${payer_id}`);
+            return res.status(404).json({
+                success: false,
+                message: 'Session not found'
+            });
+        }
+
+        // Only process if binding was successful
+        if (status === 'active') {
+            // Update session with card details
+            session.status = 'active';
+            // Add card details to a nested object for clarity
+            session.cardDetails = {
+                cardToken: card_token,
+                cardPan: card_pan,
+                ps: ps,
+                phone: phone,
+                holderName: holder_name,
+                pinfl: pinfl,
+            };
+            session.boundAt = new Date();
+            session.callbackPayload = callbackData;
+
+            await session.save();
+
+            // Also save to user's savedCards array
+            const user = await User.findById(session.userId);
+            if (user) {
+                if (!user.savedCards) {
+                    user.savedCards = [];
+                }
+                const existingCard = user.savedCards.find(card => card.cardToken === card_token);
+
+                if (!existingCard) {
+                    user.savedCards.push({
+                        cardToken: card_token,
+                        cardPan: card_pan,
+                        ps: ps,
+                        holderName: holder_name,
+                        addedAt: new Date()
+                    });
+                    await user.save();
+                }
+            }
+
+            console.log(`✅ Card bound successfully`);
+            console.log(`   User: ${user?.email || session.userId}`);
+            console.log(`   Card: ${card_pan}`);
+            console.log(`   PS: ${ps}`);
+            console.log(`   Token: ${card_token}`);
+        } else if (status === 'draft') {
+            session.status = 'pending';
+            await session.save();
+            console.log(`⏳ Card binding in progress for session: ${payer_id}`);
+        } else {
+            session.status = 'failed';
+            session.callbackPayload = callbackData;
+            await session.save();
+            console.warn(`⚠️ Card binding failed with status: ${status}`);
+        }
+
+        res.status(200).json({
+            success: true,
+            message: 'Card binding callback processed'
+        });
+
+    } catch (error) {
+        console.error('❌ Error processing card binding callback:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Internal server error'
+        });
+    }
+};
+
+/**
+ * Check card binding status - FIXED VERSION
+ */
 const checkCardBindingStatus = async (req, res) => {
-    const { sessionId } = req.params;
+    const { sessionId } = req.params;
 
-    try {
-        // First check our database using the correct model
-        const session = await MulticardTransaction.findOne({ sessionId, transactionType: 'card_binding' });
-        
-        if (!session) {
-            return res.status(404).json({
-                success: false,
-                error: {
-                    code: 'SESSION_NOT_FOUND',
-                    details: 'Card binding session not found'
-                }
-            });
-        }
+    try {
+        // First check our database using the correct model
+        const session = await MulticardTransaction.findOne({ sessionId, transactionType: 'card_binding' });
 
-        // Then check with Multicard API
-        const token = await getAuthToken();
+        if (!session) {
+            return res.status(404).json({
+                success: false,
+                error: {
+                    code: 'SESSION_NOT_FOUND',
+                    details: 'Card binding session not found'
+                }
+            });
+        }
 
-        console.log(`🔍 Checking card binding status: ${sessionId}`);
+        // Then check with Multicard API
+        const token = await getAuthToken();
 
-        const response = await axios.get(
-            `${API_URL}/payment/card/bind/${sessionId}`,
-            {
-                headers: { 'Authorization': `Bearer ${token}` }
-            }
-        );
+        console.log(`🔍 Checking card binding status: ${sessionId}`);
 
-        if (response.data?.success) {
-            const multicardData = response.data.data;
-            
-            // Update session if status changed
-            if (multicardData.status === 'active' && session.status !== 'active') {
-                session.status = 'active';
+        const response = await axios.get(
+            `${API_URL}/payment/card/bind/${sessionId}`,
+            {
+                headers: { 'Authorization': `Bearer ${token}` }
+            }
+        );
+
+        if (response.data?.success) {
+            const multicardData = response.data.data;
+
+            // Update session if status changed
+            if (multicardData.status === 'active' && session.status !== 'active') {
+                session.status = 'active';
                 session.cardDetails = {
-                  cardToken: multicardData.card_token,
-                  cardPan: multicardData.card_pan,
-                  ps: multicardData.ps,
-                  phone: multicardData.phone,
-                  holderName: multicardData.holder_name,
+                    cardToken: multicardData.card_token,
+                    cardPan: multicardData.card_pan,
+                    ps: multicardData.ps,
+                    phone: multicardData.phone,
+                    holderName: multicardData.holder_name,
                 };
-                session.boundAt = new Date();
-                await session.save();
-                
+                session.boundAt = new Date();
+                await session.save();
+
                 // Also save to user's savedCards array
                 const user = await User.findById(session.userId);
                 if (user) {
-                    if(!user.savedCards) {
+                    if (!user.savedCards) {
                         user.savedCards = [];
                     }
                     const existingCard = user.savedCards.find(card => card.cardToken === multicardData.card_token);
@@ -1361,29 +1367,29 @@ const checkCardBindingStatus = async (req, res) => {
                         await user.save();
                     }
                 }
-            }
-            
-            res.json({
-                success: true,
-                data: {
-                    local: session,
-                    multicard: multicardData
-                }
-            });
-        } else {
-            throw new Error('Failed to check card binding status');
-        }
+            }
 
-    } catch (error) {
-        console.error('❌ Error checking card binding status:', error.message);
-        res.status(error.response?.status || 500).json({
-            success: false,
-            error: {
-                code: 'CHECK_STATUS_ERROR',
-                details: error.response?.data?.error?.details || error.message
-            }
-        });
-    }
+            res.json({
+                success: true,
+                data: {
+                    local: session,
+                    multicard: multicardData
+                }
+            });
+        } else {
+            throw new Error('Failed to check card binding status');
+        }
+
+    } catch (error) {
+        console.error('❌ Error checking card binding status:', error.message);
+        res.status(error.response?.status || 500).json({
+            success: false,
+            error: {
+                code: 'CHECK_STATUS_ERROR',
+                details: error.response?.data?.error?.details || error.message
+            }
+        });
+    }
 };
 
 /**

@@ -597,6 +597,12 @@ const handlePerformTransaction = async (req, res, id, params) => {
 
         // Grant Pro subscription for the determined duration
         await user.grantSubscription('pro', durationDays, 'payment', durationMonths);
+
+        // Save payment details
+        user.subscriptionAmount = transaction.amount;
+        user.lastPaymentDate = new Date();
+        await user.save();
+
         console.log(`✅ Granted ${durationMonths}-month Pro subscription to user ${user.email}`);
       }
     }

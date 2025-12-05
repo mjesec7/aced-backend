@@ -140,6 +140,14 @@ const userSchema = new mongoose.Schema({
         type: Date,
         default: null
     },
+    subscriptionAmount: {
+        type: Number,
+        default: 0
+    },
+    lastPaymentDate: {
+        type: Date,
+        default: null
+    },
     paymentStatus: {
         type: String,
         enum: ['pending', 'paid', 'failed', 'unpaid'],
