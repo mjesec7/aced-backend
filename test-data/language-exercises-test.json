@@ -1,0 +1,1236 @@
+{
+  "lessonName": "Advanced Language Skills: Tone, Idioms & Word Relationships",
+  "description": "Master advanced language skills through innovative interactive exercises covering emotional tone transformation, cross-language idioms, semantic word mapping, sentence rhythm, and false cognates.",
+  "subject": "English",
+  "topicId": { "$oid": "000000000000000000000001" },
+  "level": 5,
+  "difficulty": "intermediate",
+  "stepRequirements": {
+    "explanation": {
+      "required": true,
+      "minCount": 1,
+      "maxCount": 3
+    },
+    "exercise": {
+      "required": false,
+      "minCount": 0,
+      "maxCount": 20
+    },
+    "quiz": {
+      "required": false,
+      "minCount": 0,
+      "maxCount": 10
+    },
+    "practice": {
+      "required": false,
+      "minCount": 0,
+      "maxCount": 5
+    }
+  },
+  "steps": [
+    {
+      "type": "explanation",
+      "order": 0,
+      "title": "Introduction to Advanced Language Skills",
+      "instructions": "Read through this introduction to understand what you'll learn in this lesson.",
+      "content": {
+        "text": "Welcome to Advanced Language Skills! In this lesson, you'll explore five innovative ways to deepen your understanding of language. You'll learn to transform the emotional tone of sentences, discover how idioms connect across different languages, build visual maps of word relationships, match sentence rhythms and stress patterns, and identify tricky false friends between languages. These skills will help you become a more nuanced and effective communicator. Each exercise is designed to challenge your thinking and expand your linguistic awareness. Let's begin this exciting journey into the heart of language!"
+      },
+      "difficulty": "intermediate",
+      "estimatedDuration": 3,
+      "scoring": {
+        "maxPoints": 0,
+        "passingScore": 0,
+        "weight": 0,
+        "allowRetry": true,
+        "maxRetries": 3
+      },
+      "adaptive": {
+        "skipIfMastered": false,
+        "requiredForNext": true,
+        "prerequisites": [],
+        "unlocks": []
+      },
+      "media": {
+        "images": [],
+        "videos": [],
+        "audio": [],
+        "documents": []
+      },
+      "interactive": {
+        "enabled": false,
+        "features": [],
+        "collaborative": false
+      },
+      "analytics": {},
+      "ai": {
+        "enabled": true,
+        "hints": true,
+        "explanations": true,
+        "personalization": true
+      },
+      "metadata": {
+        "version": 1,
+        "tags": ["introduction", "language"],
+        "isOptional": false,
+        "isHidden": false
+      }
+    },
+    {
+      "type": "language_tone_transformer",
+      "order": 1,
+      "title": "Transform: Neutral to Formal",
+      "instructions": "Transform the sentence from a neutral tone to a formal tone. Consider word choice, sentence structure, and level of politeness.",
+      "content": {
+        "originalSentence": "Hey, can you help me with this problem?",
+        "originalTone": "casual",
+        "targetTone": "formal",
+        "correctAnswer": "Would you be so kind as to assist me with this matter?",
+        "acceptableAnswers": [
+          "Could you please assist me with this issue?",
+          "I would appreciate your assistance with this problem.",
+          "Would you mind helping me with this matter?"
+        ],
+        "hints": [
+          "Replace 'Hey' with a more formal greeting or remove it",
+          "Use 'assist' instead of 'help'",
+          "Add polite phrases like 'Would you be so kind' or 'I would appreciate'"
+        ],
+        "explanation": "Formal tone requires more sophisticated vocabulary, indirect requests, and polite expressions."
+      },
+      "difficulty": "intermediate",
+      "estimatedDuration": 3,
+      "scoring": {
+        "maxPoints": 10,
+        "passingScore": 7,
+        "weight": 1,
+        "allowRetry": true,
+        "maxRetries": 3
+      },
+      "adaptive": {
+        "skipIfMastered": false,
+        "requiredForNext": false,
+        "prerequisites": [],
+        "unlocks": []
+      },
+      "media": {
+        "images": [],
+        "videos": [],
+        "audio": [],
+        "documents": []
+      },
+      "interactive": {
+        "enabled": true,
+        "features": ["text-input", "tone-selector"],
+        "collaborative": false
+      },
+      "analytics": {},
+      "ai": {
+        "enabled": true,
+        "hints": true,
+        "explanations": true,
+        "personalization": true
+      },
+      "metadata": {
+        "version": 1,
+        "tags": ["tone", "formal", "transformation"],
+        "isOptional": false,
+        "isHidden": false
+      }
+    },
+    {
+      "type": "language_tone_transformer",
+      "order": 2,
+      "title": "Transform: Angry to Diplomatic",
+      "instructions": "Rewrite this angry statement in a diplomatic tone while preserving the core message.",
+      "content": {
+        "originalSentence": "This is completely unacceptable! You never listen to what I say!",
+        "originalTone": "angry",
+        "targetTone": "diplomatic",
+        "correctAnswer": "I feel that my concerns may not have been fully understood. Perhaps we could discuss this matter further?",
+        "acceptableAnswers": [
+          "I'm concerned that there may be a communication gap between us. Could we address this together?",
+          "It seems we might have different perspectives on this. I'd value the opportunity to share my thoughts.",
+          "I believe there's been a misunderstanding. Would you be open to hearing my point of view?"
+        ],
+        "hints": [
+          "Use 'I feel' statements instead of 'You never'",
+          "Replace accusations with observations",
+          "End with a collaborative invitation"
+        ],
+        "explanation": "Diplomatic tone focuses on feelings, uses softer language, and invites dialogue rather than confrontation."
+      },
+      "difficulty": "advanced",
+      "estimatedDuration": 4,
+      "scoring": {
+        "maxPoints": 10,
+        "passingScore": 7,
+        "weight": 1,
+        "allowRetry": true,
+        "maxRetries": 3
+      },
+      "adaptive": {
+        "skipIfMastered": false,
+        "requiredForNext": false,
+        "prerequisites": [],
+        "unlocks": []
+      },
+      "media": {
+        "images": [],
+        "videos": [],
+        "audio": [],
+        "documents": []
+      },
+      "interactive": {
+        "enabled": true,
+        "features": ["text-input", "tone-selector"],
+        "collaborative": false
+      },
+      "analytics": {},
+      "ai": {
+        "enabled": true,
+        "hints": true,
+        "explanations": true,
+        "personalization": true
+      },
+      "metadata": {
+        "version": 1,
+        "tags": ["tone", "diplomatic", "emotional-intelligence"],
+        "isOptional": false,
+        "isHidden": false
+      }
+    },
+    {
+      "type": "language_idiom_bridge",
+      "order": 3,
+      "title": "Idiom Bridge: English to Spanish",
+      "instructions": "Match the English idioms on the left with their Spanish equivalents on the right. They have the same meaning but use different imagery!",
+      "content": {
+        "sourceLanguage": "English",
+        "targetLanguage": "Spanish",
+        "sourceIdioms": [
+          {
+            "id": "s1",
+            "text": "It's raining cats and dogs",
+            "literal": "Cats and dogs falling from the sky",
+            "meaning": "Heavy rain",
+            "matchId": 1
+          },
+          {
+            "id": "s2",
+            "text": "Kill two birds with one stone",
+            "literal": "Killing two birds with a single stone",
+            "meaning": "Accomplish two things at once",
+            "matchId": 2
+          },
+          {
+            "id": "s3",
+            "text": "The apple doesn't fall far from the tree",
+            "literal": "Apples stay close to their tree",
+            "meaning": "Children resemble their parents",
+            "matchId": 3
+          },
+          {
+            "id": "s4",
+            "text": "Bite off more than you can chew",
+            "literal": "Taking too big a bite",
+            "meaning": "Take on too much responsibility",
+            "matchId": 4
+          }
+        ],
+        "targetIdioms": [
+          {
+            "id": "t1",
+            "text": "Llueve a cántaros",
+            "literal": "It rains pitchers",
+            "meaning": "Heavy rain",
+            "matchId": 1
+          },
+          {
+            "id": "t2",
+            "text": "Matar dos pájaros de un tiro",
+            "literal": "Kill two birds with one shot",
+            "meaning": "Accomplish two things at once",
+            "matchId": 2
+          },
+          {
+            "id": "t3",
+            "text": "De tal palo, tal astilla",
+            "literal": "From such stick, such splinter",
+            "meaning": "Children resemble their parents",
+            "matchId": 3
+          },
+          {
+            "id": "t4",
+            "text": "Quien mucho abarca, poco aprieta",
+            "literal": "Who grasps much, squeezes little",
+            "meaning": "Take on too much responsibility",
+            "matchId": 4
+          }
+        ],
+        "hints": [
+          "Think about the meaning, not the literal translation",
+          "Weather-related idioms often pair together",
+          "Family-related meanings use nature imagery in both languages"
+        ]
+      },
+      "difficulty": "intermediate",
+      "estimatedDuration": 5,
+      "scoring": {
+        "maxPoints": 10,
+        "passingScore": 7,
+        "weight": 1,
+        "allowRetry": true,
+        "maxRetries": 3
+      },
+      "adaptive": {
+        "skipIfMastered": false,
+        "requiredForNext": false,
+        "prerequisites": [],
+        "unlocks": []
+      },
+      "media": {
+        "images": [],
+        "videos": [],
+        "audio": [],
+        "documents": []
+      },
+      "interactive": {
+        "enabled": true,
+        "features": ["drag-drop", "matching"],
+        "collaborative": false
+      },
+      "analytics": {},
+      "ai": {
+        "enabled": true,
+        "hints": true,
+        "explanations": true,
+        "personalization": true
+      },
+      "metadata": {
+        "version": 1,
+        "tags": ["idioms", "spanish", "cross-cultural"],
+        "isOptional": false,
+        "isHidden": false
+      }
+    },
+    {
+      "type": "language_idiom_bridge",
+      "order": 4,
+      "title": "Idiom Bridge: English to Russian",
+      "instructions": "Connect English idioms with their Russian counterparts that express the same idea.",
+      "content": {
+        "sourceLanguage": "English",
+        "targetLanguage": "Russian",
+        "sourceIdioms": [
+          {
+            "id": "s1",
+            "text": "When pigs fly",
+            "literal": "Flying pigs",
+            "meaning": "Something that will never happen",
+            "matchId": 1
+          },
+          {
+            "id": "s2",
+            "text": "To kill time",
+            "literal": "Killing time",
+            "meaning": "To do something while waiting",
+            "matchId": 2
+          },
+          {
+            "id": "s3",
+            "text": "A piece of cake",
+            "literal": "A slice of cake",
+            "meaning": "Something very easy",
+            "matchId": 3
+          },
+          {
+            "id": "s4",
+            "text": "To be on cloud nine",
+            "literal": "Being on the ninth cloud",
+            "meaning": "To be extremely happy",
+            "matchId": 4
+          }
+        ],
+        "targetIdioms": [
+          {
+            "id": "t1",
+            "text": "Когда рак на горе свистнет",
+            "literal": "When a crayfish whistles on a mountain",
+            "meaning": "Something that will never happen",
+            "matchId": 1
+          },
+          {
+            "id": "t2",
+            "text": "Убивать время",
+            "literal": "To kill time",
+            "meaning": "To do something while waiting",
+            "matchId": 2
+          },
+          {
+            "id": "t3",
+            "text": "Проще пареной репы",
+            "literal": "Easier than steamed turnip",
+            "meaning": "Something very easy",
+            "matchId": 3
+          },
+          {
+            "id": "t4",
+            "text": "Быть на седьмом небе",
+            "literal": "To be in seventh heaven",
+            "meaning": "To be extremely happy",
+            "matchId": 4
+          }
+        ],
+        "hints": [
+          "One idiom is almost identical in both languages",
+          "Look for the impossible scenario in Russian",
+          "Russian uses 'seventh heaven' while English uses 'cloud nine'"
+        ]
+      },
+      "difficulty": "advanced",
+      "estimatedDuration": 5,
+      "scoring": {
+        "maxPoints": 10,
+        "passingScore": 7,
+        "weight": 1,
+        "allowRetry": true,
+        "maxRetries": 3
+      },
+      "adaptive": {
+        "skipIfMastered": false,
+        "requiredForNext": false,
+        "prerequisites": [],
+        "unlocks": []
+      },
+      "media": {
+        "images": [],
+        "videos": [],
+        "audio": [],
+        "documents": []
+      },
+      "interactive": {
+        "enabled": true,
+        "features": ["drag-drop", "matching"],
+        "collaborative": false
+      },
+      "analytics": {},
+      "ai": {
+        "enabled": true,
+        "hints": true,
+        "explanations": true,
+        "personalization": true
+      },
+      "metadata": {
+        "version": 1,
+        "tags": ["idioms", "russian", "cross-cultural"],
+        "isOptional": false,
+        "isHidden": false
+      }
+    },
+    {
+      "type": "language_word_constellation",
+      "order": 5,
+      "title": "Word Constellation: 'Communication'",
+      "instructions": "Build a word constellation by connecting related words to the central concept. Draw lines between words that have semantic relationships.",
+      "content": {
+        "centralWord": {
+          "id": "center",
+          "text": "Communication",
+          "x": 400,
+          "y": 300
+        },
+        "words": [
+          { "id": "w1", "text": "Speaking", "category": "method", "x": 250, "y": 200 },
+          { "id": "w2", "text": "Writing", "category": "method", "x": 550, "y": 200 },
+          { "id": "w3", "text": "Listening", "category": "method", "x": 250, "y": 400 },
+          { "id": "w4", "text": "Message", "category": "element", "x": 550, "y": 400 },
+          { "id": "w5", "text": "Sender", "category": "participant", "x": 150, "y": 300 },
+          { "id": "w6", "text": "Receiver", "category": "participant", "x": 650, "y": 300 },
+          { "id": "w7", "text": "Clarity", "category": "quality", "x": 300, "y": 150 },
+          { "id": "w8", "text": "Feedback", "category": "element", "x": 500, "y": 450 },
+          { "id": "w9", "text": "Noise", "category": "barrier", "x": 400, "y": 500 },
+          { "id": "w10", "text": "Understanding", "category": "outcome", "x": 400, "y": 100 }
+        ],
+        "requiredConnections": [
+          { "from": "center", "to": "w1", "relationship": "includes" },
+          { "from": "center", "to": "w2", "relationship": "includes" },
+          { "from": "center", "to": "w3", "relationship": "includes" },
+          { "from": "center", "to": "w4", "relationship": "requires" },
+          { "from": "w5", "to": "w4", "relationship": "creates" },
+          { "from": "w4", "to": "w6", "relationship": "received_by" },
+          { "from": "w6", "to": "w8", "relationship": "provides" },
+          { "from": "center", "to": "w10", "relationship": "achieves" }
+        ],
+        "optionalConnections": [
+          { "from": "w7", "to": "w4", "relationship": "enhances" },
+          { "from": "w9", "to": "center", "relationship": "disrupts" },
+          { "from": "w1", "to": "w3", "relationship": "complementary" }
+        ],
+        "categories": {
+          "method": { "color": "#4CAF50", "label": "Methods" },
+          "element": { "color": "#2196F3", "label": "Elements" },
+          "participant": { "color": "#FF9800", "label": "Participants" },
+          "quality": { "color": "#9C27B0", "label": "Qualities" },
+          "barrier": { "color": "#F44336", "label": "Barriers" },
+          "outcome": { "color": "#00BCD4", "label": "Outcomes" }
+        },
+        "hints": [
+          "Start by connecting the central word to the three methods of communication",
+          "Think about who sends and receives messages",
+          "Consider what makes communication successful or unsuccessful"
+        ]
+      },
+      "difficulty": "intermediate",
+      "estimatedDuration": 6,
+      "scoring": {
+        "maxPoints": 10,
+        "passingScore": 7,
+        "weight": 1,
+        "allowRetry": true,
+        "maxRetries": 3
+      },
+      "adaptive": {
+        "skipIfMastered": false,
+        "requiredForNext": false,
+        "prerequisites": [],
+        "unlocks": []
+      },
+      "media": {
+        "images": [],
+        "videos": [],
+        "audio": [],
+        "documents": []
+      },
+      "interactive": {
+        "enabled": true,
+        "features": ["drag-drop", "line-drawing", "canvas"],
+        "collaborative": false
+      },
+      "analytics": {},
+      "ai": {
+        "enabled": true,
+        "hints": true,
+        "explanations": true,
+        "personalization": true
+      },
+      "metadata": {
+        "version": 1,
+        "tags": ["vocabulary", "semantic-mapping", "word-relationships"],
+        "isOptional": false,
+        "isHidden": false
+      }
+    },
+    {
+      "type": "language_word_constellation",
+      "order": 6,
+      "title": "Word Constellation: 'Education'",
+      "instructions": "Create a semantic map connecting words related to education. Show how these concepts relate to each other.",
+      "content": {
+        "centralWord": {
+          "id": "center",
+          "text": "Education",
+          "x": 400,
+          "y": 300
+        },
+        "words": [
+          { "id": "w1", "text": "Teacher", "category": "person", "x": 200, "y": 200 },
+          { "id": "w2", "text": "Student", "category": "person", "x": 600, "y": 200 },
+          { "id": "w3", "text": "Knowledge", "category": "concept", "x": 400, "y": 100 },
+          { "id": "w4", "text": "Curriculum", "category": "structure", "x": 200, "y": 400 },
+          { "id": "w5", "text": "Assessment", "category": "process", "x": 600, "y": 400 },
+          { "id": "w6", "text": "Learning", "category": "process", "x": 500, "y": 150 },
+          { "id": "w7", "text": "Teaching", "category": "process", "x": 300, "y": 150 },
+          { "id": "w8", "text": "School", "category": "place", "x": 150, "y": 300 },
+          { "id": "w9", "text": "Skills", "category": "outcome", "x": 650, "y": 300 },
+          { "id": "w10", "text": "Growth", "category": "outcome", "x": 400, "y": 500 }
+        ],
+        "requiredConnections": [
+          { "from": "center", "to": "w3", "relationship": "transmits" },
+          { "from": "w1", "to": "w7", "relationship": "performs" },
+          { "from": "w2", "to": "w6", "relationship": "engages_in" },
+          { "from": "w7", "to": "w6", "relationship": "enables" },
+          { "from": "w6", "to": "w3", "relationship": "acquires" },
+          { "from": "w6", "to": "w9", "relationship": "develops" },
+          { "from": "center", "to": "w10", "relationship": "promotes" }
+        ],
+        "optionalConnections": [
+          { "from": "w4", "to": "w7", "relationship": "guides" },
+          { "from": "w5", "to": "w6", "relationship": "measures" },
+          { "from": "w8", "to": "center", "relationship": "hosts" }
+        ],
+        "categories": {
+          "person": { "color": "#FF9800", "label": "People" },
+          "concept": { "color": "#9C27B0", "label": "Concepts" },
+          "structure": { "color": "#607D8B", "label": "Structures" },
+          "process": { "color": "#4CAF50", "label": "Processes" },
+          "place": { "color": "#795548", "label": "Places" },
+          "outcome": { "color": "#00BCD4", "label": "Outcomes" }
+        },
+        "hints": [
+          "Connect people to the actions they perform",
+          "Think about the flow from teaching to learning to outcomes",
+          "Consider what education ultimately achieves"
+        ]
+      },
+      "difficulty": "intermediate",
+      "estimatedDuration": 6,
+      "scoring": {
+        "maxPoints": 10,
+        "passingScore": 7,
+        "weight": 1,
+        "allowRetry": true,
+        "maxRetries": 3
+      },
+      "adaptive": {
+        "skipIfMastered": false,
+        "requiredForNext": false,
+        "prerequisites": [],
+        "unlocks": []
+      },
+      "media": {
+        "images": [],
+        "videos": [],
+        "audio": [],
+        "documents": []
+      },
+      "interactive": {
+        "enabled": true,
+        "features": ["drag-drop", "line-drawing", "canvas"],
+        "collaborative": false
+      },
+      "analytics": {},
+      "ai": {
+        "enabled": true,
+        "hints": true,
+        "explanations": true,
+        "personalization": true
+      },
+      "metadata": {
+        "version": 1,
+        "tags": ["vocabulary", "semantic-mapping", "education"],
+        "isOptional": false,
+        "isHidden": false
+      }
+    },
+    {
+      "type": "language_rhythm_match",
+      "order": 7,
+      "title": "Rhythm Match: Stress Patterns",
+      "instructions": "Listen to or analyze the stress pattern of the target sentence, then select the sentence that has the SAME rhythm pattern.",
+      "content": {
+        "targetSentence": "The QUICK brown FOX jumps OVER the LAZY dog.",
+        "targetPattern": ["weak", "STRONG", "weak", "STRONG", "weak", "STRONG", "weak", "STRONG", "weak"],
+        "patternNotation": "da-DUM-da-DUM-da-DUM-da-DUM-da",
+        "options": [
+          {
+            "id": 0,
+            "text": "A SMALL grey CAT sleeps UNDER the WARM blanket.",
+            "pattern": ["weak", "STRONG", "weak", "STRONG", "weak", "STRONG", "weak", "STRONG", "weak"],
+            "patternNotation": "da-DUM-da-DUM-da-DUM-da-DUM-da"
+          },
+          {
+            "id": 1,
+            "text": "YESTERDAY I WENT to the MARKET.",
+            "pattern": ["STRONG", "weak", "weak", "STRONG", "weak", "weak", "STRONG", "weak"],
+            "patternNotation": "DUM-da-da-DUM-da-da-DUM-da"
+          },
+          {
+            "id": 2,
+            "text": "She CAREFULLY placed the FLOWERS.",
+            "pattern": ["weak", "STRONG", "weak", "weak", "weak", "STRONG", "weak"],
+            "patternNotation": "da-DUM-da-da-da-DUM-da"
+          },
+          {
+            "id": 3,
+            "text": "The BEAUTIFUL sunset FADED slowly AWAY.",
+            "pattern": ["weak", "STRONG", "weak", "weak", "STRONG", "weak", "STRONG", "weak"],
+            "patternNotation": "da-DUM-da-da-DUM-da-DUM-da"
+          }
+        ],
+        "correctIndex": 0,
+        "hints": [
+          "Count the syllables and mark which ones are stressed",
+          "The pattern follows: unstressed-STRESSED throughout",
+          "Look for sentences with alternating weak and strong beats"
+        ],
+        "explanation": "Both sentences follow an iambic pattern (weak-STRONG) with 9 syllables, creating the same rhythmic feel."
+      },
+      "difficulty": "advanced",
+      "estimatedDuration": 4,
+      "scoring": {
+        "maxPoints": 10,
+        "passingScore": 7,
+        "weight": 1,
+        "allowRetry": true,
+        "maxRetries": 3
+      },
+      "adaptive": {
+        "skipIfMastered": false,
+        "requiredForNext": false,
+        "prerequisites": [],
+        "unlocks": []
+      },
+      "media": {
+        "images": [],
+        "videos": [],
+        "audio": [
+          {
+            "url": "/audio/rhythm-target-1.mp3",
+            "duration": 3,
+            "transcript": "The QUICK brown FOX jumps OVER the LAZY dog."
+          }
+        ],
+        "documents": []
+      },
+      "interactive": {
+        "enabled": true,
+        "features": ["audio-playback", "multiple-choice", "rhythm-visualization"],
+        "collaborative": false
+      },
+      "analytics": {},
+      "ai": {
+        "enabled": true,
+        "hints": true,
+        "explanations": true,
+        "personalization": true
+      },
+      "metadata": {
+        "version": 1,
+        "tags": ["prosody", "rhythm", "stress-patterns"],
+        "isOptional": false,
+        "isHidden": false
+      }
+    },
+    {
+      "type": "language_rhythm_match",
+      "order": 8,
+      "title": "Rhythm Match: Poetic Meter",
+      "instructions": "Identify which sentence shares the same metrical pattern as the target. Pay attention to the natural stress of syllables.",
+      "content": {
+        "targetSentence": "Shall I compare thee to a summer's day?",
+        "targetPattern": ["weak", "STRONG", "weak", "STRONG", "weak", "STRONG", "weak", "STRONG", "weak", "STRONG"],
+        "patternNotation": "da-DUM-da-DUM-da-DUM-da-DUM-da-DUM",
+        "options": [
+          {
+            "id": 0,
+            "text": "The RAIN in SPAIN stays MAINLY in the PLAIN.",
+            "pattern": ["weak", "STRONG", "weak", "STRONG", "weak", "STRONG", "weak", "weak", "STRONG"],
+            "patternNotation": "da-DUM-da-DUM-da-DUM-da-da-DUM"
+          },
+          {
+            "id": 1,
+            "text": "To BE or NOT to BE, that IS the QUESTION.",
+            "pattern": ["weak", "STRONG", "weak", "STRONG", "weak", "STRONG", "weak", "STRONG", "weak", "STRONG", "weak"],
+            "patternNotation": "da-DUM-da-DUM-da-DUM-da-DUM-da-DUM-da"
+          },
+          {
+            "id": 2,
+            "text": "But SOFT, what LIGHT through YONder WINdow BREAKS?",
+            "pattern": ["weak", "STRONG", "weak", "STRONG", "weak", "STRONG", "weak", "STRONG", "weak", "STRONG"],
+            "patternNotation": "da-DUM-da-DUM-da-DUM-da-DUM-da-DUM"
+          },
+          {
+            "id": 3,
+            "text": "ONCE upon a MIDnight DREARy.",
+            "pattern": ["STRONG", "weak", "weak", "weak", "STRONG", "weak", "STRONG", "weak"],
+            "patternNotation": "DUM-da-da-da-DUM-da-DUM-da"
+          }
+        ],
+        "correctIndex": 2,
+        "hints": [
+          "This is iambic pentameter - five pairs of unstressed-stressed syllables",
+          "Count: should have 10 syllables total",
+          "Look for the classic Shakespeare pattern"
+        ],
+        "explanation": "Both sentences are in iambic pentameter (5 iambs), the most common meter in English poetry, especially Shakespeare."
+      },
+      "difficulty": "expert",
+      "estimatedDuration": 5,
+      "scoring": {
+        "maxPoints": 10,
+        "passingScore": 7,
+        "weight": 1,
+        "allowRetry": true,
+        "maxRetries": 3
+      },
+      "adaptive": {
+        "skipIfMastered": false,
+        "requiredForNext": false,
+        "prerequisites": [],
+        "unlocks": []
+      },
+      "media": {
+        "images": [],
+        "videos": [],
+        "audio": [],
+        "documents": []
+      },
+      "interactive": {
+        "enabled": true,
+        "features": ["audio-playback", "multiple-choice", "rhythm-visualization"],
+        "collaborative": false
+      },
+      "analytics": {},
+      "ai": {
+        "enabled": true,
+        "hints": true,
+        "explanations": true,
+        "personalization": true
+      },
+      "metadata": {
+        "version": 1,
+        "tags": ["prosody", "poetry", "iambic-pentameter"],
+        "isOptional": false,
+        "isHidden": false
+      }
+    },
+    {
+      "type": "language_false_friends",
+      "order": 9,
+      "title": "False Friends: English-Spanish",
+      "instructions": "Identify which word pairs are FALSE FRIENDS (look similar but have different meanings) and which are TRUE COGNATES (look similar AND mean the same thing).",
+      "content": {
+        "language1": "English",
+        "language2": "Spanish",
+        "words": [
+          {
+            "id": "pair1",
+            "word1": "embarazada",
+            "word2": "embarrassed",
+            "isFalseFriend": true,
+            "actualMeaning1": "pregnant",
+            "actualMeaning2": "feeling ashamed or awkward",
+            "explanation": "Despite looking similar, 'embarazada' means 'pregnant' in Spanish, not 'embarrassed'. The Spanish word for embarrassed is 'avergonzado/a'."
+          },
+          {
+            "id": "pair2",
+            "word1": "hospital",
+            "word2": "hospital",
+            "isFalseFriend": false,
+            "actualMeaning1": "medical facility",
+            "actualMeaning2": "medical facility",
+            "explanation": "These are true cognates - they look the same and mean the same thing in both languages."
+          },
+          {
+            "id": "pair3",
+            "word1": "actualmente",
+            "word2": "actually",
+            "isFalseFriend": true,
+            "actualMeaning1": "currently, at present",
+            "actualMeaning2": "in fact, really",
+            "explanation": "'Actualmente' means 'currently' in Spanish, not 'actually'. The Spanish word for 'actually' is 'en realidad' or 'de hecho'."
+          },
+          {
+            "id": "pair4",
+            "word1": "familia",
+            "word2": "family",
+            "isFalseFriend": false,
+            "actualMeaning1": "family",
+            "actualMeaning2": "family",
+            "explanation": "True cognates - both words refer to a group of relatives."
+          },
+          {
+            "id": "pair5",
+            "word1": "sensible",
+            "word2": "sensible",
+            "isFalseFriend": true,
+            "actualMeaning1": "sensitive",
+            "actualMeaning2": "practical, reasonable",
+            "explanation": "Spanish 'sensible' means 'sensitive', while English 'sensible' means 'practical'. Spanish uses 'sensato' for 'sensible'."
+          },
+          {
+            "id": "pair6",
+            "word1": "música",
+            "word2": "music",
+            "isFalseFriend": false,
+            "actualMeaning1": "music",
+            "actualMeaning2": "music",
+            "explanation": "True cognates - both refer to the art of combining sounds."
+          }
+        ],
+        "hints": [
+          "Be suspicious of words that look almost identical",
+          "Think about whether the meanings actually match",
+          "Words ending in '-mente' often don't mean what you think"
+        ],
+        "scoring": {
+          "correctIdentification": 2,
+          "partialCredit": false
+        }
+      },
+      "difficulty": "intermediate",
+      "estimatedDuration": 5,
+      "scoring": {
+        "maxPoints": 12,
+        "passingScore": 8,
+        "weight": 1,
+        "allowRetry": true,
+        "maxRetries": 3
+      },
+      "adaptive": {
+        "skipIfMastered": false,
+        "requiredForNext": false,
+        "prerequisites": [],
+        "unlocks": []
+      },
+      "media": {
+        "images": [],
+        "videos": [],
+        "audio": [],
+        "documents": []
+      },
+      "interactive": {
+        "enabled": true,
+        "features": ["toggle-switch", "card-flip"],
+        "collaborative": false
+      },
+      "analytics": {},
+      "ai": {
+        "enabled": true,
+        "hints": true,
+        "explanations": true,
+        "personalization": true
+      },
+      "metadata": {
+        "version": 1,
+        "tags": ["false-friends", "spanish", "cognates", "vocabulary"],
+        "isOptional": false,
+        "isHidden": false
+      }
+    },
+    {
+      "type": "language_false_friends",
+      "order": 10,
+      "title": "False Friends: English-Russian",
+      "instructions": "Classify each word pair as either FALSE FRIENDS or TRUE COGNATES. Watch out for tricky lookalikes!",
+      "content": {
+        "language1": "English",
+        "language2": "Russian",
+        "words": [
+          {
+            "id": "pair1",
+            "word1": "magazine",
+            "word2": "магазин (magazin)",
+            "isFalseFriend": true,
+            "actualMeaning1": "periodical publication",
+            "actualMeaning2": "shop, store",
+            "explanation": "Russian 'магазин' means 'store/shop', not 'magazine'. The Russian word for magazine is 'журнал' (zhurnal)."
+          },
+          {
+            "id": "pair2",
+            "word1": "computer",
+            "word2": "компьютер (kompyuter)",
+            "isFalseFriend": false,
+            "actualMeaning1": "electronic computing device",
+            "actualMeaning2": "electronic computing device",
+            "explanation": "True cognates - Russian borrowed this word directly from English."
+          },
+          {
+            "id": "pair3",
+            "word1": "sympathy",
+            "word2": "симпатия (simpatiya)",
+            "isFalseFriend": true,
+            "actualMeaning1": "feeling sorry for someone",
+            "actualMeaning2": "liking, attraction, fondness",
+            "explanation": "Russian 'симпатия' means 'liking' or 'attraction', not 'sympathy'. Russian uses 'сочувствие' for sympathy."
+          },
+          {
+            "id": "pair4",
+            "word1": "taxi",
+            "word2": "такси (taksi)",
+            "isFalseFriend": false,
+            "actualMeaning1": "hired car with driver",
+            "actualMeaning2": "hired car with driver",
+            "explanation": "True cognates - both words mean the same thing."
+          },
+          {
+            "id": "pair5",
+            "word1": "fabric",
+            "word2": "фабрика (fabrika)",
+            "isFalseFriend": true,
+            "actualMeaning1": "cloth, textile material",
+            "actualMeaning2": "factory",
+            "explanation": "Russian 'фабрика' means 'factory', not 'fabric'. Russian uses 'ткань' for fabric."
+          },
+          {
+            "id": "pair6",
+            "word1": "sport",
+            "word2": "спорт (sport)",
+            "isFalseFriend": false,
+            "actualMeaning1": "physical activity/games",
+            "actualMeaning2": "physical activity/games",
+            "explanation": "True cognates - both languages use this word for athletic activities."
+          }
+        ],
+        "hints": [
+          "Words borrowed recently into Russian are usually true cognates",
+          "Older words that look similar are often false friends",
+          "Think about whether the meaning makes sense in context"
+        ],
+        "scoring": {
+          "correctIdentification": 2,
+          "partialCredit": false
+        }
+      },
+      "difficulty": "advanced",
+      "estimatedDuration": 5,
+      "scoring": {
+        "maxPoints": 12,
+        "passingScore": 8,
+        "weight": 1,
+        "allowRetry": true,
+        "maxRetries": 3
+      },
+      "adaptive": {
+        "skipIfMastered": false,
+        "requiredForNext": false,
+        "prerequisites": [],
+        "unlocks": []
+      },
+      "media": {
+        "images": [],
+        "videos": [],
+        "audio": [],
+        "documents": []
+      },
+      "interactive": {
+        "enabled": true,
+        "features": ["toggle-switch", "card-flip"],
+        "collaborative": false
+      },
+      "analytics": {},
+      "ai": {
+        "enabled": true,
+        "hints": true,
+        "explanations": true,
+        "personalization": true
+      },
+      "metadata": {
+        "version": 1,
+        "tags": ["false-friends", "russian", "cognates", "vocabulary"],
+        "isOptional": false,
+        "isHidden": false
+      }
+    },
+    {
+      "type": "summary",
+      "order": 11,
+      "title": "Lesson Summary",
+      "instructions": "Review what you've learned in this lesson.",
+      "content": {
+        "text": "Congratulations on completing this Advanced Language Skills lesson! You've practiced five innovative language exercises: (1) Tone Transformation - converting sentences between emotional registers like formal, casual, and diplomatic; (2) Idiom Bridge - connecting expressions across languages that share meaning but use different imagery; (3) Word Constellation - building semantic maps to understand word relationships; (4) Rhythm Match - recognizing stress patterns and prosody in sentences; (5) False Friends - identifying deceptive cognates that look similar but have different meanings. These skills will help you communicate more effectively and understand the deeper structures of language. Keep practicing to become a true language master!"
+      },
+      "difficulty": "intermediate",
+      "estimatedDuration": 2,
+      "scoring": {
+        "maxPoints": 0,
+        "passingScore": 0,
+        "weight": 0,
+        "allowRetry": true,
+        "maxRetries": 3
+      },
+      "adaptive": {
+        "skipIfMastered": false,
+        "requiredForNext": false,
+        "prerequisites": [],
+        "unlocks": []
+      },
+      "media": {
+        "images": [],
+        "videos": [],
+        "audio": [],
+        "documents": []
+      },
+      "interactive": {
+        "enabled": false,
+        "features": [],
+        "collaborative": false
+      },
+      "analytics": {},
+      "ai": {
+        "enabled": true,
+        "hints": false,
+        "explanations": false,
+        "personalization": false
+      },
+      "metadata": {
+        "version": 1,
+        "tags": ["summary", "review"],
+        "isOptional": false,
+        "isHidden": false
+      }
+    }
+  ],
+  "learningPath": {
+    "prerequisites": [],
+    "nextLessons": [],
+    "relatedLessons": []
+  },
+  "adaptive": {
+    "enabled": true,
+    "personalizedPaths": true,
+    "difficultyAdjustment": true,
+    "paceAdjustment": true,
+    "rules": []
+  },
+  "assessment": {
+    "enabled": true,
+    "passingScore": 70,
+    "certificateEligible": false,
+    "grading": {
+      "exercises": 80,
+      "quizzes": 0,
+      "participation": 10,
+      "homework": 10
+    }
+  },
+  "gamification": {
+    "enabled": true,
+    "points": 150,
+    "badges": [
+      {
+        "id": "tone-master",
+        "name": "Tone Master",
+        "icon": "🎭",
+        "condition": "Complete all tone transformer exercises"
+      },
+      {
+        "id": "idiom-explorer",
+        "name": "Idiom Explorer",
+        "icon": "🌉",
+        "condition": "Complete all idiom bridge exercises"
+      },
+      {
+        "id": "word-weaver",
+        "name": "Word Weaver",
+        "icon": "🕸️",
+        "condition": "Complete all word constellation exercises"
+      }
+    ],
+    "achievements": []
+  },
+  "timing": {
+    "estimatedDuration": 45,
+    "minDuration": 30,
+    "maxDuration": 60,
+    "schedule": {
+      "recommendedTime": "morning",
+      "recommendedDays": 1
+    }
+  },
+  "resources": {
+    "materials": [],
+    "references": [
+      {
+        "title": "English Idioms in Use",
+        "author": "Cambridge University Press",
+        "url": "https://www.cambridge.org",
+        "type": "book"
+      }
+    ],
+    "glossary": [
+      {
+        "term": "False Friend",
+        "definition": "A word in one language that looks similar to a word in another language but has a different meaning",
+        "pronunciation": "/fɔːls frend/"
+      },
+      {
+        "term": "Cognate",
+        "definition": "A word in one language that is related to a word in another language by common ancestry",
+        "pronunciation": "/ˈkɒɡneɪt/"
+      },
+      {
+        "term": "Prosody",
+        "definition": "The patterns of stress and intonation in a language",
+        "pronunciation": "/ˈprɒsədi/"
+      },
+      {
+        "term": "Idiom",
+        "definition": "A phrase with a meaning that cannot be understood from the individual words",
+        "pronunciation": "/ˈɪdiəm/"
+      }
+    ]
+  },
+  "collaboration": {
+    "enabled": false,
+    "type": null,
+    "maxGroupSize": null,
+    "features": []
+  },
+  "analytics": {
+    "totalViews": 0,
+    "totalCompletions": 0,
+    "averageScore": 0,
+    "averageTime": 0,
+    "completionRate": 0,
+    "difficultyRating": 0,
+    "satisfactionRating": 0,
+    "stepAnalytics": []
+  },
+  "ai": {
+    "enabled": true,
+    "chatbot": true,
+    "voiceAssistant": false,
+    "autoGrading": true,
+    "contentGeneration": false,
+    "personalizedHints": true,
+    "adaptiveQuestions": true,
+    "learningAnalytics": true
+  },
+  "accessibility": {
+    "wcagLevel": "AA",
+    "screenReader": true,
+    "captions": true,
+    "transcripts": true,
+    "signLanguage": false,
+    "simplifiedVersion": false
+  },
+  "modeRestrictions": {
+    "schoolOnly": false,
+    "studyCentreOnly": false,
+    "availableInBothModes": true,
+    "schoolRequirements": {
+      "prerequisiteLessons": [],
+      "mustCompleteInOrder": true,
+      "isMandatory": false,
+      "allowedRetakes": 3
+    },
+    "studyCentreFeatures": {
+      "allowSkipping": true,
+      "showHints": true,
+      "unlimitedAttempts": true,
+      "selfPaced": true
+    }
+  },
+  "difficultyVariants": {
+    "simplified": {
+      "enabled": false,
+      "content": null,
+      "exercises": []
+    },
+    "standard": {
+      "content": null,
+      "exercises": []
+    },
+    "advanced": {
+      "enabled": false,
+      "content": null,
+      "exercises": []
+    }
+  },
+  "progressionGates": [],
+  "status": "published",
+  "visibility": "public",
+  "type": "free",
+  "metadata": {
+    "version": 1,
+    "language": "en",
+    "targetAudience": ["intermediate", "advanced"],
+    "keywords": ["language", "idioms", "tone", "vocabulary", "false friends", "prosody", "semantic mapping"],
+    "seoTitle": "Advanced Language Skills - Interactive Exercises",
+    "seoDescription": "Master advanced language skills through tone transformation, idiom bridges, word constellations, rhythm matching, and false friends exercises."
+  },
+  "createdBy": { "$oid": "000000000000000000000002" },
+  "isActive": true
+}
