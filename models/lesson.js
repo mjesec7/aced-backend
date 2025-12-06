@@ -60,7 +60,13 @@ const lessonStepSchema = new mongoose.Schema({
         'chem_matching',           // Science: Formula matching
         'english_sentence_fix',    // Language: Grammar correction
         'english_sentence_order',  // Language: Sentence ordering
-        'language_noun_bag'        // Language: Word categorization
+        'language_noun_bag',       // Language: Word categorization
+        // NEW: Innovative language exercise types
+        'language_tone_transformer',    // Transform sentences between emotional registers
+        'language_idiom_bridge',        // Match idioms across languages by meaning
+        'language_word_constellation',  // Build semantic word relationship maps
+        'language_rhythm_match',        // Match sentence stress/prosody patterns
+        'language_false_friends'        // Identify false cognates across languages
       ],
       message: '{VALUE} is not a valid step type'
     }
@@ -100,6 +106,29 @@ const lessonStepSchema = new mongoose.Schema({
             return Array.isArray(v.questions) && v.questions.length > 0;
           case 'vocabulary':
             return Array.isArray(v.terms) && v.terms.length > 0;
+          // NEW: Validation for innovative language exercises
+          case 'language_tone_transformer':
+            // Requires: originalSentence, originalTone, targetTone, correctAnswer
+            return v.originalSentence && v.originalTone && v.targetTone && v.correctAnswer;
+          case 'language_idiom_bridge':
+            // Requires: sourceIdioms array, targetIdioms array, both with matchId
+            return Array.isArray(v.sourceIdioms) && v.sourceIdioms.length > 0 &&
+                   Array.isArray(v.targetIdioms) && v.targetIdioms.length > 0 &&
+                   v.sourceIdioms.every(i => i.text && i.matchId !== undefined) &&
+                   v.targetIdioms.every(i => i.text && i.matchId !== undefined);
+          case 'language_word_constellation':
+            // Requires: centralWord, words array, requiredConnections array
+            return v.centralWord && Array.isArray(v.words) && v.words.length > 0 &&
+                   Array.isArray(v.requiredConnections) && v.requiredConnections.length > 0;
+          case 'language_rhythm_match':
+            // Requires: targetPattern array, targetSentence, options array, correctIndex
+            return Array.isArray(v.targetPattern) && v.targetPattern.length > 0 &&
+                   v.targetSentence && Array.isArray(v.options) && v.options.length > 0 &&
+                   typeof v.correctIndex === 'number';
+          case 'language_false_friends':
+            // Requires: language1, language2, words array with isFalseFriend boolean
+            return v.language1 && v.language2 && Array.isArray(v.words) && v.words.length > 0 &&
+                   v.words.every(w => w.word1 && w.word2 && typeof w.isFalseFriend === 'boolean');
           default:
             return v !== null && v !== undefined;
         }
