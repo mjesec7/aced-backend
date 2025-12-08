@@ -17,9 +17,30 @@ const promocodeSchema = new mongoose.Schema({
   // What plan this promocode grants (only 'pro' exists)
   grantsPlan: {
     type: String,
-    required: true,
-    enum: ['pro'],
+    enum: ['pro', null],
     default: 'pro'
+  },
+
+  // Discount percentage (0-100) - for payment discounts
+  discountPercent: {
+    type: Number,
+    default: null,
+    min: 0,
+    max: 100
+  },
+
+  // Discount amount in tiyin (UZS * 100) - for fixed amount discounts
+  discountAmount: {
+    type: Number,
+    default: null,
+    min: 0
+  },
+
+  // Type of promo code for easier categorization
+  promoType: {
+    type: String,
+    enum: ['subscription', 'discount_percent', 'discount_amount'],
+    default: 'subscription'
   },
 
   // Promocode settings

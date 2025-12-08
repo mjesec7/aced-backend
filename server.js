@@ -273,6 +273,12 @@ mountRoute('/api/chat', './routes/chatRoutes', 'Chat/AI routes');
 mountRoute('/api/email', './routes/emailRoutes', 'Email routes');
 
 // ========================================
+// INBOX/MESSAGES ROUTES
+// ========================================
+
+mountRoute('/api/messages', './routes/messageRoutes', 'User inbox/messages routes');
+
+// ========================================
 // COURSES, GUIDES & BOOKS ROUTES
 // ========================================
 
