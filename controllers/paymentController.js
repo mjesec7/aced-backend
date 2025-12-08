@@ -1655,15 +1655,15 @@ const applyPromoCode = async (req, res) => {
       });
     }
 
-    // Validate subscription days (only allow 30, 180, 365)
-    const allowedDurations = [30, 180, 365];
+    // Validate subscription days (only allow 30, 90, 180)
+    const allowedDurations = [30, 90, 180];
     let subscriptionDays = promoCodeDoc.subscriptionDays || 30;
 
     // Normalize to allowed values
     if (!allowedDurations.includes(subscriptionDays)) {
       if (subscriptionDays <= 30) subscriptionDays = 30;
-      else if (subscriptionDays <= 180) subscriptionDays = 180;
-      else subscriptionDays = 365;
+      else if (subscriptionDays <= 90) subscriptionDays = 90;
+      else subscriptionDays = 180;
     }
 
     // Calculate subscription end date
@@ -1679,7 +1679,7 @@ const applyPromoCode = async (req, res) => {
     user.subscriptionPlan = grantedPlan;
     user.subscriptionEndDate = subscriptionEndDate;
     user.subscriptionStartDate = now;
-    user.subscriptionDuration = subscriptionDays <= 30 ? 1 : (subscriptionDays <= 180 ? 6 : 12);
+    user.subscriptionDuration = subscriptionDays <= 30 ? 1 : (subscriptionDays <= 90 ? 3 : 6);
     user.paymentMethod = 'promocode';
     user.paymentStatus = 'paid';
     user.lastPaymentDate = now;
@@ -1705,7 +1705,7 @@ const applyPromoCode = async (req, res) => {
 
     // Format duration text for response
     let durationText = subscriptionDays === 30 ? '1 month' :
-      subscriptionDays === 180 ? '6 months' : '1 year';
+      subscriptionDays === 90 ? '3 months' : '6 months';
 
     return res.status(200).json({
       success: true,
