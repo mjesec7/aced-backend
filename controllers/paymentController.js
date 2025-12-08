@@ -1584,39 +1584,153 @@ const clearSandboxTransactions = async (req, res) => {
 
 const applyPromoCode = async (req, res) => {
   try {
-    const { userId, plan, promoCode } = req.body;
+    const { userId, plan, promoCode, code } = req.body;
+    const promocodeInput = promoCode || code; // Support both field names
 
-    if (!userId || !plan || !promoCode) {
-      return res.status(400).json({ message: '❌ All fields required: userId, plan, promoCode' });
+    if (!userId || !promocodeInput) {
+      return res.status(400).json({
+        success: false,
+        message: 'User ID and promo code are required'
+      });
     }
 
-    const validPromoCode = 'acedpromocode2406';
-    if (promoCode.trim() !== validPromoCode) {
-      return res.status(400).json({ message: '❌ Invalid promo code' });
-    }
+    // Find the user
+    let user = await User.findOne({ firebaseId: userId }).catch(() => null) ||
+      await User.findById(userId).catch(() => null) ||
+      await User.findOne({ email: userId }).catch(() => null);
 
-    const allowedPlans = ['start', 'pro'];
-    if (!allowedPlans.includes(plan)) {
-      return res.status(400).json({ message: '❌ Invalid plan. Allowed: start, pro' });
-    }
-
-    const user = await User.findById(userId);
     if (!user) {
-      return res.status(404).json({ message: '❌ User not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
     }
 
-    user.subscriptionPlan = plan;
+    // Try to import the Promocode model
+    let Promocode;
+    try {
+      Promocode = require('../models/promoCode');
+    } catch (modelError) {
+      console.error('❌ Promocode model not found:', modelError.message);
+      return res.status(503).json({
+        success: false,
+        message: 'Promocode system is not available'
+      });
+    }
+
+    // Look up the promo code in the database
+    const promoCodeDoc = await Promocode.findOne({
+      code: promocodeInput.trim().toUpperCase(),
+      isActive: true
+    });
+
+    if (!promoCodeDoc) {
+      return res.status(400).json({
+        success: false,
+        message: 'Promocode not found or is inactive'
+      });
+    }
+
+    // Check if expired
+    if (promoCodeDoc.expiresAt && promoCodeDoc.expiresAt < new Date()) {
+      return res.status(400).json({
+        success: false,
+        message: 'This promocode has expired'
+      });
+    }
+
+    // Check usage limit
+    if (promoCodeDoc.maxUses && promoCodeDoc.currentUses >= promoCodeDoc.maxUses) {
+      return res.status(400).json({
+        success: false,
+        message: 'This promocode has reached its maximum usage limit'
+      });
+    }
+
+    // Check if user already used this promo code
+    if (user.usedPromoCodes && user.usedPromoCodes.includes(promoCodeDoc._id.toString())) {
+      return res.status(400).json({
+        success: false,
+        message: 'You have already used this promocode'
+      });
+    }
+
+    // Validate subscription days (only allow 30, 180, 365)
+    const allowedDurations = [30, 180, 365];
+    let subscriptionDays = promoCodeDoc.subscriptionDays || 30;
+
+    // Normalize to allowed values
+    if (!allowedDurations.includes(subscriptionDays)) {
+      if (subscriptionDays <= 30) subscriptionDays = 30;
+      else if (subscriptionDays <= 180) subscriptionDays = 180;
+      else subscriptionDays = 365;
+    }
+
+    // Calculate subscription end date
+    const now = new Date();
+    let subscriptionEndDate = user.subscriptionEndDate && user.subscriptionEndDate > now
+      ? new Date(user.subscriptionEndDate)
+      : new Date();
+
+    subscriptionEndDate.setDate(subscriptionEndDate.getDate() + subscriptionDays);
+
+    // Update user subscription
+    const grantedPlan = promoCodeDoc.grantsPlan || plan || 'pro';
+    user.subscriptionPlan = grantedPlan;
+    user.subscriptionEndDate = subscriptionEndDate;
+    user.subscriptionStartDate = now;
+    user.subscriptionDuration = subscriptionDays <= 30 ? 1 : (subscriptionDays <= 180 ? 6 : 12);
+    user.paymentMethod = 'promocode';
     user.paymentStatus = 'paid';
+    user.lastPaymentDate = now;
+
+    // Track used promo code
+    if (!user.usedPromoCodes) user.usedPromoCodes = [];
+    user.usedPromoCodes.push(promoCodeDoc._id);
+
     await user.save();
 
+    // Update promo code usage
+    promoCodeDoc.currentUses = (promoCodeDoc.currentUses || 0) + 1;
+    if (!promoCodeDoc.usedBy) promoCodeDoc.usedBy = [];
+    promoCodeDoc.usedBy.push({
+      userId: user._id.toString(),
+      email: user.email,
+      userName: user.name || user.email,
+      usedAt: now
+    });
+    promoCodeDoc.lastUsedAt = now;
+
+    await promoCodeDoc.save();
+
+    // Format duration text for response
+    let durationText = subscriptionDays === 30 ? '1 month' :
+      subscriptionDays === 180 ? '6 months' : '1 year';
+
     return res.status(200).json({
-      message: '✅ Promo code applied successfully',
+      success: true,
+      message: `Promocode applied successfully! ${grantedPlan.toUpperCase()} plan activated for ${durationText}.`,
       unlocked: true,
-      plan
+      plan: grantedPlan,
+      user: {
+        id: user._id,
+        subscriptionPlan: user.subscriptionPlan,
+        subscriptionEndDate: user.subscriptionEndDate,
+        subscriptionDuration: user.subscriptionDuration
+      },
+      promocode: {
+        code: promoCodeDoc.code,
+        grantsPlan: grantedPlan,
+        subscriptionDays: subscriptionDays,
+        durationText: durationText
+      }
     });
   } catch (err) {
     console.error('❌ Promo code error:', err);
-    res.status(500).json({ message: '❌ Server error applying promo code' });
+    res.status(500).json({
+      success: false,
+      message: 'Server error while applying promocode'
+    });
   }
 };
 
