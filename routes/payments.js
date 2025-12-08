@@ -212,53 +212,126 @@ router.post('/webhook/payme', (req, res) => {
 });
 
 // ✅ Payment Initiation Route (for frontend to call)
-router.post('/initiate', (req, res) => {
-  if (initiatePaymePayment) {
-    initiatePaymePayment(req, res);
-  } else {
-    // Emergency payment initiation
-    const { userId, plan } = req.body;
-    
-    if (!userId || !plan) {
+// Now accepts: userId, plan, amount, duration, promoCode, promoDiscount, originalAmount, userEmail, userName
+router.post('/initiate', async (req, res) => {
+  try {
+    const {
+      userId,
+      plan = 'pro',
+      amount,              // Amount in tiyin (already calculated with discount)
+      duration = 1,        // Duration in months (1, 3, or 6)
+      promoCode,           // Applied promo code (if any)
+      promoDiscount,       // Discount amount in tiyin
+      originalAmount,      // Original amount before discount
+      userEmail,
+      userName,
+      additionalData = {}
+    } = req.body;
+
+    if (!userId) {
       return res.status(400).json({
         success: false,
-        message: 'userId and plan are required'
+        message: 'userId is required'
       });
     }
-    
-    const EMERGENCY_AMOUNTS = { start: 26000000, pro: 45500000 };
-    const amount = EMERGENCY_AMOUNTS[plan];
+
+    // Import subscription config for pricing
+    const { getTierByDuration, SUBSCRIPTION_TIERS } = require('../config/subscriptionConfig');
+
+    // Get tier based on duration
+    const tier = getTierByDuration(parseInt(duration) || 1);
+    if (!tier) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid duration. Must be 1, 3, or 6 months.'
+      });
+    }
+
+    // Calculate final amount
+    let finalAmount = amount || tier.priceInTiyin;
+    let originalAmountValue = originalAmount || tier.priceInTiyin;
+
+    // If promo discount is applied, validate it
+    if (promoDiscount && promoDiscount > 0) {
+      // Ensure discount doesn't exceed original amount
+      const discountValue = Math.min(promoDiscount, originalAmountValue);
+      finalAmount = originalAmountValue - discountValue;
+
+      // Ensure minimum amount (1000 sum = 100000 tiyin)
+      if (finalAmount < 100000 && finalAmount > 0) {
+        finalAmount = 100000;
+      }
+    }
+
+    // Generate transaction ID
     const transactionId = `aced_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const isProduction = process.env.NODE_ENV === 'production';
-    
+
+    // Store transaction metadata for later reference
+    const transactionMeta = {
+      id: transactionId,
+      userId,
+      plan,
+      duration: parseInt(duration),
+      amount: finalAmount,
+      originalAmount: originalAmountValue,
+      promoCode: promoCode || null,
+      promoDiscount: promoDiscount || 0,
+      userEmail: userEmail || null,
+      userName: userName || null,
+      createdAt: new Date().toISOString()
+    };
+
+    // Try to use the main payment controller
+    if (initiatePaymePayment) {
+      // Enhance request body with processed values
+      req.body.amount = finalAmount;
+      req.body.duration = parseInt(duration);
+      req.body.transactionMeta = transactionMeta;
+      return initiatePaymePayment(req, res);
+    }
+
+    // Fallback payment initiation
     if (isProduction && process.env.PAYME_MERCHANT_ID) {
       const paymeParams = new URLSearchParams({
         m: process.env.PAYME_MERCHANT_ID,
         'ac.Login': userId,
-        a: amount,
+        a: finalAmount,
         c: transactionId,
         l: 'uz',
         cr: 'UZS'
       });
-      
+
       const paymentUrl = `https://checkout.paycom.uz/?${paymeParams.toString()}`;
-      
+
       return res.json({
         success: true,
         paymentUrl: paymentUrl,
-        transaction: { id: transactionId, amount, plan }
+        transaction: transactionMeta
       });
     } else {
       const checkoutUrl = `https://aced.live/payment/checkout?${new URLSearchParams({
-        transactionId, userId, amount, plan
+        transactionId,
+        userId,
+        amount: finalAmount,
+        plan,
+        duration
       }).toString()}`;
-      
+
       return res.json({
         success: true,
         paymentUrl: checkoutUrl,
-        transaction: { id: transactionId, amount, plan }
+        transaction: transactionMeta
       });
     }
+
+  } catch (error) {
+    console.error('❌ Payment initiation error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to initiate payment',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
@@ -339,28 +412,110 @@ router.get('/validate-user/:userId', async (req, res) => {
 });
 
 // ✅ Get Payment Plans Route (for frontend pricing)
+// Now returns subscription tiers with duration-based pricing
 router.get('/plans', (req, res) => {
   try {
+    // Import subscription config
+    let subscriptionConfig;
+    try {
+      subscriptionConfig = require('../config/subscriptionConfig');
+    } catch (configError) {
+      console.error('❌ Failed to load subscription config:', configError);
+    }
+
+    // If we have the config, return duration-based tiers
+    if (subscriptionConfig && subscriptionConfig.getAllTiers) {
+      const tiers = subscriptionConfig.getAllTiers();
+
+      const plans = {
+        tiers: tiers.map(tier => ({
+          id: tier.id,
+          duration: tier.durationMonths,
+          durationDays: tier.duration,
+          label: tier.label,
+          description: tier.description,
+          priceInTiyin: tier.priceInTiyin,
+          priceInUZS: tier.priceInUZS,
+          displayPrice: tier.displayPrice,
+          currency: tier.currency,
+          savings: tier.savings,
+          savingsPercentage: tier.savingsPercentage,
+          pricePerMonth: tier.pricePerMonth || Math.round(tier.priceInUZS / tier.durationMonths),
+          featured: tier.featured || false
+        })),
+        pro: {
+          name: 'Pro Plan',
+          features: [
+            'Full access to all courses',
+            'Unlimited AI chat messages',
+            'Unlimited AI image analysis',
+            'Priority support',
+            'Advanced analytics',
+            'Homework assistance',
+            'Test preparation'
+          ]
+        }
+      };
+
+      return res.json({
+        success: true,
+        plans: plans
+      });
+    }
+
+    // Fallback to legacy format
     const planAmounts = PAYMENT_AMOUNTS || { start: 26000000, pro: 45500000 };
-    
+
     const plans = {
-      start: {
-        name: 'Start Plan',
-        price_uzs: planAmounts.start / 100, // Convert tiyin to UZS
-        price_tiyin: planAmounts.start,
-        features: [
-          'Basic features',
-          'Limited usage',
-          'Email support'
-        ]
-      },
+      tiers: [
+        {
+          id: 'pro-1',
+          duration: 1,
+          durationDays: 30,
+          label: '1 Month',
+          priceInTiyin: 25000000,
+          priceInUZS: 250000,
+          displayPrice: '250,000',
+          currency: 'UZS',
+          savings: null,
+          savingsPercentage: 0,
+          featured: false
+        },
+        {
+          id: 'pro-3',
+          duration: 3,
+          durationDays: 90,
+          label: '3 Months',
+          priceInTiyin: 67500000,
+          priceInUZS: 675000,
+          displayPrice: '675,000',
+          currency: 'UZS',
+          savings: '10%',
+          savingsPercentage: 10,
+          pricePerMonth: 225000,
+          featured: true
+        },
+        {
+          id: 'pro-6',
+          duration: 6,
+          durationDays: 180,
+          label: '6 Months',
+          priceInTiyin: 120000000,
+          priceInUZS: 1200000,
+          displayPrice: '1,200,000',
+          currency: 'UZS',
+          savings: '20%',
+          savingsPercentage: 20,
+          pricePerMonth: 200000,
+          featured: false
+        }
+      ],
       pro: {
-        name: 'Pro Plan', 
-        price_uzs: planAmounts.pro / 100, // Convert tiyin to UZS
-        price_tiyin: planAmounts.pro,
+        name: 'Pro Plan',
         features: [
-          'All features',
-          'Unlimited usage',
+          'Full access to all courses',
+          'Unlimited AI chat messages',
+          'Unlimited AI image analysis',
           'Priority support',
           'Advanced analytics'
         ]
@@ -458,6 +613,377 @@ router.get('/status/:orderId', async (req, res) => {
   }
 });
 
+// ============================================
+// PAYMENT SUCCESS CALLBACK (Creates inbox message)
+// ============================================
+
+/**
+ * POST /api/payments/success-callback
+ * Called after successful payment to create inbox message
+ * This can be called from frontend after payment confirmation
+ */
+router.post('/success-callback', async (req, res) => {
+  try {
+    const {
+      userId,
+      transactionId,
+      amount,
+      duration,
+      plan,
+      paymentMethod,
+      promoCode,
+      promoDiscount,
+      originalAmount
+    } = req.body;
+
+    if (!userId || !transactionId) {
+      return res.status(400).json({
+        success: false,
+        error: 'userId and transactionId are required'
+      });
+    }
+
+    // Load models
+    const User = require('../models/user');
+    const Message = require('../models/message');
+    const { getTierByDuration } = require('../config/subscriptionConfig');
+
+    // Find user
+    const user = await User.findOne({
+      $or: [
+        { firebaseId: userId },
+        { _id: require('mongoose').Types.ObjectId.isValid(userId) ? userId : null },
+        { email: userId }
+      ]
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    // Get tier info
+    const tier = getTierByDuration(parseInt(duration) || 1);
+    const durationDays = tier ? tier.duration : 30;
+
+    // Calculate subscription dates
+    const startDate = new Date();
+    const endDate = new Date();
+    endDate.setDate(endDate.getDate() + durationDays);
+
+    // Create payment confirmation message
+    const paymentData = {
+      amount: amount || (tier ? tier.priceInTiyin : 25000000),
+      amountFormatted: `${((amount || (tier ? tier.priceInTiyin : 25000000)) / 100).toLocaleString()} UZS`,
+      plan: plan || 'pro',
+      duration: parseInt(duration) || 1,
+      startDate: startDate,
+      endDate: endDate,
+      paymentMethod: paymentMethod || 'PayMe',
+      transactionId: transactionId,
+      promoCode: promoCode || null,
+      promoDiscount: promoDiscount || 0,
+      originalAmount: originalAmount || amount
+    };
+
+    // Create the inbox message
+    const message = await Message.createPaymentMessage(
+      user._id,
+      user.firebaseId,
+      paymentData
+    );
+
+    res.json({
+      success: true,
+      message: 'Payment confirmation message created',
+      data: {
+        messageId: message._id,
+        subscriptionDetails: {
+          plan: plan || 'pro',
+          duration: parseInt(duration) || 1,
+          startDate: startDate,
+          endDate: endDate
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error creating payment success message:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create payment confirmation message',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// ============================================
+// PROMO CODE VALIDATION FOR PAYMENTS
+// ============================================
+
+/**
+ * POST /api/payments/promo-code
+ * Validate a promo code for payment flow and return discount info
+ *
+ * Expected request body:
+ * { code: "PROMOCODE" }
+ *
+ * Response format for frontend:
+ * {
+ *   success: true,
+ *   message: "Promo code applied!",
+ *   data: {
+ *     discountPercent: 20,    // OR
+ *     discountAmount: 5000000, // OR
+ *     grantsPlan: "pro"       // For free access codes
+ *   }
+ * }
+ */
+router.post('/promo-code', async (req, res) => {
+  try {
+    const { code, userId } = req.body;
+
+    if (!code || typeof code !== 'string' || !code.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Promo code is required'
+      });
+    }
+
+    // Load PromoCode model
+    let Promocode;
+    try {
+      Promocode = require('../models/promoCode');
+    } catch (loadError) {
+      console.error('❌ Failed to load Promocode model:', loadError);
+      return res.status(503).json({
+        success: false,
+        error: 'Promo code system is temporarily unavailable'
+      });
+    }
+
+    // Find the promo code
+    const promocode = await Promocode.findOne({
+      code: code.trim().toUpperCase(),
+      isActive: true
+    });
+
+    if (!promocode) {
+      return res.status(404).json({
+        success: false,
+        error: 'Invalid promo code'
+      });
+    }
+
+    // Validate the promo code
+    const validity = promocode.isValid ? promocode.isValid() : { valid: true };
+
+    if (!validity.valid) {
+      return res.status(400).json({
+        success: false,
+        error: validity.reason || 'Promo code is not valid'
+      });
+    }
+
+    // Check expiry
+    if (promocode.expiresAt && promocode.expiresAt < new Date()) {
+      return res.status(400).json({
+        success: false,
+        error: 'This promo code has expired'
+      });
+    }
+
+    // Check usage limit
+    if (promocode.maxUses && promocode.currentUses >= promocode.maxUses) {
+      return res.status(400).json({
+        success: false,
+        error: 'This promo code has reached its usage limit'
+      });
+    }
+
+    // Check if user has already used this code (if userId provided)
+    if (userId) {
+      const alreadyUsed = promocode.usedBy?.some(
+        usage => usage.userId === userId || usage.userId?.toString() === userId
+      );
+      if (alreadyUsed) {
+        return res.status(400).json({
+          success: false,
+          error: 'You have already used this promo code'
+        });
+      }
+    }
+
+    // Build response data based on promo code type
+    const responseData = {
+      code: promocode.code,
+      subscriptionDays: promocode.subscriptionDays || 30
+    };
+
+    // Determine the type of discount/benefit
+    if (promocode.grantsPlan) {
+      // Full subscription grant (free access)
+      responseData.grantsPlan = promocode.grantsPlan;
+    }
+
+    if (promocode.discountPercent && promocode.discountPercent > 0) {
+      // Percentage discount
+      responseData.discountPercent = promocode.discountPercent;
+    }
+
+    if (promocode.discountAmount && promocode.discountAmount > 0) {
+      // Fixed amount discount (in tiyin)
+      responseData.discountAmount = promocode.discountAmount;
+    }
+
+    // If no discount type specified but grantsPlan exists, it's a full subscription
+    if (!responseData.discountPercent && !responseData.discountAmount && responseData.grantsPlan) {
+      responseData.grantsPlan = promocode.grantsPlan;
+    }
+
+    // Add description if available
+    if (promocode.description) {
+      responseData.description = promocode.description;
+    }
+
+    res.json({
+      success: true,
+      message: 'Promo code applied!',
+      data: responseData
+    });
+
+  } catch (error) {
+    console.error('❌ Error validating promo code:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to validate promo code',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+/**
+ * POST /api/payments/apply-promo
+ * Apply a promo code and update the user's subscription (for free codes)
+ */
+router.post('/apply-promo', async (req, res) => {
+  try {
+    const { code, userId } = req.body;
+
+    if (!code || !userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Promo code and user ID are required'
+      });
+    }
+
+    // Load models
+    const Promocode = require('../models/promoCode');
+    const User = require('../models/user');
+    const Message = require('../models/message');
+
+    // Find the promo code
+    const promocode = await Promocode.findOne({
+      code: code.trim().toUpperCase(),
+      isActive: true
+    });
+
+    if (!promocode) {
+      return res.status(404).json({
+        success: false,
+        error: 'Invalid promo code'
+      });
+    }
+
+    // Validate the promo code
+    const validity = promocode.isValid ? promocode.isValid() : { valid: true };
+    if (!validity.valid) {
+      return res.status(400).json({
+        success: false,
+        error: validity.reason || 'Promo code is not valid'
+      });
+    }
+
+    // Find user
+    const user = await User.findOne({
+      $or: [
+        { firebaseId: userId },
+        { _id: require('mongoose').Types.ObjectId.isValid(userId) ? userId : null },
+        { email: userId }
+      ]
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    // Check if user has already used this code
+    const alreadyUsed = promocode.usedBy?.some(
+      usage => usage.userId === user._id.toString() || usage.userId === user.firebaseId
+    );
+    if (alreadyUsed) {
+      return res.status(400).json({
+        success: false,
+        error: 'You have already used this promo code'
+      });
+    }
+
+    // Only apply if it's a subscription-granting promo code
+    if (!promocode.grantsPlan) {
+      return res.status(400).json({
+        success: false,
+        error: 'This promo code can only be used during payment checkout'
+      });
+    }
+
+    // Apply the subscription
+    const subscriptionDays = promocode.subscriptionDays || 30;
+    await user.grantSubscription(promocode.grantsPlan, subscriptionDays, 'promocode');
+
+    // Record usage
+    await promocode.useCode(
+      user._id.toString(),
+      user.email,
+      user.name || 'User',
+      req.ip
+    );
+
+    // Create inbox message
+    try {
+      await Message.createPromoMessage(user._id, user.firebaseId, {
+        code: promocode.code,
+        grantsPlan: promocode.grantsPlan,
+        subscriptionDays: subscriptionDays
+      });
+    } catch (msgError) {
+      console.error('❌ Failed to create promo message:', msgError);
+    }
+
+    res.json({
+      success: true,
+      message: `Promo code applied! You now have ${promocode.grantsPlan.toUpperCase()} plan for ${subscriptionDays} days.`,
+      data: {
+        plan: promocode.grantsPlan,
+        subscriptionDays: subscriptionDays,
+        expiryDate: user.subscriptionExpiryDate
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error applying promo code:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to apply promo code',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
 // ✅ Test Route (for development)
 router.get('/test', (req, res) => {
   res.json({
@@ -470,11 +996,20 @@ router.get('/test', (req, res) => {
       root: 'POST /api/payments (PayMe webhook)',
       rootGet: 'GET /api/payments (status check)',
       initiate: 'POST /api/payments/initiate',
-      initiatePayme: 'POST /api/payments/initiate-payme', 
+      initiatePayme: 'POST /api/payments/initiate-payme',
       validateUser: 'GET /api/payments/validate-user/:userId',
-      plans: 'GET /api/payments/plans',
+      plans: 'GET /api/payments/plans (with duration-based tiers)',
       status: 'GET /api/payments/status/:orderId',
-      webhookPayme: 'POST /api/payments/webhook/payme'
+      webhookPayme: 'POST /api/payments/webhook/payme',
+      promoCode: 'POST /api/payments/promo-code (validate promo)',
+      applyPromo: 'POST /api/payments/apply-promo (apply free subscription)',
+      successCallback: 'POST /api/payments/success-callback (create inbox message)'
+    },
+    features: {
+      durationBasedPricing: true,
+      promoCodeSupport: true,
+      inboxMessages: true,
+      tiers: ['1 month', '3 months (10% off)', '6 months (20% off)']
     },
     controllerStatus: {
       handleSandboxPayment: !!handleSandboxPayment,
