@@ -129,15 +129,13 @@ router.post('/apply', authMiddleware, async (req, res) => {
     }
 
     // --- Apply the promo code benefits ---
-    // ✅ CRITICAL FIX: Use subscriptionPlan instead of status
-    user.subscriptionPlan = promoCode.grantsPlan;
-
-    const subscriptionEndDate = user.subscriptionEndDate && user.subscriptionEndDate > new Date()
-      ? new Date(user.subscriptionEndDate)
-      : new Date();
-
-    subscriptionEndDate.setDate(subscriptionEndDate.getDate() + promoCode.subscriptionDays);
-    user.subscriptionEndDate = subscriptionEndDate;
+    // Use the centralized grantSubscription method
+    await user.grantSubscription(
+      promoCode.grantsPlan,
+      promoCode.subscriptionDays,
+      'promocode',
+      null // Let the method calculate months based on days
+    );
 
     // --- Update records ---
     if (!user.usedPromoCodes) user.usedPromoCodes = [];
@@ -154,6 +152,18 @@ router.post('/apply', authMiddleware, async (req, res) => {
 
     await user.save();
     await promoCode.save();
+
+    // --- Send Notification ---
+    try {
+      const Message = require('../models/message');
+      await Message.createPromoMessage(user._id, user.firebaseId, {
+        code: promoCode.code,
+        grantsPlan: promoCode.grantsPlan,
+        subscriptionDays: promoCode.subscriptionDays
+      });
+    } catch (msgError) {
+      console.error('⚠️ Failed to send promo notification:', msgError);
+    }
 
     res.json({
       success: true,

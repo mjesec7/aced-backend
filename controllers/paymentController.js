@@ -603,6 +603,22 @@ const handlePerformTransaction = async (req, res, id, params) => {
         user.lastPaymentDate = new Date();
         await user.save();
 
+        // --- Send Notification ---
+        try {
+          const Message = require('../models/message');
+          await Message.createPaymentMessage(user._id, user.firebaseId, {
+            amount: transaction.amount,
+            plan: 'pro',
+            duration: durationMonths,
+            startDate: user.subscriptionActivatedAt || new Date(),
+            endDate: user.subscriptionExpiryDate,
+            paymentMethod: 'PayMe',
+            transactionId: transaction.transaction
+          });
+        } catch (msgError) {
+          console.error('⚠️ Failed to send payment notification:', msgError);
+        }
+
         console.log(`✅ Granted ${durationMonths}-month Pro subscription to user ${user.email}`);
       }
     }
