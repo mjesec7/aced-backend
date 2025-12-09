@@ -766,7 +766,7 @@ router.post('/promo-code', async (req, res) => {
 
     // Find the promo code
     const promocode = await Promocode.findOne({
-      code: code.trim().toUpperCase(),
+      code: codeValue.trim().toUpperCase(),
       isActive: true
     });
 
