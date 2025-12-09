@@ -17,7 +17,7 @@ const promocodeSchema = new mongoose.Schema({
   // What plan this promocode grants (only 'pro' exists)
   grantsPlan: {
     type: String,
-    enum: ['pro', null],
+    enum: ['start', 'pro', 'premium', null],
     default: 'pro'
   },
 
