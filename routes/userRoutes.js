@@ -780,6 +780,7 @@ router.get('/:userId/lessons/:lessonId/access', verifyToken, async (req, res) =>
 // ========================================
 
 // ✅ NEW: POST /api/users/admin/:userId/reset-subscription - Reset subscription to free (admin)
+// ✅ NEW: POST /api/users/admin/:userId/reset-subscription - Reset subscription to free (admin)
 router.post('/admin/:userId/reset-subscription', validateUserId, verifyToken, async (req, res) => {
   try {
     const { userId } = req.params;
@@ -823,6 +824,33 @@ router.post('/admin/:userId/reset-subscription', validateUserId, verifyToken, as
     });
 
     await user.save();
+
+    // ✅ SYNC WITH FIREBASE (Firestore & Auth Claims)
+    // This ensures the frontend updates immediately
+    try {
+      const admin = require('../config/firebase');
+      if (admin && user.firebaseId) {
+        // 1. Update Firestore Document
+        await admin.firestore().collection('users').doc(user.firebaseId).set({
+          subscriptionPlan: 'free',
+          plan: 'free',
+          subscriptionExpiryDate: null,
+          subscriptionStatus: 'free',
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+
+        // 2. Update Custom Claims
+        await admin.auth().setCustomUserClaims(user.firebaseId, {
+          plan: 'free',
+          status: 'free'
+        });
+
+        console.log(`🔄 Synced reset to Firebase for ${user.email}`);
+      }
+    } catch (firebaseError) {
+      console.error('⚠️ Failed to sync reset with Firebase:', firebaseError);
+      // Don't fail the request, just log it
+    }
 
     console.log(`🔄 Admin reset ${user.email} subscription from ${previousPlan} to free`);
 
