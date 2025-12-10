@@ -810,6 +810,7 @@ router.post('/admin/:userId/reset-subscription', validateUserId, verifyToken, as
     user.subscriptionExpiryDate = null;
     user.subscriptionActivatedAt = null;
     user.subscriptionSource = null;
+    user.subscriptionDuration = null;
     user.lastStatusUpdate = new Date();
     user.statusSource = 'admin_reset';
 
