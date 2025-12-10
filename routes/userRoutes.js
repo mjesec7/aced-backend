@@ -779,6 +779,74 @@ router.get('/:userId/lessons/:lessonId/access', verifyToken, async (req, res) =>
 // 👑 ADMIN & MISC ROUTES
 // ========================================
 
+// ✅ NEW: POST /api/users/admin/:userId/reset-subscription - Reset subscription to free (admin)
+router.post('/admin/:userId/reset-subscription', validateUserId, verifyToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { reason } = req.body;
+
+    const user = await User.findOne({
+      $or: [
+        { firebaseId: userId },
+        { _id: mongoose.Types.ObjectId.isValid(userId) ? userId : null }
+      ]
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    const previousPlan = user.subscriptionPlan;
+    const previousExpiry = user.subscriptionExpiryDate;
+
+    // Reset all subscription fields to free
+    user.subscriptionPlan = 'free';
+    user.userStatus = 'free';
+    user.plan = 'free';
+    user.subscriptionExpiryDate = null;
+    user.subscriptionActivatedAt = null;
+    user.subscriptionSource = null;
+    user.lastStatusUpdate = new Date();
+    user.statusSource = 'admin_reset';
+
+    // Track the reset in a new field
+    if (!user.subscriptionHistory) user.subscriptionHistory = [];
+    user.subscriptionHistory.push({
+      action: 'admin_reset',
+      previousPlan: previousPlan,
+      previousExpiry: previousExpiry,
+      resetAt: new Date(),
+      reason: reason || 'Admin reset'
+    });
+
+    await user.save();
+
+    console.log(`🔄 Admin reset ${user.email} subscription from ${previousPlan} to free`);
+
+    res.json({
+      success: true,
+      message: `User subscription reset to free successfully`,
+      user: {
+        firebaseId: user.firebaseId,
+        email: user.email,
+        previousPlan: previousPlan,
+        previousExpiry: previousExpiry,
+        subscriptionPlan: 'free',
+        subscriptionExpiryDate: null
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error resetting subscription:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to reset subscription'
+    });
+  }
+});
+
 // ✅ NEW: POST /api/users/admin/:userId/extend-subscription - Extend subscription (admin)
 router.post('/admin/:userId/extend-subscription', validateUserId, verifyToken, async (req, res) => {
   // TODO: Add admin-level verification middleware here

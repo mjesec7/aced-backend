@@ -1099,6 +1099,22 @@ async function processPromoApplication(user, promoCode, res) {
       return res.status(400).json({ success: false, message: 'You have already used this promo code.' });
     }
 
+    // ✅ NEW: Block promo code usage if user has an active (non-expired) subscription
+    if (user.subscriptionPlan && user.subscriptionPlan !== 'free') {
+      const now = new Date();
+      if (user.subscriptionExpiryDate && new Date(user.subscriptionExpiryDate) > now) {
+        const expiryDate = new Date(user.subscriptionExpiryDate);
+        const daysRemaining = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
+        return res.status(400).json({
+          success: false,
+          message: `You already have an active ${user.subscriptionPlan.toUpperCase()} subscription with ${daysRemaining} days remaining. You can use a promo code after your subscription expires.`,
+          code: 'ACTIVE_SUBSCRIPTION',
+          expiryDate: user.subscriptionExpiryDate,
+          daysRemaining: daysRemaining
+        });
+      }
+    }
+
     // Check restricted users if applicable
     if (promoCode.restrictedToUsers && promoCode.restrictedToUsers.length > 0) {
       const isRestricted = promoCode.restrictedToUsers.includes(user.email) ||
