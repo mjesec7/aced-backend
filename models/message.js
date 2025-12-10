@@ -94,7 +94,7 @@ messageSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 }); // TTL index f
 /**
  * Mark message as read
  */
-messageSchema.methods.markAsRead = async function() {
+messageSchema.methods.markAsRead = async function () {
     if (!this.read) {
         this.read = true;
         this.readAt = new Date();
@@ -110,7 +110,7 @@ messageSchema.methods.markAsRead = async function() {
  * @param {string} userIdOrFirebaseId - MongoDB ObjectId or Firebase ID
  * @param {object} options - Query options (limit, skip, type, unreadOnly)
  */
-messageSchema.statics.getMessagesForUser = async function(userIdOrFirebaseId, options = {}) {
+messageSchema.statics.getMessagesForUser = async function (userIdOrFirebaseId, options = {}) {
     const {
         limit = 50,
         skip = 0,
@@ -147,7 +147,7 @@ messageSchema.statics.getMessagesForUser = async function(userIdOrFirebaseId, op
 /**
  * Get unread count for a user
  */
-messageSchema.statics.getUnreadCount = async function(userIdOrFirebaseId) {
+messageSchema.statics.getUnreadCount = async function (userIdOrFirebaseId) {
     let query = {};
 
     if (mongoose.Types.ObjectId.isValid(userIdOrFirebaseId)) {
@@ -164,7 +164,7 @@ messageSchema.statics.getUnreadCount = async function(userIdOrFirebaseId) {
 /**
  * Mark all messages as read for a user
  */
-messageSchema.statics.markAllAsRead = async function(userIdOrFirebaseId) {
+messageSchema.statics.markAllAsRead = async function (userIdOrFirebaseId) {
     let query = {};
 
     if (mongoose.Types.ObjectId.isValid(userIdOrFirebaseId)) {
@@ -186,7 +186,7 @@ messageSchema.statics.markAllAsRead = async function(userIdOrFirebaseId) {
 /**
  * Create a payment confirmation message
  */
-messageSchema.statics.createPaymentMessage = async function(userId, firebaseId, paymentData) {
+messageSchema.statics.createPaymentMessage = async function (userId, firebaseId, paymentData) {
     const {
         amount,
         amountFormatted,
@@ -241,7 +241,7 @@ messageSchema.statics.createPaymentMessage = async function(userId, firebaseId, 
 /**
  * Create a subscription expiry warning message
  */
-messageSchema.statics.createExpiryWarning = async function(userId, firebaseId, expiryDate, daysRemaining) {
+messageSchema.statics.createExpiryWarning = async function (userId, firebaseId, expiryDate, daysRemaining) {
     return this.create({
         userId,
         firebaseId,
@@ -259,19 +259,37 @@ messageSchema.statics.createExpiryWarning = async function(userId, firebaseId, e
 /**
  * Create a promo code applied message
  */
-messageSchema.statics.createPromoMessage = async function(userId, firebaseId, promoData) {
+messageSchema.statics.createPromoMessage = async function (userId, firebaseId, promoData) {
     const {
         code,
         grantsPlan,
         subscriptionDays,
         discountPercent,
-        discountAmount
+        discountAmount,
+        expiryDate
     } = promoData;
+
+    // Calculate end date
+    const formatDate = (date) => {
+        if (!date) return 'N/A';
+        return new Date(date).toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+        });
+    };
+
+    const endDate = expiryDate ? new Date(expiryDate) : new Date(Date.now() + (subscriptionDays || 30) * 24 * 60 * 60 * 1000);
+    const durationMonths = (subscriptionDays || 30) <= 31 ? 1 : (subscriptionDays || 30) <= 95 ? 3 : 6;
 
     let content = `Promo code **${code}** has been applied to your account!\n\n`;
 
     if (grantsPlan) {
-        content += `You now have access to the **${grantsPlan.toUpperCase()}** plan for ${subscriptionDays || 30} days.`;
+        content += `**Plan:** ${grantsPlan.toUpperCase()}\n`;
+        content += `**Duration:** ${durationMonths} month${durationMonths > 1 ? 's' : ''} (${subscriptionDays || 30} days)\n`;
+        content += `**Payment Method:** Promo Code\n`;
+        content += `**Subscription End Date:** ${formatDate(endDate)}\n\n`;
+        content += `Enjoy your premium features!`;
     } else if (discountPercent) {
         content += `You received a **${discountPercent}%** discount on your next payment.`;
     } else if (discountAmount) {
@@ -281,18 +299,24 @@ messageSchema.statics.createPromoMessage = async function(userId, firebaseId, pr
     return this.create({
         userId,
         firebaseId,
-        type: 'promo',
-        title: 'Promo Code Applied',
+        type: 'payment', // Changed from 'promo' to 'payment' for consistent inbox display
+        title: 'Promo Code Applied - Subscription Activated',
         content,
-        priority: 'normal',
-        data: promoData
+        priority: 'high',
+        data: {
+            ...promoData,
+            paymentMethod: 'Promo Code',
+            startDate: new Date().toISOString(),
+            endDate: endDate.toISOString(),
+            transactionId: 'PROMO-' + Date.now()
+        }
     });
 };
 
 /**
  * Create a system notification
  */
-messageSchema.statics.createSystemMessage = async function(userId, firebaseId, title, content, data = {}) {
+messageSchema.statics.createSystemMessage = async function (userId, firebaseId, title, content, data = {}) {
     return this.create({
         userId,
         firebaseId,
@@ -305,7 +329,7 @@ messageSchema.statics.createSystemMessage = async function(userId, firebaseId, t
 };
 
 // --- Pre-save middleware ---
-messageSchema.pre('save', function(next) {
+messageSchema.pre('save', function (next) {
     this.updatedAt = new Date();
     next();
 });

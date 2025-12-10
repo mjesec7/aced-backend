@@ -66,10 +66,10 @@ router.post('/apply', authMiddleware, async (req, res) => {
     }
 
     const { code } = req.body;
-    
+
     // ✅ FIXED: Get firebaseId from auth middleware (it sets req.user.uid)
     const firebaseId = req.user.uid || req.user.id || req.user.firebaseId;
-    
+
     console.log('🎟️ [promocodeRoutes] Apply request received');
     console.log('🎟️ [promocodeRoutes] Code:', code);
     console.log('🎟️ [promocodeRoutes] Firebase ID:', firebaseId);
@@ -92,22 +92,22 @@ router.post('/apply', authMiddleware, async (req, res) => {
 
     // ✅ FIXED: Look up user by firebaseId, not by MongoDB _id
     const user = await User.findOne({ firebaseId: firebaseId });
-    
+
     if (!user) {
       console.error('❌ [promocodeRoutes] User not found with firebaseId:', firebaseId);
-      
+
       // Try to find by _id as fallback (in case firebaseId is actually a MongoDB ObjectId)
       const userById = await User.findById(firebaseId).catch(() => null);
       if (userById) {
         console.log('✅ [promocodeRoutes] Found user by _id instead');
         return processPromoApplication(userById, promoCode, res);
       }
-      
+
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
 
     console.log('✅ [promocodeRoutes] User found:', user.email);
-    
+
     return processPromoApplication(user, promoCode, res);
 
   } catch (error) {
@@ -1140,7 +1140,7 @@ async function processPromoApplication(user, promoCode, res) {
       // Fallback: manually update subscription fields
       const now = new Date();
       const expiryDate = new Date(now.getTime() + (promoCode.subscriptionDays * 24 * 60 * 60 * 1000));
-      
+
       user.subscriptionPlan = promoCode.grantsPlan;
       user.userStatus = promoCode.grantsPlan;
       user.plan = promoCode.grantsPlan;
@@ -1177,8 +1177,10 @@ async function processPromoApplication(user, promoCode, res) {
         await Message.createPromoMessage(user._id, user.firebaseId, {
           code: promoCode.code,
           grantsPlan: promoCode.grantsPlan,
-          subscriptionDays: promoCode.subscriptionDays
+          subscriptionDays: promoCode.subscriptionDays,
+          expiryDate: user.subscriptionExpiryDate
         });
+        console.log('✅ Promo notification sent to inbox');
       }
     } catch (msgError) {
       console.error('⚠️ Failed to send promo notification:', msgError);
@@ -1188,6 +1190,8 @@ async function processPromoApplication(user, promoCode, res) {
     res.json({
       success: true,
       message: 'Promo code applied successfully!',
+      plan: user.subscriptionPlan,
+      expiryDate: user.subscriptionExpiryDate,
       user: {
         _id: user._id,
         firebaseId: user.firebaseId,
@@ -1205,7 +1209,7 @@ async function processPromoApplication(user, promoCode, res) {
         subscriptionDays: promoCode.subscriptionDays
       }
     });
-    
+
   } catch (error) {
     console.error('❌ Error in processPromoApplication:', error);
     res.status(500).json({
