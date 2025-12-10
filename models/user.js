@@ -260,6 +260,22 @@ userSchema.methods.grantSubscription = async function (plan, durationInDays, sou
     // If user already has an active subscription, extend it. Otherwise, create a new one.
     const startDate = this.hasActiveSubscription() ? this.subscriptionExpiryDate : now;
     this.subscriptionExpiryDate = new Date(startDate.getTime() + (durationInDays * 24 * 60 * 60 * 1000));
+
+    // ✅ SYNC WITH FIREBASE CUSTOM CLAIMS
+    try {
+        const admin = require('../firebaseAdmin'); // Ensure you have this configured
+        if (admin && this.firebaseId) {
+            await admin.auth().setCustomUserClaims(this.firebaseId, {
+                plan: plan,
+                status: 'active',
+                expiry: this.subscriptionExpiryDate.getTime()
+            });
+        }
+    } catch (firebaseError) {
+        console.error('Failed to sync subscription with Firebase:', firebaseError);
+        // Don't fail the transaction, just log the error
+    }
+
     await this.save();
 };
 

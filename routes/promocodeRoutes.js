@@ -1,4 +1,4 @@
-// routes/promocodeRoutes.js - FIXED VERSION WITH CORRECT FIELD NAME
+// routes/promocodeRoutes.js
 const express = require('express');
 const router = express.Router();
 
@@ -6,7 +6,7 @@ const router = express.Router();
 // Try to import the promocode model with error handling
 let Promocode;
 try {
-  Promocode = require('../models/promoCode'); // Your model file name
+  Promocode = require('../models/promoCode');
 } catch (error) {
   console.error('❌ Failed to load Promocode model:', error.message);
   console.error('💡 Make sure models/promoCode.js exists and is properly formatted');
@@ -18,7 +18,7 @@ const User = require('../models/user');
 // Enhanced auth middleware with better error handling
 const authMiddleware = require('../middlewares/authMiddleware');
 
-// Basic auth middleware for admin routes - customize based on your existing auth system
+// Basic auth middleware for admin routes
 const requireAuth = async (req, res, next) => {
   try {
     // Check for authorization header
@@ -31,12 +31,7 @@ const requireAuth = async (req, res, next) => {
 
     const token = req.headers.authorization.replace('Bearer ', '');
 
-    // Add your token verification logic here
-    // Example with Firebase Admin:
-    // const decodedToken = await admin.auth().verifyIdToken(token);
-    // req.user = { uid: decodedToken.uid, email: decodedToken.email };
-
-    // For now, assume authenticated admin user (customize this!)
+    // For now, assume authenticated admin user (customize this based on your auth system!)
     req.user = {
       id: token.substring(0, 10) || 'admin',
       uid: token.substring(0, 10) || 'admin',
@@ -62,6 +57,7 @@ const requireAuth = async (req, res, next) => {
  * @route   POST /api/promocodes/apply
  * @desc    Apply a promocode to the current user's account
  * @access  Private
+ * ✅ FIXED: Now correctly looks up user by firebaseId
  */
 router.post('/apply', authMiddleware, async (req, res) => {
   try {
@@ -70,111 +66,49 @@ router.post('/apply', authMiddleware, async (req, res) => {
     }
 
     const { code } = req.body;
-    const userId = req.user.id; // Assumes authMiddleware adds user to req
+    
+    // ✅ FIXED: Get firebaseId from auth middleware (it sets req.user.uid)
+    const firebaseId = req.user.uid || req.user.id || req.user.firebaseId;
+    
+    console.log('🎟️ [promocodeRoutes] Apply request received');
+    console.log('🎟️ [promocodeRoutes] Code:', code);
+    console.log('🎟️ [promocodeRoutes] Firebase ID:', firebaseId);
 
     if (!code || !code.trim()) {
       return res.status(400).json({ success: false, message: 'Promocode is required.' });
     }
 
+    if (!firebaseId) {
+      console.error('❌ [promocodeRoutes] No firebaseId in request');
+      return res.status(401).json({ success: false, message: 'Authentication required.' });
+    }
+
     const promoCode = await Promocode.findOne({ code: code.trim().toUpperCase(), isActive: true });
 
     if (!promoCode) {
+      console.log('❌ [promocodeRoutes] Promo code not found or inactive:', code);
       return res.status(404).json({ success: false, message: 'Promo code not found or is inactive.' });
     }
 
-    const user = await User.findById(userId);
+    // ✅ FIXED: Look up user by firebaseId, not by MongoDB _id
+    const user = await User.findOne({ firebaseId: firebaseId });
+    
     if (!user) {
+      console.error('❌ [promocodeRoutes] User not found with firebaseId:', firebaseId);
+      
+      // Try to find by _id as fallback (in case firebaseId is actually a MongoDB ObjectId)
+      const userById = await User.findById(firebaseId).catch(() => null);
+      if (userById) {
+        console.log('✅ [promocodeRoutes] Found user by _id instead');
+        return processPromoApplication(userById, promoCode, res);
+      }
+      
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
 
-    // --- Enhanced Validation Checks ---
-    const validity = promoCode.isValid ? promoCode.isValid() : { valid: true };
-    if (!validity.valid) {
-      return res.status(400).json({ success: false, message: validity.reason || 'Promocode is not valid.' });
-    }
-
-    if (promoCode.expiresAt && promoCode.expiresAt < new Date()) {
-      return res.status(400).json({ success: false, message: 'This promo code has expired.' });
-    }
-
-    if (promoCode.maxUses && promoCode.currentUses >= promoCode.maxUses) {
-      return res.status(400).json({ success: false, message: 'This promo code has reached its usage limit.' });
-    }
-
-    if (user.usedPromoCodes && user.usedPromoCodes.includes(promoCode._id.toString())) {
-      return res.status(400).json({ success: false, message: 'You have already used this promo code.' });
-    }
-
-    // Check restricted users if applicable
-    if (promoCode.restrictedToUsers && promoCode.restrictedToUsers.length > 0) {
-      const isRestricted = promoCode.restrictedToUsers.includes(user.email) ||
-        promoCode.restrictedToUsers.includes(user._id.toString());
-      if (!isRestricted) {
-        return res.status(403).json({ success: false, message: 'This promo code is not available for your account.' });
-      }
-    }
-
-    // Check minimum plan requirement if applicable
-    if (promoCode.requiresMinimumPlan && promoCode.requiresMinimumPlan !== 'free') {
-      const planHierarchy = { free: 0, start: 1, pro: 2, premium: 3 };
-      const userPlanLevel = planHierarchy[user.subscriptionPlan] || 0; // ✅ FIXED: Use subscriptionPlan instead of status
-      const requiredLevel = planHierarchy[promoCode.requiresMinimumPlan] || 0;
-
-      if (userPlanLevel < requiredLevel) {
-        return res.status(403).json({
-          success: false,
-          message: `This promo code requires a minimum ${promoCode.requiresMinimumPlan} plan.`
-        });
-      }
-    }
-
-    // --- Apply the promo code benefits ---
-    // Use the centralized grantSubscription method
-    await user.grantSubscription(
-      promoCode.grantsPlan,
-      promoCode.subscriptionDays,
-      'promocode',
-      null // Let the method calculate months based on days
-    );
-
-    // --- Update records ---
-    if (!user.usedPromoCodes) user.usedPromoCodes = [];
-    user.usedPromoCodes.push(promoCode._id);
-
-    promoCode.currentUses = (promoCode.currentUses || 0) + 1;
-    if (!promoCode.usedBy) promoCode.usedBy = [];
-    promoCode.usedBy.push({
-      userId: user._id,
-      email: user.email,
-      usedAt: new Date(),
-      userName: user.name || user.email
-    });
-
-    await user.save();
-    await promoCode.save();
-
-    // --- Send Notification ---
-    try {
-      const Message = require('../models/message');
-      await Message.createPromoMessage(user._id, user.firebaseId, {
-        code: promoCode.code,
-        grantsPlan: promoCode.grantsPlan,
-        subscriptionDays: promoCode.subscriptionDays
-      });
-    } catch (msgError) {
-      console.error('⚠️ Failed to send promo notification:', msgError);
-    }
-
-    res.json({
-      success: true,
-      message: 'Promo code applied successfully!',
-      user: user, // The frontend might need the updated user object
-      promocode: {
-        code: promoCode.code,
-        grantsPlan: promoCode.grantsPlan,
-        subscriptionDays: promoCode.subscriptionDays
-      }
-    });
+    console.log('✅ [promocodeRoutes] User found:', user.email);
+    
+    return processPromoApplication(user, promoCode, res);
 
   } catch (error) {
     console.error('❌ Error applying promo code:', error);
@@ -1141,6 +1075,146 @@ router.get('/export', requireAuth, async (req, res) => {
 // ============================================
 // 🛠️ UTILITY FUNCTIONS
 // ============================================
+
+/**
+ * Helper function to process promocode application
+ */
+async function processPromoApplication(user, promoCode, res) {
+  try {
+    // --- Enhanced Validation Checks ---
+    const validity = promoCode.isValid ? promoCode.isValid() : { valid: true };
+    if (!validity.valid) {
+      return res.status(400).json({ success: false, message: validity.reason || 'Promocode is not valid.' });
+    }
+
+    if (promoCode.expiresAt && promoCode.expiresAt < new Date()) {
+      return res.status(400).json({ success: false, message: 'This promo code has expired.' });
+    }
+
+    if (promoCode.maxUses && promoCode.currentUses >= promoCode.maxUses) {
+      return res.status(400).json({ success: false, message: 'This promo code has reached its usage limit.' });
+    }
+
+    if (user.usedPromoCodes && user.usedPromoCodes.includes(promoCode._id.toString())) {
+      return res.status(400).json({ success: false, message: 'You have already used this promo code.' });
+    }
+
+    // Check restricted users if applicable
+    if (promoCode.restrictedToUsers && promoCode.restrictedToUsers.length > 0) {
+      const isRestricted = promoCode.restrictedToUsers.includes(user.email) ||
+        promoCode.restrictedToUsers.includes(user._id.toString());
+      if (!isRestricted) {
+        return res.status(403).json({ success: false, message: 'This promo code is not available for your account.' });
+      }
+    }
+
+    // Check minimum plan requirement if applicable
+    if (promoCode.requiresMinimumPlan && promoCode.requiresMinimumPlan !== 'free') {
+      const planHierarchy = { free: 0, start: 1, pro: 2, premium: 3 };
+      const userPlanLevel = planHierarchy[user.subscriptionPlan] || 0;
+      const requiredLevel = planHierarchy[promoCode.requiresMinimumPlan] || 0;
+
+      if (userPlanLevel < requiredLevel) {
+        return res.status(403).json({
+          success: false,
+          message: `This promo code requires a minimum ${promoCode.requiresMinimumPlan} plan.`
+        });
+      }
+    }
+
+    // --- Apply the promo code benefits ---
+    console.log('🎟️ [promocodeRoutes] Applying promo benefits:', {
+      plan: promoCode.grantsPlan,
+      days: promoCode.subscriptionDays
+    });
+
+    // Use the centralized grantSubscription method if available
+    if (typeof user.grantSubscription === 'function') {
+      await user.grantSubscription(
+        promoCode.grantsPlan,
+        promoCode.subscriptionDays,
+        'promocode',
+        null
+      );
+    } else {
+      // Fallback: manually update subscription fields
+      const now = new Date();
+      const expiryDate = new Date(now.getTime() + (promoCode.subscriptionDays * 24 * 60 * 60 * 1000));
+      
+      user.subscriptionPlan = promoCode.grantsPlan;
+      user.userStatus = promoCode.grantsPlan;
+      user.plan = promoCode.grantsPlan;
+      user.subscriptionExpiryDate = expiryDate;
+      user.subscriptionActivatedAt = now;
+      user.subscriptionSource = 'promocode';
+      user.lastStatusUpdate = now;
+    }
+
+    // --- Update records ---
+    if (!user.usedPromoCodes) user.usedPromoCodes = [];
+    user.usedPromoCodes.push(promoCode._id);
+
+    promoCode.currentUses = (promoCode.currentUses || 0) + 1;
+    if (!promoCode.usedBy) promoCode.usedBy = [];
+    promoCode.usedBy.push({
+      userId: user._id,
+      email: user.email,
+      usedAt: new Date(),
+      userName: user.name || user.email
+    });
+
+    await user.save();
+    await promoCode.save();
+
+    console.log('✅ [promocodeRoutes] Promo code applied successfully');
+    console.log('✅ [promocodeRoutes] New plan:', user.subscriptionPlan);
+    console.log('✅ [promocodeRoutes] Expiry:', user.subscriptionExpiryDate);
+
+    // --- Send Notification ---
+    try {
+      const Message = require('../models/message');
+      if (Message && typeof Message.createPromoMessage === 'function') {
+        await Message.createPromoMessage(user._id, user.firebaseId, {
+          code: promoCode.code,
+          grantsPlan: promoCode.grantsPlan,
+          subscriptionDays: promoCode.subscriptionDays
+        });
+      }
+    } catch (msgError) {
+      console.error('⚠️ Failed to send promo notification:', msgError);
+    }
+
+    // ✅ Return comprehensive response with all needed data
+    res.json({
+      success: true,
+      message: 'Promo code applied successfully!',
+      user: {
+        _id: user._id,
+        firebaseId: user.firebaseId,
+        email: user.email,
+        name: user.name,
+        subscriptionPlan: user.subscriptionPlan,
+        userStatus: user.subscriptionPlan,
+        plan: user.subscriptionPlan,
+        subscriptionExpiryDate: user.subscriptionExpiryDate,
+        subscriptionActivatedAt: user.subscriptionActivatedAt
+      },
+      promocode: {
+        code: promoCode.code,
+        grantsPlan: promoCode.grantsPlan,
+        subscriptionDays: promoCode.subscriptionDays
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Error in processPromoApplication:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while applying promo code.',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+}
 
 function generateRandomCode(prefix = '', length = 8) {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
