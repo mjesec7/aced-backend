@@ -7,7 +7,14 @@ const studyTopicSchema = new mongoose.Schema({
     topicId: { type: mongoose.Schema.Types.ObjectId, ref: 'Topic', required: true },
     subject: { type: String, required: true },
     name: { type: String, required: true },
-    level: { type: String, default: 'basic' },
+    topic: String,
+    level: { type: mongoose.Schema.Types.Mixed, default: 'basic' },
+    lessonCount: { type: Number, default: 0 },
+    totalTime: { type: Number, default: 0 },
+    type: { type: String, default: 'free' },
+    description: String,
+    isActive: { type: Boolean, default: true },
+    metadata: mongoose.Schema.Types.Mixed,
     addedAt: { type: Date, default: Date.now }
 }, { _id: false });
 
@@ -203,7 +210,7 @@ const userSchema = new mongoose.Schema({
     },
 
     // --- 📖 Study Topics & Progress ---
-    studyTopics: [studyTopicSchema],
+    studyList: [studyTopicSchema],
     goals: [goalSchema],
     diary: [diaryEntrySchema],
     homeworkSubmissions: [homeworkSubmissionSchema],
