@@ -610,7 +610,7 @@ router.get('/:userId/subscription-status', validateUserId, verifyToken, async (r
         isActive = true;
         daysRemaining = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
       } else {
-        console.log(`⏰ User ${userId} subscription expired, reverting to free`);
+
         user.subscriptionPlan = 'free';
         user.userStatus = 'free';
         user.subscriptionExpiredAt = expiryDate;
@@ -644,7 +644,7 @@ router.get('/:userId/accessible-content', verifyToken, async (req, res) => {
   try {
     const { userId } = req.params;
 
-    console.log('🔍 Fetching accessible content for user:', userId);
+
 
     const user = await User.findOne({
       $or: [
@@ -709,7 +709,7 @@ router.get('/:userId/lessons/:lessonId/access', verifyToken, async (req, res) =>
   try {
     const { userId, lessonId } = req.params;
 
-    console.log('🔐 Checking lesson access for user:', userId, 'lesson:', lessonId);
+
 
     const user = await User.findOne({
       $or: [
@@ -846,14 +846,14 @@ router.post('/admin/:userId/reset-subscription', validateUserId, verifyToken, as
           status: 'free'
         });
 
-        console.log(`🔄 Synced reset to Firebase for ${user.email}`);
+
       }
     } catch (firebaseError) {
       console.error('⚠️ Failed to sync reset with Firebase:', firebaseError);
       // Don't fail the request, just log it
     }
 
-    console.log(`🔄 Admin reset ${user.email} subscription from ${previousPlan} to free`);
+
 
     res.json({
       success: true,
@@ -919,7 +919,7 @@ router.post('/admin/:userId/extend-subscription', validateUserId, verifyToken, a
 
     await user.save();
 
-    console.log(`📅 Extended ${user.email} subscription by ${days} days until ${newExpiry.toLocaleDateString()}`);
+
 
     res.json({
       success: true,
