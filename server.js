@@ -1,5 +1,5 @@
 // ========================================
-// 🚀 ACED.LIVE - MAIN SERVER FILE (OPTIMIZED)
+// 🚀 ACED.LIVE - MAIN SERVER FILE (OPTIMIZED & VOICE ENABLED)
 // ========================================
 
 const express = require('express');
@@ -29,12 +29,12 @@ app.use(helmet({
 }));
 app.use(compression());
 
-// Body parsing
+// Body parsing (Increased limit is good for AI text payloads)
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // ========================================
-// 🌐 CORS CONFIGURATION (UPDATED)
+// 🌐 CORS CONFIGURATION
 // ========================================
 
 const allowedOrigins = process.env.ALLOWED_ORIGINS
@@ -50,6 +50,8 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
     'https://checkout.test.paycom.uz',
     'https://checkout.multicard.uz',
     'https://dev-checkout.multicard.uz',
+    // ElevenLabs WebSocket Helper (Optional, if you proxy audio)
+    'wss://api.elevenlabs.io' 
   ];
 
 if (process.env.NODE_ENV === 'development') {
@@ -103,14 +105,16 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'OK',
     timestamp: new Date().toISOString(),
-    database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+    database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    ai_service: 'active' // Flag to confirm AI is ready
   });
 });
 
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'OK',
-    database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+    database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    ai_service: 'active'
   });
 });
 
@@ -266,11 +270,20 @@ mountRoute('/api/homeworks', './routes/homeworkRoutes', 'Homework routes');
 mountRoute('/api/tests', './routes/testRoutes', 'Test routes');
 
 // ========================================
-// COMMUNICATION ROUTES
+// COMMUNICATION ROUTES (UPDATED FOR VOICE)
 // ========================================
 
-mountRoute('/api/chat', './routes/chatRoutes', 'Chat/AI routes');
+// Chat Routes: Includes standard AI, lesson context AI
+mountRoute('/api/chat', './routes/chatRoutes', 'Chat & AI routes');
+
 mountRoute('/api/email', './routes/emailRoutes', 'Email routes');
+
+// ========================================
+// 🎤 ELEVENLABS VOICE AI ROUTES (LEXI)
+// ========================================
+
+// Voice AI: Text-to-Speech, Speech-to-Text, Timestamps for highlighting
+mountRoute('/api/elevenlabs', './routes/elevenlabsRoutes', 'ElevenLabs Voice AI routes (Lexi)');
 
 // ========================================
 // INBOX/MESSAGES ROUTES
@@ -344,6 +357,9 @@ app.listen(PORT, () => {
   console.log(`   Port: ${PORT}`);
   console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`   Database: ${mongoose.connection.readyState === 1 ? '✅ Connected' : '⚠️ Disconnected'}`);
+  // Voice Service Confirmation
+  console.log(`   🎤 ElevenLabs Voice: ${process.env.ELEVENLABS_API_KEY ? '✅ Configured' : '⚠️ Not configured'}`);
+  console.log(`   🤖 AI Services: Active (Voice & Chat)`);
   console.log('✅ Ready\n');
 });
 

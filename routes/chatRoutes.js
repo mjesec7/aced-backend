@@ -1,4 +1,4 @@
-// routes/chatRoutes.js - Complete Chat Routes with AI Usage Tracking
+// routes/chatRoutes.js - Complete Chat Routes with AI Usage Tracking & Voice Integration
 const express = require('express');
 const router = express.Router();
 const { 
@@ -8,6 +8,10 @@ const {
   checkCanSendAIMessage,
   updateUserAIPlan
 } = require('../controllers/chatController');
+
+// НОВОЕ: Импорт контроллера для голоса
+const voiceController = require('../controllers/voiceController');
+
 const verifyToken = require('../middlewares/authMiddleware');
 
 // ============================================
@@ -28,6 +32,13 @@ router.post('/', verifyToken, getAIResponse);
 
 // Enhanced lesson-specific AI chat
 router.post('/lesson-context', verifyToken, getLessonContextAIResponse);
+
+// ============================================
+// VOICE AI ENDPOINTS (ELEVENLABS)
+// ============================================
+
+// НОВОЕ: Инициализация голосовой сессии (получение Signed URL и скрипта)
+router.post('/init-voice-session', verifyToken, voiceController.initVoiceSession);
 
 // ============================================
 // AI USAGE TRACKING ENDPOINTS
