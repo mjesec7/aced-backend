@@ -2,6 +2,14 @@
 const express = require('express');
 const router = express.Router();
 const verifyToken = require('../middlewares/authMiddleware');
+const voiceController = require('../controllers/voiceController');
+
+// ========================================
+// 🎤 STREAMING AUDIO (Low Latency - Perfect Harmony)
+// ========================================
+
+// Stream audio directly from ElevenLabs to client (used after analyze-speech)
+router.post('/stream', verifyToken, voiceController.streamAudio);
 
 // ========================================
 // 🎤 TEXT-TO-SPEECH (Lexi Speaks)
@@ -273,6 +281,7 @@ router.get('/test', (req, res) => {
     message: '✅ ElevenLabs routes are working',
     apiKeyConfigured: !!process.env.ELEVENLABS_API_KEY,
     endpoints: [
+      'POST /api/elevenlabs/stream (Low Latency Streaming)',
       'POST /api/elevenlabs/text-to-speech',
       'POST /api/elevenlabs/text-to-speech-with-timestamps',
       'POST /api/elevenlabs/speech-to-text',
