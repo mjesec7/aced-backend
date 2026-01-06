@@ -112,6 +112,148 @@ function standardizeVocabularyItem(vocab) {
   };
 }
 
+// ✅ NEW: Helper to get localized text from multilingual field
+// Handles: string, {en, ru, uz} object, or nested structures
+function getLocalizedText(value, lang = 'en') {
+  if (!value) return '';
+  
+  // Already a string
+  if (typeof value === 'string') return value;
+  
+  // Object with language keys
+  if (typeof value === 'object' && value !== null) {
+    // Try requested language first, then fallbacks
+    return value[lang] || value.en || value.ru || value.uz || 
+           Object.values(value).find(v => typeof v === 'string' && v.trim()) || '';
+  }
+  
+  return String(value || '');
+}
+
+// ✅ NEW: Process step for frontend rendering with multilingual support
+// Handles various content structures including {en, ru, uz} format
+function processStepForFrontend(step, index) {
+  if (!step) return null;
+
+  console.log(`📝 Processing step ${index + 1} (${step.type})`);
+
+  // Create a copy to avoid mutating original
+  const processedStep = { ...step };
+
+  // ✅ Handle multilingual content in step.content.text (Water Cycle format)
+  if (step.content?.text && typeof step.content.text === 'object') {
+    console.log(`  ↳ Found multilingual content.text with keys: ${Object.keys(step.content.text).join(', ')}`);
+    // Keep the structure as-is, frontend handles localization
+    processedStep.content = { ...step.content };
+  }
+
+  // ✅ Handle multilingual title and instructions
+  if (step.title && typeof step.title === 'object') {
+    console.log(`  ↳ Found multilingual title`);
+    processedStep.title = step.title; // Keep as object for frontend
+  }
+
+  if (step.instructions && typeof step.instructions === 'object') {
+    console.log(`  ↳ Found multilingual instructions`);
+    processedStep.instructions = step.instructions; // Keep as object for frontend
+  }
+
+  // ✅ Handle steps with content.type (histogram, map, block-coding, etc.)
+  if (step.content && step.content.type) {
+    console.log(`  ↳ Found content.type = ${step.content.type}`);
+    processedStep.exerciseType = step.content.type;
+    processedStep.data = step.data || step.content;
+  }
+
+  // ✅ Handle direct interactive step types
+  const directInteractiveTypes = [
+    'data_analysis', 'fraction_visual', 'geometry_poly',
+    'chem_mixing', 'chem_matching',
+    'english_sentence_fix', 'english_sentence_order',
+    'language_noun_bag', 'histogram', 'map', 'block-coding',
+    'language_word_constellation', 'language_tone_transformer',
+    'language_idiom_bridge', 'language_rhythm_match', 'language_false_friends'
+  ];
+
+  if (directInteractiveTypes.includes(step.type)) {
+    console.log(`  ↳ Direct interactive type ${step.type}`);
+    processedStep.exerciseType = step.type;
+    processedStep.content = step.content || step.data || step;
+    processedStep.data = step.data || step.content || step;
+  }
+
+  // ✅ Handle vocabulary steps with multilingual terms
+  if (step.type === 'vocabulary') {
+    console.log(`  ↳ Vocabulary step`);
+    let vocabData = null;
+
+    // Check various locations for vocabulary data
+    if (step.content?.terms && Array.isArray(step.content.terms)) {
+      vocabData = step.content.terms;
+    } else if (step.data?.terms && Array.isArray(step.data.terms)) {
+      vocabData = step.data.terms;
+    } else if (Array.isArray(step.data)) {
+      vocabData = step.data;
+    } else if (step.data?.vocabulary && Array.isArray(step.data.vocabulary)) {
+      vocabData = step.data.vocabulary;
+    }
+
+    if (vocabData) {
+      // Preserve the vocabulary data structure (frontend handles localization)
+      processedStep.content = { terms: vocabData };
+      processedStep.data = vocabData;
+      console.log(`    Found ${vocabData.length} vocabulary terms`);
+    }
+  }
+
+  // ✅ Handle quiz steps with multilingual questions
+  if (step.type === 'quiz') {
+    console.log(`  ↳ Quiz step`);
+    let quizData = null;
+
+    if (step.content?.questions && Array.isArray(step.content.questions)) {
+      quizData = step.content.questions;
+    } else if (step.data?.questions && Array.isArray(step.data.questions)) {
+      quizData = step.data.questions;
+    } else if (Array.isArray(step.data)) {
+      quizData = step.data;
+    }
+
+    if (quizData) {
+      processedStep.content = { questions: quizData };
+      processedStep.data = quizData;
+      console.log(`    Found ${quizData.length} quiz questions`);
+    }
+  }
+
+  // ✅ Handle exercise steps
+  if (step.type === 'exercise' && !step.gameType) {
+    console.log(`  ↳ Exercise step`);
+    
+    if (Array.isArray(step.data) && step.data.length > 0) {
+      console.log(`    Found ${step.data.length} exercises in data array`);
+    } else if (step.data?.exercises && Array.isArray(step.data.exercises)) {
+      console.log(`    Moving ${step.data.exercises.length} exercises from data.exercises to data`);
+      processedStep.data = step.data.exercises;
+    } else if (step.content?.exercises && Array.isArray(step.content.exercises)) {
+      console.log(`    Moving ${step.content.exercises.length} exercises from content.exercises to data`);
+      processedStep.data = step.content.exercises;
+    } else if (Array.isArray(step.data) && step.data.length === 0 && step.content) {
+      console.log(`    Data is empty, using content instead`);
+      processedStep.data = step.content;
+      processedStep.content = step.content;
+    }
+  }
+
+  // ✅ Handle game-type steps
+  if (step.gameType || step.type === 'game') {
+    console.log(`  ↳ Game step (${step.gameType || 'unknown'})`);
+    processedStep.data = step.gameConfig?.items || step.content?.exercises || step.data || [];
+  }
+
+  return processedStep;
+}
+
 // ✅ ENHANCED: Fallback lesson creation with detailed error handling
 const enhancedFallbackAddLesson = async (req, res) => {
 
@@ -581,7 +723,7 @@ const enhancedFallbackAddLesson = async (req, res) => {
       source: 'enhanced_fallback_v2'
     };
 
-    x
+    console.log('✅ ENHANCED: Lesson created successfully:', newLesson._id);
     res.status(201).json(response);
 
   } catch (error) {
@@ -721,11 +863,12 @@ router.get('/test', (req, res) => {
 // ✅ Debug endpoint
 router.post('/debug', async (req, res) => {
   try {
-    x
+    console.log('🔍 DEBUG: Request received');
 
     // Test basic database query
     if (Lesson && mongoose.connection.readyState === 1) {
       const count = await Lesson.countDocuments();
+      console.log(`📊 DEBUG: Found ${count} lessons in database`);
     }
 
     res.json({
@@ -975,6 +1118,7 @@ router.post('/:id/complete-and-extract', verifyToken, validateObjectId, async (r
 
         }
       } catch (vocabError) {
+        console.error('❌ Error saving vocabulary:', vocabError);
       }
     }
 
@@ -1053,6 +1197,7 @@ router.post('/:id/complete-and-extract', verifyToken, validateObjectId, async (r
         extractionResult.homeworkId = homework._id;
 
       } catch (homeworkError) {
+        console.error('❌ Error creating homework:', homeworkError);
       }
     }
 
@@ -1066,6 +1211,7 @@ router.post('/:id/complete-and-extract', verifyToken, validateObjectId, async (r
         }
       });
     } catch (statsError) {
+      console.error('❌ Error updating stats:', statsError);
     }
 
     // Step 8: Build response
@@ -1668,7 +1814,7 @@ router.post('/:id/duplicate', verifyToken, validateObjectId, async (req, res) =>
 
     await duplicatedLesson.save();
 
-    (`📋 Duplicated lesson: ${originalLesson.lessonName}`);
+    console.log(`📋 Duplicated lesson: ${originalLesson.lessonName}`);
     res.status(201).json({
       success: true,
       lesson: duplicatedLesson
@@ -1813,6 +1959,7 @@ router.patch('/batch', verifyToken, async (req, res) => {
       updates
     );
 
+    console.log(`📝 Batch updated ${result.modifiedCount} lessons`);
 
     res.json({
       success: true,
@@ -1960,8 +2107,8 @@ router.post('/', verifyToken, (req, res) => {
   }
 });
 
-// ✅ GET: Lesson by ID (Enhanced with fallback) - MUST come after specific routes
-// ✅ GET: Lesson by ID (Enhanced with proper content handling)
+// ✅ GET: Lesson by ID (Enhanced with proper content handling) - MUST come after specific routes
+// ✅ UPDATED: Added processStepForFrontend for multilingual support
 router.get('/:id', validateObjectId, async (req, res) => {
   try {
     if (!Lesson) {
@@ -1983,125 +2130,11 @@ router.get('/:id', validateObjectId, async (req, res) => {
       });
     }
 
-    // ✅ CRITICAL FIX: Process steps to ensure ALL content structures are preserved
+    // ✅ CRITICAL FIX: Process steps with multilingual support using new helper function
     if (lesson.steps && Array.isArray(lesson.steps)) {
-      lesson.steps = lesson.steps.map((step, index) => {
-        console.log(`Processing step ${index + 1} (${step.type})`);
-
-        // ✅ NEW: Handle steps with content.type (histogram, map, block-coding, etc.)
-        // These are NEW interactive step types that have a different structure
-        if (step.content && step.content.type) {
-          console.log(`📊 Step ${index + 1}: Found content.type = ${step.content.type}`);
-          // Keep the content structure intact - frontend expects it
-          // Also set exerciseType for frontend compatibility
-          return {
-            ...step,
-            exerciseType: step.content.type,
-            // Ensure data field exists for backwards compatibility
-            data: step.data || step.content
-          };
-        }
-
-        // ✅ Handle direct interactive step types (data_analysis, fraction_visual, etc.)
-        const directInteractiveTypes = [
-          'data_analysis', 'fraction_visual', 'geometry_poly',
-          'chem_mixing', 'chem_matching',
-          'english_sentence_fix', 'english_sentence_order',
-          'language_noun_bag', 'histogram', 'map', 'block-coding'
-        ];
-
-        if (directInteractiveTypes.includes(step.type)) {
-          console.log(`🎯 Step ${index + 1}: Direct interactive type ${step.type}`);
-          return {
-            ...step,
-            exerciseType: step.type,
-            content: step.content || step.data || step,
-            data: step.data || step.content || step
-          };
-        }
-
-        // ✅ Handle traditional exercise steps with array of exercises
-        if (step.type === 'exercise' && !step.gameType) {
-          // If data exists and is an array, it's the old format
-          if (Array.isArray(step.data) && step.data.length > 0) {
-            console.log(`✅ Step ${index + 1}: Traditional exercise array (${step.data.length} exercises)`);
-            return step;
-          }
-
-          // If data is an object with exercises array, flatten it
-          if (step.data?.exercises && Array.isArray(step.data.exercises)) {
-            console.log(`🔧 Step ${index + 1}: Moving exercises from data.exercises to data`);
-            return {
-              ...step,
-              data: step.data.exercises
-            };
-          }
-
-          // If content has exercises, move them to data
-          if (step.content?.exercises && Array.isArray(step.content.exercises)) {
-            console.log(`🔧 Step ${index + 1}: Moving exercises from content.exercises to data`);
-            return {
-              ...step,
-              data: step.content.exercises
-            };
-          }
-
-          // ✅ NEW: If data is empty array but content exists, use content
-          if (Array.isArray(step.data) && step.data.length === 0 && step.content) {
-            console.log(`🔧 Step ${index + 1}: Data is empty, using content instead`);
-            return {
-              ...step,
-              data: step.content,
-              content: step.content
-            };
-          }
-        }
-
-        // ✅ Handle game-type steps
-        if (step.gameType || step.type === 'game') {
-          console.log(`🎮 Step ${index + 1}: Game step (${step.gameType || 'unknown'})`);
-          return {
-            ...step,
-            data: step.gameConfig?.items || step.content?.exercises || step.data || []
-          };
-        }
-
-        // ✅ Handle vocabulary steps
-        if (step.type === 'vocabulary') {
-          console.log(`📚 Step ${index + 1}: Vocabulary step`);
-          let vocabData = step.data;
-
-          if (step.content?.terms) {
-            vocabData = step.content.terms;
-          } else if (step.data?.terms) {
-            vocabData = step.data.terms;
-          }
-
-          return {
-            ...step,
-            data: vocabData
-          };
-        }
-
-        // ✅ Handle quiz steps
-        if (step.type === 'quiz') {
-          console.log(`❓ Step ${index + 1}: Quiz step`);
-          let quizData = step.data;
-
-          if (step.content?.questions) {
-            quizData = step.content.questions;
-          } else if (step.data?.questions) {
-            quizData = step.data.questions;
-          }
-
-          return {
-            ...step,
-            data: quizData
-          };
-        }
-
-        return step;
-      });
+      console.log(`📚 Processing ${lesson.steps.length} steps for lesson: ${lesson.lessonName}`);
+      lesson.steps = lesson.steps.map((step, index) => processStepForFrontend(step, index)).filter(step => step !== null);
+      console.log('✅ All steps processed with multilingual support');
     }
 
     // Increment view count
@@ -2163,6 +2196,7 @@ router.put('/:id', verifyToken, validateObjectId, async (req, res) => {
       });
     }
 
+    console.log(`📝 Updated lesson: ${updatedLesson.lessonName}`);
 
     res.json({
       success: true,
@@ -2208,6 +2242,8 @@ router.delete('/:id', verifyToken, validateObjectId, async (req, res) => {
       });
     }
 
+    console.log(`🗑️ Deleted lesson: ${deletedLesson.lessonName}`);
+
     res.json({
       success: true,
       message: '✅ Lesson deleted successfully',
@@ -2239,6 +2275,7 @@ router.delete('/all', verifyToken, async (req, res) => {
     }
 
     const result = await Lesson.deleteMany({});
+    console.log(`🧹 Deleted ${result.deletedCount} lessons`);
     res.status(200).json({
       success: true,
       message: `✅ Deleted ${result.deletedCount} lessons`,
@@ -2278,6 +2315,7 @@ router.patch('/:id/mark-completed', verifyToken, validateObjectId, async (req, r
       }
     });
 
+    console.log(`✅ Marked lesson ${lessonId} as completed for user ${userId}`);
 
     res.json({
       success: true,
