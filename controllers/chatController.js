@@ -77,6 +77,147 @@ const trackAIUsage = async (userId, metadata = {}) => {
 };
 
 // ============================================
+// LESSON ANALYSIS FOR SPEECH & HIGHLIGHTS
+// ============================================
+
+// Analyzes lesson content and generates spoken explanation + highlight phrases
+const analyzeLessonForSpeech = async (req, res) => {
+  const startTime = Date.now();
+  try {
+    const { lessonContent, stepContext, stepType } = req.body;
+    const userId = req.user?.uid || req.user?.firebaseId;
+
+    // Validation
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'Пользователь не авторизован'
+      });
+    }
+
+    if (!lessonContent || lessonContent.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Контент урока отсутствует'
+      });
+    }
+
+    // Check AI usage limits
+    const usageCheck = await checkAIUsageLimits(userId);
+    if (!usageCheck.allowed) {
+      return res.status(429).json({
+        success: false,
+        error: usageCheck.message,
+        usage: {
+          remaining: usageCheck.remaining,
+          percentage: usageCheck.percentage,
+          plan: usageCheck.plan,
+          unlimited: usageCheck.unlimited
+        },
+        limitExceeded: true
+      });
+    }
+
+    // System prompt for generating JSON with explanation and highlights
+    const systemPrompt = `Ты — Эля, опытный, дружелюбный и вовлекающий преподаватель на платформе ACED.
+
+ЗАДАЧА:
+Проанализируй контент урока и сгенерируй два элемента:
+1. Скрипт разговорного объяснения для озвучки.
+2. Список ключевых фраз для подсветки на экране.
+
+КОНТЕКСТ:
+- Тип шага: ${stepType || 'explanation'}
+- Контекст: ${stepContext || 'Общее объяснение'}
+
+ИНСТРУКЦИИ:
+- 'explanation': Напиши скрипт для синтеза речи. НЕ читай текст дословно. Обобщи его в вовлекающей, разговорной манере. Максимум 2-3 предложения, если текст не очень длинный.
+- 'highlights': Извлеки 1-4 короткие фразы (2-5 слов) из контента, которые представляют ключевые понятия. Они ДОЛЖНЫ ТОЧНО совпадать с исходным текстом, символ в символ, чтобы код мог найти и подсветить их.
+
+ФОРМАТ ОТВЕТА (ТОЛЬКО JSON):
+{
+  "explanation": "Привет! Давай посмотрим на...",
+  "highlights": ["точная фраза 1", "точная фраза 2"]
+}`;
+
+    // Call OpenAI in JSON Mode
+    const response = await axios.post(
+      'https://api.openai.com/v1/chat/completions',
+      {
+        model: 'gpt-4o',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: lessonContent }
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.7,
+        max_tokens: 500
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 30000,
+      }
+    );
+
+    // Parse the JSON response
+    const result = JSON.parse(response.data.choices[0].message.content);
+    const responseTime = Date.now() - startTime;
+
+    // Track AI usage
+    await trackAIUsage(userId, {
+      type: 'analysis',
+      responseTime: responseTime,
+      ip: req.ip || req.connection.remoteAddress,
+      userAgent: req.headers['user-agent']
+    });
+
+    // Get updated usage stats
+    const updatedUsageCheck = await checkAIUsageLimits(userId);
+
+    res.json({
+      success: true,
+      data: {
+        explanation: result.explanation || '',
+        highlights: result.highlights || []
+      },
+      usage: {
+        remaining: updatedUsageCheck.remaining,
+        percentage: updatedUsageCheck.percentage,
+        plan: updatedUsageCheck.plan,
+        unlimited: updatedUsageCheck.unlimited
+      },
+      responseTime
+    });
+
+  } catch (error) {
+    console.error('❌ Lesson analysis error:', error.response?.data || error.message);
+
+    if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+      return res.status(504).json({
+        success: false,
+        error: 'Запрос занял слишком много времени. Попробуйте снова.'
+      });
+    }
+
+    if (error.response?.status === 429) {
+      return res.status(429).json({
+        success: false,
+        error: 'Превышен лимит запросов к AI. Подождите и попробуйте снова.'
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: 'Не удалось проанализировать урок',
+      debug: process.env.NODE_ENV === 'development' ? (error.response?.data || error.message) : undefined
+    });
+  }
+};
+
+// ============================================
 // MAIN AI CHAT ENDPOINTS
 // ============================================
 
@@ -587,12 +728,13 @@ function buildLessonSystemPrompt(lessonContext, userProgress, stepContext) {
   const currentStepType = stepContext?.type || 'unknown';
   const lessonName = lessonContext?.lessonName || 'Текущий урок';
   const topic = lessonContext?.topic || 'данной теме';
+  const subject = lessonContext?.subject || 'предмет';
   const mistakes = userProgress?.mistakes || 0;
   const stars = userProgress?.stars || 0;
   const completedSteps = userProgress?.completedSteps?.length || 0;
   const totalSteps = lessonContext?.totalSteps || 1;
   const currentStepIndex = userProgress?.currentStep || 0;
-  
+
   let roleGuidance = '';
   switch (currentStepType) {
     case 'explanation':
@@ -624,7 +766,8 @@ function buildLessonSystemPrompt(lessonContext, userProgress, stepContext) {
 
   const progressPercentage = Math.round((completedSteps / totalSteps) * 100);
 
-  return `Ты — ободряющий AI-репетитор, помогающий студенту с уроком "${lessonName}" (Тема: ${topic}).
+  return `Ты — Эля, ободряющий AI-репетитор на платформе ACED.
+Текущий урок: "${lessonName}" (Тема: ${topic}, Предмет: ${subject}).
 
 ТЕКУЩИЙ КОНТЕКСТ:
 - Прогресс урока: Шаг ${currentStepIndex + 1} из ${totalSteps} (${progressPercentage}% выполнено)
@@ -634,28 +777,33 @@ function buildLessonSystemPrompt(lessonContext, userProgress, stepContext) {
 
 ТВОЯ РОЛЬ: ${roleGuidance}
 
+КРИТИЧЕСКИ ВАЖНЫЕ ИНСТРУКЦИИ:
+
+1. **Вопросы по теме урока:** Если студент спрашивает о текущем уроке, объясни кратко и понятно. Связывай объяснение с текстом на экране.
+
+2. **Вопросы НЕ по теме:** Если студент спрашивает о чём-то совершенно не связанном с уроком (например, "Как готовить пиццу?" на уроке математики):
+   - Вежливо откажись отвечать подробно
+   - Скажи: "Это интересный вопрос, но он относится к другой теме. Сейчас мы изучаем ${topic}. Давай сначала закончим этот урок, а потом ты сможешь найти ответ в соответствующем разделе."
+   - Предложи вернуться к текущему уроку
+
+3. **Общее объяснение:** Если студент просто говорит "Объясни это" или "Я не понимаю" — объясни текущий шаг простым языком.
+
 ПРАВИЛА ОТВЕТОВ:
 - Будь тёплым, ободряющим и поддерживающим
-- Используй простой, понятный язык, подходящий для обучения
-- Отвечай кратко (2-4 предложения максимум)
+- Используй простой, понятный язык
+- Отвечай кратко (2-3 предложения максимум), чтобы студент мог продолжить урок
 - Для упражнений/тестов: Давай подсказки и направления, НЕ прямые ответы
 - Для объяснений: Предоставляй ясность и примеры
-- Если студент испытывает трудности: Разбивай концепции на более мелкие, управляемые части
-- Всегда заканчивай на позитивной, ободряющей ноте
-- Используй эмодзи умеренно (максимум 1-2) для дружелюбности, но сохраняй профессионализм
+- Если студент испытывает трудности: Разбивай концепции на более мелкие части
+- Всегда заканчивай на позитивной ноте
 
-КРИТИЧЕСКИ ВАЖНО: Никогда не давай прямых ответов на упражнения или вопросы тестов. Всегда направляй процесс мышления студента.
-
-ОСОБЫЕ УКАЗАНИЯ:
-- Если студент задаёт вопрос типа "что такое..." - давай чёткое определение с примером
-- Если просит помощь с упражнением - давай наводящие вопросы и подсказки
-- Если не понимает концепцию - предложи аналогию или простое объяснение
-- Всегда связывай ответы с контекстом текущего урока`;
+КРИТИЧЕСКИ ВАЖНО: Никогда не давай прямых ответов на упражнения или вопросы тестов. Всегда направляй процесс мышления студента.`;
 }
 
-module.exports = { 
-  getAIResponse, 
+module.exports = {
+  getAIResponse,
   getLessonContextAIResponse,
+  analyzeLessonForSpeech,
   getUserAIUsageStats,
   checkCanSendAIMessage,
   updateUserAIPlan

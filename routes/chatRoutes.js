@@ -1,9 +1,10 @@
 // routes/chatRoutes.js - Complete Chat Routes with AI Usage Tracking & Voice Integration
 const express = require('express');
 const router = express.Router();
-const { 
-  getAIResponse, 
+const {
+  getAIResponse,
   getLessonContextAIResponse,
+  analyzeLessonForSpeech,
   getUserAIUsageStats,
   checkCanSendAIMessage,
   updateUserAIPlan
@@ -32,6 +33,9 @@ router.post('/', verifyToken, getAIResponse);
 
 // Enhanced lesson-specific AI chat
 router.post('/lesson-context', verifyToken, getLessonContextAIResponse);
+
+// Analyze lesson content for speech & highlights (Perfect Harmony endpoint)
+router.post('/analyze-speech', verifyToken, analyzeLessonForSpeech);
 
 // ============================================
 // VOICE AI ENDPOINTS (ELEVENLABS)
