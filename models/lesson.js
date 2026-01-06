@@ -79,16 +79,34 @@ const lessonStepSchema = new mongoose.Schema({
   },
 
   title: {
-    type: String,
+    type: mongoose.Schema.Types.Mixed, // Supports: String or { en: "...", ru: "...", uz: "..." }
     required: [true, 'Step title is required'],
-    trim: true,
-    maxlength: [200, 'Title cannot exceed 200 characters']
+    validate: {
+      validator: function(v) {
+        // Accept string or object with at least one language
+        if (typeof v === 'string') return v.trim().length > 0 && v.length <= 200;
+        if (typeof v === 'object' && v !== null) {
+          return Object.values(v).some(val => typeof val === 'string' && val.trim().length > 0);
+        }
+        return false;
+      },
+      message: 'Title must be a non-empty string or a localized object'
+    }
   },
 
   instructions: {
-    type: String,
+    type: mongoose.Schema.Types.Mixed, // Supports: String or { en: "...", ru: "...", uz: "..." }
     required: [true, 'Step instructions are required'],
-    trim: true
+    validate: {
+      validator: function(v) {
+        if (typeof v === 'string') return v.trim().length > 0;
+        if (typeof v === 'object' && v !== null) {
+          return Object.values(v).some(val => typeof val === 'string' && val.trim().length > 0);
+        }
+        return false;
+      },
+      message: 'Instructions must be a non-empty string or a localized object'
+    }
   },
 
   content: {
@@ -294,20 +312,36 @@ const lessonStepSchema = new mongoose.Schema({
 
 // Main Lesson Schema
 const lessonSchema = new mongoose.Schema({
-  // Basic Information
+  // Basic Information (Multi-language support)
   lessonName: {
-    type: String,
+    type: mongoose.Schema.Types.Mixed, // Supports: String or { en: "...", ru: "...", uz: "..." }
     required: [true, 'Lesson name is required'],
-    trim: true,
-    maxlength: [200, 'Lesson name cannot exceed 200 characters'],
+    validate: {
+      validator: function(v) {
+        if (typeof v === 'string') return v.trim().length > 0 && v.length <= 200;
+        if (typeof v === 'object' && v !== null) {
+          return Object.values(v).some(val => typeof val === 'string' && val.trim().length > 0);
+        }
+        return false;
+      },
+      message: 'Lesson name must be a non-empty string or a localized object'
+    },
     index: true
   },
 
   description: {
-    type: String,
+    type: mongoose.Schema.Types.Mixed, // Supports: String or { en: "...", ru: "...", uz: "..." }
     required: [true, 'Lesson description is required'],
-    trim: true,
-    maxlength: [1000, 'Description cannot exceed 1000 characters']
+    validate: {
+      validator: function(v) {
+        if (typeof v === 'string') return v.trim().length > 0 && v.length <= 1000;
+        if (typeof v === 'object' && v !== null) {
+          return Object.values(v).some(val => typeof val === 'string' && val.trim().length > 0);
+        }
+        return false;
+      },
+      message: 'Description must be a non-empty string or a localized object'
+    }
   },
 
   // Organization
@@ -750,6 +784,91 @@ lessonSchema.methods.calculateProgress = function (completedSteps) {
   const totalRequired = this.steps.filter(s => !s.metadata.isOptional).length;
   const completed = completedSteps.length;
   return Math.round((completed / totalRequired) * 100);
+};
+
+/**
+ * Gets localized text from a field that may be string or { en, ru, uz } object.
+ * @param {string|Object} field - The field value to localize
+ * @param {string} lang - Target language code (en, ru, uz)
+ * @param {string} fallback - Fallback language if target not found (default: 'en')
+ * @returns {string} The localized text
+ */
+lessonSchema.statics.getLocalizedText = function(field, lang = 'en', fallback = 'en') {
+  if (!field) return '';
+  if (typeof field === 'string') return field;
+  if (typeof field === 'object') {
+    return field[lang] || field[fallback] || field['en'] || Object.values(field)[0] || '';
+  }
+  return '';
+};
+
+/**
+ * Gets a fully localized version of the lesson for a specific language.
+ * @param {string} lang - Target language code (en, ru, uz)
+ * @returns {Object} Lesson object with all text fields localized
+ */
+lessonSchema.methods.getLocalizedLesson = function(lang = 'en') {
+  const getLocal = (field) => this.constructor.getLocalizedText(field, lang);
+
+  const localizedLesson = this.toObject();
+
+  // Localize main fields
+  localizedLesson.lessonName = getLocal(this.lessonName);
+  localizedLesson.description = getLocal(this.description);
+
+  // Localize steps
+  if (localizedLesson.steps && Array.isArray(localizedLesson.steps)) {
+    localizedLesson.steps = localizedLesson.steps.map(step => ({
+      ...step,
+      title: getLocal(step.title),
+      instructions: getLocal(step.instructions),
+      // For content, handle nested text fields
+      content: this.constructor.localizeContent(step.content, lang)
+    }));
+  }
+
+  return localizedLesson;
+};
+
+/**
+ * Recursively localizes content object.
+ * @param {*} content - Content to localize
+ * @param {string} lang - Target language
+ * @returns {*} Localized content
+ */
+lessonSchema.statics.localizeContent = function(content, lang = 'en') {
+  if (!content) return content;
+
+  // If it's a string, return as-is
+  if (typeof content === 'string') return content;
+
+  // If it has language keys directly (e.g., { en: "...", ru: "..." })
+  if (content.en || content.ru || content.uz) {
+    return this.getLocalizedText(content, lang);
+  }
+
+  // If it's an object, recurse through properties
+  if (typeof content === 'object' && !Array.isArray(content)) {
+    const localized = {};
+    for (const [key, value] of Object.entries(content)) {
+      // Special handling for 'text' field which commonly holds localized content
+      if (key === 'text' && typeof value === 'object' && (value.en || value.ru || value.uz)) {
+        localized[key] = this.getLocalizedText(value, lang);
+      } else if (typeof value === 'object') {
+        localized[key] = this.localizeContent(value, lang);
+      } else {
+        localized[key] = value;
+      }
+    }
+    return localized;
+  }
+
+  // If it's an array, recurse through elements
+  if (Array.isArray(content)) {
+    return content.map(item => this.localizeContent(item, lang));
+  }
+
+  return content;
 };
 
 /**
