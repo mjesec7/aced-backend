@@ -69,14 +69,44 @@ exports.streamAudio = async (req, res) => {
     response.data.pipe(res);
 
   } catch (error) {
-    console.error('❌ Voice Stream Error:', error.response?.data || error.message);
+    let errorMessage = error.message;
+    let errorDetails = null;
+
+    // Handle Axios stream error response
+    if (error.response && error.response.data) {
+      try {
+        if (typeof error.response.data.read === 'function' || error.response.data instanceof require('stream').Stream) {
+          // It's a stream, read it to get the error message
+          const chunks = [];
+          for await (const chunk of error.response.data) {
+            chunks.push(chunk);
+          }
+          const errorBody = Buffer.concat(chunks).toString('utf8');
+          try {
+            const jsonError = JSON.parse(errorBody);
+            errorMessage = jsonError.detail?.message || jsonError.message || errorBody;
+            errorDetails = jsonError;
+          } catch (e) {
+            errorMessage = errorBody;
+          }
+        } else {
+          errorMessage = JSON.stringify(error.response.data);
+        }
+      } catch (readError) {
+        console.error('Error reading error stream:', readError);
+      }
+    }
+
+    console.error('❌ Voice Stream Error:', errorMessage);
 
     // Don't try to send JSON if headers already sent (streaming started)
     if (!res.headersSent) {
       res.status(500).json({
         success: false,
         error: 'Не удалось синтезировать речь',
-        debug: process.env.NODE_ENV === 'development' ? error.message : undefined
+        details: errorMessage, // Exposed for debugging
+        fullError: errorDetails,
+        apiKeyConfigured: !!process.env.ELEVENLABS_API_KEY
       });
     }
   }
@@ -102,9 +132,9 @@ exports.initVoiceSession = async (req, res) => {
     const aiResponse = await axios.post('https://api.openai.com/v1/chat/completions', {
       model: "gpt-4",
       messages: [
-        { 
-          role: "system", 
-          content: "You are Elya, a friendly teacher. Summarize the following lesson content in 2 engaging sentences. Then ask: 'Does that make sense?'" 
+        {
+          role: "system",
+          content: "You are Elya, a friendly teacher. Summarize the following lesson content in 2 engaging sentences. Then ask: 'Does that make sense?'"
         },
         { role: "user", content: stepContent }
       ]
