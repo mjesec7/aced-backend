@@ -95,7 +95,13 @@ const analyzeLessonForSpeech = async (req, res) => {
       });
     }
 
-    if (!lessonContent || lessonContent.trim().length === 0) {
+    // Handle if lessonContent is an object (localization)
+    let contentToAnalyze = lessonContent;
+    if (typeof lessonContent === 'object' && lessonContent !== null) {
+      contentToAnalyze = lessonContent.en || lessonContent.ru || lessonContent.uz || JSON.stringify(lessonContent);
+    }
+
+    if (!contentToAnalyze || String(contentToAnalyze).trim().length === 0) {
       return res.status(400).json({
         success: false,
         error: 'Контент урока отсутствует'
@@ -147,7 +153,7 @@ const analyzeLessonForSpeech = async (req, res) => {
         model: 'gpt-4o',
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: lessonContent }
+          { role: 'user', content: contentToAnalyze }
         ],
         response_format: { type: "json_object" },
         temperature: 0.7,
