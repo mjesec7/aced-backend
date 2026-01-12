@@ -23,7 +23,7 @@ const checkAIUsageLimits = async (userId) => {
 
     // Check usage with our global service
     const usageCheck = await AIUsageService.checkUsageLimit(userId, userPlan);
-    
+
     return {
       allowed: usageCheck.allowed,
       reason: usageCheck.reason || 'unknown',
@@ -62,7 +62,7 @@ const trackAIUsage = async (userId, metadata = {}) => {
 
     // Track with our global service
     const trackingResult = await AIUsageService.trackMessage(userId, userPlan, metadata);
-    
+
     if (trackingResult.success) {
     } else {
       console.error('❌ Failed to track AI usage:', trackingResult.error);
@@ -212,7 +212,7 @@ const analyzeLessonForSpeech = async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Не удалось проанализировать урок',
-      debug: process.env.NODE_ENV === 'development' ? (error.response?.data || error.message) : undefined
+      debug: error.response?.data || error.message
     });
   }
 };
@@ -224,39 +224,39 @@ const analyzeLessonForSpeech = async (req, res) => {
 // Standard AI chat with global usage tracking
 const getAIResponse = async (req, res) => {
   const startTime = Date.now();
-  
+
   try {
     const { userInput, imageUrl, lessonId } = req.body;
     const userId = req.user?.uid || req.user?.firebaseId;
 
     // Input validation
     if (!userInput && !imageUrl) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        error: '❌ Нет запроса или изображения' 
+        error: '❌ Нет запроса или изображения'
       });
     }
 
     if (!process.env.OPENAI_API_KEY) {
-      return res.status(500).json({ 
+      return res.status(500).json({
         success: false,
-        error: '❌ Отсутствует API-ключ OpenAI' 
+        error: '❌ Отсутствует API-ключ OpenAI'
       });
     }
 
     if (!userId) {
-      return res.status(401).json({ 
+      return res.status(401).json({
         success: false,
-        error: '❌ Пользователь не авторизован' 
+        error: '❌ Пользователь не авторизован'
       });
     }
 
     // Check AI usage limits with global tracking
     const usageCheck = await checkAIUsageLimits(userId);
-    
+
     if (!usageCheck.allowed) {
-      
-      return res.status(429).json({ 
+
+      return res.status(429).json({
         success: false,
         error: usageCheck.message,
         usage: {
@@ -279,7 +279,7 @@ const getAIResponse = async (req, res) => {
       'политика', 'путин', 'зеленский', 'байден', 'трамп', 'нацизм', 'гитлер',
       'власть', 'правительство', 'парламент', 'вакцина', 'covid', 'беженцы'
     ];
-    
+
     const safeWords = ['кто', 'что', 'где', 'когда', 'какой', 'какая', 'какие', 'каков'];
     const lowerText = (userInput || '').toLowerCase();
 
@@ -408,7 +408,7 @@ ${lessonData ? `
     const updatedUsageCheck = await checkAIUsageLimits(userId);
 
 
-    res.json({ 
+    res.json({
       success: true,
       reply: reply,
       usage: {
@@ -425,7 +425,7 @@ ${lessonData ? `
 
   } catch (error) {
     console.error("❌ Ошибка от AI:", error.response?.data || error.message);
-    
+
     if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
       return res.status(504).json({
         success: false,
@@ -451,7 +451,7 @@ ${lessonData ? `
 // Enhanced lesson-context chat endpoint
 const getLessonContextAIResponse = async (req, res) => {
   const startTime = Date.now();
-  
+
   try {
     const { userInput, lessonContext, userProgress, stepContext } = req.body;
     const userId = req.user?.uid || req.user?.firebaseId;
@@ -472,9 +472,9 @@ const getLessonContextAIResponse = async (req, res) => {
 
     // Check AI usage limits
     const usageCheck = await checkAIUsageLimits(userId);
-    
+
     if (!usageCheck.allowed) {
-      
+
       return res.status(429).json({
         success: false,
         error: usageCheck.message,
@@ -523,7 +523,7 @@ const getLessonContextAIResponse = async (req, res) => {
       }
     );
 
-    const aiReply = response?.data?.choices?.[0]?.message?.content?.trim() || 
+    const aiReply = response?.data?.choices?.[0]?.message?.content?.trim() ||
       'Извините, не смог сформулировать ответ. Попробуйте переформулировать вопрос.';
 
     const responseTime = Date.now() - startTime;
@@ -559,7 +559,7 @@ const getLessonContextAIResponse = async (req, res) => {
 
   } catch (error) {
     console.error('❌ Lesson context AI error:', error);
-    
+
     if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
       return res.status(504).json({
         success: false,
@@ -589,7 +589,7 @@ const getLessonContextAIResponse = async (req, res) => {
 const getUserAIUsageStats = async (req, res) => {
   try {
     const userId = req.user?.uid || req.user?.firebaseId;
-    
+
     if (!userId) {
       return res.status(401).json({
         success: false,
@@ -599,7 +599,7 @@ const getUserAIUsageStats = async (req, res) => {
 
 
     const usageStats = await AIUsageService.getUserUsageStats(userId);
-    
+
     if (!usageStats.success) {
       return res.status(500).json({
         success: false,
@@ -634,7 +634,7 @@ const getUserAIUsageStats = async (req, res) => {
 const checkCanSendAIMessage = async (req, res) => {
   try {
     const userId = req.user?.uid || req.user?.firebaseId;
-    
+
     if (!userId) {
       return res.status(401).json({
         success: false,
@@ -671,7 +671,7 @@ const updateUserAIPlan = async (req, res) => {
   try {
     const userId = req.user?.uid || req.user?.firebaseId;
     const { newPlan } = req.body;
-    
+
     if (!userId) {
       return res.status(401).json({
         success: false,
@@ -688,7 +688,7 @@ const updateUserAIPlan = async (req, res) => {
 
 
     const updateResult = await AIUsageService.updateUserPlan(userId, newPlan);
-    
+
     if (!updateResult.success) {
       return res.status(500).json({
         success: false,
