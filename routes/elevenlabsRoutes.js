@@ -11,6 +11,20 @@ const voiceController = require('../controllers/voiceController');
 // Stream audio directly from ElevenLabs to client (used after analyze-speech)
 router.post('/stream', verifyToken, voiceController.streamAudio);
 
+// GET handler for stream endpoint - return proper error
+router.get('/stream', (req, res) => {
+  res.status(405).json({
+    success: false,
+    error: 'Method Not Allowed. This endpoint requires a POST request.',
+    method: req.method,
+    endpoint: '/api/elevenlabs/stream',
+    requiredBody: {
+      text: 'string (required)',
+      voiceId: 'string (optional)'
+    }
+  });
+});
+
 // ========================================
 // 🎤 TEXT-TO-SPEECH (Lexi Speaks)
 // ========================================
@@ -18,18 +32,18 @@ router.post('/stream', verifyToken, voiceController.streamAudio);
 router.post('/text-to-speech', verifyToken, async (req, res) => {
   try {
     const { text, voiceId = 'EXAVITQu4vr4xnSDxMaL' } = req.body; // Default: Sarah voice
-    
+
     if (!text || text.trim().length === 0) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Text is required' 
+      return res.status(400).json({
+        success: false,
+        error: 'Text is required'
       });
     }
 
     if (!process.env.ELEVENLABS_API_KEY) {
-      return res.status(500).json({ 
-        success: false, 
-        error: 'ElevenLabs API key not configured' 
+      return res.status(500).json({
+        success: false,
+        error: 'ElevenLabs API key not configured'
       });
     }
 
@@ -63,20 +77,20 @@ router.post('/text-to-speech', verifyToken, async (req, res) => {
     }
 
     const audioBuffer = await response.arrayBuffer();
-    
+
     res.set({
       'Content-Type': 'audio/mpeg',
       'Content-Length': audioBuffer.byteLength
     });
-    
+
     res.send(Buffer.from(audioBuffer));
     console.log('✅ TTS audio sent successfully');
 
   } catch (error) {
     console.error('❌ TTS Error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message 
+    res.status(500).json({
+      success: false,
+      error: error.message
     });
   }
 });
@@ -88,18 +102,18 @@ router.post('/text-to-speech', verifyToken, async (req, res) => {
 router.post('/text-to-speech-with-timestamps', verifyToken, async (req, res) => {
   try {
     const { text, voiceId = 'EXAVITQu4vr4xnSDxMaL' } = req.body;
-    
+
     if (!text || text.trim().length === 0) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Text is required' 
+      return res.status(400).json({
+        success: false,
+        error: 'Text is required'
       });
     }
 
     if (!process.env.ELEVENLABS_API_KEY) {
-      return res.status(500).json({ 
-        success: false, 
-        error: 'ElevenLabs API key not configured' 
+      return res.status(500).json({
+        success: false,
+        error: 'ElevenLabs API key not configured'
       });
     }
 
@@ -131,9 +145,9 @@ router.post('/text-to-speech-with-timestamps', verifyToken, async (req, res) => 
     }
 
     const data = await response.json();
-    
+
     // data contains: { audio_base64, alignment: { characters, character_start_times_seconds, character_end_times_seconds } }
-    
+
     res.json({
       success: true,
       audioBase64: data.audio_base64,
@@ -144,9 +158,9 @@ router.post('/text-to-speech-with-timestamps', verifyToken, async (req, res) => 
 
   } catch (error) {
     console.error('❌ TTS+Timestamps Error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message 
+    res.status(500).json({
+      success: false,
+      error: error.message
     });
   }
 });
@@ -158,18 +172,18 @@ router.post('/text-to-speech-with-timestamps', verifyToken, async (req, res) => 
 router.post('/speech-to-text', verifyToken, async (req, res) => {
   try {
     const { audioBase64 } = req.body;
-    
+
     if (!audioBase64) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Audio data is required' 
+      return res.status(400).json({
+        success: false,
+        error: 'Audio data is required'
       });
     }
 
     if (!process.env.ELEVENLABS_API_KEY) {
-      return res.status(500).json({ 
-        success: false, 
-        error: 'ElevenLabs API key not configured' 
+      return res.status(500).json({
+        success: false,
+        error: 'ElevenLabs API key not configured'
       });
     }
 
@@ -177,7 +191,7 @@ router.post('/speech-to-text', verifyToken, async (req, res) => {
 
     // Convert base64 to buffer
     const audioBuffer = Buffer.from(audioBase64, 'base64');
-    
+
     // Create form data
     const formData = new FormData();
     const blob = new Blob([audioBuffer], { type: 'audio/webm' });
@@ -201,7 +215,7 @@ router.post('/speech-to-text', verifyToken, async (req, res) => {
     }
 
     const data = await response.json();
-    
+
     res.json({
       success: true,
       text: data.text,
@@ -212,9 +226,9 @@ router.post('/speech-to-text', verifyToken, async (req, res) => {
 
   } catch (error) {
     console.error('❌ STT Error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message 
+    res.status(500).json({
+      success: false,
+      error: error.message
     });
   }
 });
@@ -226,9 +240,9 @@ router.post('/speech-to-text', verifyToken, async (req, res) => {
 router.get('/voices', verifyToken, async (req, res) => {
   try {
     if (!process.env.ELEVENLABS_API_KEY) {
-      return res.status(500).json({ 
-        success: false, 
-        error: 'ElevenLabs API key not configured' 
+      return res.status(500).json({
+        success: false,
+        error: 'ElevenLabs API key not configured'
       });
     }
 
@@ -247,7 +261,7 @@ router.get('/voices', verifyToken, async (req, res) => {
     }
 
     const data = await response.json();
-    
+
     // Return simplified voice list
     const voices = data.voices.map(voice => ({
       voiceId: voice.voice_id,
@@ -264,9 +278,9 @@ router.get('/voices', verifyToken, async (req, res) => {
 
   } catch (error) {
     console.error('❌ Voices Error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message 
+    res.status(500).json({
+      success: false,
+      error: error.message
     });
   }
 });
