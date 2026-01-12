@@ -42,7 +42,7 @@ router.get('/analyze-speech', (req, res) => {
   res.status(405).json({
     success: false,
     error: 'Method Not Allowed. This endpoint requires a POST request.',
-    method: 'POST',
+    method: req.method,
     endpoint: '/api/chat/analyze-speech',
     requiredBody: {
       lessonContent: 'string (required)',
@@ -56,7 +56,7 @@ router.get('/lesson-context', (req, res) => {
   res.status(405).json({
     success: false,
     error: 'Method Not Allowed. This endpoint requires a POST request.',
-    method: 'POST',
+    method: req.method,
     endpoint: '/api/chat/lesson-context',
     requiredBody: {
       userInput: 'string (required)',
