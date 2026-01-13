@@ -84,7 +84,7 @@ const trackAIUsage = async (userId, metadata = {}) => {
 const analyzeLessonForSpeech = async (req, res) => {
   const startTime = Date.now();
   try {
-    const { lessonContent, stepContext, stepType } = req.body;
+    const { lessonContent, stepContext, stepType, language } = req.body;
     const userId = req.user?.uid || req.user?.firebaseId;
 
     // Validation
@@ -124,6 +124,12 @@ const analyzeLessonForSpeech = async (req, res) => {
       });
     }
 
+    // Determine target language instructions
+    const targetLang = language === 'ru' ? 'Russian' : 'English';
+    const langInstruction = language === 'ru'
+      ? 'Отвечай на РУССКОМ языке. Объяснение должно быть на русском.'
+      : 'Answer in ENGLISH. The explanation must be in English.';
+
     // System prompt for generating JSON with explanation and highlights
     const systemPrompt = `Ты — Эля, опытный, дружелюбный и вовлекающий преподаватель на платформе ACED.
 
@@ -135,15 +141,16 @@ const analyzeLessonForSpeech = async (req, res) => {
 КОНТЕКСТ:
 - Тип шага: ${stepType || 'explanation'}
 - Контекст: ${stepContext || 'Общее объяснение'}
+- Язык ответа: ${targetLang}
 
 ИНСТРУКЦИИ:
-- 'explanation': Напиши скрипт для синтеза речи. НЕ читай текст дословно. Обобщи его в вовлекающей, разговорной манере. Максимум 2-3 предложения, если текст не очень длинный.
+- 'explanation': Напиши скрипт для синтеза речи. ${langInstruction} НЕ читай текст дословно. Обобщи его в вовлекающей, разговорной манере. Максимум 2-3 предложения.
 - 'highlights': Извлеки 1-4 короткие фразы (2-5 слов) из контента, которые представляют ключевые понятия. Они ДОЛЖНЫ ТОЧНО совпадать с исходным текстом, символ в символ, чтобы код мог найти и подсветить их.
 
 ФОРМАТ ОТВЕТА (ТОЛЬКО JSON):
 {
-  "explanation": "Привет! Давай посмотрим на...",
-  "highlights": ["точная фраза 1", "точная фраза 2"]
+  "explanation": "${language === 'ru' ? 'Привет! Давай посмотрим на...' : 'Hello! Let\'s look at...'}",
+  "highlights": ["точная фраза 1", "exact phrase 2"]
 }`;
 
     // Call OpenAI in JSON Mode
