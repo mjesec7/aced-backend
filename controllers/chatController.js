@@ -125,10 +125,23 @@ const analyzeLessonForSpeech = async (req, res) => {
     }
 
     // Determine target language instructions
-    const targetLang = language === 'ru' ? 'Russian' : 'English';
-    const langInstruction = language === 'ru'
-      ? 'Отвечай на РУССКОМ языке. Объяснение должно быть на русском.'
-      : 'Answer in ENGLISH. The explanation must be in English.';
+    // Determine target language instructions
+    let targetLang = 'English';
+    let langInstruction = 'Answer in ENGLISH. The explanation must be in English.';
+    let exampleExplanation = "Hello! Let's look at...";
+    let exampleQuestion = "Why do you think...?";
+
+    if (language === 'ru') {
+      targetLang = 'Russian';
+      langInstruction = 'Отвечай на РУССКОМ языке. Объяснение должно быть на русском.';
+      exampleExplanation = 'Привет! Давай посмотрим на...';
+      exampleQuestion = 'Как ты думаешь, почему...?';
+    } else if (language === 'uz') {
+      targetLang = 'Uzbek';
+      langInstruction = 'Javobni O\'ZBEK tilida ber. Tushuntirish o\'zbek tilida bo\'lishi shart.';
+      exampleExplanation = 'Salom! Keling, ko\'rib chiqamiz...';
+      exampleQuestion = 'Sizningcha, nima uchun...?';
+    }
 
     // System prompt for generating JSON with explanation and highlights
     const systemPrompt = `Ты — Эля, опытный, дружелюбный и вовлекающий преподаватель на платформе ACED.
@@ -151,8 +164,8 @@ const analyzeLessonForSpeech = async (req, res) => {
 
 ФОРМАТ ОТВЕТА (ТОЛЬКО JSON):
 {
-  "explanation": "${language === 'ru' ? 'Привет! Давай посмотрим на...' : 'Hello! Let\'s look at...'}",
-  "question": "${language === 'ru' ? 'Как ты думаешь, почему...?' : 'Why do you think...?'}",
+  "explanation": "${exampleExplanation}",
+  "question": "${exampleQuestion}",
   "highlights": ["точная фраза 1", "exact phrase 2"]
 }`;
 
