@@ -36,6 +36,56 @@ exports.streamAudio = async (req, res) => {
     const VOICE_ID = voiceId || process.env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM';
     const API_KEY = process.env.ELEVENLABS_API_KEY;
 
+    // ==========================================
+    // 🇺🇿 UZBEK VOICE HANDLING
+    // ==========================================
+    if (req.body.language === 'uz') {
+      const UZBEK_API_KEY = process.env.UZBEK_VOICE_API_KEY;
+
+      if (!UZBEK_API_KEY) {
+        console.warn('⚠️ Uzbek Voice API key missing');
+        return res.status(500).json({
+          success: false,
+          error: 'Uzbek Voice API key not configured'
+        });
+      }
+
+      // UzbekVoice.ai API Implementation
+      const response = await axios({
+        method: 'post',
+        url: 'https://uzbekvoice.ai/api/v1/tts',
+        data: {
+          text: text,
+          model: 'lola', // Female voice
+          blocking: 'true', // Wait for audio
+          // webhook_notification_url: '...' // Not needed for blocking
+        },
+        headers: {
+          'Authorization': UZBEK_API_KEY, // User provided format: 'Authorization: [API_KEY]'
+          'Content-Type': 'application/json',
+        },
+        responseType: 'stream'
+      });
+
+      // Check if response is JSON (error or url) or Audio
+      // Assuming blocking=true returns audio stream directly based on standard TTS behavior
+      // If it returns JSON with a URL, we might need to fetch it. 
+      // For now, we pipe the response.
+
+      res.set({
+        'Content-Type': 'audio/mpeg', // Assuming MP3/WAV
+        'Transfer-Encoding': 'chunked',
+        'Cache-Control': 'no-cache'
+      });
+
+      response.data.pipe(res);
+      return;
+    }
+
+    // ==========================================
+    // 🇺🇸/🇷🇺 ELEVENLABS HANDLING (Default)
+    // ==========================================
+
     // Call ElevenLabs streaming API
     const response = await axios({
       method: 'post',
