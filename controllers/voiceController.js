@@ -42,11 +42,18 @@ exports.streamAudio = async (req, res) => {
     if (req.body.language === 'uz') {
       const UZBEK_API_KEY = process.env.UZBEK_VOICE_API_KEY;
 
+      console.log('[VoiceController] Uzbek Request:', {
+        textLength: text.length,
+        hasKey: !!UZBEK_API_KEY,
+        keyLength: UZBEK_API_KEY ? UZBEK_API_KEY.length : 0
+      });
+
       if (!UZBEK_API_KEY) {
-        console.warn('⚠️ Uzbek Voice API key missing');
+        console.warn('⚠️ Uzbek Voice API key missing in process.env');
         return res.status(500).json({
           success: false,
-          error: 'Uzbek Voice API key not configured'
+          error: 'Uzbek Voice API key not configured on server',
+          envKeys: Object.keys(process.env).filter(k => k.includes('API_KEY')) // Debug: list available keys
         });
       }
 
