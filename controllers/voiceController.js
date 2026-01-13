@@ -99,11 +99,11 @@ exports.streamAudio = async (req, res) => {
       url: `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}/stream`,
       data: {
         text: text,
-        model_id: 'eleven_multilingual_v2', // V2 supports better emotion and Russian language
+        model_id: 'eleven_turbo_v2_5', // Turbo v2.5 is faster and supports better multilingual emotion
         voice_settings: {
-          stability: 0.5,           // Balance between emotion and consistency
-          similarity_boost: 0.75,   // Voice similarity
-          style: 0.0,               // Style exaggeration
+          stability: 0.4,           // Lower stability = more emotion/variability (less robotic)
+          similarity_boost: 0.6,    // Slightly lower similarity to allow more natural intonation
+          style: 0.5,               // Increase style for more expressiveness
           use_speaker_boost: true   // Enhanced speaker clarity
         }
       },
