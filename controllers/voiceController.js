@@ -187,7 +187,7 @@ exports.initVoiceSession = async (req, res) => {
     // 3. Generate a "Speech Script" via OpenAI
     // We use your existing AI infrastructure to summarize the text
     const aiResponse = await axios.post('https://api.openai.com/v1/chat/completions', {
-      model: "gpt-4o-mini",
+      model: "gpt-5-mini",
       messages: [
         {
           role: "system",
