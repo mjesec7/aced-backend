@@ -84,7 +84,7 @@ const trackAIUsage = async (userId, metadata = {}) => {
 const analyzeLessonForSpeech = async (req, res) => {
   const startTime = Date.now();
   try {
-    const { lessonContent, stepContext, stepType, language } = req.body;
+    const { lessonContent, stepContext, stepType, language, isFirstStep } = req.body;
     const userId = req.user?.uid || req.user?.firebaseId;
 
     // Validation
