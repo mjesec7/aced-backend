@@ -3,8 +3,86 @@ const axios = require('axios');
 const OpenAI = require('openai');
 const Lesson = require('../models/lesson');
 const User = require('../models/user');
+const UserProgress = require('../models/userProgress');
+const LessonChatHistory = require('../models/lessonChatHistory');
 const { AIUsageService } = require('../models/aiUsage');
 require('dotenv').config();
+
+// ============================================
+// USER STATS HELPER FUNCTION
+// ============================================
+
+// Fetch comprehensive user statistics for AI context
+const getUserStatsForAI = async (userId) => {
+  try {
+    const stats = {
+      overallStats: null,
+      recentMistakes: [],
+      strongTopics: [],
+      weakTopics: [],
+      studyStreak: 0,
+      totalLessonsCompleted: 0,
+      averageAccuracy: 0
+    };
+
+    // Get overall user stats
+    const overallStats = await UserProgress.getUserStats(userId);
+    if (overallStats) {
+      stats.overallStats = overallStats;
+      stats.totalLessonsCompleted = overallStats.completedLessons || 0;
+      stats.averageAccuracy = overallStats.accuracy || 0;
+    }
+
+    // Get recent progress to identify patterns
+    const recentProgress = await UserProgress.find({ userId })
+      .sort({ lastAccessedAt: -1 })
+      .limit(10)
+      .populate('lessonId', 'lessonName topic subject');
+
+    // Identify topics where user struggles (high mistake ratio)
+    const topicMistakes = {};
+    const topicSuccesses = {};
+
+    recentProgress.forEach(progress => {
+      const topic = progress.lessonId?.topic || 'Unknown';
+      if (!topicMistakes[topic]) {
+        topicMistakes[topic] = { mistakes: 0, total: 0 };
+        topicSuccesses[topic] = { stars: 0, count: 0 };
+      }
+      topicMistakes[topic].mistakes += progress.mistakes || 0;
+      topicMistakes[topic].total += 1;
+      topicSuccesses[topic].stars += progress.stars || 0;
+      topicSuccesses[topic].count += 1;
+
+      // Track recent mistakes for specific feedback
+      if (progress.mistakes > 0 && progress.lessonId) {
+        stats.recentMistakes.push({
+          lesson: progress.lessonId.lessonName,
+          topic: progress.lessonId.topic,
+          mistakes: progress.mistakes,
+          accuracy: progress.accuracy
+        });
+      }
+    });
+
+    // Determine strong and weak topics
+    Object.keys(topicMistakes).forEach(topic => {
+      const avgMistakes = topicMistakes[topic].mistakes / topicMistakes[topic].total;
+      const avgStars = topicSuccesses[topic].stars / topicSuccesses[topic].count;
+
+      if (avgStars >= 2.5 && avgMistakes < 1) {
+        stats.strongTopics.push(topic);
+      } else if (avgMistakes >= 2 || avgStars < 1.5) {
+        stats.weakTopics.push(topic);
+      }
+    });
+
+    return stats;
+  } catch (error) {
+    console.error('Error fetching user stats for AI:', error);
+    return null;
+  }
+};
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -508,7 +586,7 @@ ${lessonData ? `
   }
 };
 
-// Enhanced lesson-context chat endpoint
+// Enhanced lesson-context chat endpoint with memory and user stats
 const getLessonContextAIResponse = async (req, res) => {
   const startTime = Date.now();
 
@@ -534,7 +612,6 @@ const getLessonContextAIResponse = async (req, res) => {
     const usageCheck = await checkAIUsageLimits(userId);
 
     if (!usageCheck.allowed) {
-
       return res.status(429).json({
         success: false,
         error: usageCheck.message,
@@ -548,8 +625,24 @@ const getLessonContextAIResponse = async (req, res) => {
       });
     }
 
-    // Build lesson-specific system prompt
-    const systemPrompt = buildLessonSystemPrompt(lessonContext, userProgress, stepContext);
+    // Get or create chat history for this lesson
+    let chatHistory = null;
+    const lessonId = lessonContext.lessonId;
+    if (lessonId) {
+      try {
+        chatHistory = await LessonChatHistory.getOrCreate(userId, lessonId);
+        // Update current step
+        chatHistory.currentStepIndex = userProgress?.currentStep || 0;
+      } catch (historyError) {
+        console.error('Chat history error:', historyError);
+      }
+    }
+
+    // Fetch user's overall learning statistics
+    const userStats = await getUserStatsForAI(userId);
+
+    // Build lesson-specific system prompt with user stats
+    const systemPrompt = buildLessonSystemPrompt(lessonContext, userProgress, stepContext, userStats);
 
     const messages = [
       {
@@ -558,8 +651,18 @@ const getLessonContextAIResponse = async (req, res) => {
       }
     ];
 
-    // Add chat history for context retention
-    if (req.body.chatHistory && Array.isArray(req.body.chatHistory)) {
+    // Add stored chat history from database (persistent memory)
+    if (chatHistory && chatHistory.messages.length > 0) {
+      const recentMessages = chatHistory.getRecentMessages(10);
+      recentMessages.forEach(msg => {
+        messages.push({
+          role: msg.role,
+          content: msg.content
+        });
+      });
+    }
+    // Fallback to request chat history if no DB history
+    else if (req.body.chatHistory && Array.isArray(req.body.chatHistory)) {
       req.body.chatHistory.forEach(msg => {
         messages.push({
           role: msg.role === 'user' ? 'user' : 'assistant',
@@ -574,7 +677,6 @@ const getLessonContextAIResponse = async (req, res) => {
       content: userInput
     });
 
-
     // Call OpenAI using official package
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
@@ -588,8 +690,24 @@ const getLessonContextAIResponse = async (req, res) => {
 
     const responseTime = Date.now() - startTime;
 
+    // Store messages in chat history (persistent memory)
+    if (chatHistory) {
+      try {
+        await chatHistory.addMessage('user', userInput);
+        await chatHistory.addMessage('assistant', aiReply);
+
+        // Track topics discussed for context
+        if (lessonContext.topic && !chatHistory.topicsDiscussed.includes(lessonContext.topic)) {
+          chatHistory.topicsDiscussed.push(lessonContext.topic);
+          await chatHistory.save();
+        }
+      } catch (saveError) {
+        console.error('Error saving chat history:', saveError);
+      }
+    }
+
     // Track usage globally after successful response
-    const trackingResult = await trackAIUsage(userId, {
+    await trackAIUsage(userId, {
       ip: req.ip || req.connection.remoteAddress,
       userAgent: req.headers['user-agent'],
       responseTime: responseTime,
@@ -601,11 +719,12 @@ const getLessonContextAIResponse = async (req, res) => {
     // Get updated usage stats
     const updatedUsageCheck = await checkAIUsageLimits(userId);
 
-
     res.json({
       success: true,
       reply: aiReply,
       context: 'lesson-integrated',
+      hasMemory: !!chatHistory,
+      messageCount: chatHistory?.messages?.length || 0,
       usage: {
         current: updatedUsageCheck.remaining === -1 ? 0 : (updatedUsageCheck.percentage / 100) * (updatedUsageCheck.remaining + 1),
         remaining: updatedUsageCheck.remaining,
@@ -783,8 +902,8 @@ const updateUserAIPlan = async (req, res) => {
 // HELPER FUNCTIONS
 // ============================================
 
-// Build lesson-specific system prompt
-function buildLessonSystemPrompt(lessonContext, userProgress, stepContext) {
+// Build lesson-specific system prompt with user stats
+function buildLessonSystemPrompt(lessonContext, userProgress, stepContext, userStats = null) {
   const currentStepType = stepContext?.type || 'unknown';
   const lessonName = lessonContext?.lessonName || 'Текущий урок';
   const topic = lessonContext?.topic || 'данной теме';
@@ -826,6 +945,34 @@ function buildLessonSystemPrompt(lessonContext, userProgress, stepContext) {
 
   const progressPercentage = Math.round((completedSteps / totalSteps) * 100);
 
+  // Build user statistics context
+  let userStatsContext = '';
+  if (userStats) {
+    userStatsContext = `
+СТАТИСТИКА СТУДЕНТА (используй для персонализации):
+- Всего пройдено уроков: ${userStats.totalLessonsCompleted || 0}
+- Средняя точность: ${userStats.averageAccuracy || 0}%`;
+
+    if (userStats.strongTopics && userStats.strongTopics.length > 0) {
+      userStatsContext += `
+- Сильные темы: ${userStats.strongTopics.slice(0, 3).join(', ')}`;
+    }
+
+    if (userStats.weakTopics && userStats.weakTopics.length > 0) {
+      userStatsContext += `
+- Темы для улучшения: ${userStats.weakTopics.slice(0, 3).join(', ')}`;
+    }
+
+    if (userStats.recentMistakes && userStats.recentMistakes.length > 0) {
+      const recentMistake = userStats.recentMistakes[0];
+      userStatsContext += `
+- Недавние трудности: "${recentMistake.lesson}" (${recentMistake.mistakes} ошибок)`;
+    }
+
+    userStatsContext += `
+Используй эту статистику чтобы давать персонализированные советы и поддержку.`;
+  }
+
   return `Ты — Эля, ободряющий AI-репетитор на платформе ACED.
 Текущий урок: "${lessonName}" (Тема: ${topic}, Предмет: ${subject}).
 
@@ -834,6 +981,7 @@ function buildLessonSystemPrompt(lessonContext, userProgress, stepContext) {
 - Тип текущего шага: ${currentStepType}
 - Результаты студента: ${mistakes} ошибок, ${stars} звёзд заработано
 - Оценка успеваемости: ${encouragementLevel}
+${userStatsContext}
 
 ТВОЯ РОЛЬ: ${roleGuidance}
 
@@ -841,26 +989,139 @@ function buildLessonSystemPrompt(lessonContext, userProgress, stepContext) {
 
 1. **Вопросы по теме урока:** Если студент спрашивает о текущем уроке, объясни кратко и понятно. Связывай объяснение с текстом на экране.
 
-2. **Вопросы НЕ по теме:** Если студент спрашивает о чём-то совершенно не связанном с уроком (например, "Как готовить пиццу?" на уроке математики):
-   - Вежливо откажись отвечать подробно
-   - Скажи: "Это интересный вопрос, но он относится к другой теме. Сейчас мы изучаем ${topic}. Давай сначала закончим этот урок, а потом ты сможешь найти ответ в соответствующем разделе."
-   - Предложи вернуться к текущему уроку
+2. **Вопросы НЕ по теме урока:** Если студент спрашивает о чём-то не связанном с текущим уроком:
+   - Дай КРАТКИЙ общий ответ (1-2 предложения) — это важно для вовлечённости студента
+   - Затем мягко направь обратно к уроку: "Кстати, это интересно связано с тем, что мы изучаем..." или "А теперь давай вернёмся к нашему уроку о ${topic}!"
+   - НЕ отказывай резко — студенту важно чувствовать, что его вопросы ценны
+   - Пример: "Пицца — это итальянское блюдо из теста с начинкой! 🍕 А знаешь, математика помогает поварам рассчитывать пропорции ингредиентов. Но давай вернёмся к нашей теме — ${topic}!"
 
 3. **Общее объяснение:** Если студент просто говорит "Объясни это" или "Я не понимаю" — объясни текущий шаг простым языком.
 
+4. **Персонализация:** Используй статистику студента для персонализированных советов:
+   - Если студент силён в теме — предлагай более сложные примеры
+   - Если студент испытывает трудности — разбивай на простые шаги, ссылайся на его прошлые успехи для мотивации
+
 ПРАВИЛА ОТВЕТОВ:
-- Приветствуй пользователя ТОЛЬКО если это самое начало диалога (chatHistory пуст). Если диалог уже идет, продолжай общение естественно без повторных приветствий.
+- Приветствуй пользователя ТОЛЬКО если это самое начало диалога. Если диалог уже идет, продолжай общение естественно без повторных приветствий.
+- Ты ПОМНИШЬ весь предыдущий диалог. Если студент ссылается на то, что вы обсуждали ранее, учитывай это!
 - Будь тёплым, ободряющим и поддерживающим, как лучший друг-репетитор.
-- Сохраняй "сознание" (контекст) предыдущих частей разговора. Если студент ссылается на то, что вы обсуждали ранее, учитывай это.
 - Используй простой, понятный язык.
-- Отвечай содержательно и глубоко (4-6 предложений). Если студент просит подробностей — давай их.
-- Если ты чувствуешь, что студент готов идти дальше, или у него нет больше вопросов по текущему шагу, предложи перейти к следующему (например: "Ну что, идем к следующему заданию?").
+- Отвечай содержательно (4-6 предложений). Если студент просит подробностей — давай их.
+- Если студент готов идти дальше, предложи перейти к следующему заданию.
 - Для упражнений/тестов: Давай подсказки и направления, НЕ прямые ответы.
 - Для объяснений: Предоставляй ясность и примеры.
-- Если студент испытывает трудности: Разбивай концепции на более мелкие части.
+- Если студент испытывает трудности: Разбивай концепции на более мелкие части, напоминай о его прошлых успехах.
 - Всегда заканчивай на позитивной ноте.
-- КРИТИЧЕСКИ ВАЖНО: Никогда не давай прямых ответов на упражнения или вопросы тестов. Всегда направляй процесс мышления студента.`;
+- КРИТИЧЕСКИ ВАЖНО: Никогда не давай прямых ответов на упражнения или вопросы тестов.`;
 }
+
+// ============================================
+// CHAT HISTORY MANAGEMENT ENDPOINTS
+// ============================================
+
+// Get chat history for a lesson
+const getLessonChatHistory = async (req, res) => {
+  try {
+    const userId = req.user?.uid || req.user?.firebaseId;
+    const { lessonId } = req.params;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'Пользователь не авторизован'
+      });
+    }
+
+    if (!lessonId) {
+      return res.status(400).json({
+        success: false,
+        error: 'ID урока не указан'
+      });
+    }
+
+    const chatHistory = await LessonChatHistory.findOne({ userId, lessonId });
+
+    res.json({
+      success: true,
+      hasHistory: !!chatHistory,
+      messages: chatHistory?.messages || [],
+      messageCount: chatHistory?.messages?.length || 0,
+      topicsDiscussed: chatHistory?.topicsDiscussed || [],
+      sessionStartedAt: chatHistory?.sessionStartedAt
+    });
+
+  } catch (error) {
+    console.error('❌ Error getting chat history:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Ошибка получения истории чата'
+    });
+  }
+};
+
+// Clear chat history for a lesson (e.g., when restarting)
+const clearLessonChatHistory = async (req, res) => {
+  try {
+    const userId = req.user?.uid || req.user?.firebaseId;
+    const { lessonId } = req.params;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'Пользователь не авторизован'
+      });
+    }
+
+    if (!lessonId) {
+      return res.status(400).json({
+        success: false,
+        error: 'ID урока не указан'
+      });
+    }
+
+    await LessonChatHistory.clearHistory(userId, lessonId);
+
+    res.json({
+      success: true,
+      message: 'История чата очищена'
+    });
+
+  } catch (error) {
+    console.error('❌ Error clearing chat history:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Ошибка очистки истории чата'
+    });
+  }
+};
+
+// Get user learning stats for AI context (useful for debugging/display)
+const getUserLearningStats = async (req, res) => {
+  try {
+    const userId = req.user?.uid || req.user?.firebaseId;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'Пользователь не авторизован'
+      });
+    }
+
+    const stats = await getUserStatsForAI(userId);
+
+    res.json({
+      success: true,
+      stats: stats
+    });
+
+  } catch (error) {
+    console.error('❌ Error getting learning stats:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Ошибка получения статистики обучения'
+    });
+  }
+};
 
 module.exports = {
   getAIResponse,
@@ -868,5 +1129,8 @@ module.exports = {
   analyzeLessonForSpeech,
   getUserAIUsageStats,
   checkCanSendAIMessage,
-  updateUserAIPlan
+  updateUserAIPlan,
+  getLessonChatHistory,
+  clearLessonChatHistory,
+  getUserLearningStats
 };

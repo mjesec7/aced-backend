@@ -7,7 +7,10 @@ const {
   analyzeLessonForSpeech,
   getUserAIUsageStats,
   checkCanSendAIMessage,
-  updateUserAIPlan
+  updateUserAIPlan,
+  getLessonChatHistory,
+  clearLessonChatHistory,
+  getUserLearningStats
 } = require('../controllers/chatController');
 
 // НОВОЕ: Импорт контроллера для голоса
@@ -75,6 +78,19 @@ router.get('/lesson-context', (req, res) => {
 
 // НОВОЕ: Инициализация голосовой сессии (получение Signed URL и скрипта)
 router.post('/init-voice-session', verifyToken, voiceController.initVoiceSession);
+
+// ============================================
+// CHAT HISTORY ENDPOINTS (Memory Feature)
+// ============================================
+
+// Get chat history for a lesson
+router.get('/history/:lessonId', verifyToken, getLessonChatHistory);
+
+// Clear chat history for a lesson (e.g., when restarting)
+router.delete('/history/:lessonId', verifyToken, clearLessonChatHistory);
+
+// Get user's learning statistics (for AI personalization)
+router.get('/learning-stats', verifyToken, getUserLearningStats);
 
 // ============================================
 // AI USAGE TRACKING ENDPOINTS
