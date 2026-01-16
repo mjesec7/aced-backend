@@ -190,14 +190,17 @@ exports.initVoiceSession = async (req, res) => {
       model: "gpt-5-mini",
       messages: [
         {
-          role: "system",
-          content: "You are Elya, a friendly teacher. Summarize the following lesson content in 2 engaging sentences. Then ask: 'Does that make sense?'"
+          role: "developer",
+          content: "You are a helpful assistant. Summarize the following lesson content into a concise, engaging script for a voice assistant. Focus on the most important points and keep it under 100 words."
         },
-        { role: "user", content: stepContent }
-      ]
-    }, {
-      headers: { 'Authorization': `Bearer ${process.env.OPENAI_API_KEY}` }
-    });
+        {
+          role: "user",
+          content: stepContent
+        }
+      ],
+      max_completion_tokens: 300
+    }, { headers: { 'Authorization': `Bearer ${process.env.OPENAI_API_KEY}` } }
+    );
 
     const speechScript = aiResponse.data.choices[0].message.content;
 

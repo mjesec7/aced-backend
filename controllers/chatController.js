@@ -179,12 +179,12 @@ const analyzeLessonForSpeech = async (req, res) => {
       {
         model: 'gpt-5-mini',
         messages: [
-          { role: 'system', content: systemPrompt },
+          { role: 'developer', content: systemPrompt },
           { role: 'user', content: contentToAnalyze }
         ],
         response_format: { type: "json_object" },
         temperature: 0.7,
-        max_tokens: 500
+        max_completion_tokens: 500
       },
       {
         headers: {
@@ -409,8 +409,11 @@ ${lessonData ? `
       'https://api.openai.com/v1/chat/completions',
       {
         model: 'gpt-5-mini',
-        messages,
-        max_tokens: 1000,
+        messages: [
+          { role: 'developer', content: systemPrompt },
+          ...messages.slice(1) // Replace system with developer
+        ],
+        max_completion_tokens: 1000,
         temperature: 0.7,
         presence_penalty: 0.3,
         frequency_penalty: 0.2,
@@ -553,8 +556,11 @@ const getLessonContextAIResponse = async (req, res) => {
       'https://api.openai.com/v1/chat/completions',
       {
         model: 'gpt-5-mini',
-        messages,
-        max_tokens: 600,
+        messages: [
+          { role: 'developer', content: systemPrompt },
+          ...messages.slice(1) // Replace system with developer
+        ],
+        max_completion_tokens: 600,
         temperature: 0.7,
         presence_penalty: 0.4,
         frequency_penalty: 0.3,
