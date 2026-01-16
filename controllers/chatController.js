@@ -5,6 +5,7 @@ const Lesson = require('../models/lesson');
 const User = require('../models/user');
 const UserProgress = require('../models/userProgress');
 const LessonChatHistory = require('../models/lessonChatHistory');
+const AIMemory = require('../models/aiMemory');
 const { AIUsageService } = require('../models/aiUsage');
 require('dotenv').config();
 
@@ -81,6 +82,252 @@ const getUserStatsForAI = async (userId) => {
   } catch (error) {
     console.error('Error fetching user stats for AI:', error);
     return null;
+  }
+};
+
+// ============================================
+// COMPREHENSIVE AI CONTEXT BUILDER
+// ============================================
+
+// Fetch full lesson content for AI context
+const getFullLessonContext = async (lessonId, language = 'ru') => {
+  try {
+    if (!lessonId) return null;
+
+    const lesson = await Lesson.findById(lessonId)
+      .populate('topicId', 'name description')
+      .populate('learningPath.relatedLessons', 'lessonName topic subject');
+
+    if (!lesson) return null;
+
+    // Get localized content
+    const getLocal = (field) => {
+      if (!field) return '';
+      if (typeof field === 'string') return field;
+      return field[language] || field['ru'] || field['en'] || Object.values(field)[0] || '';
+    };
+
+    // Build step summaries
+    const stepSummaries = lesson.steps.map((step, index) => {
+      const stepContent = {
+        index: index + 1,
+        type: step.type,
+        title: getLocal(step.title),
+        instructions: getLocal(step.instructions)
+      };
+
+      // Add content summary based on type
+      if (step.content) {
+        if (step.type === 'explanation' && step.content.text) {
+          stepContent.explanation = getLocal(step.content.text).substring(0, 500);
+        }
+        if (step.type === 'exercise' && step.content.exercises) {
+          stepContent.exerciseCount = step.content.exercises.length;
+          stepContent.exerciseTypes = [...new Set(step.content.exercises.map(e => e.type))];
+        }
+        if (step.type === 'vocabulary' && step.content.terms) {
+          stepContent.terms = step.content.terms.slice(0, 5).map(t => getLocal(t.term));
+        }
+      }
+
+      return stepContent;
+    });
+
+    return {
+      lessonId: lesson._id,
+      lessonName: getLocal(lesson.lessonName),
+      description: getLocal(lesson.description),
+      subject: lesson.subject,
+      topic: lesson.topicId?.name || 'Unknown',
+      topicDescription: lesson.topicId?.description || '',
+      level: lesson.level,
+      difficulty: lesson.difficulty,
+      totalSteps: lesson.steps.length,
+      steps: stepSummaries,
+      relatedLessons: lesson.learningPath?.relatedLessons?.map(l => ({
+        name: getLocal(l.lessonName),
+        topic: l.topic
+      })) || [],
+      glossary: lesson.resources?.glossary?.slice(0, 10) || [],
+      estimatedDuration: lesson.timing?.estimatedDuration
+    };
+  } catch (error) {
+    console.error('Error fetching full lesson context:', error);
+    return null;
+  }
+};
+
+// Get user's active subjects and recent lessons
+const getUserLearningJourney = async (userId) => {
+  try {
+    // Get recent progress across all subjects
+    const recentProgress = await UserProgress.find({ userId })
+      .sort({ lastAccessedAt: -1 })
+      .limit(15)
+      .populate('lessonId', 'lessonName subject topic level');
+
+    // Group by subject
+    const subjectProgress = {};
+    recentProgress.forEach(p => {
+      if (!p.lessonId) return;
+      const subject = p.lessonId.subject;
+      if (!subjectProgress[subject]) {
+        subjectProgress[subject] = {
+          subject,
+          lessons: [],
+          totalMistakes: 0,
+          totalStars: 0,
+          count: 0
+        };
+      }
+      subjectProgress[subject].lessons.push({
+        name: p.lessonId.lessonName,
+        topic: p.lessonId.topic,
+        progress: p.progressPercent,
+        stars: p.stars,
+        mistakes: p.mistakes
+      });
+      subjectProgress[subject].totalMistakes += p.mistakes || 0;
+      subjectProgress[subject].totalStars += p.stars || 0;
+      subjectProgress[subject].count += 1;
+    });
+
+    return Object.values(subjectProgress);
+  } catch (error) {
+    console.error('Error fetching learning journey:', error);
+    return [];
+  }
+};
+
+// Build comprehensive AI context string
+const buildComprehensiveAIContext = async (userId, lessonContext, userProgress, stepContext, language = 'ru') => {
+  let fullContext = '';
+
+  // 1. Get full lesson content
+  const fullLesson = await getFullLessonContext(lessonContext?.lessonId, language);
+  if (fullLesson) {
+    fullContext += `\n📚 ПОЛНЫЙ КОНТЕКСТ УРОКА:\n`;
+    fullContext += `Урок: "${fullLesson.lessonName}"\n`;
+    fullContext += `Описание: ${fullLesson.description}\n`;
+    fullContext += `Предмет: ${fullLesson.subject} | Тема: ${fullLesson.topic}\n`;
+    fullContext += `Уровень: ${fullLesson.level} | Сложность: ${fullLesson.difficulty}\n`;
+
+    // Current step context
+    const currentStepIndex = userProgress?.currentStep || stepContext?.stepIndex || 0;
+    if (fullLesson.steps[currentStepIndex]) {
+      const currentStep = fullLesson.steps[currentStepIndex];
+      fullContext += `\n📍 ТЕКУЩИЙ ШАГ (${currentStepIndex + 1}/${fullLesson.totalSteps}):\n`;
+      fullContext += `Тип: ${currentStep.type}\n`;
+      fullContext += `Заголовок: ${currentStep.title}\n`;
+      fullContext += `Инструкции: ${currentStep.instructions}\n`;
+      if (currentStep.explanation) {
+        fullContext += `Объяснение: ${currentStep.explanation}...\n`;
+      }
+    }
+
+    // Lesson structure overview
+    fullContext += `\n📋 СТРУКТУРА УРОКА:\n`;
+    fullLesson.steps.forEach((step, i) => {
+      const marker = i === currentStepIndex ? '▶️' : (i < currentStepIndex ? '✅' : '⬜');
+      fullContext += `${marker} ${i + 1}. ${step.type}: ${step.title}\n`;
+    });
+
+    // Glossary if available
+    if (fullLesson.glossary?.length > 0) {
+      fullContext += `\n📖 ГЛОССАРИЙ УРОКА:\n`;
+      fullLesson.glossary.slice(0, 5).forEach(term => {
+        fullContext += `• ${term.term}: ${term.definition}\n`;
+      });
+    }
+  }
+
+  // 2. Get global AI memory
+  try {
+    const aiMemory = await AIMemory.getOrCreate(userId);
+    const memoryContext = aiMemory.buildContextForAI(
+      lessonContext?.subject,
+      lessonContext?.topic
+    );
+    if (memoryContext) {
+      fullContext += memoryContext;
+    }
+
+    // Update active subject tracking
+    if (lessonContext?.lessonId && lessonContext?.subject) {
+      await aiMemory.updateActiveSubject(
+        lessonContext.subject,
+        lessonContext.lessonId,
+        lessonContext.topicId,
+        userProgress?.progressPercent || 0
+      );
+    }
+  } catch (memoryError) {
+    console.error('AI Memory error:', memoryError);
+  }
+
+  // 3. Get learning journey (other subjects user is studying)
+  const journey = await getUserLearningJourney(userId);
+  if (journey.length > 0) {
+    fullContext += `\n🎓 ПУТЬ ОБУЧЕНИЯ СТУДЕНТА:\n`;
+    journey.slice(0, 3).forEach(subj => {
+      const avgStars = (subj.totalStars / subj.count).toFixed(1);
+      fullContext += `• ${subj.subject}: ${subj.count} уроков, средний балл ${avgStars}⭐\n`;
+      if (subj.lessons[0]) {
+        fullContext += `  Последний урок: "${subj.lessons[0].name}"\n`;
+      }
+    });
+  }
+
+  return fullContext;
+};
+
+// Save important information to AI memory (called after AI response)
+const extractAndSaveMemories = async (userId, userMessage, aiResponse, lessonContext) => {
+  try {
+    const aiMemory = await AIMemory.getOrCreate(userId);
+    const lowerMessage = userMessage.toLowerCase();
+
+    // Detect learning preferences
+    if (lowerMessage.includes('не понимаю') || lowerMessage.includes('объясни проще')) {
+      await aiMemory.addMemory('learning_preference', 'Предпочитает простые объяснения с примерами', {
+        subject: lessonContext?.subject,
+        importance: 7
+      });
+    }
+
+    // Detect struggles
+    if (lowerMessage.includes('сложно') || lowerMessage.includes('трудно') || lowerMessage.includes('не могу')) {
+      await aiMemory.addMemory('struggle_topic', `Испытывает трудности с темой: ${lessonContext?.topic || 'текущая тема'}`, {
+        subject: lessonContext?.subject,
+        topic: lessonContext?.topic,
+        importance: 8
+      });
+    }
+
+    // Detect interests (for better examples)
+    const interestPatterns = [
+      { pattern: /футбол|спорт|мяч/i, interest: 'спорт' },
+      { pattern: /игр|minecraft|roblox/i, interest: 'видеоигры' },
+      { pattern: /музык|песн/i, interest: 'музыка' },
+      { pattern: /животн|собак|кошк/i, interest: 'животные' },
+      { pattern: /космос|планет|звезд/i, interest: 'космос' }
+    ];
+
+    for (const { pattern, interest } of interestPatterns) {
+      if (pattern.test(lowerMessage)) {
+        if (!aiMemory.learnerProfile.interests) {
+          aiMemory.learnerProfile.interests = [];
+        }
+        if (!aiMemory.learnerProfile.interests.includes(interest)) {
+          aiMemory.learnerProfile.interests.push(interest);
+          await aiMemory.save();
+        }
+        break;
+      }
+    }
+
+  } catch (error) {
+    console.error('Error extracting memories:', error);
   }
 };
 
@@ -641,13 +888,25 @@ const getLessonContextAIResponse = async (req, res) => {
     // Fetch user's overall learning statistics
     const userStats = await getUserStatsForAI(userId);
 
+    // Build comprehensive AI context (full lesson, memory, learning journey)
+    const comprehensiveContext = await buildComprehensiveAIContext(
+      userId,
+      lessonContext,
+      userProgress,
+      stepContext,
+      req.body.language || 'ru'
+    );
+
     // Build lesson-specific system prompt with user stats
     const systemPrompt = buildLessonSystemPrompt(lessonContext, userProgress, stepContext, userStats);
+
+    // Combine base prompt with comprehensive context
+    const fullSystemPrompt = systemPrompt + comprehensiveContext;
 
     const messages = [
       {
         role: 'system',
-        content: systemPrompt
+        content: fullSystemPrompt
       }
     ];
 
@@ -705,6 +964,11 @@ const getLessonContextAIResponse = async (req, res) => {
         console.error('Error saving chat history:', saveError);
       }
     }
+
+    // Extract and save important memories from conversation (async, non-blocking)
+    extractAndSaveMemories(userId, userInput, aiReply, lessonContext).catch(err =>
+      console.error('Memory extraction error:', err)
+    );
 
     // Track usage globally after successful response
     await trackAIUsage(userId, {
