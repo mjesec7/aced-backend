@@ -213,13 +213,13 @@ const analyzeLessonForSpeech = async (req, res) => {
 
     // Call OpenAI using official package
     const response = await openai.chat.completions.create({
-      model: 'gpt-5-mini',
+      model: 'gpt-4o-mini',
       messages: [
-        { role: 'developer', content: systemPrompt },
+        { role: 'system', content: systemPrompt },
         { role: 'user', content: contentToAnalyze }
       ],
       response_format: { type: "json_object" },
-      max_completion_tokens: 2000 // Increased for reasoning models
+      max_tokens: 2000
     });
 
     const rawContent = response.choices[0].message.content;
@@ -446,12 +446,9 @@ ${lessonData ? `
 
     // Send to OpenAI using official package
     const response = await openai.chat.completions.create({
-      model: 'gpt-5-mini',
-      messages: [
-        { role: 'developer', content: systemPrompt },
-        ...messages.slice(1) // Replace system with developer
-      ],
-      max_completion_tokens: 1000
+      model: 'gpt-4o-mini',
+      messages: messages,
+      max_tokens: 1000
     });
 
     const reply = response.choices[0].message.content?.trim() || "⚠️ AI не смог дать ответ.";
@@ -580,12 +577,9 @@ const getLessonContextAIResponse = async (req, res) => {
 
     // Call OpenAI using official package
     const response = await openai.chat.completions.create({
-      model: 'gpt-5-mini',
-      messages: [
-        { role: 'developer', content: systemPrompt },
-        ...messages.slice(1) // Replace system with developer
-      ],
-      max_completion_tokens: 1000
+      model: 'gpt-4o-mini',
+      messages: messages,
+      max_tokens: 1000
     });
 
     const rawReply = response.choices[0].message.content;
