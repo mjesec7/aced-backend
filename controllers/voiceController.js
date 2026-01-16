@@ -197,12 +197,12 @@ exports.initVoiceSession = async (req, res) => {
 
     // Call OpenAI using official package
     const aiResponse = await openai.chat.completions.create({
-      model: "gpt-5-mini",
+      model: "gpt-4o-mini",
       messages: [
-        { role: "developer", content: systemPrompt },
+        { role: "system", content: systemPrompt },
         { role: "user", content: stepContent }
       ],
-      max_completion_tokens: 1000
+      max_tokens: 1000
     });
 
     const aiText = aiResponse.choices[0].message.content;
