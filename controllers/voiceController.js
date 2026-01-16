@@ -1,7 +1,14 @@
 const axios = require('axios');
+const OpenAI = require('openai');
 const Lesson = require('../models/lesson');
+const User = require('../models/user');
 const { ElevenLabsClient } = require("@elevenlabs/elevenlabs-js");
 require('dotenv').config();
+
+// Initialize OpenAI client
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 // Initialize ElevenLabs Client
 const elevenlabs = new ElevenLabsClient({
@@ -186,23 +193,20 @@ exports.initVoiceSession = async (req, res) => {
 
     // 3. Generate a "Speech Script" via OpenAI
     // We use your existing AI infrastructure to summarize the text
-    const aiResponse = await axios.post('https://api.openai.com/v1/chat/completions', {
+    const systemPrompt = "You are a helpful assistant. Summarize the following lesson content into a concise, engaging script for a voice assistant. Focus on the most important points and keep it under 100 words.";
+
+    // Call OpenAI using official package
+    const aiResponse = await openai.chat.completions.create({
       model: "gpt-5-mini",
       messages: [
-        {
-          role: "developer",
-          content: "You are a helpful assistant. Summarize the following lesson content into a concise, engaging script for a voice assistant. Focus on the most important points and keep it under 100 words."
-        },
-        {
-          role: "user",
-          content: stepContent
-        }
+        { role: "developer", content: systemPrompt },
+        { role: "user", content: stepContent }
       ],
-      max_completion_tokens: 300
-    }, { headers: { 'Authorization': `Bearer ${process.env.OPENAI_API_KEY}` } }
-    );
+      max_completion_tokens: 1000,
+      temperature: 0.7
+    });
 
-    const speechScript = aiResponse.data.choices[0].message.content;
+    const aiText = aiResponse.choices[0].message.content;
 
     // 4. Create a Signed Session with ElevenLabs Conversational AI
     // This allows the frontend to connect without exposing your API Key
@@ -214,7 +218,7 @@ exports.initVoiceSession = async (req, res) => {
 
     res.json({
       signedUrl: sessionResponse.data.signed_url,
-      script: speechScript
+      script: aiText
     });
 
   } catch (error) {

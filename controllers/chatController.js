@@ -1,9 +1,15 @@
 // controllers/chatController.js - Complete Chat Controller with AI Usage Tracking
 const axios = require('axios');
+const OpenAI = require('openai');
 const Lesson = require('../models/lesson');
 const User = require('../models/user');
 const { AIUsageService } = require('../models/aiUsage');
 require('dotenv').config();
+
+// Initialize OpenAI client
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 // ============================================
 // AI USAGE HELPER FUNCTIONS
@@ -173,30 +179,21 @@ const analyzeLessonForSpeech = async (req, res) => {
   "highlights": ["точная фраза 1", "exact phrase 2"]
 }`;
 
-    // Call OpenAI in JSON Mode
-    const response = await axios.post(
-      'https://api.openai.com/v1/chat/completions',
-      {
-        model: 'gpt-5-mini',
-        messages: [
-          { role: 'developer', content: systemPrompt },
-          { role: 'user', content: contentToAnalyze }
-        ],
-        response_format: { type: "json_object" },
-        temperature: 0.7,
-        max_completion_tokens: 500
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        timeout: 30000,
-      }
-    );
+    // Call OpenAI using official package
+    const response = await openai.chat.completions.create({
+      model: 'gpt-5-mini',
+      messages: [
+        { role: 'developer', content: systemPrompt },
+        { role: 'user', content: contentToAnalyze }
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.7,
+      max_completion_tokens: 500
+    });
+    console.log('✅ OpenAI response received');
 
     // Parse the JSON response
-    const result = JSON.parse(response.data.choices[0].message.content);
+    const result = JSON.parse(response.choices[0].message.content);
     const responseTime = Date.now() - startTime;
 
     // Track AI usage
@@ -226,7 +223,13 @@ const analyzeLessonForSpeech = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Lesson analysis error:', error.response?.data || error.message);
+    console.error('❌ Lesson analysis error:', {
+      message: error.message,
+      status: error.response?.status,
+      data: error.response?.data,
+      url: error.config?.url,
+      method: error.config?.method
+    });
 
     if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
       return res.status(504).json({
@@ -404,30 +407,20 @@ ${lessonData ? `
     ];
 
 
-    // Send to OpenAI
-    const response = await axios.post(
-      'https://api.openai.com/v1/chat/completions',
-      {
-        model: 'gpt-5-mini',
-        messages: [
-          { role: 'developer', content: systemPrompt },
-          ...messages.slice(1) // Replace system with developer
-        ],
-        max_completion_tokens: 1000,
-        temperature: 0.7,
-        presence_penalty: 0.3,
-        frequency_penalty: 0.2,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        timeout: 30000,
-      }
-    );
+    // Send to OpenAI using official package
+    const response = await openai.chat.completions.create({
+      model: 'gpt-5-mini',
+      messages: [
+        { role: 'developer', content: systemPrompt },
+        ...messages.slice(1) // Replace system with developer
+      ],
+      max_completion_tokens: 1000,
+      temperature: 0.7,
+      presence_penalty: 0.3,
+      frequency_penalty: 0.2,
+    });
 
-    const reply = response?.data?.choices?.[0]?.message?.content?.trim() || "⚠️ AI не смог дать ответ.";
+    const reply = response.choices[0].message.content?.trim() || "⚠️ AI не смог дать ответ.";
     const responseTime = Date.now() - startTime;
 
 
@@ -551,30 +544,18 @@ const getLessonContextAIResponse = async (req, res) => {
     });
 
 
-    // Call OpenAI
-    const response = await axios.post(
-      'https://api.openai.com/v1/chat/completions',
-      {
-        model: 'gpt-5-mini',
-        messages: [
-          { role: 'developer', content: systemPrompt },
-          ...messages.slice(1) // Replace system with developer
-        ],
-        max_completion_tokens: 600,
-        temperature: 0.7,
-        presence_penalty: 0.4,
-        frequency_penalty: 0.3,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        timeout: 30000,
-      }
-    );
+    // Call OpenAI using official package
+    const response = await openai.chat.completions.create({
+      model: 'gpt-5-mini',
+      messages: [
+        { role: 'developer', content: systemPrompt },
+        ...messages.slice(1) // Replace system with developer
+      ],
+      temperature: 0.7,
+      max_completion_tokens: 1000
+    });
 
-    const aiReply = response?.data?.choices?.[0]?.message?.content?.trim() ||
+    const aiReply = response.choices[0].message.content?.trim() ||
       'Извините, не смог сформулировать ответ. Попробуйте переформулировать вопрос.';
 
     const responseTime = Date.now() - startTime;
