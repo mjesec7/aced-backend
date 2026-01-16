@@ -11,6 +11,38 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+// Helper to safely parse JSON from AI response (handles markdown blocks)
+const safeJsonParse = (content) => {
+  if (!content) return null;
+  try {
+    // Try direct parse first
+    return JSON.parse(content);
+  } catch (e) {
+    // Try to extract JSON from markdown code blocks
+    const jsonMatch = content.match(/```json\s?([\s\S]*?)\s?```/) || content.match(/```\s?([\s\S]*?)\s?```/);
+    if (jsonMatch && jsonMatch[1]) {
+      try {
+        return JSON.parse(jsonMatch[1].trim());
+      } catch (innerError) {
+        console.error('❌ Failed to parse JSON from markdown block:', innerError.message);
+      }
+    }
+
+    // Last resort: find first { and last }
+    const firstBrace = content.indexOf('{');
+    const lastBrace = content.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1) {
+      try {
+        return JSON.parse(content.substring(firstBrace, lastBrace + 1));
+      } catch (braceError) {
+        console.error('❌ Failed to parse JSON between braces:', braceError.message);
+      }
+    }
+
+    throw e; // Re-throw if all attempts fail
+  }
+};
+
 // ============================================
 // AI USAGE HELPER FUNCTIONS
 // ============================================
@@ -187,12 +219,18 @@ const analyzeLessonForSpeech = async (req, res) => {
         { role: 'user', content: contentToAnalyze }
       ],
       response_format: { type: "json_object" },
-      max_completion_tokens: 500
+      max_completion_tokens: 2000 // Increased for reasoning models
     });
-    console.log('✅ OpenAI response received');
 
-    // Parse the JSON response
-    const result = JSON.parse(response.choices[0].message.content);
+    const rawContent = response.choices[0].message.content;
+    console.log('✅ OpenAI response received. Content length:', rawContent?.length);
+    if (!rawContent) {
+      console.error('❌ OpenAI returned empty content!');
+      throw new Error('Empty response from AI');
+    }
+
+    // Parse the JSON response safely
+    const result = safeJsonParse(rawContent);
     const responseTime = Date.now() - startTime;
 
     // Track AI usage
@@ -550,7 +588,8 @@ const getLessonContextAIResponse = async (req, res) => {
       max_completion_tokens: 1000
     });
 
-    const aiReply = response.choices[0].message.content?.trim() ||
+    const rawReply = response.choices[0].message.content;
+    const aiReply = rawReply?.trim() ||
       'Извините, не смог сформулировать ответ. Попробуйте переформулировать вопрос.';
 
     const responseTime = Date.now() - startTime;
