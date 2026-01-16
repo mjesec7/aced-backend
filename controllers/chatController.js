@@ -187,7 +187,6 @@ const analyzeLessonForSpeech = async (req, res) => {
         { role: 'user', content: contentToAnalyze }
       ],
       response_format: { type: "json_object" },
-      temperature: 0.7,
       max_completion_tokens: 500
     });
     console.log('✅ OpenAI response received');
@@ -414,10 +413,7 @@ ${lessonData ? `
         { role: 'developer', content: systemPrompt },
         ...messages.slice(1) // Replace system with developer
       ],
-      max_completion_tokens: 1000,
-      temperature: 0.7,
-      presence_penalty: 0.3,
-      frequency_penalty: 0.2,
+      max_completion_tokens: 1000
     });
 
     const reply = response.choices[0].message.content?.trim() || "⚠️ AI не смог дать ответ.";
@@ -551,7 +547,6 @@ const getLessonContextAIResponse = async (req, res) => {
         { role: 'developer', content: systemPrompt },
         ...messages.slice(1) // Replace system with developer
       ],
-      temperature: 0.7,
       max_completion_tokens: 1000
     });
 

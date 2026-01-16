@@ -202,8 +202,7 @@ exports.initVoiceSession = async (req, res) => {
         { role: "developer", content: systemPrompt },
         { role: "user", content: stepContent }
       ],
-      max_completion_tokens: 1000,
-      temperature: 0.7
+      max_completion_tokens: 1000
     });
 
     const aiText = aiResponse.choices[0].message.content;
