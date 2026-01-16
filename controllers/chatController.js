@@ -912,7 +912,7 @@ function buildLessonSystemPrompt(lessonContext, userProgress, stepContext, userS
   const stars = userProgress?.stars || 0;
   const completedSteps = userProgress?.completedSteps?.length || 0;
   const totalSteps = lessonContext?.totalSteps || 1;
-  const currentStepIndex = userProgress?.currentStep || 0;
+  const currentStepIndex = userProgress?.currentStep || stepContext?.stepIndex || 0;
 
   let roleGuidance = '';
   switch (currentStepType) {
@@ -973,6 +973,57 @@ function buildLessonSystemPrompt(lessonContext, userProgress, stepContext, userS
 Используй эту статистику чтобы давать персонализированные советы и поддержку.`;
   }
 
+  // Build exercise context if exerciseData is provided
+  let exerciseContext = '';
+  if (stepContext?.exerciseData) {
+    const ex = stepContext.exerciseData;
+    exerciseContext = `
+
+ТЕКУЩЕЕ УПРАЖНЕНИЕ:
+- Тип: ${ex.type || 'unknown'}
+- Вопрос/Задание: ${ex.question || ex.prompt || 'Не указано'}`;
+
+    // Add options for multiple choice / true-false
+    if (ex.options && ex.options.length > 0) {
+      const optionsList = ex.options.map((opt, i) => {
+        const letter = String.fromCharCode(65 + i); // A, B, C, D...
+        const optText = typeof opt === 'string' ? opt : (opt.text || opt.label || opt);
+        return `${letter}) ${optText}`;
+      }).join(', ');
+      exerciseContext += `
+- Варианты ответа: ${optionsList}`;
+    }
+
+    // Add pairs for matching exercises
+    if (ex.pairs && ex.pairs.length > 0) {
+      const pairNames = ex.pairs.map(p => p.name || p.left || p.term).join(', ');
+      exerciseContext += `
+- Элементы для сопоставления: ${pairNames}`;
+    }
+
+    // Add items for sentence_order exercises
+    if (ex.items && ex.items.length > 0) {
+      exerciseContext += `
+- Элементы для упорядочивания: ${ex.items.join(', ')}`;
+    }
+
+    // Exercise step info
+    if (stepContext.exerciseIndex !== undefined && stepContext.totalExercises) {
+      exerciseContext += `
+- Упражнение ${stepContext.exerciseIndex + 1} из ${stepContext.totalExercises}`;
+    }
+
+    exerciseContext += `
+
+ВАЖНЫЕ ПРАВИЛА ДЛЯ ОБЪЯСНЕНИЯ УПРАЖНЕНИЙ:
+1. НИКОГДА не называй правильный ответ напрямую!
+2. Объясни концепцию, которая стоит за вопросом
+3. Дай подсказки, которые помогут студенту САМОМУ найти ответ
+4. Разбей проблему на простые шаги
+5. Приведи аналогию или пример из жизни
+6. Если студент совсем запутался, дай более конкретную подсказку, но всё равно НЕ ответ`;
+  }
+
   return `Ты — Эля, ободряющий AI-репетитор на платформе ACED.
 Текущий урок: "${lessonName}" (Тема: ${topic}, Предмет: ${subject}).
 
@@ -982,6 +1033,7 @@ function buildLessonSystemPrompt(lessonContext, userProgress, stepContext, userS
 - Результаты студента: ${mistakes} ошибок, ${stars} звёзд заработано
 - Оценка успеваемости: ${encouragementLevel}
 ${userStatsContext}
+${exerciseContext}
 
 ТВОЯ РОЛЬ: ${roleGuidance}
 
@@ -995,7 +1047,11 @@ ${userStatsContext}
    - НЕ отказывай резко — студенту важно чувствовать, что его вопросы ценны
    - Пример: "Пицца — это итальянское блюдо из теста с начинкой! 🍕 А знаешь, математика помогает поварам рассчитывать пропорции ингредиентов. Но давай вернёмся к нашей теме — ${topic}!"
 
-3. **Общее объяснение:** Если студент просто говорит "Объясни это" или "Я не понимаю" — объясни текущий шаг простым языком.
+3. **Объяснение упражнения:** Если студент просит объяснить упражнение или говорит "Помоги", "Не понимаю":
+   - Объясни КОНЦЕПЦИЮ, а не ответ
+   - Дай пошаговый подход к решению
+   - Используй примеры и аналогии
+   - НИКОГДА не говори: "Правильный ответ — ...", "Выбери вариант ...", "Ответ: ..."
 
 4. **Персонализация:** Используй статистику студента для персонализированных советов:
    - Если студент силён в теме — предлагай более сложные примеры
