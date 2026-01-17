@@ -92,7 +92,7 @@ const getUserStatsForAI = async (userId) => {
 // Helper function to extract exercise details from a lesson step
 // This solves "explain the exercise without giving the answer"
 const extractExerciseDetailsFromStep = (step, exerciseIndex = 0, language = 'ru') => {
-  if (!step || !step.content) return null;
+  if (!step) return null;
 
   const getLocal = (field) => {
     if (!field) return '';
@@ -101,78 +101,273 @@ const extractExerciseDetailsFromStep = (step, exerciseIndex = 0, language = 'ru'
   };
 
   const stepType = step.type;
-  const content = step.content;
+  const content = step.content || {};
 
   let exerciseDetails = {
     stepType,
     stepTitle: getLocal(step.title),
-    stepInstructions: getLocal(step.instructions),
+    stepInstructions: getLocal(step.instructions) || getLocal(step.text) || getLocal(content.text),
     exerciseIndex,
     exercise: null,
     hiddenAnswer: null // AI can use this to guide but NOT reveal
   };
 
-  // Handle exercise steps
-  if (stepType === 'exercise' && content.exercises && content.exercises[exerciseIndex]) {
-    const ex = content.exercises[exerciseIndex];
-    exerciseDetails.exercise = {
-      type: ex.type,
-      question: getLocal(ex.question) || getLocal(ex.prompt) || getLocal(ex.text),
-      options: ex.options?.map(opt => typeof opt === 'string' ? opt : getLocal(opt.text || opt.label)) || [],
-      pairs: ex.pairs?.map(p => ({
-        left: getLocal(p.name || p.left || p.term),
-        right: getLocal(p.match || p.right || p.definition)
-      })) || [],
-      items: ex.items || [],
-      hint: getLocal(ex.hint)
-    };
-    exerciseDetails.hiddenAnswer = ex.correctAnswer || ex.correct || ex.answer;
+  // Helper to extract exercise from content.exercises array or directly from step/content
+  const getExerciseData = () => {
+    // If exercises array exists, get specific exercise
+    if (content.exercises && content.exercises[exerciseIndex]) {
+      return content.exercises[exerciseIndex];
+    }
+    // Otherwise, the step itself might be the exercise
+    return content;
+  };
+
+  const ex = getExerciseData();
+  const exType = ex?.type || stepType;
+
+  // Universal exercise data extraction based on type
+  switch (exType) {
+    // ============================================
+    // BASKET / SORTING EXERCISES
+    // ============================================
+    case 'basket':
+    case 'sorting':
+    case 'categorization':
+      exerciseDetails.exercise = {
+        type: exType,
+        question: getLocal(ex.question) || getLocal(ex.instructions) || 'Sort the items into correct categories',
+        items: (ex.items || step.items || []).map(i =>
+          typeof i === 'string' ? i : getLocal(i.text || i.content || i.label)
+        ),
+        bins: (ex.bins || step.bins || ex.categories || []).map(b =>
+          typeof b === 'string' ? b : getLocal(b.label || b.name || b.title)
+        )
+      };
+      // Hidden answer: correct bin for each item
+      exerciseDetails.hiddenAnswer = ex.correctAnswer || ex.solution || ex.correctBins;
+      break;
+
+    // ============================================
+    // MATCHING / MEMORY EXERCISES
+    // ============================================
+    case 'matching':
+    case 'memory':
+    case 'pairs':
+      const pairs = ex.pairs || step.pairs || content.pairs || [];
+      exerciseDetails.exercise = {
+        type: exType,
+        question: getLocal(ex.question) || 'Match the items correctly',
+        pairs: pairs.map(p => ({
+          left: getLocal(p.left || p.term || p.name || p.key),
+          right: getLocal(p.right || p.definition || p.match || p.value)
+        }))
+      };
+      // Hidden answer: the correct pairings
+      exerciseDetails.hiddenAnswer = pairs.map(p => ({
+        left: getLocal(p.left || p.term || p.name || p.key),
+        right: getLocal(p.right || p.definition || p.match || p.value)
+      }));
+      break;
+
+    // ============================================
+    // MULTIPLE CHOICE / QUIZ
+    // ============================================
+    case 'quiz':
+    case 'multiple_choice':
+    case 'single_choice':
+    case 'tryout':
+      const options = ex.options || ex.choices || step.options || [];
+      exerciseDetails.exercise = {
+        type: exType,
+        question: getLocal(ex.question) || getLocal(ex.text) || getLocal(ex.prompt),
+        options: options.map((opt, i) => ({
+          id: opt.id || String.fromCharCode(65 + i),
+          text: typeof opt === 'string' ? opt : getLocal(opt.text || opt.label || opt.content)
+        })),
+        hint: getLocal(ex.hint)
+      };
+      exerciseDetails.hiddenAnswer = ex.correctAnswer || ex.correct || ex.answer;
+      break;
+
+    // ============================================
+    // CODING / CODE FIX EXERCISES
+    // ============================================
+    case 'coding':
+    case 'code_fix':
+    case 'code':
+    case 'programming':
+      exerciseDetails.exercise = {
+        type: exType,
+        question: getLocal(ex.question) || getLocal(ex.instructions) || 'Fix or write the code',
+        initialCode: ex.initialCode || ex.starterCode || ex.code || '',
+        language: ex.language || ex.programmingLanguage || 'javascript',
+        testCases: ex.testCases || []
+      };
+      exerciseDetails.hiddenAnswer = ex.solution || ex.correctCode || ex.expectedCode;
+      break;
+
+    // ============================================
+    // FILL IN THE BLANK
+    // ============================================
+    case 'fill_blank':
+    case 'fill_in_blank':
+    case 'text_input':
+    case 'cloze':
+      exerciseDetails.exercise = {
+        type: exType,
+        sentence: getLocal(ex.sentence || ex.text || ex.question),
+        blanks: ex.blanks || [],
+        hint: getLocal(ex.hint)
+      };
+      exerciseDetails.hiddenAnswer = ex.correctAnswer || ex.answers || ex.solution;
+      break;
+
+    // ============================================
+    // ORDERING / SEQUENCE EXERCISES
+    // ============================================
+    case 'order':
+    case 'ordering':
+    case 'sequence':
+    case 'sentence_order':
+      exerciseDetails.exercise = {
+        type: exType,
+        question: getLocal(ex.question) || 'Put the items in correct order',
+        items: (ex.items || ex.elements || step.items || []).map(i =>
+          typeof i === 'string' ? i : getLocal(i.text || i.content)
+        )
+      };
+      exerciseDetails.hiddenAnswer = ex.correctOrder || ex.solution || ex.correctAnswer;
+      break;
+
+    // ============================================
+    // TRUE/FALSE EXERCISES
+    // ============================================
+    case 'true_false':
+    case 'boolean':
+      exerciseDetails.exercise = {
+        type: exType,
+        question: getLocal(ex.question) || getLocal(ex.statement),
+        statement: getLocal(ex.statement || ex.text)
+      };
+      exerciseDetails.hiddenAnswer = ex.correctAnswer || ex.correct || ex.answer;
+      break;
+
+    // ============================================
+    // DRAG AND DROP
+    // ============================================
+    case 'drag_drop':
+    case 'drag_and_drop':
+      exerciseDetails.exercise = {
+        type: exType,
+        question: getLocal(ex.question) || 'Drag items to correct positions',
+        items: (ex.items || ex.draggables || []).map(i =>
+          typeof i === 'string' ? i : getLocal(i.text || i.content)
+        ),
+        dropZones: (ex.dropZones || ex.targets || []).map(z =>
+          typeof z === 'string' ? z : getLocal(z.label || z.name)
+        )
+      };
+      exerciseDetails.hiddenAnswer = ex.correctAnswer || ex.solution;
+      break;
+
+    // ============================================
+    // VOCABULARY STEPS
+    // ============================================
+    case 'vocabulary':
+      const terms = content.terms || ex.terms || [];
+      exerciseDetails.exercise = {
+        type: 'vocabulary',
+        terms: terms.map(t => ({
+          term: getLocal(t.term),
+          definition: getLocal(t.definition),
+          example: getLocal(t.example)
+        }))
+      };
+      break;
+
+    // ============================================
+    // EXPLANATION STEPS
+    // ============================================
+    case 'explanation':
+    case 'lesson':
+    case 'theory':
+      exerciseDetails.exercise = {
+        type: 'explanation',
+        text: getLocal(content.text || ex.text || step.text),
+        keyPoints: (content.keyPoints || ex.keyPoints || []).map(kp => getLocal(kp))
+      };
+      break;
+
+    // ============================================
+    // GAME STEPS
+    // ============================================
+    case 'game':
+      exerciseDetails.exercise = {
+        type: 'game',
+        gameType: step.gameType || ex.gameType,
+        targetScore: step.gameConfig?.targetScore || ex.targetScore,
+        instructions: getLocal(step.instructions || ex.instructions)
+      };
+      exerciseDetails.hiddenAnswer = step.gameConfig?.correctAnswers || ex.correctAnswers;
+      break;
+
+    // ============================================
+    // STANDARD EXERCISE (nested in content.exercises)
+    // ============================================
+    case 'exercise':
+      if (content.exercises && content.exercises[exerciseIndex]) {
+        const nestedEx = content.exercises[exerciseIndex];
+        // Recursively extract with the nested exercise's type
+        return extractExerciseDetailsFromStep({ ...step, type: nestedEx.type, content: nestedEx }, 0, language);
+      }
+      exerciseDetails.exercise = {
+        type: 'exercise',
+        question: getLocal(ex.question) || getLocal(ex.prompt) || getLocal(ex.text),
+        options: (ex.options || []).map(opt => typeof opt === 'string' ? opt : getLocal(opt.text || opt.label)),
+        items: ex.items || [],
+        hint: getLocal(ex.hint)
+      };
+      exerciseDetails.hiddenAnswer = ex.correctAnswer || ex.correct || ex.answer;
+      break;
+
+    // ============================================
+    // FALLBACK: GENERIC EXTRACTION
+    // ============================================
+    default:
+      // For unknown types, extract whatever data is available
+      exerciseDetails.exercise = {
+        type: exType,
+        question: getLocal(ex.question) || getLocal(ex.text) || getLocal(ex.prompt) || getLocal(ex.instructions),
+        data: {}
+      };
+
+      // Try to extract common fields
+      if (ex.options) {
+        exerciseDetails.exercise.options = ex.options.map(opt =>
+          typeof opt === 'string' ? opt : getLocal(opt.text || opt.label)
+        );
+      }
+      if (ex.items) {
+        exerciseDetails.exercise.items = ex.items.map(i =>
+          typeof i === 'string' ? i : getLocal(i.text || i.content)
+        );
+      }
+      if (ex.pairs) {
+        exerciseDetails.exercise.pairs = ex.pairs.map(p => ({
+          left: getLocal(p.left || p.term),
+          right: getLocal(p.right || p.definition)
+        }));
+      }
+
+      exerciseDetails.hiddenAnswer = ex.correctAnswer || ex.correct || ex.answer || ex.solution;
+      break;
+  }
+
+  // Set total exercises count if applicable
+  if (content.exercises) {
     exerciseDetails.totalExercises = content.exercises.length;
-  }
-
-  // Handle quiz steps
-  else if (stepType === 'quiz' && content.questions && content.questions[exerciseIndex]) {
-    const q = content.questions[exerciseIndex];
-    exerciseDetails.exercise = {
-      type: 'quiz',
-      question: getLocal(q.question) || getLocal(q.text),
-      options: q.options?.map(opt => typeof opt === 'string' ? opt : getLocal(opt.text || opt.label)) || [],
-      hint: getLocal(q.hint)
-    };
-    exerciseDetails.hiddenAnswer = q.correctAnswer || q.correct;
+  } else if (content.questions) {
     exerciseDetails.totalExercises = content.questions.length;
-  }
-
-  // Handle vocabulary steps
-  else if (stepType === 'vocabulary' && content.terms) {
-    exerciseDetails.exercise = {
-      type: 'vocabulary',
-      terms: content.terms.map(t => ({
-        term: getLocal(t.term),
-        definition: getLocal(t.definition),
-        example: getLocal(t.example)
-      }))
-    };
-  }
-
-  // Handle explanation steps
-  else if (stepType === 'explanation' && content.text) {
-    exerciseDetails.exercise = {
-      type: 'explanation',
-      text: getLocal(content.text),
-      keyPoints: content.keyPoints?.map(kp => getLocal(kp)) || []
-    };
-  }
-
-  // Handle game steps
-  else if (stepType === 'game' && step.gameConfig) {
-    exerciseDetails.exercise = {
-      type: 'game',
-      gameType: step.gameType,
-      targetScore: step.gameConfig.targetScore,
-      instructions: getLocal(step.instructions)
-    };
-    exerciseDetails.hiddenAnswer = step.gameConfig.correctAnswers;
   }
 
   return exerciseDetails;
@@ -196,8 +391,11 @@ const getFullLessonContext = async (lessonId, language = 'ru') => {
       return field[language] || field['ru'] || field['en'] || Object.values(field)[0] || '';
     };
 
+    // Handle both 'steps' and 'slides' naming conventions
+    const lessonSteps = lesson.steps || lesson.slides || [];
+
     // Build step summaries
-    const stepSummaries = lesson.steps.map((step, index) => {
+    const stepSummaries = lessonSteps.map((step, index) => {
       const stepContent = {
         index: index + 1,
         type: step.type,
@@ -232,9 +430,9 @@ const getFullLessonContext = async (lessonId, language = 'ru') => {
       topicDescription: lesson.topicId?.description || '',
       level: lesson.level,
       difficulty: lesson.difficulty,
-      totalSteps: lesson.steps.length,
+      totalSteps: lessonSteps.length,
       steps: stepSummaries,
-      rawSteps: lesson.steps, // Include raw steps for exercise extraction
+      rawSteps: lessonSteps, // Include raw steps for exercise extraction
       relatedLessons: lesson.learningPath?.relatedLessons?.map(l => ({
         name: getLocal(l.lessonName),
         topic: l.topic
@@ -329,26 +527,74 @@ const buildComprehensiveAIContext = async (userId, lessonContext, userProgress, 
       );
 
       if (extractedExercise && extractedExercise.exercise) {
+        const ex = extractedExercise.exercise;
         fullContext += `\n🎯 ТЕКУЩЕЕ ЗАДАНИЕ:\n`;
-        fullContext += `Тип задания: ${extractedExercise.exercise.type}\n`;
+        fullContext += `Тип задания: ${ex.type}\n`;
 
-        if (extractedExercise.exercise.question) {
-          fullContext += `Вопрос/Задание: "${extractedExercise.exercise.question}"\n`;
+        // Question/Instructions
+        if (ex.question) {
+          fullContext += `Вопрос/Задание: "${ex.question}"\n`;
+        }
+        if (ex.sentence) {
+          fullContext += `Предложение с пропусками: "${ex.sentence}"\n`;
+        }
+        if (ex.statement) {
+          fullContext += `Утверждение: "${ex.statement}"\n`;
         }
 
-        if (extractedExercise.exercise.options && extractedExercise.exercise.options.length > 0) {
-          fullContext += `Варианты ответа: ${extractedExercise.exercise.options.map((opt, i) =>
-            `${String.fromCharCode(65 + i)}) ${opt}`).join(', ')}\n`;
+        // Options for multiple choice
+        if (ex.options && ex.options.length > 0) {
+          const optionsStr = ex.options.map((opt, i) => {
+            const id = opt.id || String.fromCharCode(65 + i);
+            const text = typeof opt === 'string' ? opt : opt.text;
+            return `${id}) ${text}`;
+          }).join(', ');
+          fullContext += `Варианты ответа: ${optionsStr}\n`;
         }
 
-        if (extractedExercise.exercise.pairs && extractedExercise.exercise.pairs.length > 0) {
-          fullContext += `Элементы для сопоставления: ${extractedExercise.exercise.pairs.map(p => p.left).join(', ')}\n`;
+        // Items for basket/sorting exercises
+        if (ex.items && ex.items.length > 0) {
+          fullContext += `Элементы для сортировки: [${ex.items.join(', ')}]\n`;
+        }
+        if (ex.bins && ex.bins.length > 0) {
+          fullContext += `Категории/Корзины: [${ex.bins.join(', ')}]\n`;
         }
 
-        if (extractedExercise.exercise.items && extractedExercise.exercise.items.length > 0) {
-          fullContext += `Элементы для упорядочивания: ${extractedExercise.exercise.items.join(', ')}\n`;
+        // Pairs for matching exercises
+        if (ex.pairs && ex.pairs.length > 0) {
+          fullContext += `Пары для сопоставления:\n`;
+          ex.pairs.forEach((p, i) => {
+            fullContext += `  ${i + 1}. "${p.left}" ↔ (нужно найти пару)\n`;
+          });
         }
 
+        // Drop zones for drag-and-drop
+        if (ex.dropZones && ex.dropZones.length > 0) {
+          fullContext += `Зоны для перетаскивания: [${ex.dropZones.join(', ')}]\n`;
+        }
+
+        // Coding exercises
+        if (ex.initialCode) {
+          fullContext += `Начальный код (${ex.language || 'код'}):\n\`\`\`\n${ex.initialCode}\n\`\`\`\n`;
+        }
+
+        // Vocabulary terms
+        if (ex.terms && ex.terms.length > 0) {
+          fullContext += `Словарные термины:\n`;
+          ex.terms.slice(0, 5).forEach(t => {
+            fullContext += `  • ${t.term}: ${t.definition}\n`;
+          });
+        }
+
+        // Explanation text
+        if (ex.text && ex.type === 'explanation') {
+          fullContext += `Текст объяснения: ${ex.text.substring(0, 500)}...\n`;
+        }
+        if (ex.keyPoints && ex.keyPoints.length > 0) {
+          fullContext += `Ключевые моменты: ${ex.keyPoints.join('; ')}\n`;
+        }
+
+        // Exercise counter
         if (extractedExercise.totalExercises) {
           fullContext += `Упражнение ${exerciseIndex + 1} из ${extractedExercise.totalExercises}\n`;
         }
@@ -359,8 +605,9 @@ const buildComprehensiveAIContext = async (userId, lessonContext, userProgress, 
           fullContext += `Используй этот ответ ТОЛЬКО чтобы направлять студента к правильному решению через подсказки и объяснения концепций.\n`;
         }
 
-        if (extractedExercise.exercise.hint) {
-          fullContext += `Подсказка (можно использовать): ${extractedExercise.exercise.hint}\n`;
+        // Hints
+        if (ex.hint) {
+          fullContext += `Подсказка (можно использовать): ${ex.hint}\n`;
         }
       }
     }
