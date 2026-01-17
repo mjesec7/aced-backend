@@ -1,0 +1,22 @@
+# 🛡 ENV + secrets
+.env
+.env.local
+.env.*.local
+
+# 🔥 Firebase service account
+firebase-service-account.json
+src/firebase-service-account.json
+
+# 📦 Node modules
+node_modules/
+
+# ⚙️ Build and logs
+dist/
+build/
+logs/
+*.log
+
+# 💻 OS & editor junk
+.DS_Store
+.vscode/
+.idea/
