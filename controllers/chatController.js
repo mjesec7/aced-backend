@@ -441,8 +441,9 @@ const getFullLessonContext = async (lessonId, language = 'ru') => {
       return field[language] || field['ru'] || field['en'] || Object.values(field)[0] || '';
     };
 
-    // Handle both 'steps' and 'slides' naming conventions
-    const lessonSteps = lesson.steps || lesson.slides || [];
+    // Handle various naming conventions: 'steps', 'slides', or 'content'
+    // This brute-force approach ensures we find exercises regardless of schema naming
+    const lessonSteps = lesson.steps || lesson.slides || lesson.content || [];
 
     // Build step summaries
     const stepSummaries = lessonSteps.map((step, index) => {
