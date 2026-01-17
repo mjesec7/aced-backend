@@ -89,6 +89,95 @@ const getUserStatsForAI = async (userId) => {
 // COMPREHENSIVE AI CONTEXT BUILDER
 // ============================================
 
+// Helper function to extract exercise details from a lesson step
+// This solves "explain the exercise without giving the answer"
+const extractExerciseDetailsFromStep = (step, exerciseIndex = 0, language = 'ru') => {
+  if (!step || !step.content) return null;
+
+  const getLocal = (field) => {
+    if (!field) return '';
+    if (typeof field === 'string') return field;
+    return field[language] || field['ru'] || field['en'] || Object.values(field)[0] || '';
+  };
+
+  const stepType = step.type;
+  const content = step.content;
+
+  let exerciseDetails = {
+    stepType,
+    stepTitle: getLocal(step.title),
+    stepInstructions: getLocal(step.instructions),
+    exerciseIndex,
+    exercise: null,
+    hiddenAnswer: null // AI can use this to guide but NOT reveal
+  };
+
+  // Handle exercise steps
+  if (stepType === 'exercise' && content.exercises && content.exercises[exerciseIndex]) {
+    const ex = content.exercises[exerciseIndex];
+    exerciseDetails.exercise = {
+      type: ex.type,
+      question: getLocal(ex.question) || getLocal(ex.prompt) || getLocal(ex.text),
+      options: ex.options?.map(opt => typeof opt === 'string' ? opt : getLocal(opt.text || opt.label)) || [],
+      pairs: ex.pairs?.map(p => ({
+        left: getLocal(p.name || p.left || p.term),
+        right: getLocal(p.match || p.right || p.definition)
+      })) || [],
+      items: ex.items || [],
+      hint: getLocal(ex.hint)
+    };
+    exerciseDetails.hiddenAnswer = ex.correctAnswer || ex.correct || ex.answer;
+    exerciseDetails.totalExercises = content.exercises.length;
+  }
+
+  // Handle quiz steps
+  else if (stepType === 'quiz' && content.questions && content.questions[exerciseIndex]) {
+    const q = content.questions[exerciseIndex];
+    exerciseDetails.exercise = {
+      type: 'quiz',
+      question: getLocal(q.question) || getLocal(q.text),
+      options: q.options?.map(opt => typeof opt === 'string' ? opt : getLocal(opt.text || opt.label)) || [],
+      hint: getLocal(q.hint)
+    };
+    exerciseDetails.hiddenAnswer = q.correctAnswer || q.correct;
+    exerciseDetails.totalExercises = content.questions.length;
+  }
+
+  // Handle vocabulary steps
+  else if (stepType === 'vocabulary' && content.terms) {
+    exerciseDetails.exercise = {
+      type: 'vocabulary',
+      terms: content.terms.map(t => ({
+        term: getLocal(t.term),
+        definition: getLocal(t.definition),
+        example: getLocal(t.example)
+      }))
+    };
+  }
+
+  // Handle explanation steps
+  else if (stepType === 'explanation' && content.text) {
+    exerciseDetails.exercise = {
+      type: 'explanation',
+      text: getLocal(content.text),
+      keyPoints: content.keyPoints?.map(kp => getLocal(kp)) || []
+    };
+  }
+
+  // Handle game steps
+  else if (stepType === 'game' && step.gameConfig) {
+    exerciseDetails.exercise = {
+      type: 'game',
+      gameType: step.gameType,
+      targetScore: step.gameConfig.targetScore,
+      instructions: getLocal(step.instructions)
+    };
+    exerciseDetails.hiddenAnswer = step.gameConfig.correctAnswers;
+  }
+
+  return exerciseDetails;
+};
+
 // Fetch full lesson content for AI context
 const getFullLessonContext = async (lessonId, language = 'ru') => {
   try {
@@ -139,11 +228,13 @@ const getFullLessonContext = async (lessonId, language = 'ru') => {
       description: getLocal(lesson.description),
       subject: lesson.subject,
       topic: lesson.topicId?.name || 'Unknown',
+      topicId: lesson.topicId?._id,
       topicDescription: lesson.topicId?.description || '',
       level: lesson.level,
       difficulty: lesson.difficulty,
       totalSteps: lesson.steps.length,
       steps: stepSummaries,
+      rawSteps: lesson.steps, // Include raw steps for exercise extraction
       relatedLessons: lesson.learningPath?.relatedLessons?.map(l => ({
         name: getLocal(l.lessonName),
         topic: l.topic
@@ -202,6 +293,7 @@ const getUserLearningJourney = async (userId) => {
 // Build comprehensive AI context string
 const buildComprehensiveAIContext = async (userId, lessonContext, userProgress, stepContext, language = 'ru') => {
   let fullContext = '';
+  let extractedExercise = null;
 
   // 1. Get full lesson content
   const fullLesson = await getFullLessonContext(lessonContext?.lessonId, language);
@@ -214,6 +306,8 @@ const buildComprehensiveAIContext = async (userId, lessonContext, userProgress, 
 
     // Current step context
     const currentStepIndex = userProgress?.currentStep || stepContext?.stepIndex || 0;
+    const exerciseIndex = stepContext?.exerciseIndex || 0;
+
     if (fullLesson.steps[currentStepIndex]) {
       const currentStep = fullLesson.steps[currentStepIndex];
       fullContext += `\n📍 ТЕКУЩИЙ ШАГ (${currentStepIndex + 1}/${fullLesson.totalSteps}):\n`;
@@ -222,6 +316,52 @@ const buildComprehensiveAIContext = async (userId, lessonContext, userProgress, 
       fullContext += `Инструкции: ${currentStep.instructions}\n`;
       if (currentStep.explanation) {
         fullContext += `Объяснение: ${currentStep.explanation}...\n`;
+      }
+    }
+
+    // Extract exercise details from raw step if not provided via stepContext.exerciseData
+    // This is the key RAG feature: auto-fetch exercise content
+    if (fullLesson.rawSteps && fullLesson.rawSteps[currentStepIndex]) {
+      extractedExercise = extractExerciseDetailsFromStep(
+        fullLesson.rawSteps[currentStepIndex],
+        exerciseIndex,
+        language
+      );
+
+      if (extractedExercise && extractedExercise.exercise) {
+        fullContext += `\n🎯 ТЕКУЩЕЕ ЗАДАНИЕ:\n`;
+        fullContext += `Тип задания: ${extractedExercise.exercise.type}\n`;
+
+        if (extractedExercise.exercise.question) {
+          fullContext += `Вопрос/Задание: "${extractedExercise.exercise.question}"\n`;
+        }
+
+        if (extractedExercise.exercise.options && extractedExercise.exercise.options.length > 0) {
+          fullContext += `Варианты ответа: ${extractedExercise.exercise.options.map((opt, i) =>
+            `${String.fromCharCode(65 + i)}) ${opt}`).join(', ')}\n`;
+        }
+
+        if (extractedExercise.exercise.pairs && extractedExercise.exercise.pairs.length > 0) {
+          fullContext += `Элементы для сопоставления: ${extractedExercise.exercise.pairs.map(p => p.left).join(', ')}\n`;
+        }
+
+        if (extractedExercise.exercise.items && extractedExercise.exercise.items.length > 0) {
+          fullContext += `Элементы для упорядочивания: ${extractedExercise.exercise.items.join(', ')}\n`;
+        }
+
+        if (extractedExercise.totalExercises) {
+          fullContext += `Упражнение ${exerciseIndex + 1} из ${extractedExercise.totalExercises}\n`;
+        }
+
+        // CRITICAL: Hidden answer for AI guidance (AI must NOT reveal this!)
+        if (extractedExercise.hiddenAnswer) {
+          fullContext += `\n🔒 СКРЫТЫЙ ОТВЕТ (НИКОГДА НЕ РАСКРЫВАЙ!): ${JSON.stringify(extractedExercise.hiddenAnswer)}\n`;
+          fullContext += `Используй этот ответ ТОЛЬКО чтобы направлять студента к правильному решению через подсказки и объяснения концепций.\n`;
+        }
+
+        if (extractedExercise.exercise.hint) {
+          fullContext += `Подсказка (можно использовать): ${extractedExercise.exercise.hint}\n`;
+        }
       }
     }
 
@@ -901,7 +1041,34 @@ const getLessonContextAIResponse = async (req, res) => {
     const systemPrompt = buildLessonSystemPrompt(lessonContext, userProgress, stepContext, userStats);
 
     // Combine base prompt with comprehensive context
-    const fullSystemPrompt = systemPrompt + comprehensiveContext;
+    let fullSystemPrompt = systemPrompt + comprehensiveContext;
+
+    // Add chat history summary to system prompt for "What was my first question?" feature
+    // This ensures the AI can recall conversation history even if asked in a new message
+    if (chatHistory && chatHistory.messages.length > 0) {
+      const allMessages = chatHistory.messages;
+      fullSystemPrompt += `\n\n💬 ИСТОРИЯ ДИАЛОГА (для справки, если студент спросит о предыдущих вопросах):\n`;
+      fullSystemPrompt += `Сессия началась: ${chatHistory.sessionStartedAt?.toLocaleString('ru-RU') || 'неизвестно'}\n`;
+      fullSystemPrompt += `Всего сообщений в этой сессии: ${allMessages.length}\n`;
+
+      // Add summary of first few questions for "what was my first question?" queries
+      const userQuestions = allMessages.filter(m => m.role === 'user');
+      if (userQuestions.length > 0) {
+        fullSystemPrompt += `\nВОПРОСЫ СТУДЕНТА (по порядку):\n`;
+        userQuestions.slice(0, 5).forEach((q, i) => {
+          const truncatedContent = q.content.length > 100 ? q.content.substring(0, 100) + '...' : q.content;
+          fullSystemPrompt += `${i + 1}. "${truncatedContent}"\n`;
+        });
+        if (userQuestions.length > 5) {
+          fullSystemPrompt += `... и ещё ${userQuestions.length - 5} вопросов\n`;
+        }
+      }
+
+      // Track topics discussed
+      if (chatHistory.topicsDiscussed?.length > 0) {
+        fullSystemPrompt += `\nОбсуждённые темы: ${chatHistory.topicsDiscussed.join(', ')}\n`;
+      }
+    }
 
     const messages = [
       {

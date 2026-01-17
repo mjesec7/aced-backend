@@ -74,6 +74,9 @@ const lessonChatHistorySchema = new mongoose.Schema({
 // Compound index for efficient lookup
 lessonChatHistorySchema.index({ userId: 1, lessonId: 1 }, { unique: true });
 
+// Compound index for fast retrieval with timestamp sorting (recommended for RAG)
+lessonChatHistorySchema.index({ userId: 1, lessonId: 1, 'messages.timestamp': 1 });
+
 // TTL index - auto-delete chat history after 7 days of inactivity
 lessonChatHistorySchema.index({ lastMessageAt: 1 }, { expireAfterSeconds: 7 * 24 * 60 * 60 });
 
