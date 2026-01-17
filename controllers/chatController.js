@@ -89,10 +89,51 @@ const getUserStatsForAI = async (userId) => {
 // COMPREHENSIVE AI CONTEXT BUILDER
 // ============================================
 
+// Helper function to sanitize step data for AI - removes only answer fields
+// This ensures AI sees all exercise data (items, options, pairs) but NOT the answers
+const sanitizeStepForAI = (step) => {
+  if (!step) return null;
+
+  // Clone the data to ensure it's a pure JS object (handles Mongoose docs)
+  const cleanStep = JSON.parse(JSON.stringify(step));
+
+  // Remove sensitive answer fields recursively
+  const sensitiveFields = [
+    'correctAnswer', 'correct', 'solution', 'answer',
+    'validPairs', 'correctBins', 'correctOrder', 'expectedCode',
+    'correctCode', 'answers'
+  ];
+
+  const removeFields = (obj) => {
+    if (!obj || typeof obj !== 'object') return;
+    sensitiveFields.forEach(field => delete obj[field]);
+    Object.values(obj).forEach(val => {
+      if (Array.isArray(val)) {
+        val.forEach(item => removeFields(item));
+      } else if (typeof val === 'object') {
+        removeFields(val);
+      }
+    });
+  };
+
+  removeFields(cleanStep);
+  return cleanStep;
+};
+
+// Get raw JSON dump of step for AI context (fallback for complex types)
+const getRawStepDataForAI = (step) => {
+  if (!step) return "No step data available.";
+  const sanitized = sanitizeStepForAI(step);
+  return JSON.stringify(sanitized, null, 2);
+};
+
 // Helper function to extract exercise details from a lesson step
 // This solves "explain the exercise without giving the answer"
 const extractExerciseDetailsFromStep = (step, exerciseIndex = 0, language = 'ru') => {
   if (!step) return null;
+
+  // Ensure we're working with a plain JS object (not a Mongoose document)
+  const cleanStep = JSON.parse(JSON.stringify(step));
 
   const getLocal = (field) => {
     if (!field) return '';
@@ -100,16 +141,17 @@ const extractExerciseDetailsFromStep = (step, exerciseIndex = 0, language = 'ru'
     return field[language] || field['ru'] || field['en'] || Object.values(field)[0] || '';
   };
 
-  const stepType = step.type;
-  const content = step.content || {};
+  const stepType = cleanStep.type;
+  const content = cleanStep.content || {};
 
   let exerciseDetails = {
     stepType,
-    stepTitle: getLocal(step.title),
-    stepInstructions: getLocal(step.instructions) || getLocal(step.text) || getLocal(content.text),
+    stepTitle: getLocal(cleanStep.title),
+    stepInstructions: getLocal(cleanStep.instructions) || getLocal(cleanStep.text) || getLocal(content.text),
     exerciseIndex,
     exercise: null,
-    hiddenAnswer: null // AI can use this to guide but NOT reveal
+    hiddenAnswer: null, // AI can use this to guide but NOT reveal
+    rawData: null // Fallback raw JSON for complex types
   };
 
   // Helper to extract exercise from content.exercises array or directly from step/content
@@ -136,15 +178,17 @@ const extractExerciseDetailsFromStep = (step, exerciseIndex = 0, language = 'ru'
       exerciseDetails.exercise = {
         type: exType,
         question: getLocal(ex.question) || getLocal(ex.instructions) || 'Sort the items into correct categories',
-        items: (ex.items || step.items || []).map(i =>
+        items: (ex.items || cleanStep.items || []).map(i =>
           typeof i === 'string' ? i : getLocal(i.text || i.content || i.label)
         ),
-        bins: (ex.bins || step.bins || ex.categories || []).map(b =>
+        bins: (ex.bins || cleanStep.bins || ex.categories || []).map(b =>
           typeof b === 'string' ? b : getLocal(b.label || b.name || b.title)
         )
       };
       // Hidden answer: correct bin for each item
       exerciseDetails.hiddenAnswer = ex.correctAnswer || ex.solution || ex.correctBins;
+      // Include raw data for fallback
+      exerciseDetails.rawData = getRawStepDataForAI(cleanStep);
       break;
 
     // ============================================
@@ -153,7 +197,7 @@ const extractExerciseDetailsFromStep = (step, exerciseIndex = 0, language = 'ru'
     case 'matching':
     case 'memory':
     case 'pairs':
-      const pairs = ex.pairs || step.pairs || content.pairs || [];
+      const pairs = ex.pairs || cleanStep.pairs || content.pairs || [];
       exerciseDetails.exercise = {
         type: exType,
         question: getLocal(ex.question) || 'Match the items correctly',
@@ -176,7 +220,7 @@ const extractExerciseDetailsFromStep = (step, exerciseIndex = 0, language = 'ru'
     case 'multiple_choice':
     case 'single_choice':
     case 'tryout':
-      const options = ex.options || ex.choices || step.options || [];
+      const options = ex.options || ex.choices || cleanStep.options || [];
       exerciseDetails.exercise = {
         type: exType,
         question: getLocal(ex.question) || getLocal(ex.text) || getLocal(ex.prompt),
@@ -232,7 +276,7 @@ const extractExerciseDetailsFromStep = (step, exerciseIndex = 0, language = 'ru'
       exerciseDetails.exercise = {
         type: exType,
         question: getLocal(ex.question) || 'Put the items in correct order',
-        items: (ex.items || ex.elements || step.items || []).map(i =>
+        items: (ex.items || ex.elements || cleanStep.items || []).map(i =>
           typeof i === 'string' ? i : getLocal(i.text || i.content)
         )
       };
@@ -293,7 +337,7 @@ const extractExerciseDetailsFromStep = (step, exerciseIndex = 0, language = 'ru'
     case 'theory':
       exerciseDetails.exercise = {
         type: 'explanation',
-        text: getLocal(content.text || ex.text || step.text),
+        text: getLocal(content.text || ex.text || cleanStep.text),
         keyPoints: (content.keyPoints || ex.keyPoints || []).map(kp => getLocal(kp))
       };
       break;
@@ -304,11 +348,11 @@ const extractExerciseDetailsFromStep = (step, exerciseIndex = 0, language = 'ru'
     case 'game':
       exerciseDetails.exercise = {
         type: 'game',
-        gameType: step.gameType || ex.gameType,
-        targetScore: step.gameConfig?.targetScore || ex.targetScore,
-        instructions: getLocal(step.instructions || ex.instructions)
+        gameType: cleanStep.gameType || ex.gameType,
+        targetScore: cleanStep.gameConfig?.targetScore || ex.targetScore,
+        instructions: getLocal(cleanStep.instructions || ex.instructions)
       };
-      exerciseDetails.hiddenAnswer = step.gameConfig?.correctAnswers || ex.correctAnswers;
+      exerciseDetails.hiddenAnswer = cleanStep.gameConfig?.correctAnswers || ex.correctAnswers;
       break;
 
     // ============================================
@@ -318,7 +362,7 @@ const extractExerciseDetailsFromStep = (step, exerciseIndex = 0, language = 'ru'
       if (content.exercises && content.exercises[exerciseIndex]) {
         const nestedEx = content.exercises[exerciseIndex];
         // Recursively extract with the nested exercise's type
-        return extractExerciseDetailsFromStep({ ...step, type: nestedEx.type, content: nestedEx }, 0, language);
+        return extractExerciseDetailsFromStep({ ...cleanStep, type: nestedEx.type, content: nestedEx }, 0, language);
       }
       exerciseDetails.exercise = {
         type: 'exercise',
@@ -360,6 +404,9 @@ const extractExerciseDetailsFromStep = (step, exerciseIndex = 0, language = 'ru'
       }
 
       exerciseDetails.hiddenAnswer = ex.correctAnswer || ex.correct || ex.answer || ex.solution;
+      // IMPORTANT: Include raw sanitized JSON for unknown types
+      // This ensures the AI sees ALL data even for new exercise types
+      exerciseDetails.rawData = getRawStepDataForAI(cleanStep);
       break;
   }
 
@@ -378,9 +425,12 @@ const getFullLessonContext = async (lessonId, language = 'ru') => {
   try {
     if (!lessonId) return null;
 
+    // CRITICAL FIX: Use .lean() to get plain JavaScript objects
+    // This ensures nested arrays like 'items', 'options', 'pairs' are visible
     const lesson = await Lesson.findById(lessonId)
       .populate('topicId', 'name description')
-      .populate('learningPath.relatedLessons', 'lessonName topic subject');
+      .populate('learningPath.relatedLessons', 'lessonName topic subject')
+      .lean(); // Converts Mongoose Document to plain JS object
 
     if (!lesson) return null;
 
@@ -608,6 +658,13 @@ const buildComprehensiveAIContext = async (userId, lessonContext, userProgress, 
         // Hints
         if (ex.hint) {
           fullContext += `Подсказка (можно использовать): ${ex.hint}\n`;
+        }
+
+        // FALLBACK: Include raw JSON data for complex/unknown exercise types
+        // This ensures the AI sees ALL exercise data even if our structured extraction missed something
+        if (extractedExercise.rawData) {
+          fullContext += `\n📦 ПОЛНЫЕ ДАННЫЕ УПРАЖНЕНИЯ (JSON):\n\`\`\`json\n${extractedExercise.rawData}\n\`\`\`\n`;
+          fullContext += `Проанализируй JSON выше, чтобы понять все элементы упражнения (items, options, pairs, bins и т.д.)\n`;
         }
       }
     }
