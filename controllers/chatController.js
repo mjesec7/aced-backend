@@ -167,6 +167,14 @@ const extractExerciseDetailsFromStep = (step, exerciseIndex = 0, language = 'ru'
   const ex = getExerciseData();
   const exType = ex?.type || stepType;
 
+  // DEBUG: Log extraction attempt
+  console.log('   🧩 [AI Context] Extracting exercise details:');
+  console.log('      - Step Type:', stepType);
+  console.log('      - Exercise Type:', exType);
+  console.log('      - Has Content:', !!content);
+  console.log('      - Has Exercises Array:', !!content.exercises);
+  console.log('      - Exercise Index:', exerciseIndex);
+
   // Universal exercise data extraction based on type
   switch (exType) {
     // ============================================
@@ -544,8 +552,22 @@ const buildComprehensiveAIContext = async (userId, lessonContext, userProgress, 
   let fullContext = '';
   let extractedExercise = null;
 
+  // DEBUG: Log input parameters
+  console.log('🔍 [AI Context] Building context with:');
+  console.log('   - lessonContext.lessonId:', lessonContext?.lessonId);
+  console.log('   - userProgress.currentStep:', userProgress?.currentStep);
+  console.log('   - stepContext?.stepIndex:', stepContext?.stepIndex);
+
   // 1. Get full lesson content
   const fullLesson = await getFullLessonContext(lessonContext?.lessonId, language);
+
+  // DEBUG: Log lesson fetch result
+  console.log('📚 [AI Context] Lesson fetch result:');
+  console.log('   - fullLesson exists:', !!fullLesson);
+  console.log('   - lessonName:', fullLesson?.lessonName);
+  console.log('   - totalSteps:', fullLesson?.totalSteps);
+  console.log('   - rawSteps length:', fullLesson?.rawSteps?.length);
+
   if (fullLesson) {
     fullContext += `\n📚 ПОЛНЫЙ КОНТЕКСТ УРОКА:\n`;
     fullContext += `Урок: "${fullLesson.lessonName}"\n`;
@@ -556,6 +578,10 @@ const buildComprehensiveAIContext = async (userId, lessonContext, userProgress, 
     // Current step context
     const currentStepIndex = userProgress?.currentStep || stepContext?.stepIndex || 0;
     const exerciseIndex = stepContext?.exerciseIndex || 0;
+
+    console.log('📍 [AI Context] Current position:');
+    console.log('   - currentStepIndex:', currentStepIndex);
+    console.log('   - exerciseIndex:', exerciseIndex);
 
     if (fullLesson.steps[currentStepIndex]) {
       const currentStep = fullLesson.steps[currentStepIndex];
@@ -723,7 +749,11 @@ const buildComprehensiveAIContext = async (userId, lessonContext, userProgress, 
     });
   }
 
-  return fullContext;
+  // Return both the text context and the structured exercise data
+  return {
+    context: fullContext,
+    extractedExercise: extractedExercise?.exercise || null
+  };
 };
 
 // Save important information to AI memory (called after AI response)
@@ -1334,7 +1364,7 @@ const getLessonContextAIResponse = async (req, res) => {
     const userStats = await getUserStatsForAI(userId);
 
     // Build comprehensive AI context (full lesson, memory, learning journey)
-    const comprehensiveContext = await buildComprehensiveAIContext(
+    const contextResult = await buildComprehensiveAIContext(
       userId,
       lessonContext,
       userProgress,
@@ -1342,8 +1372,17 @@ const getLessonContextAIResponse = async (req, res) => {
       req.body.language || 'ru'
     );
 
-    // Build lesson-specific system prompt with user stats
-    const systemPrompt = buildLessonSystemPrompt(lessonContext, userProgress, stepContext, userStats);
+    const comprehensiveContext = contextResult.context || contextResult;
+    const backendExtractedExercise = contextResult.extractedExercise || null;
+
+    // Build lesson-specific system prompt with user stats AND backend-extracted exercise
+    const systemPrompt = buildLessonSystemPrompt(
+      lessonContext,
+      userProgress,
+      stepContext,
+      userStats,
+      backendExtractedExercise // Pass the reliable backend data
+    );
 
     // Combine base prompt with comprehensive context
     let fullSystemPrompt = systemPrompt + comprehensiveContext;
@@ -1639,7 +1678,8 @@ const updateUserAIPlan = async (req, res) => {
 // ============================================
 
 // Build lesson-specific system prompt with user stats
-function buildLessonSystemPrompt(lessonContext, userProgress, stepContext, userStats = null) {
+// Build lesson-specific system prompt with user stats
+function buildLessonSystemPrompt(lessonContext, userProgress, stepContext, userStats = null, backendExtractedExercise = null) {
   const currentStepType = stepContext?.type || 'unknown';
   const lessonName = lessonContext?.lessonName || 'Текущий урок';
   const topic = lessonContext?.topic || 'данной теме';
@@ -1709,12 +1749,12 @@ function buildLessonSystemPrompt(lessonContext, userProgress, stepContext, userS
 Используй эту статистику чтобы давать персонализированные советы и поддержку.`;
   }
 
-  // Build exercise context if exerciseData is provided
+  // Build exercise context - PRIORITIZE BACKEND DATA as it's more reliable
   let exerciseContext = '';
-  if (stepContext?.exerciseData) {
-    const ex = stepContext.exerciseData;
-    exerciseContext = `
+  const ex = backendExtractedExercise || stepContext?.exerciseData;
 
+  if (ex) {
+    exerciseContext = `
 ТЕКУЩЕЕ УПРАЖНЕНИЕ:
 - Тип: ${ex.type || 'unknown'}
 - Вопрос/Задание: ${ex.question || ex.prompt || 'Не указано'}`;
@@ -1732,7 +1772,11 @@ function buildLessonSystemPrompt(lessonContext, userProgress, stepContext, userS
 
     // Add pairs for matching exercises
     if (ex.pairs && ex.pairs.length > 0) {
-      const pairNames = ex.pairs.map(p => p.name || p.left || p.term).join(', ');
+      const pairNames = ex.pairs.map(p => {
+        const left = p.left || p.term || p.name;
+        const right = p.right || p.definition || p.match;
+        return `${left} ↔ ${right}`; // Give AI the full pairs so it knows the answers (but won't reveal them)
+      }).join(', ');
       exerciseContext += `
 - Элементы для сопоставления: ${pairNames}`;
     }
@@ -1740,11 +1784,17 @@ function buildLessonSystemPrompt(lessonContext, userProgress, stepContext, userS
     // Add items for sentence_order exercises
     if (ex.items && ex.items.length > 0) {
       exerciseContext += `
-- Элементы для упорядочивания: ${ex.items.join(', ')}`;
+- Элементы для упорядочивания/сортировки: ${ex.items.join(', ')}`;
+    }
+
+    // Add bins/categories for sorting
+    if (ex.bins && ex.bins.length > 0) {
+      exerciseContext += `
+- Категории для сортировки: ${ex.bins.join(', ')}`;
     }
 
     // Exercise step info
-    if (stepContext.exerciseIndex !== undefined && stepContext.totalExercises) {
+    if (stepContext?.exerciseIndex !== undefined && stepContext?.totalExercises) {
       exerciseContext += `
 - Упражнение ${stepContext.exerciseIndex + 1} из ${stepContext.totalExercises}`;
     }
