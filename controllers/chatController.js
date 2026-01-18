@@ -231,7 +231,7 @@ const extractExerciseDetailsFromStep = (step, exerciseIndex = 0, language = 'ru'
       const options = ex.options || ex.choices || cleanStep.options || [];
       exerciseDetails.exercise = {
         type: exType,
-        question: getLocal(ex.question) || getLocal(ex.text) || getLocal(ex.prompt),
+        question: getLocal(ex.question) || getLocal(ex.text) || getLocal(ex.prompt) || getLocal(ex.title) || getLocal(cleanStep.title),
         options: options.map((opt, i) => ({
           id: opt.id || String.fromCharCode(65 + i),
           text: typeof opt === 'string' ? opt : getLocal(opt.text || opt.label || opt.content)
@@ -1696,7 +1696,7 @@ function buildLessonSystemPrompt(lessonContext, userProgress, stepContext, userS
       roleGuidance = 'Помоги студенту лучше понять концепцию с помощью понятных объяснений и примеров.';
       break;
     case 'exercise':
-      roleGuidance = 'Давай полезные подсказки и направляй мышление, но НЕ давай прямых ответов на упражнения.';
+      roleGuidance = 'Будь прямым и кратким. Если ты НЕ видишь текст вопроса или задания в контексте, СРАЗУ попроси пользователя прочитать его тебе. Не гадай и не лей воду. Если видишь вопрос, давай полезные подсказки, но не прямой ответ.';
       break;
     case 'quiz':
     case 'tryout':

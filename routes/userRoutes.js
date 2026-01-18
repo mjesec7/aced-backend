@@ -152,59 +152,48 @@ function validateObjectId(req, res, next) {
 // 🔐 AUTH SAVE ROUTE
 // ========================================
 
-router.post('/save', async (req, res) => {
-  const { token, name, subscriptionPlan } = req.body;
-
-  if (!token || !name) {
-    return res.status(400).json({
-      success: false,
-      error: '❌ Missing token or name',
-      required: ['token', 'name'],
-      server: 'api.aced.live'
-    });
-  }
-
+router.post('/save', verifyToken, async (req, res) => {
   try {
-    const decoded = await admin.auth().verifyIdToken(token);
-    const firebaseId = decoded.uid;
-    const email = decoded.email;
+    const { firebaseId } = req.user; // Get ID from the token, NOT the body
 
-    // Define updates
-    const updateData = {
-      email: email,
-      name: name,
-      Login: email,
-      lastLoginAt: new Date()
-    };
+    // --- SECURITY FIX: MASS ASSIGNMENT PROTECTION ---
+    // 1. Define exactly what fields a user is allowed to update
+    const allowedUpdates = [
+      'displayName',
+      'photoURL',
+      'email',
+      'preferences',
+      'language',
+      'name' // Added 'name' as it was used in the original code
+    ];
 
-    // Logic to handle subscription upgrade (only upgrade, don't downgrade via this route)
-    if (subscriptionPlan) {
-      // We need to check existing status first to decide on upgrade
-      const existingUser = await User.findOne({ firebaseId }).select('subscriptionPlan');
-      if (existingUser) {
-        const statusHierarchy = { 'free': 0, 'start': 1, 'pro': 2, 'premium': 3 };
-        const currentLevel = statusHierarchy[existingUser.subscriptionPlan] || 0;
-        const providedLevel = statusHierarchy[subscriptionPlan] || 0;
-
-        if (providedLevel > currentLevel) {
-          updateData.subscriptionPlan = subscriptionPlan;
-        }
-      } else {
-        // New user
-        updateData.subscriptionPlan = subscriptionPlan || 'free';
-        updateData.diary = [];
-        updateData.studyList = [];
-        updateData.homeworkUsage = new Map();
-        updateData.aiUsage = new Map();
-        updateData.lastResetCheck = new Date();
+    // 2. Create a new object containing ONLY the allowed fields from req.body
+    const updates = {};
+    Object.keys(req.body).forEach((key) => {
+      if (allowedUpdates.includes(key)) {
+        updates[key] = req.body[key];
       }
-    }
+    });
 
+    // 3. Explicitly block sensitive fields (Double safety)
+    delete updates.subscriptionPlan;
+    delete updates.role;
+    delete updates.paymentStatus;
+    delete updates.credits;
+
+    // Maintain original logic for lastLoginAt and Login
+    if (updates.email) {
+      updates.Login = updates.email;
+    }
+    updates.lastLoginAt = new Date();
+    // ------------------------------------------------
+
+    // Update using the 'updates' object, NOT 'req.body'
     // ✅ FIX: Use findOneAndUpdate with upsert to prevent VersionError
     const user = await User.findOneAndUpdate(
-      { firebaseId },
+      { firebaseId: firebaseId },
       {
-        $set: updateData,
+        $set: updates,
         $setOnInsert: { firebaseId: firebaseId } // Fields to set only on creation
       },
       {
@@ -463,9 +452,17 @@ async function makeAIRequest(userInput, imageUrl, lessonId) {
 // ========================================
 
 // ✅ UPDATED: Replaced old /:firebaseId route with new /:userId route
-router.get('/:userId', validateUserId, async (req, res) => {
+router.get('/:userId', verifyToken, validateUserId, async (req, res) => {
   try {
     const { userId } = req.params;
+    const authenticatedUserId = req.user.uid;
+
+    // --- SECURITY FIX: IDOR PROTECTION ---
+    // Prevent users from accessing profiles that don't belong to them
+    if (userId !== authenticatedUserId) {
+      return res.status(403).json({ message: 'Forbidden: You can only access your own profile.' });
+    }
+    // -------------------------------------
 
     const user = await User.findOne({
       $or: [
