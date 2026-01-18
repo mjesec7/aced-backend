@@ -3,13 +3,21 @@ const express = require('express');
 const router = express.Router();
 const verifyToken = require('../middlewares/authMiddleware');
 const voiceController = require('../controllers/voiceController');
+const createRateLimiter = require('../middlewares/rateLimiter');
+
+// Rate limiters
+const voiceLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20, // Limit each IP/User to 20 requests per windowMs (expensive API)
+  message: { success: false, error: 'Too many voice requests, please try again later.' }
+});
 
 // ========================================
 // 🎤 STREAMING AUDIO (Low Latency - Perfect Harmony)
 // ========================================
 
 // Stream audio directly from ElevenLabs to client (used after analyze-speech)
-router.post('/stream', verifyToken, voiceController.streamAudio);
+router.post('/stream', verifyToken, voiceLimiter, voiceController.streamAudio);
 
 // GET handler for stream endpoint - return proper error
 router.get('/stream', (req, res) => {
@@ -29,7 +37,7 @@ router.get('/stream', (req, res) => {
 // 🎤 TEXT-TO-SPEECH (Lexi Speaks)
 // ========================================
 
-router.post('/text-to-speech', verifyToken, async (req, res) => {
+router.post('/text-to-speech', verifyToken, voiceLimiter, async (req, res) => {
   try {
     const { text, voiceId = 'EXAVITQu4vr4xnSDxMaL' } = req.body; // Default: Sarah voice
 
@@ -99,7 +107,7 @@ router.post('/text-to-speech', verifyToken, async (req, res) => {
 // 🎤 TEXT-TO-SPEECH WITH TIMESTAMPS (For Synced Highlighting)
 // ========================================
 
-router.post('/text-to-speech-with-timestamps', verifyToken, async (req, res) => {
+router.post('/text-to-speech-with-timestamps', verifyToken, voiceLimiter, async (req, res) => {
   try {
     const { text, voiceId = 'EXAVITQu4vr4xnSDxMaL' } = req.body;
 
@@ -169,7 +177,7 @@ router.post('/text-to-speech-with-timestamps', verifyToken, async (req, res) => 
 // 🎧 SPEECH-TO-TEXT (User Speaks)
 // ========================================
 
-router.post('/speech-to-text', verifyToken, async (req, res) => {
+router.post('/speech-to-text', verifyToken, voiceLimiter, async (req, res) => {
   try {
     const { audioBase64 } = req.body;
 

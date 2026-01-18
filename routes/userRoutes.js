@@ -154,32 +154,45 @@ function validateObjectId(req, res, next) {
 
 router.post('/save', verifyToken, async (req, res) => {
   try {
-    const { firebaseId } = req.user; // Get ID from the token, NOT the body
+    const uid = req.user.uid; // Correctly get UID from token
 
-    // --- SECURITY FIX: MASS ASSIGNMENT PROTECTION ---
-    // 1. Define exactly what fields a user is allowed to update
+    // --- SECURITY FIX: STRICT VALIDATION & MASS ASSIGNMENT PROTECTION ---
+
+    // 1. Block forbidden fields immediately
+    const forbiddenFields = [
+      'firebaseId', 'uid', 'role', 'subscriptionPlan',
+      'userStatus', 'paymentStatus', 'savedCards', 'credits', 'points'
+    ];
+
+    const bodyKeys = Object.keys(req.body);
+    const hasForbiddenField = bodyKeys.some(key => forbiddenFields.includes(key));
+
+    if (hasForbiddenField) {
+      return res.status(400).json({
+        success: false,
+        error: 'Security Warning: Request contains forbidden fields.'
+      });
+    }
+
+    // 2. Define exactly what fields a user is allowed to update
     const allowedUpdates = [
       'displayName',
       'photoURL',
       'email',
       'preferences',
       'language',
-      'name' // Added 'name' as it was used in the original code
+      'name',
+      'learningMode',
+      'schoolProfile'
     ];
 
-    // 2. Create a new object containing ONLY the allowed fields from req.body
+    // 3. Create a new object containing ONLY the allowed fields from req.body
     const updates = {};
-    Object.keys(req.body).forEach((key) => {
+    bodyKeys.forEach((key) => {
       if (allowedUpdates.includes(key)) {
         updates[key] = req.body[key];
       }
     });
-
-    // 3. Explicitly block sensitive fields (Double safety)
-    delete updates.subscriptionPlan;
-    delete updates.role;
-    delete updates.paymentStatus;
-    delete updates.credits;
 
     // Maintain original logic for lastLoginAt and Login
     if (updates.email) {
@@ -191,10 +204,10 @@ router.post('/save', verifyToken, async (req, res) => {
     // Update using the 'updates' object, NOT 'req.body'
     // ✅ FIX: Use findOneAndUpdate with upsert to prevent VersionError
     const user = await User.findOneAndUpdate(
-      { firebaseId: firebaseId },
+      { firebaseId: uid }, // Use the verified UID
       {
         $set: updates,
-        $setOnInsert: { firebaseId: firebaseId } // Fields to set only on creation
+        $setOnInsert: { firebaseId: uid } // Ensure firebaseId is set on creation
       },
       {
         new: true,

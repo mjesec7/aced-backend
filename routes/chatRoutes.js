@@ -17,6 +17,14 @@ const {
 const voiceController = require('../controllers/voiceController');
 
 const verifyToken = require('../middlewares/authMiddleware');
+const createRateLimiter = require('../middlewares/rateLimiter');
+
+// Rate limiters
+const chatLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 50, // Limit each IP/User to 50 requests per windowMs
+  message: { success: false, error: 'Too many chat requests, please try again later.' }
+});
 
 // ============================================
 // MIDDLEWARE
@@ -36,13 +44,13 @@ router.use((req, res, next) => {
 // ============================================
 
 // Standard AI Chat with enhanced lesson context
-router.post('/', verifyToken, getAIResponse);
+router.post('/', verifyToken, chatLimiter, getAIResponse);
 
 // Enhanced lesson-specific AI chat
-router.post('/lesson-context', verifyToken, getLessonContextAIResponse);
+router.post('/lesson-context', verifyToken, chatLimiter, getLessonContextAIResponse);
 
 // Analyze lesson content for speech & highlights (Perfect Harmony endpoint)
-router.post('/analyze-speech', verifyToken, analyzeLessonForSpeech);
+router.post('/analyze-speech', verifyToken, chatLimiter, analyzeLessonForSpeech);
 
 // GET handler for endpoints that require POST - return proper error
 router.get('/analyze-speech', (req, res) => {
