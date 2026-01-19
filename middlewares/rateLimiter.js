@@ -1,11 +1,8 @@
 const rateLimit = require('express-rate-limit');
 
 // Whitelisted UIDs (Testers/Admins)
-const TEST_UIDS = [
-    "a28Z1e2QMhdFcQuPq9MKqq2EQJk2",
-    "mBOhHiYsuZb9slbdN37q6GrPMzC2",
-    "xtksXAX3qBOxFciimRs67X1gJtI2" // Added from user request
-];
+// Whitelisted UIDs (Testers/Admins)
+const TEST_UIDS = [];
 
 const createRateLimiter = (options) => {
     return rateLimit({
