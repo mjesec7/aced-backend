@@ -496,7 +496,9 @@ router.get('/:userId', verifyToken, validateUserId, async (req, res) => {
       userStatus: user.subscriptionPlan || 'free',
       plan: user.subscriptionPlan || 'free',
       serverFetch: true,
-      fetchTime: new Date().toISOString()
+      fetchTime: new Date().toISOString(),
+      currentUsage: user.getCurrentMonthAIUsage ? user.getCurrentMonthAIUsage() : {},
+      usageLimits: user.getUsageLimits ? user.getUsageLimits() : {}
     };
 
     res.json({
