@@ -129,7 +129,7 @@ const getRawStepDataForAI = (step) => {
 
 // Helper function to extract exercise details from a lesson step
 // This solves "explain the exercise without giving the answer"
-const extractExerciseDetailsFromStep = (step, exerciseIndex = 0, language = 'ru') => {
+const extractExerciseDetailsFromStep = (step, exerciseIndex = 0, language = 'en') => {
   if (!step) return null;
 
   // Ensure we're working with a plain JS object (not a Mongoose document)
@@ -138,7 +138,7 @@ const extractExerciseDetailsFromStep = (step, exerciseIndex = 0, language = 'ru'
   const getLocal = (field) => {
     if (!field) return '';
     if (typeof field === 'string') return field;
-    return field[language] || field['ru'] || field['en'] || Object.values(field)[0] || '';
+    return field[language] || field['en'] || field['ru'] || Object.values(field)[0] || '';
   };
 
   const stepType = cleanStep.type;
@@ -429,7 +429,7 @@ const extractExerciseDetailsFromStep = (step, exerciseIndex = 0, language = 'ru'
 };
 
 // Fetch full lesson content for AI context
-const getFullLessonContext = async (lessonId, language = 'ru') => {
+const getFullLessonContext = async (lessonId, language = 'en') => {
   try {
     if (!lessonId) return null;
 
@@ -446,7 +446,7 @@ const getFullLessonContext = async (lessonId, language = 'ru') => {
     const getLocal = (field) => {
       if (!field) return '';
       if (typeof field === 'string') return field;
-      return field[language] || field['ru'] || field['en'] || Object.values(field)[0] || '';
+      return field[language] || field['en'] || field['ru'] || Object.values(field)[0] || '';
     };
 
     // Handle various naming conventions: 'steps', 'slides', or 'content'
@@ -548,7 +548,7 @@ const getUserLearningJourney = async (userId) => {
 };
 
 // Build comprehensive AI context string
-const buildComprehensiveAIContext = async (userId, lessonContext, userProgress, stepContext, language = 'ru') => {
+const buildComprehensiveAIContext = async (userId, lessonContext, userProgress, stepContext, language = 'en') => {
   let fullContext = '';
   let extractedExercise = null;
 
@@ -1440,7 +1440,7 @@ const getLessonContextAIResponse = async (req, res) => {
       lessonContext,
       userProgress,
       stepContext,
-      req.body.language || 'ru'
+      req.body.language || 'en'
     );
 
     const comprehensiveContext = contextResult.context || contextResult;
