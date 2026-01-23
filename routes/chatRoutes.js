@@ -87,6 +87,12 @@ router.get('/lesson-context', (req, res) => {
 // НОВОЕ: Инициализация голосовой сессии (получение Signed URL и скрипта)
 router.post('/init-voice-session', verifyToken, voiceController.initVoiceSession);
 
+// Get exercise context for voice assistant (without initializing session)
+router.post('/exercise-context', verifyToken, voiceController.getExerciseContext);
+
+// Process voice/text query with exercise context
+router.post('/voice-query', verifyToken, voiceController.processVoiceQuery);
+
 // ============================================
 // CHAT HISTORY ENDPOINTS (Memory Feature)
 // ============================================
