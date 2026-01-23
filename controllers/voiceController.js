@@ -219,11 +219,24 @@ exports.initVoiceSession = async (req, res) => {
       contextLength: exerciseContext.length
     });
 
-    // 4. Generate a context-aware "Speech Script" via OpenAI
+    // 4. Build language-specific names for the AI instruction
+    const languageNames = {
+      en: 'English',
+      ru: 'Russian',
+      uz: 'Uzbek',
+      es: 'Spanish'
+    };
+    const targetLanguage = languageNames[language] || 'English';
+
+    // 5. Generate a context-aware "Speech Script" via OpenAI
     const systemPrompt = `You are an AI tutor voice assistant helping a student with their lesson.
 You have access to the current exercise the student is viewing.
 Based on this context, create a brief, engaging introduction or hint (under 100 words).
 Do NOT give away the answer directly - guide the student to discover it themselves.
+
+CRITICAL INSTRUCTION:
+The user is currently speaking in **${targetLanguage}**.
+You MUST reply in **${targetLanguage}**, even if the user's code or content contains other languages.
 
 ${exerciseContext}`;
 
@@ -389,14 +402,20 @@ exports.processVoiceQuery = async (req, res) => {
     });
 
     // 5. Build system prompt with exercise context
-    const languageInstructions = {
-      en: 'Respond in English.',
-      ru: 'Respond in Russian (Отвечай на русском языке).',
-      uz: 'Respond in Uzbek (O\'zbek tilida javob bering).'
+    const languageNames = {
+      en: 'English',
+      ru: 'Russian',
+      uz: 'Uzbek',
+      es: 'Spanish'
     };
+    const targetLanguage = languageNames[language] || 'English';
 
     const systemPrompt = `You are Elya, a friendly and helpful AI tutor voice assistant.
-You are helping a student with their lesson. ${languageInstructions[language] || languageInstructions.en}
+You are helping a student with their lesson.
+
+CRITICAL INSTRUCTION:
+The user is currently speaking in **${targetLanguage}**.
+You MUST reply in **${targetLanguage}**, even if the user's code or content contains other languages.
 
 ${exerciseContext}
 
