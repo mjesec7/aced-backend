@@ -3,6 +3,7 @@ const OpenAI = require('openai');
 const Lesson = require('../models/lesson');
 const User = require('../models/user');
 const { ElevenLabsClient } = require("@elevenlabs/elevenlabs-js");
+const { extractExerciseContent, buildVoiceAssistantContext } = require('../utils/exerciseContentExtractor');
 require('dotenv').config();
 
 // Initialize OpenAI client
@@ -182,32 +183,63 @@ exports.streamAudio = async (req, res) => {
 
 exports.initVoiceSession = async (req, res) => {
   try {
-    const { lessonId, currentStepId } = req.body;
+    const { lessonId, currentStepId, currentStepIndex, language = 'en' } = req.body;
 
-    // 1. Fetch the lesson content
-    const lesson = await Lesson.findById(lessonId);
+    // 1. Fetch the lesson content with .lean() for plain JS objects
+    const lesson = await Lesson.findById(lessonId).lean();
     if (!lesson) return res.status(404).json({ message: "Lesson not found" });
 
-    // 2. Extract the specific text for the current step
-    const stepContent = lesson.steps.find(s => s.id === currentStepId)?.explanation || lesson.title;
+    // 2. Find the current step by ID or index
+    let currentStep = null;
+    if (currentStepId) {
+      currentStep = lesson.steps.find(s => s._id?.toString() === currentStepId || s.id === currentStepId);
+    }
+    if (!currentStep && currentStepIndex !== undefined) {
+      currentStep = lesson.steps[currentStepIndex];
+    }
 
-    // 3. Generate a "Speech Script" via OpenAI
-    // We use your existing AI infrastructure to summarize the text
-    const systemPrompt = "You are a helpful assistant. Summarize the following lesson content into a concise, engaging script for a voice assistant. Focus on the most important points and keep it under 100 words.";
+    // 3. Extract exercise content using the new extractor
+    const lessonTitle = typeof lesson.lessonName === 'string'
+      ? lesson.lessonName
+      : (lesson.lessonName?.[language] || lesson.lessonName?.en || lesson.lessonName?.ru || lesson.title);
+
+    const exerciseContext = buildVoiceAssistantContext({
+      step: currentStep,
+      lessonTitle,
+      language,
+      userProgress: {
+        currentStepIndex: currentStepIndex || lesson.steps.indexOf(currentStep),
+        totalSteps: lesson.steps.length
+      }
+    });
+
+    console.log('🎤 [Voice Session] Exercise Context Built:', {
+      lessonId,
+      stepType: currentStep?.type,
+      contextLength: exerciseContext.length
+    });
+
+    // 4. Generate a context-aware "Speech Script" via OpenAI
+    const systemPrompt = `You are an AI tutor voice assistant helping a student with their lesson.
+You have access to the current exercise the student is viewing.
+Based on this context, create a brief, engaging introduction or hint (under 100 words).
+Do NOT give away the answer directly - guide the student to discover it themselves.
+
+${exerciseContext}`;
 
     // Call OpenAI using official package
     const aiResponse = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user", content: stepContent }
+        { role: "user", content: "Introduce this exercise to me or give me a helpful hint to get started." }
       ],
-      max_tokens: 1000
+      max_tokens: 200
     });
 
     const aiText = aiResponse.choices[0].message.content;
 
-    // 4. Create a Signed Session with ElevenLabs Conversational AI
+    // 5. Create a Signed Session with ElevenLabs Conversational AI
     // This allows the frontend to connect without exposing your API Key
     const sessionResponse = await axios.post(
       `https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=${process.env.ELEVENLABS_AGENT_ID}`,
@@ -217,11 +249,191 @@ exports.initVoiceSession = async (req, res) => {
 
     res.json({
       signedUrl: sessionResponse.data.signed_url,
-      script: aiText
+      script: aiText,
+      exerciseContext: exerciseContext // Include context for frontend debugging/display
     });
 
   } catch (error) {
     console.error("Voice Init Error:", error);
     res.status(500).json({ error: "Failed to initialize Elya" });
+  }
+};
+
+// ============================================
+// GET EXERCISE CONTEXT - Extract context for current step
+// ============================================
+
+/**
+ * Returns the extracted exercise context for a given step.
+ * Useful for frontend to display what the AI "sees" or for debugging.
+ * Does not initialize a voice session or call external APIs.
+ */
+exports.getExerciseContext = async (req, res) => {
+  try {
+    const { lessonId, currentStepId, currentStepIndex, language = 'en' } = req.body;
+
+    // 1. Fetch the lesson content with .lean() for plain JS objects
+    const lesson = await Lesson.findById(lessonId).lean();
+    if (!lesson) return res.status(404).json({ message: "Lesson not found" });
+
+    // 2. Find the current step by ID or index
+    let currentStep = null;
+    if (currentStepId) {
+      currentStep = lesson.steps.find(s => s._id?.toString() === currentStepId || s.id === currentStepId);
+    }
+    if (!currentStep && currentStepIndex !== undefined) {
+      currentStep = lesson.steps[currentStepIndex];
+    }
+
+    if (!currentStep) {
+      return res.status(404).json({ message: "Step not found" });
+    }
+
+    // 3. Get localized lesson title
+    const lessonTitle = typeof lesson.lessonName === 'string'
+      ? lesson.lessonName
+      : (lesson.lessonName?.[language] || lesson.lessonName?.en || lesson.lessonName?.ru || lesson.title);
+
+    // 4. Extract exercise content using the new extractor
+    const exerciseContent = extractExerciseContent(currentStep, language);
+    const fullContext = buildVoiceAssistantContext({
+      step: currentStep,
+      lessonTitle,
+      language,
+      userProgress: {
+        currentStepIndex: currentStepIndex ?? lesson.steps.indexOf(currentStep),
+        totalSteps: lesson.steps.length
+      }
+    });
+
+    console.log('📝 [Exercise Context] Extracted:', {
+      lessonId,
+      stepType: currentStep?.type,
+      contentLength: exerciseContent.length
+    });
+
+    res.json({
+      success: true,
+      exerciseContent,
+      fullContext,
+      stepType: currentStep.type,
+      stepTitle: typeof currentStep.title === 'string'
+        ? currentStep.title
+        : (currentStep.title?.[language] || currentStep.title?.en || ''),
+      lessonTitle
+    });
+
+  } catch (error) {
+    console.error("Get Exercise Context Error:", error);
+    res.status(500).json({ error: "Failed to extract exercise context", details: error.message });
+  }
+};
+
+// ============================================
+// PROCESS VOICE QUERY - Handle voice queries with exercise context
+// ============================================
+
+/**
+ * Processes a voice/text query from the user with full exercise context.
+ * Returns AI response that can be converted to speech.
+ */
+exports.processVoiceQuery = async (req, res) => {
+  try {
+    const {
+      lessonId,
+      currentStepId,
+      currentStepIndex,
+      query,
+      language = 'en',
+      conversationHistory = []
+    } = req.body;
+
+    if (!query || query.trim().length === 0) {
+      return res.status(400).json({ error: "Query is required" });
+    }
+
+    // 1. Fetch the lesson content with .lean() for plain JS objects
+    const lesson = await Lesson.findById(lessonId).lean();
+    if (!lesson) return res.status(404).json({ message: "Lesson not found" });
+
+    // 2. Find the current step
+    let currentStep = null;
+    if (currentStepId) {
+      currentStep = lesson.steps.find(s => s._id?.toString() === currentStepId || s.id === currentStepId);
+    }
+    if (!currentStep && currentStepIndex !== undefined) {
+      currentStep = lesson.steps[currentStepIndex];
+    }
+
+    // 3. Get localized lesson title
+    const lessonTitle = typeof lesson.lessonName === 'string'
+      ? lesson.lessonName
+      : (lesson.lessonName?.[language] || lesson.lessonName?.en || lesson.lessonName?.ru || lesson.title);
+
+    // 4. Build full exercise context
+    const exerciseContext = buildVoiceAssistantContext({
+      step: currentStep,
+      lessonTitle,
+      language,
+      userProgress: {
+        currentStepIndex: currentStepIndex ?? (currentStep ? lesson.steps.indexOf(currentStep) : 0),
+        totalSteps: lesson.steps.length
+      }
+    });
+
+    console.log('🎙️ [Voice Query] Processing:', {
+      lessonId,
+      stepType: currentStep?.type,
+      queryLength: query.length,
+      historyLength: conversationHistory.length
+    });
+
+    // 5. Build system prompt with exercise context
+    const languageInstructions = {
+      en: 'Respond in English.',
+      ru: 'Respond in Russian (Отвечай на русском языке).',
+      uz: 'Respond in Uzbek (O\'zbek tilida javob bering).'
+    };
+
+    const systemPrompt = `You are Elya, a friendly and helpful AI tutor voice assistant.
+You are helping a student with their lesson. ${languageInstructions[language] || languageInstructions.en}
+
+${exerciseContext}
+
+IMPORTANT GUIDELINES:
+- If the user asks for help, guide them toward the answer without giving it away directly.
+- If the user is stuck, provide hints based on the exercise content above.
+- If the user asks "what do I need to do?", explain the task clearly using the exercise details.
+- Keep responses concise and suitable for voice (under 150 words).
+- Be encouraging and supportive.
+- If the user seems frustrated, offer a bigger hint or break down the problem.`;
+
+    // 6. Build messages array with conversation history
+    const messages = [
+      { role: "system", content: systemPrompt },
+      ...conversationHistory.slice(-10), // Keep last 10 messages for context
+      { role: "user", content: query }
+    ];
+
+    // 7. Call OpenAI
+    const aiResponse = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages,
+      max_tokens: 300,
+      temperature: 0.7
+    });
+
+    const responseText = aiResponse.choices[0].message.content;
+
+    res.json({
+      success: true,
+      response: responseText,
+      exerciseContext, // Include for debugging/display
+      stepType: currentStep?.type
+    });
+
+  } catch (error) {
+    console.error("Voice Query Error:", error);
+    res.status(500).json({ error: "Failed to process voice query", details: error.message });
   }
 };
