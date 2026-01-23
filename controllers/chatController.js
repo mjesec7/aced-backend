@@ -2141,7 +2141,23 @@ ${t.exerciseHeader}
 ${t.exerciseRules}`;
   }
 
+  // Build language enforcement instruction
+  const languageNames = {
+    en: 'English',
+    ru: 'Russian',
+    uz: 'Uzbek',
+    es: 'Spanish'
+  };
+  const targetLanguage = languageNames[language] || 'English';
+
+  const languageEnforcement = `
+CRITICAL INSTRUCTION:
+The user is currently speaking in **${targetLanguage}**.
+You MUST reply in **${targetLanguage}**, even if the user's code or content contains other languages.
+`;
+
   return `${t.intro}
+${languageEnforcement}
 ${t.currentLesson}: "${lessonName}" (${t.topic}: ${topic}, ${t.subject}: ${subject}).
 
 ${t.contextHeader}
