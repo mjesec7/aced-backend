@@ -86,6 +86,215 @@ const getUserStatsForAI = async (userId) => {
 };
 
 // ============================================
+// EXERCISE ANALYSIS HELPERS FOR VOICE ASSISTANT
+// ============================================
+
+/**
+ * Detect if lesson content contains exercise data
+ * Checks for markers that indicate the content includes exercise information
+ */
+const detectExerciseContent = (content) => {
+  if (!content || typeof content !== 'string') return false;
+
+  const exerciseIndicators = [
+    '[EXERCISE CONTENT',
+    'Exercise Type:',
+    'Answer Options:',
+    'Items to Order:',
+    'Items to Match:',
+    'Left Column:',
+    'Right Column:',
+    'Items to Categorize:',
+    'Statement to evaluate:',
+    'Fill in the blanks:',
+    'Sentence to Fix:',
+    'Code to Complete:',
+    'Available Blocks:',
+    'Target Sequence:',
+    'Available Items:',
+    'Question:',
+    'Task:',
+    'Pairs to match:',
+    'Options:',
+    'Categories:'
+  ];
+
+  // Need at least 2 indicators or the explicit exercise marker
+  const foundIndicators = exerciseIndicators.filter(ind => content.includes(ind));
+  return foundIndicators.length >= 2 || content.includes('[EXERCISE CONTENT');
+};
+
+/**
+ * Check if step type is interactive (exercise, quiz, game, etc.)
+ */
+const isInteractiveStepType = (stepType) => {
+  if (!stepType) return false;
+
+  const interactiveTypes = [
+    'exercise', 'quiz', 'matching', 'ordering', 'pairs',
+    'fill-blank', 'fill_blank', 'true-false', 'true_false',
+    'multiple-choice', 'multiple_choice', 'single_choice', 'basket',
+    'sorting', 'categorization', 'drag-drop', 'drag_drop',
+    'interactive', 'practice', 'memory', 'game', 'coding',
+    'code', 'code_fix', 'programming', 'block-coding', 'geometry',
+    'geometry_poly', 'data_analysis', 'data-analysis', 'histogram',
+    'fraction', 'fraction_visual', 'chemistry', 'chem_mixing',
+    'chem_matching', 'language-exercise', 'sentence-fix', 'selection',
+    'english_sentence_fix', 'english_sentence_order', 'language_noun_bag',
+    'language_false_friends', 'language_tone_transformer', 'language_idiom_bridge',
+    'language_word_constellation', 'language_rhythm_match', 'tryout', 'sequence',
+    'order', 'sentence_order', 'boolean', 'cloze', 'text_input', 'map_click'
+  ];
+
+  const normalizedType = stepType.toLowerCase().replace(/[-_\s]/g, '');
+  return interactiveTypes.some(t => normalizedType.includes(t.replace(/[-_]/g, '')));
+};
+
+/**
+ * Get exercise-specific instructions by language
+ * These instructions tell the AI how to handle exercises without revealing answers
+ */
+const getExerciseInstructions = (language) => {
+  const instructions = {
+    en: `EXERCISE INSTRUCTIONS:
+This content includes an interactive exercise. Your task is to:
+1. READ the question or task aloud clearly so the student understands what they need to do
+2. If there are answer options (A, B, C, D or 1, 2, 3, 4), READ EACH OPTION clearly
+3. EXPLAIN the concept being tested - what knowledge or skill is needed
+4. Give a HINT or approach for solving without revealing the answer
+5. ENCOURAGE the student to think through the problem
+
+For MATCHING exercises: Read the items from both columns and explain how to find connections
+For ORDERING exercises: Read all items and hint at what logical order they should follow
+For FILL-IN-THE-BLANK: Read the sentence with pauses where blanks are, explain the grammar/context
+For MULTIPLE CHOICE: Read the question, then each option labeled clearly
+For SORTING/BASKET: Explain the categories and give hints about distinguishing features
+For CODING: Explain what the code should do without giving the solution
+
+IMPORTANT: Do NOT give away the correct answer! Guide the student to discover it themselves.`,
+
+    ru: `ИНСТРУКЦИИ ДЛЯ УПРАЖНЕНИЙ:
+Этот контент включает интерактивное упражнение. Твоя задача:
+1. ПРОЧИТАЙ вопрос или задание вслух, чтобы студент понял, что нужно сделать
+2. Если есть варианты ответов (A, B, C, D или 1, 2, 3, 4), ПРОЧИТАЙ КАЖДЫЙ ВАРИАНТ чётко
+3. ОБЪЯСНИ концепцию, которая проверяется - какие знания или навыки нужны
+4. Дай ПОДСКАЗКУ или подход к решению, не раскрывая ответ
+5. ПООЩРЯЙ студента продумать проблему
+
+Для упражнений на СООТВЕТСТВИЕ: Прочитай элементы из обеих колонок и объясни, как найти связи
+Для упражнений на УПОРЯДОЧЕНИЕ: Прочитай все элементы и намекни на логический порядок
+Для ЗАПОЛНЕНИЯ ПРОПУСКОВ: Прочитай предложение с паузами на местах пропусков, объясни грамматику/контекст
+Для МНОЖЕСТВЕННОГО ВЫБОРА: Прочитай вопрос, затем каждый вариант с буквой
+Для СОРТИРОВКИ: Объясни категории и дай подсказки об отличительных признаках
+Для ПРОГРАММИРОВАНИЯ: Объясни, что должен делать код, не давая решения
+
+ВАЖНО: НЕ раскрывай правильный ответ! Помоги студенту найти его самостоятельно.`,
+
+    uz: `MASHQLAR UCHUN KO'RSATMALAR:
+Bu kontent interaktiv mashqni o'z ichiga oladi. Sizning vazifangiz:
+1. Savolni yoki topshiriqni OVOZ CHIQARIB O'QING, shunda talaba nima qilish kerakligini tushunsin
+2. Agar javob variantlari (A, B, C, D yoki 1, 2, 3, 4) bo'lsa, HAR BIR VARIANTNI aniq O'QING
+3. Tekshirilayotgan tushunchani TUSHUNTIRING - qanday bilim yoki ko'nikma kerak
+4. Javobni oshkor qilmasdan hal qilish uchun MASLAHAT yoki yondashuv bering
+5. Talabani muammo ustida o'ylashga RAG'BATLANTIRING
+
+MOSLASHTIRISH mashqlari uchun: Ikkala ustundagi elementlarni o'qing va bog'lanishlarni qanday topishni tushuntiring
+TARTIBLASH mashqlari uchun: Barcha elementlarni o'qing va mantiqiy tartibga ishora qiling
+BO'SHLIQNI TO'LDIRISH uchun: Gapni bo'shliqlar o'rnida pauza bilan o'qing, grammatika/kontekstni tushuntiring
+KO'P TANLOV uchun: Savolni o'qing, keyin har bir variantni aniq belgilang
+SARALASH uchun: Kategoriyalarni tushuntiring va farqlovchi belgilar haqida maslahat bering
+DASTURLASH uchun: Kod nima qilishi kerakligini tushuntiring, yechimni bermasdan
+
+MUHIM: To'g'ri javobni BERMANG! Talabaga uni o'zi topishiga yordam bering.`
+  };
+
+  return instructions[language] || instructions.en;
+};
+
+/**
+ * Get general voice assistant guidelines by language
+ */
+const getGeneralGuidelines = (language) => {
+  const guidelines = {
+    en: `GUIDELINES:
+- Keep your response conversational and engaging, suitable for speaking aloud
+- Use a warm, encouraging tone
+- Break down complex concepts into simple parts
+- Use analogies or examples when helpful
+- Keep responses concise (2-4 sentences for simple content, more for exercises)
+- End with encouragement or a thought-provoking question when appropriate`,
+
+    ru: `РЕКОМЕНДАЦИИ:
+- Отвечай разговорно и увлекательно, подходяще для произнесения вслух
+- Используй тёплый, ободряющий тон
+- Разбивай сложные концепции на простые части
+- Используй аналогии или примеры, когда это полезно
+- Отвечай кратко (2-4 предложения для простого контента, больше для упражнений)
+- Заканчивай поддержкой или наводящим вопросом, когда уместно`,
+
+    uz: `KO'RSATMALAR:
+- Javoblaringiz suhbatbop va qiziqarli bo'lsin, ovoz chiqarib aytish uchun mos
+- Iliq, rag'batlantiruvchi ohangdan foydalaning
+- Murakkab tushunchalarni oddiy qismlarga ajrating
+- Foydali bo'lganda o'xshatish yoki misollardan foydalaning
+- Javoblarni qisqa tuting (oddiy kontent uchun 2-4 gap, mashqlar uchun ko'proq)
+- Tegishli bo'lganda rag'batlantirish yoki o'ylantiruvchi savol bilan yakunlang`
+  };
+
+  return guidelines[language] || guidelines.en;
+};
+
+/**
+ * Build enhanced system prompt for exercise analysis
+ * Combines base persona with exercise-specific instructions when needed
+ */
+const buildExerciseAwareSystemPrompt = (language, isInteractive, stepType, isFirstStep, stepContext) => {
+  // Base persona prompts by language
+  const basePrompts = {
+    en: `You are Elya, an enthusiastic and supportive educational voice assistant on the ACED platform. Your role is to help students understand lesson content by explaining it clearly and engagingly. Speak naturally as if having a conversation with a student.`,
+    ru: `Ты - Эля, энергичный и поддерживающий голосовой помощник для обучения на платформе ACED. Твоя роль - помочь студентам понять материал урока, объясняя его ясно и увлекательно. Говори естественно, как будто беседуешь со студентом.`,
+    uz: `Siz - Elya, ACED platformasidagi g'ayratli va qo'llab-quvvatlovchi ta'lim ovozli yordamchisiz. Sizning vazifangiz - o'quvchilarga dars materialini aniq va qiziqarli tarzda tushuntirib berish. Talaba bilan suhbatlashayotgandek tabiiy gapiring.`
+  };
+
+  let prompt = basePrompts[language] || basePrompts.en;
+
+  // Add exercise-specific instructions if interactive
+  if (isInteractive) {
+    const exerciseInstructions = getExerciseInstructions(language);
+    prompt += '\n\n' + exerciseInstructions;
+  }
+
+  // Add general guidelines
+  const guidelines = getGeneralGuidelines(language);
+  prompt += '\n\n' + guidelines;
+
+  // Add context info
+  if (stepType) {
+    prompt += `\n\nCurrent step type: ${stepType}`;
+  }
+  if (stepContext) {
+    prompt += `\nContext: ${stepContext}`;
+  }
+
+  // Greeting instruction
+  if (language === 'ru') {
+    prompt += isFirstStep
+      ? '\n\nНАЧИНАЙ объяснение с дружелюбного приветствия.'
+      : '\n\nНЕ используй приветствие, сразу переходи к объяснению.';
+  } else if (language === 'uz') {
+    prompt += isFirstStep
+      ? "\n\nTushuntirishni do'stona salomlashish bilan BOSHLANG."
+      : "\n\nSalomlashishni ishlatMANG, darhol mavzuni tushuntirishga o'ting.";
+  } else {
+    prompt += isFirstStep
+      ? '\n\nSTART your explanation with a friendly greeting.'
+      : '\n\nDo NOT use a greeting, go directly to explaining the topic.';
+  }
+
+  return prompt;
+};
+
+// ============================================
 // COMPREHENSIVE AI CONTEXT BUILDER
 // ============================================
 
@@ -954,6 +1163,14 @@ const analyzeLessonForSpeech = async (req, res) => {
       });
     }
 
+    // Detect if this content includes exercise data
+    const hasExerciseContent = detectExerciseContent(contentToAnalyze);
+
+    // Determine if this is an interactive step (exercise, quiz, matching, etc.)
+    const isInteractive = isInteractiveStepType(stepType) || hasExerciseContent;
+
+    console.log(`📚 [AnalyzeLessonForSpeech] Exercise detection: hasExerciseContent=${hasExerciseContent}, isInteractive=${isInteractive}, stepType=${stepType}`);
+
     // Check AI usage limits
     const usageCheck = await checkAIUsageLimits(userId);
     if (!usageCheck.allowed) {
@@ -1005,17 +1222,23 @@ const analyzeLessonForSpeech = async (req, res) => {
 КОНТЕКСТ:
 - Тип шага: ${stepType || 'explanation'}
 - Контекст: ${stepContext || 'Общее объяснение'}
+- Интерактивное упражнение: ${isInteractive ? 'Да' : 'Нет'}
 - Язык ответа: Русский
-
+${isInteractive ? `
+${getExerciseInstructions('ru')}
+` : ''}
 ИНСТРУКЦИИ:
   - ${isFirstStep ? 'НАЧИНАЙ объяснение с дружелюбного приветствия, например: "Привет! Сегодня мы изучаем [тема]..." или "Привет! Давай разберем [тема]...".' : 'НЕ используй приветствие (Привет, Здравствуйте и т.д.), сразу переходи к объяснению темы.'}
   - НЕ читай текст с экрана.
   - Объясняй глубоко и понятно, приводи интересные примеры или аналогии.
-  - Используй живой, разговорный язык ("кстати", "представь", "смотри").
+  - Используй живой, разговорный язык ("кстати", "представь", "смотри").${isInteractive ? `
+  - Для УПРАЖНЕНИЙ: Прочитай вопрос и варианты ответов вслух, объясни концепцию, дай подсказку БЕЗ раскрытия ответа.` : ''}
   - В КОНЦЕ объяснения ОБЯЗАТЕЛЬНО задай один короткий, интересный вопрос по теме (например: "Как думаешь, почему это важно?" или "Ты когда-нибудь сталкивался с таким?").
   - Если ты видишь, что студент всё понял или тема исчерпана, предложи перейти к следующему шагу (например: "Если ты готов, давай двигаться дальше!").
   - Весь текст (объяснение + вопрос) должен быть в пределах 5-7 содержательных предложений. Будь информативным, но не затягивай.
 - 'highlights': Извлеки 1-4 короткие фразы (2-5 слов) из контента, которые представляют ключевые понятия. Они ДОЛЖНЫ ТОЧНО совпадать с исходным текстом.
+
+${getGeneralGuidelines('ru')}
 
 ФОРМАТ ОТВЕТА (ТОЛЬКО JSON):
 {
@@ -1034,17 +1257,23 @@ Dars mazmunini tahlil qiling va ikkita element yarating:
 KONTEKST:
 - Qadam turi: ${stepType || 'explanation'}
 - Kontekst: ${stepContext || 'Umumiy tushuntirish'}
+- Interaktiv mashq: ${isInteractive ? 'Ha' : 'Yo\'q'}
 - Javob tili: O'zbek
-
+${isInteractive ? `
+${getExerciseInstructions('uz')}
+` : ''}
 KO'RSATMALAR:
   - ${isFirstStep ? 'Tushuntirishni do\'stona salomlashish bilan BOSHLANG, masalan: "Salom! Bugun biz [mavzu]ni o\'rganamiz..." yoki "Salom! Keling, [mavzu]ni ko\'rib chiqamiz...".' : 'Salomlashishni ishlatMANG (Salom, Assalomu alaykum va h.k.), darhol mavzuni tushuntirishga o\'ting.'}
   - Ekrandagi matnni o'qiMANG.
   - Chuqur va tushunarli tushuntiring, qiziqarli misollar yoki o'xshatishlar keltiring.
-  - Jonli, suhbatli tildan foydalaning ("aytgancha", "tasavvur qiling", "qarang").
+  - Jonli, suhbatli tildan foydalaning ("aytgancha", "tasavvur qiling", "qarang").${isInteractive ? `
+  - MASHQLAR uchun: Savolni va javob variantlarini ovoz chiqarib o'qing, tushunchani tushuntiring, javobni OSHKOR QILMASDAN maslahat bering.` : ''}
   - Tushuntirish OXIRIDA mavzu bo'yicha bitta qisqa, qiziqarli savol bering (masalan: "Sizningcha, bu nima uchun muhim?" yoki "Siz bunday holatga duch kelganmisiz?").
   - Agar o'quvchi hamma narsani tushunganini ko'rsangiz, keyingi qadamga o'tishni taklif qiling (masalan: "Agar tayyor bo'lsangiz, davom etamiz!").
   - Butun matn (tushuntirish + savol) 5-7 mazmunli gap ichida bo'lishi kerak. Ma'lumotli bo'ling, lekin cho'zMANG.
 - 'highlights': Kontentdan asosiy tushunchalarni ifodalovchi 1-4 qisqa iboralarni (2-5 so'z) ajratib oling. Ular asl matn bilan AYNAN mos kelishi KERAK.
+
+${getGeneralGuidelines('uz')}
 
 JAVOB FORMATI (FAQAT JSON):
 {
@@ -1063,17 +1292,23 @@ Analyze the lesson content and generate two elements:
 CONTEXT:
 - Step type: ${stepType || 'explanation'}
 - Context: ${stepContext || 'General explanation'}
+- Interactive exercise: ${isInteractive ? 'Yes' : 'No'}
 - Response language: English
-
+${isInteractive ? `
+${getExerciseInstructions('en')}
+` : ''}
 INSTRUCTIONS:
   - ${isFirstStep ? 'START the explanation with a friendly greeting, for example: "Hi! Today we\'re learning about [topic]..." or "Hey! Let\'s take a look at [topic]...".' : 'Do NOT use a greeting (Hi, Hello, etc.), go directly to explaining the topic.'}
   - Do NOT read the text from the screen.
   - Explain deeply and clearly, provide interesting examples or analogies.
-  - Use lively, conversational language ("by the way", "imagine", "look").
+  - Use lively, conversational language ("by the way", "imagine", "look").${isInteractive ? `
+  - For EXERCISES: Read the question and answer options aloud, explain the concept, give a hint WITHOUT revealing the answer.` : ''}
   - At the END of the explanation, ALWAYS ask one short, interesting question about the topic (for example: "What do you think, why is this important?" or "Have you ever encountered something like this?").
   - If you see that the student has understood everything or the topic is exhausted, offer to move to the next step (for example: "If you're ready, let's move on!").
   - The entire text (explanation + question) should be within 5-7 meaningful sentences. Be informative, but don't drag on.
 - 'highlights': Extract 1-4 short phrases (2-5 words) from the content that represent key concepts. They MUST EXACTLY match the original text.
+
+${getGeneralGuidelines('en')}
 
 RESPONSE FORMAT (JSON ONLY):
 {
@@ -1119,7 +1354,9 @@ RESPONSE FORMAT (JSON ONLY):
       success: true,
       data: {
         explanation: result.explanation || '',
-        highlights: result.highlights || []
+        highlights: result.highlights || [],
+        isInteractive: isInteractive,
+        exerciseDetected: hasExerciseContent
       },
       usage: {
         remaining: updatedUsageCheck.remaining,
@@ -2316,5 +2553,11 @@ module.exports = {
   updateUserAIPlan,
   getLessonChatHistory,
   clearLessonChatHistory,
-  getUserLearningStats
+  getUserLearningStats,
+  // Export helpers for testing
+  detectExerciseContent,
+  isInteractiveStepType,
+  getExerciseInstructions,
+  getGeneralGuidelines,
+  buildExerciseAwareSystemPrompt
 };
