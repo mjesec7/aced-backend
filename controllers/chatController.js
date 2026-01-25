@@ -803,9 +803,23 @@ const buildComprehensiveAIContext = async (userId, lessonContext, userProgress, 
       }
     }
 
-    // Extract exercise details from raw step if not provided via stepContext.exerciseData
-    // This is the key RAG feature: auto-fetch exercise content
-    if (fullLesson.rawSteps && fullLesson.rawSteps[currentStepIndex]) {
+    // PRIORITY 1: Use frontend-provided exercise content if available
+    // This is the most reliable source as frontend has direct access to the step data
+    if (stepContext?.exerciseContent && typeof stepContext.exerciseContent === 'string') {
+      console.log('📝 [AI Context] Using frontend-provided exerciseContent');
+      fullContext += `\n🎯 EXERCISE CONTENT (from frontend):\n${stepContext.exerciseContent}\n`;
+
+      // Also set extractedExercise flag so the system knows we have exercise data
+      extractedExercise = {
+        exercise: {
+          type: 'from-frontend',
+          rawContent: stepContext.exerciseContent
+        }
+      };
+    }
+    // PRIORITY 2: Extract exercise details from raw step if not provided via stepContext
+    // This is the fallback RAG feature: auto-fetch exercise content from database
+    else if (fullLesson.rawSteps && fullLesson.rawSteps[currentStepIndex]) {
       extractedExercise = extractExerciseDetailsFromStep(
         fullLesson.rawSteps[currentStepIndex],
         exerciseIndex,
@@ -2347,59 +2361,73 @@ ${t.statsHeader}
 ${t.useStats}`;
   }
 
-  // Build exercise context - PRIORITIZE BACKEND DATA as it's more reliable
+  // Build exercise context
+  // PRIORITY 1: Use frontend-provided exerciseContent (string) if available
+  // PRIORITY 2: Use backendExtractedExercise or stepContext.exerciseData
   let exerciseContext = '';
-  const ex = backendExtractedExercise || stepContext?.exerciseData;
 
-  if (ex) {
+  if (stepContext?.exerciseContent && typeof stepContext.exerciseContent === 'string') {
+    // Frontend provided raw exercise content - use it directly
+    console.log('📝 [buildLessonSystemPrompt] Using frontend-provided exerciseContent');
     exerciseContext = `
+${t.exerciseHeader}
+${stepContext.exerciseContent}
+
+${t.exerciseRules}`;
+  } else {
+    // Fallback to backend extracted exercise or stepContext.exerciseData
+    const ex = backendExtractedExercise || stepContext?.exerciseData;
+
+    if (ex) {
+      exerciseContext = `
 ${t.exerciseHeader}
 - ${t.type}: ${ex.type || 'unknown'}
 - ${t.question}: ${ex.question || ex.prompt || t.notSpecified}`;
 
-    // Add options for multiple choice / true-false
-    if (ex.options && ex.options.length > 0) {
-      const optionsList = ex.options.map((opt, i) => {
-        const letter = String.fromCharCode(65 + i); // A, B, C, D...
-        const optText = typeof opt === 'string' ? opt : (opt.text || opt.label || opt);
-        return `${letter}) ${optText}`;
-      }).join(', ');
-      exerciseContext += `
+      // Add options for multiple choice / true-false
+      if (ex.options && ex.options.length > 0) {
+        const optionsList = ex.options.map((opt, i) => {
+          const letter = String.fromCharCode(65 + i); // A, B, C, D...
+          const optText = typeof opt === 'string' ? opt : (opt.text || opt.label || opt);
+          return `${letter}) ${optText}`;
+        }).join(', ');
+        exerciseContext += `
 - ${t.answerOptions}: ${optionsList}`;
-    }
+      }
 
-    // Add pairs for matching exercises
-    if (ex.pairs && ex.pairs.length > 0) {
-      const pairNames = ex.pairs.map(p => {
-        const left = p.left || p.term || p.name;
-        const right = p.right || p.definition || p.match;
-        return `${left} ↔ ${right}`;
-      }).join(', ');
-      exerciseContext += `
+      // Add pairs for matching exercises
+      if (ex.pairs && ex.pairs.length > 0) {
+        const pairNames = ex.pairs.map(p => {
+          const left = p.left || p.term || p.name;
+          const right = p.right || p.definition || p.match;
+          return `${left} ↔ ${right}`;
+        }).join(', ');
+        exerciseContext += `
 - ${t.matchingElements}: ${pairNames}`;
-    }
+      }
 
-    // Add items for sentence_order exercises
-    if (ex.items && ex.items.length > 0) {
-      exerciseContext += `
+      // Add items for sentence_order exercises
+      if (ex.items && ex.items.length > 0) {
+        exerciseContext += `
 - ${t.orderingElements}: ${ex.items.join(', ')}`;
-    }
+      }
 
-    // Add bins/categories for sorting
-    if (ex.bins && ex.bins.length > 0) {
-      exerciseContext += `
+      // Add bins/categories for sorting
+      if (ex.bins && ex.bins.length > 0) {
+        exerciseContext += `
 - ${t.sortingCategories}: ${ex.bins.join(', ')}`;
-    }
+      }
 
-    // Exercise step info
-    if (stepContext?.exerciseIndex !== undefined && stepContext?.totalExercises) {
-      exerciseContext += `
+      // Exercise step info
+      if (stepContext?.exerciseIndex !== undefined && stepContext?.totalExercises) {
+        exerciseContext += `
 - ${t.exerciseOf} ${stepContext.exerciseIndex + 1} ${t.of} ${stepContext.totalExercises}`;
-    }
+      }
 
-    exerciseContext += `
+      exerciseContext += `
 
 ${t.exerciseRules}`;
+    }
   }
 
   // Build language enforcement instruction
