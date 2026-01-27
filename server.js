@@ -270,6 +270,12 @@ mountRoute('/api/homeworks', './routes/homeworkRoutes', 'Homework routes');
 mountRoute('/api/tests', './routes/testRoutes', 'Test routes');
 
 // ========================================
+// RATINGS ROUTES
+// ========================================
+
+mountRoute('/api/ratings', './routes/ratingRoutes', 'Rating routes');
+
+// ========================================
 // COMMUNICATION ROUTES (UPDATED FOR VOICE)
 // ========================================
 
