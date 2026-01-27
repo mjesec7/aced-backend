@@ -1,0 +1,45 @@
+{
+  "name": "aced-backend",
+  "version": "1.0.0",
+  "description": "ACED backend with frontend build in /dist",
+  "main": "server.js",
+  "scripts": {
+    "dev": "nodemon server.js",
+    "start": "node server.js",
+    "fetch:harvard": "node scripts/fetchHarvardWithPuppeteer.js",
+    "seed:questions": "node scripts/seedQuestions.js",
+    "test:placement": "node scripts/testPlacementTest.js",
+    "deploy:placement": "node scripts/seedQuestions.js && node scripts/testPlacementTest.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@elevenlabs/elevenlabs-js": "^2.30.0",
+    "axios": "^1.9.0",
+    "cheerio": "^1.0.0",
+    "compression": "^1.8.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-basic-auth": "^1.2.1",
+    "express-rate-limit": "^8.2.1",
+    "firebase-admin": "^13.2.0",
+    "helmet": "^8.1.0",
+    "html-pdf": "^3.0.1",
+    "mongodb": "4.0",
+    "mongoose": "^8.12.1",
+    "multer": "^2.0.2",
+    "nodemailer": "^6.10.1",
+    "openai": "^5.13.1",
+    "pdfkit": "^0.17.1",
+    "puppeteer": "^24.6.0",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
