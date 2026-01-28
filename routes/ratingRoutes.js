@@ -19,6 +19,18 @@ function isValidObjectId(id) {
 }
 
 /**
+ * GET /api/ratings/lesson
+ * This endpoint only accepts POST requests - GET is not supported
+ */
+router.get('/lesson', (req, res) => {
+  res.status(405).json({
+    success: false,
+    error: 'Method not allowed. Use POST to submit lesson ratings',
+    hint: 'This endpoint only accepts POST requests with lessonId, courseId, rating, and optional feedback'
+  });
+});
+
+/**
  * POST /api/ratings/lesson
  * Submit a lesson rating (creates or updates)
  */
