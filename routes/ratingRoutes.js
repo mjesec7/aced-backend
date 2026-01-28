@@ -36,14 +36,18 @@ router.get('/lesson', (req, res) => {
  */
 router.post('/lesson', verifyToken, async (req, res) => {
   try {
-    const { lessonId, courseId, rating, feedback } = req.body;
+    const { lessonId, courseId, topicId, rating, feedback } = req.body;
     const userId = req.firebaseId;
 
+    // Use topicId as fallback if courseId is not provided
+    // Lessons may not have a course but always have a topic
+    const effectiveCourseId = courseId || topicId;
+
     // Validation
-    if (!courseId) {
+    if (!effectiveCourseId) {
       return res.status(400).json({
         success: false,
-        error: 'Course ID is required'
+        error: 'Course ID or Topic ID is required'
       });
     }
 
@@ -54,12 +58,12 @@ router.post('/lesson', verifyToken, async (req, res) => {
       });
     }
 
-    // Upsert rating (one rating per user per course)
+    // Upsert rating (one rating per user per course/topic)
     const existingRating = await Rating.findOneAndUpdate(
-      { courseId, userId },
+      { courseId: effectiveCourseId, userId },
       {
         lessonId: lessonId || null,
-        courseId,
+        courseId: effectiveCourseId,
         userId,
         rating,
         feedback: feedback || null,
