@@ -116,17 +116,17 @@ function standardizeVocabularyItem(vocab) {
 // Handles: string, {en, ru, uz} object, or nested structures
 function getLocalizedText(value, lang = 'en') {
   if (!value) return '';
-  
+
   // Already a string
   if (typeof value === 'string') return value;
-  
+
   // Object with language keys
   if (typeof value === 'object' && value !== null) {
     // Try requested language first, then fallbacks
-    return value[lang] || value.en || value.ru || value.uz || 
-           Object.values(value).find(v => typeof v === 'string' && v.trim()) || '';
+    return value[lang] || value.en || value.ru || value.uz ||
+      Object.values(value).find(v => typeof v === 'string' && v.trim()) || '';
   }
-  
+
   return String(value || '');
 }
 
@@ -229,7 +229,7 @@ function processStepForFrontend(step, index) {
   // ✅ Handle exercise steps
   if (step.type === 'exercise' && !step.gameType) {
     console.log(`  ↳ Exercise step`);
-    
+
     if (Array.isArray(step.data) && step.data.length > 0) {
       console.log(`    Found ${step.data.length} exercises in data array`);
     } else if (step.data?.exercises && Array.isArray(step.data.exercises)) {
@@ -2119,16 +2119,23 @@ router.get('/:id', validateObjectId, async (req, res) => {
     }
 
     const lessonId = req.params.id;
-    const lesson = await Lesson.findById(lessonId)
-      .populate('topicId', 'name description subject level')
-      .lean();
 
-    if (!lesson) {
+    // First, get the raw lesson to preserve the original topicId (before population)
+    const rawLesson = await Lesson.findById(lessonId).lean();
+    if (!rawLesson) {
       return res.status(404).json({
         success: false,
         error: '❌ Lesson not found'
       });
     }
+
+    // Store the original topicId before it gets replaced by population
+    const originalTopicId = rawLesson.topicId;
+
+    // Now get the lesson with population for topic details
+    const lesson = await Lesson.findById(lessonId)
+      .populate('topicId', 'name description subject level')
+      .lean();
 
     // ✅ CRITICAL FIX: Process steps with multilingual support using new helper function
     if (lesson.steps && Array.isArray(lesson.steps)) {
@@ -2144,10 +2151,23 @@ router.get('/:id', validateObjectId, async (req, res) => {
 
     console.log('✅ Lesson retrieved with', lesson.steps?.length, 'steps');
 
+    // ✅ CRITICAL FIX: Preserve the original topicId in the response
+    // If population resulted in null (topic doesn't exist), restore the original ObjectId
+    // This ensures the frontend always has access to the topicId for ratings, etc.
+    const preservedTopicId = lesson.topicId || originalTopicId;
+
     res.json({
       success: true,
-      lesson,
-      topic: lesson.topicId,
+      lesson: {
+        ...lesson,
+        // Ensure topicId is always available (as original ObjectId string if not populated)
+        topicId: preservedTopicId,
+        // Also include the original as a separate field for clients that need it
+        _originalTopicId: originalTopicId ? String(originalTopicId) : null
+      },
+      topic: lesson.topicId, // This is the populated topic (or null)
+      // Include originalTopicId at top level for easy access
+      originalTopicId: originalTopicId ? String(originalTopicId) : null,
       stats: {
         totalSteps: lesson.steps?.length || 0,
         homeworkExercises: lesson.homework?.totalExercises || 0,
