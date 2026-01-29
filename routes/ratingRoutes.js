@@ -32,7 +32,7 @@ router.get('/lesson', (req, res) => {
 
 /**
  * POST /api/ratings/lesson
- * Submit a lesson rating (creates or updates)
+ * Submit a lesson rating (creates only - cannot update after first rating)
  */
 router.post('/lesson', verifyToken, async (req, res) => {
   try {
@@ -58,23 +58,33 @@ router.post('/lesson', verifyToken, async (req, res) => {
       });
     }
 
-    // Upsert rating (one rating per user per course/topic)
-    const existingRating = await Rating.findOneAndUpdate(
-      { courseId: effectiveCourseId, userId },
-      {
-        lessonId: lessonId || null,
-        courseId: effectiveCourseId,
-        userId,
-        rating,
-        feedback: feedback || null,
-        updatedAt: new Date()
-      },
-      { new: true, upsert: true, setDefaultsOnInsert: true }
-    );
+    // ✅ Check if user already rated this course/topic
+    const existingRating = await Rating.findOne({ courseId: effectiveCourseId, userId });
+
+    if (existingRating) {
+      return res.status(409).json({
+        success: false,
+        error: 'You have already rated this course',
+        message: 'Ratings cannot be changed once submitted',
+        existingRating: {
+          rating: existingRating.rating,
+          ratedAt: existingRating.createdAt
+        }
+      });
+    }
+
+    // Create new rating
+    const newRating = await Rating.create({
+      lessonId: lessonId || null,
+      courseId: effectiveCourseId,
+      userId,
+      rating,
+      feedback: feedback || null
+    });
 
     res.status(201).json({
       success: true,
-      data: existingRating
+      data: newRating
     });
   } catch (error) {
     console.error('❌ Error submitting lesson rating:', error);
@@ -88,7 +98,7 @@ router.post('/lesson', verifyToken, async (req, res) => {
 
 /**
  * POST /api/ratings/course
- * Submit a course rating (creates or updates)
+ * Submit a course rating (creates only - cannot update after first rating)
  */
 router.post('/course', verifyToken, async (req, res) => {
   try {
@@ -110,22 +120,32 @@ router.post('/course', verifyToken, async (req, res) => {
       });
     }
 
-    // Upsert rating (one rating per user per course)
-    const existingRating = await Rating.findOneAndUpdate(
-      { courseId, userId },
-      {
-        courseId,
-        userId,
-        rating,
-        feedback: feedback || null,
-        updatedAt: new Date()
-      },
-      { new: true, upsert: true, setDefaultsOnInsert: true }
-    );
+    // ✅ Check if user already rated this course
+    const existingRating = await Rating.findOne({ courseId, userId });
+
+    if (existingRating) {
+      return res.status(409).json({
+        success: false,
+        error: 'You have already rated this course',
+        message: 'Ratings cannot be changed once submitted',
+        existingRating: {
+          rating: existingRating.rating,
+          ratedAt: existingRating.createdAt
+        }
+      });
+    }
+
+    // Create new rating
+    const newRating = await Rating.create({
+      courseId,
+      userId,
+      rating,
+      feedback: feedback || null
+    });
 
     res.status(201).json({
       success: true,
-      data: existingRating
+      data: newRating
     });
   } catch (error) {
     console.error('❌ Error submitting course rating:', error);
