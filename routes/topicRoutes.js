@@ -69,11 +69,23 @@ router.get('/grouped', logRequest, async (req, res) => {
     }
 
     // Get all active lessons (not topics!)
-    const lessons = await Lesson.find({ isActive: true })
+    let lessons = await Lesson.find({ isActive: true })
       .sort({ subject: 1, level: 1, createdAt: 1 })
       .lean();
 
     console.log(`✅ Found ${lessons.length} active lessons`);
+
+    // ✅ DIAGNOSTIC: If no active lessons found, check total count
+    if (lessons.length === 0) {
+      const totalLessons = await Lesson.countDocuments({});
+      const inactiveLessons = await Lesson.countDocuments({ isActive: false });
+      console.warn(`⚠️ No active lessons found! Total lessons in DB: ${totalLessons}, Inactive: ${inactiveLessons}`);
+
+      // If there are lessons but all are inactive, return helpful message
+      if (totalLessons > 0) {
+        console.warn('⚠️ All lessons have isActive: false - consider activating some lessons');
+      }
+    }
 
     // Group lessons by topic to create topic cards
     const topicsMap = new Map();
@@ -185,11 +197,23 @@ router.get('/as-courses', logRequest, async (req, res) => {
     if (level) filter.level = parseInt(level);
 
     // Get all matching lessons
-    const lessons = await Lesson.find(filter)
+    let lessons = await Lesson.find(filter)
       .sort({ createdAt: -1 })
       .lean();
 
     console.log(`✅ Found ${lessons.length} lessons matching filters`);
+
+    // ✅ DIAGNOSTIC: If no lessons found, check total count
+    if (lessons.length === 0) {
+      const totalLessons = await Lesson.countDocuments({});
+      const activeLessons = await Lesson.countDocuments({ isActive: true });
+      console.warn(`⚠️ No lessons matching filter! Total in DB: ${totalLessons}, Active: ${activeLessons}`);
+      console.warn(`⚠️ Applied filter:`, JSON.stringify(filter));
+
+      if (totalLessons > 0 && activeLessons === 0) {
+        console.warn('⚠️ All lessons have isActive: false - consider activating some lessons');
+      }
+    }
 
     // Group lessons by topic to create course cards
     const topicsMap = new Map();
