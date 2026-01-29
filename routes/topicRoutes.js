@@ -58,6 +58,16 @@ router.get('/grouped', logRequest, async (req, res) => {
       });
     }
 
+    // ✅ Validate Lesson model availability
+    if (!Lesson) {
+      console.error('❌ Lesson model not available');
+      return res.status(500).json({
+        success: false,
+        error: 'Lesson model not initialized',
+        message: 'Internal server error: Models not loaded'
+      });
+    }
+
     // Get all active lessons (not topics!)
     const lessons = await Lesson.find({ isActive: true })
       .sort({ subject: 1, level: 1, createdAt: 1 })
@@ -73,16 +83,6 @@ router.get('/grouped', logRequest, async (req, res) => {
 
       // Extract topic name from various possible fields
       const topicName = lesson.topicName || lesson.topic || lesson.lessonName || 'Untitled Topic';
-
-      if (index < 3) {
-        console.log(`📝 Lesson ${index}:`, {
-          lessonName: lesson.lessonName,
-          topicName: lesson.topicName,
-          topic: lesson.topic,
-          topicId: topicId,
-          extractedName: topicName
-        });
-      }
 
       if (!topicsMap.has(topicId)) {
         topicsMap.set(topicId, {
@@ -169,6 +169,16 @@ router.get('/as-courses', logRequest, async (req, res) => {
       });
     }
 
+    // ✅ Validate Lesson model availability
+    if (!Lesson) {
+      console.error('❌ Lesson model not available');
+      return res.status(500).json({
+        success: false,
+        error: 'Lesson model not initialized',
+        message: 'Internal server error: Models not loaded'
+      });
+    }
+
     // Build filter for lessons
     const filter = { isActive: true };
     if (subject) filter.subject = subject;
@@ -189,16 +199,6 @@ router.get('/as-courses', logRequest, async (req, res) => {
 
       // Extract topic name from various possible fields
       const topicName = lesson.topicName || lesson.topic || lesson.lessonName || 'Untitled Topic';
-
-      if (index < 3) {
-        console.log(`🎓 Study Centre Lesson ${index}:`, {
-          lessonName: lesson.lessonName,
-          topicName: lesson.topicName,
-          topic: lesson.topic,
-          topicId: topicId,
-          extractedName: topicName
-        });
-      }
 
       if (!topicsMap.has(topicId)) {
         topicsMap.set(topicId, {
