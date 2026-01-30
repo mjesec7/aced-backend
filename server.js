@@ -292,6 +292,13 @@ mountRoute('/api/email', './routes/emailRoutes', 'Email routes');
 mountRoute('/api/elevenlabs', './routes/elevenlabsRoutes', 'ElevenLabs Voice AI routes (Lexi)');
 
 // ========================================
+// 🎤 VOICE ANSWER VERIFICATION ROUTES
+// ========================================
+
+// Voice Answer: Verify spoken answers against correct answers
+mountRoute('/api/voice', './routes/voiceRoutes', 'Voice Answer Verification routes');
+
+// ========================================
 // INBOX/MESSAGES ROUTES
 // ========================================
 

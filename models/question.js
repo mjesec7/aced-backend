@@ -21,11 +21,18 @@ const questionSchema = new mongoose.Schema({
         index: true
     },
 
-    // Question Type: multiple-choice, fill-in-blank, true-false, matching
+    // Question Type: multiple-choice, fill-in-blank, true-false, matching, voice-answer, voice-spelling
     questionType: {
         type: String,
         required: true,
-        enum: ['multiple-choice', 'fill-in-blank', 'true-false', 'matching'],
+        enum: [
+            'multiple-choice',
+            'fill-in-blank',
+            'true-false',
+            'matching',
+            'voice-answer',     // User speaks the answer (e.g., "What is the powerhouse of the cell?" -> "Mitochondria")
+            'voice-spelling'    // User spells out the word (e.g., "Spell: Biology" -> "B-I-O-L-O-G-Y")
+        ],
         default: 'multiple-choice',
         index: true
     },
@@ -73,10 +80,11 @@ const questionSchema = new mongoose.Schema({
     },
 
     // For multiple-choice and true-false (index of correct option)
+    // For voice-answer and voice-spelling (string of expected answer)
     correctAnswer: {
         type: mongoose.Schema.Types.Mixed,
         required: function() {
-            return ['multiple-choice', 'true-false'].includes(this.questionType);
+            return ['multiple-choice', 'true-false', 'voice-answer', 'voice-spelling'].includes(this.questionType);
         },
         validate: {
             validator: function(v) {
@@ -89,10 +97,28 @@ const questionSchema = new mongoose.Schema({
                 if (this.questionType === 'matching') {
                     return Array.isArray(v);
                 }
+                if (this.questionType === 'voice-answer' || this.questionType === 'voice-spelling') {
+                    // Voice answers must be strings
+                    return typeof v === 'string' && v.trim().length > 0;
+                }
                 return true;
             },
             message: 'Invalid correct answer for question type'
         }
+    },
+
+    // For voice-answer: similarity threshold (0-1) for fuzzy matching
+    voiceSimilarityThreshold: {
+        type: Number,
+        default: 0.85,
+        min: 0.5,
+        max: 1.0
+    },
+
+    // For voice-spelling: whether to require exact letter-by-letter spelling
+    requireExactSpelling: {
+        type: Boolean,
+        default: false
     },
 
     // For fill-in-blank: accepted answers (case-insensitive matching)
@@ -180,7 +206,7 @@ questionSchema.index({ subject: 1, level: 1, isActive: 1 });
 questionSchema.index({ subject: 1, questionType: 1, isActive: 1 });
 
 // Method to validate answer based on question type
-questionSchema.methods.validateAnswer = function(userAnswer) {
+questionSchema.methods.validateAnswer = function(userAnswer, similarity = null) {
     switch (this.questionType) {
         case 'multiple-choice':
         case 'true-false':
@@ -200,6 +226,30 @@ questionSchema.methods.validateAnswer = function(userAnswer) {
             return userAnswer.every((rightIndex, leftIndex) =>
                 this.matchingPairs[leftIndex].right === this.matchingPairs[rightIndex].right
             );
+
+        case 'voice-answer':
+            // For voice answers, use similarity score if provided
+            if (similarity !== null) {
+                return similarity >= (this.voiceSimilarityThreshold || 0.85);
+            }
+            // Fallback to simple string comparison
+            if (!userAnswer || typeof userAnswer !== 'string') return false;
+            return userAnswer.trim().toLowerCase() === this.correctAnswer.trim().toLowerCase();
+
+        case 'voice-spelling':
+            // For spelling, compare letter by letter (more strict)
+            if (!userAnswer || typeof userAnswer !== 'string') return false;
+            const userSpelling = userAnswer.replace(/[^a-zA-Z]/g, '').toLowerCase();
+            const correctSpelling = this.correctAnswer.replace(/[^a-zA-Z]/g, '').toLowerCase();
+
+            if (this.requireExactSpelling) {
+                return userSpelling === correctSpelling;
+            }
+            // Allow similarity-based matching for spelling too
+            if (similarity !== null) {
+                return similarity >= (this.voiceSimilarityThreshold || 0.90);
+            }
+            return userSpelling === correctSpelling;
 
         default:
             return false;

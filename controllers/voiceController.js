@@ -6,6 +6,9 @@ const { ElevenLabsClient } = require("@elevenlabs/elevenlabs-js");
 const { extractExerciseContent, buildVoiceAssistantContext } = require('../utils/exerciseContentExtractor');
 require('dotenv').config();
 
+// String similarity using Levenshtein distance
+const stringSimilarity = require('string-similarity');  // You may need to install this package
+
 // Initialize OpenAI client
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -456,3 +459,168 @@ IMPORTANT GUIDELINES:
     res.status(500).json({ error: "Failed to process voice query", details: error.message });
   }
 };
+
+// ============================================
+// VERIFY VOICE ANSWER - Compare spoken answer to correct answer
+// ============================================
+
+/**
+ * Verifies a voice answer against the expected correct answer using fuzzy matching.
+ * This accounts for speech-to-text inaccuracies by using similarity scoring.
+ */
+exports.verifyVoiceAnswer = async (req, res) => {
+  try {
+    const { transcript, correctAnswer, language = 'en', threshold = 0.85 } = req.body;
+
+    if (!transcript || !correctAnswer) {
+      return res.status(400).json({
+        success: false,
+        error: 'Both transcript and correctAnswer are required'
+      });
+    }
+
+    console.log('🎤 [Voice Verify] Comparing:', {
+      transcript: transcript.substring(0, 50),
+      correctAnswer: correctAnswer.substring(0, 50),
+      threshold
+    });
+
+    // Normalize both strings for comparison
+    const normalizedTranscript = normalizeForComparison(transcript, language);
+    const normalizedCorrect = normalizeForComparison(correctAnswer, language);
+
+    // Calculate similarity
+    let similarity;
+    try {
+      // Try using string-similarity package if available
+      similarity = stringSimilarity.compareTwoStrings(normalizedTranscript, normalizedCorrect);
+    } catch (e) {
+      // Fallback to built-in Levenshtein distance calculation
+      similarity = calculateSimilarity(normalizedTranscript, normalizedCorrect);
+    }
+
+    const correct = similarity >= threshold;
+
+    // Generate helpful feedback
+    let feedback = '';
+    if (correct) {
+      feedback = getFeedbackMessage('correct', language);
+    } else if (similarity >= 0.6) {
+      feedback = getFeedbackMessage('close', language);
+    } else {
+      feedback = getFeedbackMessage('incorrect', language);
+    }
+
+    console.log('🎤 [Voice Verify] Result:', { similarity, correct, threshold });
+
+    res.json({
+      success: true,
+      correct,
+      similarity,
+      feedback,
+      normalizedTranscript,
+      normalizedCorrect
+    });
+
+  } catch (error) {
+    console.error('Voice Verify Error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to verify voice answer',
+      details: error.message
+    });
+  }
+};
+
+/**
+ * Normalize text for comparison:
+ * - Lowercase
+ * - Remove punctuation
+ * - Normalize whitespace
+ * - Handle language-specific normalizations
+ */
+function normalizeForComparison(text, language = 'en') {
+  if (!text) return '';
+
+  let normalized = text
+    .toLowerCase()
+    .trim()
+    // Remove common punctuation
+    .replace(/[.,!?;:'"()\[\]{}]/g, '')
+    // Normalize whitespace
+    .replace(/\s+/g, ' ')
+    // Remove leading/trailing spaces
+    .trim();
+
+  // Language-specific normalizations
+  if (language === 'en') {
+    // Handle common speech-to-text variations
+    normalized = normalized
+      .replace(/\bthe\b/g, '') // Articles often missed/added
+      .replace(/\ba\b/g, '')
+      .replace(/\ban\b/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  return normalized;
+}
+
+/**
+ * Calculate string similarity using Levenshtein distance
+ * Returns a value between 0 and 1
+ */
+function calculateSimilarity(str1, str2) {
+  if (str1 === str2) return 1;
+  if (!str1 || !str2) return 0;
+
+  const len1 = str1.length;
+  const len2 = str2.length;
+
+  // Create distance matrix
+  const matrix = Array(len2 + 1).fill(null).map(() => Array(len1 + 1).fill(null));
+
+  for (let i = 0; i <= len1; i++) matrix[0][i] = i;
+  for (let j = 0; j <= len2; j++) matrix[j][0] = j;
+
+  for (let j = 1; j <= len2; j++) {
+    for (let i = 1; i <= len1; i++) {
+      const indicator = str1[i - 1] === str2[j - 1] ? 0 : 1;
+      matrix[j][i] = Math.min(
+        matrix[j][i - 1] + 1,     // deletion
+        matrix[j - 1][i] + 1,     // insertion
+        matrix[j - 1][i - 1] + indicator // substitution
+      );
+    }
+  }
+
+  const distance = matrix[len2][len1];
+  const maxLen = Math.max(len1, len2);
+
+  return 1 - (distance / maxLen);
+}
+
+/**
+ * Get localized feedback messages
+ */
+function getFeedbackMessage(type, language = 'en') {
+  const messages = {
+    en: {
+      correct: 'Correct! Well done!',
+      close: 'Almost there! Try saying it more clearly.',
+      incorrect: 'Not quite right. Try again!'
+    },
+    ru: {
+      correct: 'Правильно! Отлично!',
+      close: 'Почти! Попробуй сказать четче.',
+      incorrect: 'Не совсем верно. Попробуй еще раз!'
+    },
+    uz: {
+      correct: "To'g'ri! Zo'r!",
+      close: "Deyarli! Aniqroq aytib ko'ring.",
+      incorrect: "Noto'g'ri. Qaytadan urinib ko'ring!"
+    }
+  };
+
+  return messages[language]?.[type] || messages.en[type];
+}
