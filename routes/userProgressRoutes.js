@@ -4,7 +4,6 @@ const router = express.Router();
 // routes/userProgressRoutes.js - Add this right after const router = express.Router();
 // TEST ROUTE - Add this first to verify the router is working
 router.get('/test', (req, res) => {
-  console.log('✅ UserProgress router test route hit');
   res.json({
     success: true,
     message: 'UserProgress router is working',
@@ -14,7 +13,6 @@ router.get('/test', (req, res) => {
 
 // TEST ROUTE FOR NESTED PATHS
 router.get('/learning-profile/test', (req, res) => {
-  console.log('✅ Learning profile test route hit');
   res.json({
     success: true,
     message: 'Learning profile routes are accessible',

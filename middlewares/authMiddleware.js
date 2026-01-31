@@ -26,7 +26,6 @@ const authenticateUser = async (req, res, next) => {
     const isPublicPath = publicPaths.some(path => req.path === path || req.path.startsWith(path));
     
     if (isPublicPath) {
-      console.log(`✅ Public path accessed: ${req.path} - Skipping auth`);
       return next(); // Skip authentication for public paths
     }
 

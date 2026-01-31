@@ -376,14 +376,6 @@ const extractExerciseDetailsFromStep = (step, exerciseIndex = 0, language = 'en'
   const ex = getExerciseData();
   const exType = ex?.type || stepType;
 
-  // DEBUG: Log extraction attempt
-  console.log('   🧩 [AI Context] Extracting exercise details:');
-  console.log('      - Step Type:', stepType);
-  console.log('      - Exercise Type:', exType);
-  console.log('      - Has Content:', !!content);
-  console.log('      - Has Exercises Array:', !!content.exercises);
-  console.log('      - Exercise Index:', exerciseIndex);
-
   // Universal exercise data extraction based on type
   switch (exType) {
     // ============================================
@@ -761,21 +753,8 @@ const buildComprehensiveAIContext = async (userId, lessonContext, userProgress, 
   let fullContext = '';
   let extractedExercise = null;
 
-  // DEBUG: Log input parameters
-  console.log('🔍 [AI Context] Building context with:');
-  console.log('   - lessonContext.lessonId:', lessonContext?.lessonId);
-  console.log('   - userProgress.currentStep:', userProgress?.currentStep);
-  console.log('   - stepContext?.stepIndex:', stepContext?.stepIndex);
-
   // 1. Get full lesson content
   const fullLesson = await getFullLessonContext(lessonContext?.lessonId, language);
-
-  // DEBUG: Log lesson fetch result
-  console.log('📚 [AI Context] Lesson fetch result:');
-  console.log('   - fullLesson exists:', !!fullLesson);
-  console.log('   - lessonName:', fullLesson?.lessonName);
-  console.log('   - totalSteps:', fullLesson?.totalSteps);
-  console.log('   - rawSteps length:', fullLesson?.rawSteps?.length);
 
   if (fullLesson) {
     fullContext += `\n📚 ПОЛНЫЙ КОНТЕКСТ УРОКА:\n`;
@@ -787,10 +766,6 @@ const buildComprehensiveAIContext = async (userId, lessonContext, userProgress, 
     // Current step context
     const currentStepIndex = userProgress?.currentStep || stepContext?.stepIndex || 0;
     const exerciseIndex = stepContext?.exerciseIndex || 0;
-
-    console.log('📍 [AI Context] Current position:');
-    console.log('   - currentStepIndex:', currentStepIndex);
-    console.log('   - exerciseIndex:', exerciseIndex);
 
     if (fullLesson.steps[currentStepIndex]) {
       const currentStep = fullLesson.steps[currentStepIndex];
@@ -806,7 +781,6 @@ const buildComprehensiveAIContext = async (userId, lessonContext, userProgress, 
     // PRIORITY 1: Use frontend-provided exercise content if available
     // This is the most reliable source as frontend has direct access to the step data
     if (stepContext?.exerciseContent && typeof stepContext.exerciseContent === 'string') {
-      console.log('📝 [AI Context] Using frontend-provided exerciseContent');
       fullContext += `\n🎯 EXERCISE CONTENT (from frontend):\n${stepContext.exerciseContent}\n`;
 
       // Also set extractedExercise flag so the system knows we have exercise data
@@ -1183,8 +1157,6 @@ const analyzeLessonForSpeech = async (req, res) => {
     // Determine if this is an interactive step (exercise, quiz, matching, etc.)
     const isInteractive = isInteractiveStepType(stepType) || hasExerciseContent;
 
-    console.log(`📚 [AnalyzeLessonForSpeech] Exercise detection: hasExerciseContent=${hasExerciseContent}, isInteractive=${isInteractive}, stepType=${stepType}`);
-
     // Check AI usage limits
     const usageCheck = await checkAIUsageLimits(userId);
     if (!usageCheck.allowed) {
@@ -1343,7 +1315,6 @@ RESPONSE FORMAT (JSON ONLY):
     });
 
     const rawContent = response.choices[0].message.content;
-    console.log('✅ OpenAI response received. Content length:', rawContent?.length);
     if (!rawContent) {
       console.error('❌ OpenAI returned empty content!');
       throw new Error('Empty response from AI');
@@ -2368,7 +2339,6 @@ ${t.useStats}`;
 
   if (stepContext?.exerciseContent && typeof stepContext.exerciseContent === 'string') {
     // Frontend provided raw exercise content - use it directly
-    console.log('📝 [buildLessonSystemPrompt] Using frontend-provided exerciseContent');
     exerciseContext = `
 ${t.exerciseHeader}
 ${stepContext.exerciseContent}

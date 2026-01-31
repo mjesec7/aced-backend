@@ -53,12 +53,6 @@ exports.streamAudio = async (req, res) => {
     if (req.body.language === 'uz') {
       const UZBEK_API_KEY = process.env.UZBEK_VOICE_API_KEY;
 
-      console.log('[VoiceController] Uzbek Request:', {
-        textLength: text.length,
-        hasKey: !!UZBEK_API_KEY,
-        keyLength: UZBEK_API_KEY ? UZBEK_API_KEY.length : 0
-      });
-
       if (!UZBEK_API_KEY) {
         console.warn('⚠️ Uzbek Voice API key missing in process.env');
         return res.status(500).json({
@@ -216,12 +210,6 @@ exports.initVoiceSession = async (req, res) => {
       }
     });
 
-    console.log('🎤 [Voice Session] Exercise Context Built:', {
-      lessonId,
-      stepType: currentStep?.type,
-      contextLength: exerciseContext.length
-    });
-
     // 4. Build language-specific names for the AI instruction
     const languageNames = {
       en: 'English',
@@ -322,12 +310,6 @@ exports.getExerciseContext = async (req, res) => {
       }
     });
 
-    console.log('📝 [Exercise Context] Extracted:', {
-      lessonId,
-      stepType: currentStep?.type,
-      contentLength: exerciseContent.length
-    });
-
     res.json({
       success: true,
       exerciseContent,
@@ -395,13 +377,6 @@ exports.processVoiceQuery = async (req, res) => {
         currentStepIndex: currentStepIndex ?? (currentStep ? lesson.steps.indexOf(currentStep) : 0),
         totalSteps: lesson.steps.length
       }
-    });
-
-    console.log('🎙️ [Voice Query] Processing:', {
-      lessonId,
-      stepType: currentStep?.type,
-      queryLength: query.length,
-      historyLength: conversationHistory.length
     });
 
     // 5. Build system prompt with exercise context
@@ -479,12 +454,6 @@ exports.verifyVoiceAnswer = async (req, res) => {
       });
     }
 
-    console.log('🎤 [Voice Verify] Comparing:', {
-      transcript: transcript.substring(0, 50),
-      correctAnswer: correctAnswer.substring(0, 50),
-      threshold
-    });
-
     // Normalize both strings for comparison
     const normalizedTranscript = normalizeForComparison(transcript, language);
     const normalizedCorrect = normalizeForComparison(correctAnswer, language);
@@ -510,8 +479,6 @@ exports.verifyVoiceAnswer = async (req, res) => {
     } else {
       feedback = getFeedbackMessage('incorrect', language);
     }
-
-    console.log('🎤 [Voice Verify] Result:', { similarity, correct, threshold });
 
     res.json({
       success: true,

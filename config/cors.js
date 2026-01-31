@@ -40,8 +40,6 @@ const getAllowedOrigins = () => {
 };
 
 const configureCORS = (app) => {
-  console.log('🌐 Configuring CORS...');
-
   const allowedOrigins = getAllowedOrigins();
 
   app.use(cors({
@@ -87,8 +85,6 @@ const configureCORS = (app) => {
     res.header('Access-Control-Max-Age', '86400');
     res.status(200).end();
   });
-
-  console.log(`✅ CORS configured with ${allowedOrigins.length} allowed origins`);
 };
 
 module.exports = { configureCORS, getAllowedOrigins };

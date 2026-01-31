@@ -25,16 +25,8 @@ router.options('*', (req, res) => {
     res.sendStatus(200);
 });
 
-// Add logging middleware for all multicard requests
+// Middleware for all multicard requests
 router.use((req, res, next) => {
-    console.log('🔵 Multicard Route Hit:', {
-        method: req.method,
-        path: req.path,
-        fullUrl: req.originalUrl,
-        hasBody: !!req.body,
-        contentType: req.headers['content-type'],
-        authorization: req.headers.authorization ? '✅ Present' : '❌ Missing'
-    });
     next();
 });
 
@@ -107,10 +99,6 @@ router.get('/debug/multicard/:uuid', async (req, res) => {
         const { uuid } = req.params;
         const token = await getAuthToken();
 
-        console.log(`🔍 Testing Multicard API with UUID: ${uuid}`);
-        console.log(`   API URL: ${process.env.MULTICARD_API_URL}/payment/invoice/${uuid}`);
-        console.log(`   Token: ${token.substring(0, 20)}...`);
-
         const response = await axios.get(
             `${process.env.MULTICARD_API_URL}/payment/invoice/${uuid}`,
             {
@@ -121,9 +109,6 @@ router.get('/debug/multicard/:uuid', async (req, res) => {
                 }
             }
         );
-
-        console.log(`✅ Response status: ${response.status}`);
-        console.log(`   Success: ${response.data.success}`);
 
         res.json({
             success: true,
@@ -220,8 +205,6 @@ router.get('/debug/routes', (req, res) => {
 // ✅ CRITICAL: Handle GET method with clear error
 router.get('/initiate', (req, res) => {
     console.warn('⚠️  Received GET request to /initiate - This endpoint requires POST!');
-    console.warn('   Query params:', req.query);
-    console.warn('   Headers:', req.headers);
     
     res.status(405).json({
         success: false,
@@ -452,7 +435,6 @@ router.delete('/variables/:key', (req, res) => {
     }
 
     deleteVariable(key);
-    console.log(`🗑️ Variable deleted: {{${key}}}`);
 
     res.json({
         success: true,

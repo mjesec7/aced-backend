@@ -8,11 +8,8 @@ const path = require('path');
 const fs = require('fs');
 
 const serveStaticFiles = (app) => {
-  console.log('📁 Configuring static file serving...');
-
   // Serve uploads directory
   app.use('/uploads', express.static('uploads'));
-  console.log('✅ Uploads directory configured');
 
   // Serve frontend dist directory if exists
   const distPath = path.join(__dirname, '..', 'dist');
@@ -41,8 +38,6 @@ const serveStaticFiles = (app) => {
         });
       }
     });
-
-    console.log('✅ Frontend dist directory configured');
   } else {
     console.warn('⚠️  No /dist directory found. Static file serving is inactive.');
   }

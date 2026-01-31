@@ -32,10 +32,6 @@ const chatLimiter = createRateLimiter({
 
 // Logging middleware for chat routes
 router.use((req, res, next) => {
-  console.log(`📡 [ChatRoute] ${req.method} ${req.originalUrl}`);
-  if (req.originalUrl.includes('analyze-speech')) {
-    console.log('Headers:', JSON.stringify(req.headers, null, 2));
-  }
   next();
 });
 

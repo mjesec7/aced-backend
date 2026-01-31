@@ -86,7 +86,6 @@ const connectDB = async () => {
       serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000,
     });
-    console.log('✅ MongoDB connected');
   } catch (error) {
     console.error('❌ MongoDB connection failed:', error.message);
     if (process.env.NODE_ENV === 'production') {
@@ -154,14 +153,12 @@ app.use('/uploads', express.static('uploads'));
 // 📚 MOUNT ALL ROUTES
 // ========================================
 
-console.log('🔧 Mounting routes...');
 
 // Helper function to safely mount routes
 const mountRoute = (path, routeFile, description) => {
   try {
     const route = require(routeFile);
     app.use(path, route);
-    console.log(`✅ ${description || path}`);
     return true;
   } catch (error) {
     console.error(`❌ Failed to mount ${path}:`, error.message);
@@ -194,7 +191,6 @@ mountRoute('/api/payments', './routes/payments', 'Main payment routes');
 try {
   mountRoute('/api/payments', './routes/paymeRoutes', 'PayMe routes');
 } catch (e) {
-  console.log('⚠️ paymeRoutes not found, using main payments');
 }
 
 // 4. Promocode routes
@@ -225,21 +221,18 @@ mountRoute('/api/lessons', './routes/lessonRoutes', 'Lesson routes');
 try {
   mountRoute('/api/vocabulary', './routes/vocabularyRoutes', 'Vocabulary routes');
 } catch (e) {
-  console.log('⚠️ vocabularyRoutes not found, skipping');
 }
 
 // User lesson routes
 try {
   mountRoute('/api/user-lessons', './routes/userLessonRoutes', 'User lesson routes');
 } catch (e) {
-  console.log('⚠️ userLessonRoutes not found, skipping');
 }
 
 // Recommendations
 try {
   mountRoute('/api/recommendations', './routes/recommendationRoutes', 'Recommendation routes');
 } catch (e) {
-  console.log('⚠️ recommendationRoutes not found, skipping');
 }
 
 // ========================================
@@ -315,16 +308,12 @@ mountRoute('/api/updated-courses', './routes/updatedCourses', 'Updated courses r
 try {
   mountRoute('/api/guides', './routes/guides', 'Guides routes');
 } catch (e) {
-  console.log('⚠️ guides routes not found, skipping');
 }
 
 try {
   mountRoute('/api/books', './routes/books', 'Books routes');
 } catch (e) {
-  console.log('⚠️ books routes not found, skipping');
 }
-
-console.log('✅ All routes mounted successfully\n');
 
 // ========================================
 // 🚫 ERROR HANDLERS
@@ -366,14 +355,6 @@ if (fs.existsSync(distPath)) {
 // ========================================
 
 app.listen(PORT, () => {
-  console.log('\n🚀 Server started');
-  console.log(`   Port: ${PORT}`);
-  console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`   Database: ${mongoose.connection.readyState === 1 ? '✅ Connected' : '⚠️ Disconnected'}`);
-  // Voice Service Confirmation
-  console.log(`   🎤 ElevenLabs Voice: ${process.env.ELEVENLABS_API_KEY ? '✅ Configured' : '⚠️ Not configured'}`);
-  console.log(`   🤖 AI Services: Active (Voice & Chat)`);
-  console.log('✅ Ready\n');
 });
 
 module.exports = app;

@@ -7,21 +7,13 @@ const Lesson = require('../models/lesson');
 const UserProgress = require('../models/userProgress');
 const User = require('../models/user');
 
-console.log('🎮 [GameController] Game controller loaded');
-
 /**
  * Generate game from exercise/step
  * POST /api/games/generate
  */
 exports.generateGame = async (req, res) => {
-  console.log('🎮 [GameController] generateGame called');
-  console.log('🔍 [GameController] Request body:', JSON.stringify(req.body, null, 2));
-  console.log('🔍 [GameController] User:', req.user?.uid || 'No user');
-
   try {
     const { lessonId, stepIndex, gameType, difficulty } = req.body;
-
-    console.log('🎮 Generating game:', { lessonId, stepIndex, gameType, difficulty });
 
     // Validate inputs
     if (!lessonId || stepIndex === undefined) {
@@ -60,8 +52,6 @@ exports.generateGame = async (req, res) => {
     gameData.lessonName = lesson.lessonName;
     gameData.stepTitle = step.title;
 
-    console.log(`✅ Generated ${selectedGameType} game with ${gameData.items?.length || 0} items`);
-
     res.json({
       success: true,
       game: gameData
@@ -82,10 +72,6 @@ exports.generateGame = async (req, res) => {
  * POST /api/games/submit
  */
 exports.submitGameResults = async (req, res) => {
-  console.log('📊 [GameController] submitGameResults called');
-  console.log('🔍 [GameController] Request body:', JSON.stringify(req.body, null, 2));
-  console.log('🔍 [GameController] User:', req.user?.uid || 'No user');
-
   try {
     const {
       userId,
@@ -102,8 +88,6 @@ exports.submitGameResults = async (req, res) => {
       actions,
       metadata
     } = req.body;
-
-    console.log('📊 Submitting game results:', { userId, lessonId, gameType, score });
 
     // Validate inputs
     if (!userId || !lessonId || stepIndex === undefined || !gameType) {
@@ -216,8 +200,6 @@ exports.submitGameResults = async (req, res) => {
     else if (stars === 1) message = '👍 Good job! Keep practicing!';
     else message = '💪 Keep trying! You can do it!';
 
-    console.log(`✅ Game results saved - Score: ${score}, Stars: ${stars}`);
-
     res.json({
       success: true,
       result: {
@@ -252,8 +234,6 @@ exports.getLeaderboard = async (req, res) => {
     const { gameType } = req.params;
     const limit = parseInt(req.query.limit) || 10;
     const timeframe = req.query.timeframe || 'all-time'; // all-time, today, week, month
-
-    console.log('🏆 Fetching leaderboard:', { gameType, limit, timeframe });
 
     // Build query based on timeframe
     let query = { gameType, completed: true };
@@ -305,8 +285,6 @@ exports.getLeaderboard = async (req, res) => {
       }
     ]);
 
-    console.log(`✅ Found ${leaderboard.length} leaderboard entries`);
-
     res.json({
       success: true,
       gameType,
@@ -330,8 +308,6 @@ exports.getLeaderboard = async (req, res) => {
 exports.getUserGameStats = async (req, res) => {
   try {
     const { userId } = req.params;
-
-    console.log('📈 Fetching user game stats:', userId);
 
     const stats = await GameAnalytics.getUserStats(userId);
 
@@ -358,8 +334,6 @@ exports.getUserGameStats = async (req, res) => {
       .sort({ createdAt: -1 })
       .limit(10)
       .select('gameType performance createdAt completed');
-
-    console.log(`✅ Found stats for ${totalGamesPlayed} games`);
 
     res.json({
       success: true,
@@ -394,8 +368,6 @@ exports.getUserGameStats = async (req, res) => {
 exports.convertExerciseToGame = async (req, res) => {
   try {
     const { lessonId, stepIndex, gameType } = req.body;
-
-    console.log('🔄 Converting exercise to game:', { lessonId, stepIndex, gameType });
 
     if (!lessonId || stepIndex === undefined || !gameType) {
       return res.status(400).json({
@@ -435,8 +407,6 @@ exports.convertExerciseToGame = async (req, res) => {
 
     await lesson.save();
 
-    console.log(`✅ Converted step ${stepIndex} to ${gameType} game`);
-
     res.json({
       success: true,
       message: 'Exercise converted to game successfully',
@@ -460,8 +430,6 @@ exports.convertExerciseToGame = async (req, res) => {
  * GET /api/games/types
  */
 exports.getGameTypes = async (req, res) => {
-  console.log('📋 [GameController] getGameTypes called');
-
   try {
     const gameTypes = [
       {

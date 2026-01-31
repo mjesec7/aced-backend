@@ -55,8 +55,6 @@ router.post('/text-to-speech', verifyToken, voiceLimiter, async (req, res) => {
       });
     }
 
-    console.log(`🎤 TTS Request: "${text.substring(0, 50)}..."`);
-
     const response = await fetch(
       `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
       {
@@ -92,7 +90,6 @@ router.post('/text-to-speech', verifyToken, voiceLimiter, async (req, res) => {
     });
 
     res.send(Buffer.from(audioBuffer));
-    console.log('✅ TTS audio sent successfully');
 
   } catch (error) {
     console.error('❌ TTS Error:', error);
@@ -124,8 +121,6 @@ router.post('/text-to-speech-with-timestamps', verifyToken, voiceLimiter, async 
         error: 'ElevenLabs API key not configured'
       });
     }
-
-    console.log(`🎤 TTS+Timestamps Request: "${text.substring(0, 50)}..."`);
 
     const response = await fetch(
       `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/with-timestamps`,
@@ -162,8 +157,6 @@ router.post('/text-to-speech-with-timestamps', verifyToken, voiceLimiter, async 
       alignment: data.alignment
     });
 
-    console.log('✅ TTS+Timestamps sent successfully');
-
   } catch (error) {
     console.error('❌ TTS+Timestamps Error:', error);
     res.status(500).json({
@@ -194,8 +187,6 @@ router.post('/speech-to-text', verifyToken, voiceLimiter, async (req, res) => {
         error: 'ElevenLabs API key not configured'
       });
     }
-
-    console.log('🎧 STT Request received');
 
     // Convert base64 to buffer
     const audioBuffer = Buffer.from(audioBase64, 'base64');
@@ -229,8 +220,6 @@ router.post('/speech-to-text', verifyToken, voiceLimiter, async (req, res) => {
       text: data.text,
       language: data.language_code
     });
-
-    console.log('✅ STT transcription:', data.text?.substring(0, 50));
 
   } catch (error) {
     console.error('❌ STT Error:', error);

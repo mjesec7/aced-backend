@@ -872,8 +872,6 @@ router.post('/placement-test/:userId/complete', verifyToken, async (req, res) =>
             answers
         } = req.body;
 
-        console.log(`📝 Completing placement test for user ${userId}, subject: ${subject}`);
-
         const user = await User.findOne({ firebaseId: userId });
 
         if (!user) {
@@ -907,8 +905,6 @@ router.post('/placement-test/:userId/complete', verifyToken, async (req, res) =>
 
         // Record the placement test using the user method
         await user.recordPlacementTest(testResults);
-
-        console.log(`✅ Placement test completed - Level ${levelAssigned} assigned to user ${userId}`);
 
         res.json({
             success: true,

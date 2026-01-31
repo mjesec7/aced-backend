@@ -14,8 +14,6 @@ const checkExpiredSubscriptions = async () => {
         subscriptionExpiryDate: { $lt: now }
       });
   
-      console.log(`🔍 Subscription check: Found ${expiredUsers.length} expired subscriptions`);
-  
       for (const user of expiredUsers) {
         const oldPlan = user.subscriptionPlan;
         
@@ -26,8 +24,6 @@ const checkExpiredSubscriptions = async () => {
         user.previousPlan = oldPlan;
         
         await user.save();
-        
-        console.log(`✅ User ${user.email} reverted from ${oldPlan} to free (expired ${user.subscriptionExpiryDate.toLocaleDateString()})`);
       }
   
       return {

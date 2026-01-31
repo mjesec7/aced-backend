@@ -10,8 +10,6 @@ const { preventInfiniteLoop } = require('../middlewares/loopPrevention');
 const { requestLogger } = require('../middlewares/requestLogger');
 
 const configureMiddlewares = (app) => {
-  console.log('⚙️  Configuring middlewares...');
-
   // 1. Loop prevention (MUST BE FIRST)
   app.use(preventInfiniteLoop);
 
@@ -46,8 +44,6 @@ const configureMiddlewares = (app) => {
 
   // 6. Request logging
   app.use(requestLogger);
-
-  console.log('✅ Middlewares configured successfully');
 };
 
 module.exports = { configureMiddlewares };

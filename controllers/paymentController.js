@@ -618,8 +618,6 @@ const handlePerformTransaction = async (req, res, id, params) => {
         } catch (msgError) {
           console.error('⚠️ Failed to send payment notification:', msgError);
         }
-
-        console.log(`✅ Granted ${durationMonths}-month Pro subscription to user ${user.email}`);
       }
     }
   } catch (dbError) {

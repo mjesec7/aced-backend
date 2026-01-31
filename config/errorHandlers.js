@@ -4,8 +4,6 @@
 // ========================================
 
 const configureErrorHandlers = (app) => {
-    console.log('🛡️  Configuring error handlers...');
-  
     // API 404 handler
     app.use('/api/*', (req, res) => {
       console.error(`❌ API Route Not Found: ${req.method} ${req.originalUrl}`);
@@ -93,8 +91,6 @@ const configureErrorHandlers = (app) => {
   
       res.status(statusCode).json(errorResponse);
     });
-  
-    console.log('✅ Error handlers configured');
   };
   
   module.exports = { configureErrorHandlers };

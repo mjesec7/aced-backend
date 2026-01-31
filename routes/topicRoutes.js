@@ -37,18 +37,12 @@ function validateObjectId(req, res, next) {
 
 // ✅ Enhanced logging middleware
 function logRequest(req, res, next) {
-  console.log(`📥 ${req.method} ${req.path}`, req.query);
-  if (req.body && Object.keys(req.body).length > 0) {
-    console.log('📦 Body:', req.body);
-  }
   next();
 }
 
 // ✅ FIXED: Get topics grouped by subject and level (School Mode)
 router.get('/grouped', logRequest, async (req, res) => {
   try {
-    console.log('📚 Fetching topics grouped by subject and level (School Mode)');
-
     if (mongoose.connection.readyState !== 1) {
       console.error('❌ Database not connected for grouped topics');
       return res.status(503).json({
@@ -72,8 +66,6 @@ router.get('/grouped', logRequest, async (req, res) => {
     let lessons = await Lesson.find({ isActive: true })
       .sort({ subject: 1, level: 1, createdAt: 1 })
       .lean();
-
-    console.log(`✅ Found ${lessons.length} active lessons`);
 
     // ✅ DIAGNOSTIC: If no active lessons found, check total count
     if (lessons.length === 0) {
@@ -146,8 +138,6 @@ router.get('/grouped', logRequest, async (req, res) => {
       return acc;
     }, {});
 
-    console.log(`✅ Grouped ${topicsArray.length} topics by ${Object.keys(grouped).length} subjects`);
-
     res.json({
       success: true,
       data: grouped,
@@ -169,8 +159,6 @@ router.get('/grouped', logRequest, async (req, res) => {
 router.get('/as-courses', logRequest, async (req, res) => {
   try {
     const { search, subject, level } = req.query;
-
-    console.log('🎓 Fetching topics as course cards (Study Centre Mode)', { search, subject, level });
 
     if (mongoose.connection.readyState !== 1) {
       console.error('❌ Database not connected for course cards');
@@ -200,8 +188,6 @@ router.get('/as-courses', logRequest, async (req, res) => {
     let lessons = await Lesson.find(filter)
       .sort({ createdAt: -1 })
       .lean();
-
-    console.log(`✅ Found ${lessons.length} lessons matching filters`);
 
     // ✅ DIAGNOSTIC: If no lessons found, check total count
     if (lessons.length === 0) {
@@ -261,8 +247,6 @@ router.get('/as-courses', logRequest, async (req, res) => {
       );
     }
 
-    console.log(`✅ Returning ${enrichedTopics.length} course cards`);
-
     res.json({
       success: true,
       data: enrichedTopics,
@@ -285,8 +269,6 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
   const id = req.params.id;
 
   try {
-    console.log(`🔍 Looking up topic/course: ${id}`);
-
     if (mongoose.connection.readyState !== 1) {
       console.error('❌ Database not connected, state:', mongoose.connection.readyState);
       return res.status(503).json({
@@ -306,10 +288,9 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
       topic = await Topic.findById(id);
       if (topic) {
         searchStrategy = 'direct_topic';
-        console.log(`✅ Found topic in Topics collection: ${topic.name}`);
       }
     } catch (topicError) {
-      console.log('⚠️ Topic not found in Topics collection, searching lessons...');
+      // Topic not found in Topics collection, searching lessons...
     }
 
     // Strategy 2: Build topic from lessons (PRIMARY STRATEGY)
@@ -330,13 +311,6 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
           // Extract topic name from various possible fields
           const topicName = firstLesson.topicName || firstLesson.topic || firstLesson.lessonName || 'Untitled Topic';
 
-          console.log(`🔨 Building topic from lesson:`, {
-            lessonName: firstLesson.lessonName,
-            topicName: firstLesson.topicName,
-            topic: firstLesson.topic,
-            extractedName: topicName
-          });
-
           // Build topic from lessons
           topic = {
             _id: id,
@@ -354,7 +328,6 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
           };
 
           searchStrategy = 'constructed_from_lessons';
-          console.log(`✅ Constructed topic from ${lessons.length} lessons: ${topic.name}`);
         }
       } catch (lessonError) {
         console.error('❌ Error searching lessons:', lessonError);
@@ -363,7 +336,6 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
 
     // If still not found, return 404
     if (!topic) {
-      console.log(`❌ Topic/course not found: ${id}`);
       return res.status(404).json({
         success: false,
         exists: false,
@@ -395,8 +367,6 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
             { topicName: topic.name }
           ]
         }).sort({ order: 1, createdAt: 1 });
-
-        console.log(`✅ Found ${lessons.length} lessons for topic`);
       } catch (lessonErr) {
         console.error(`⚠️ Error fetching lessons for topic ${id}:`, lessonErr.message);
         lessons = [];
@@ -440,7 +410,6 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
       }
     };
 
-    console.log(`✅ Returning topic with ${lessons.length} lessons`);
     res.json(response);
 
   } catch (err) {
@@ -472,8 +441,6 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
 // Keep all other existing routes unchanged...
 router.get('/', logRequest, async (req, res) => {
   try {
-    console.log('📚 Fetching all topics');
-
     if (mongoose.connection.readyState !== 1) {
       console.error('❌ Database not connected for topics list');
       return res.status(503).json({
@@ -484,8 +451,6 @@ router.get('/', logRequest, async (req, res) => {
     }
 
     const topics = await Topic.find().sort({ createdAt: -1 });
-
-    console.log(`✅ Found ${topics.length} topics`);
 
     res.json({
       success: true,
@@ -597,8 +562,6 @@ router.get('/:id/lessons', logRequest, validateObjectId, async (req, res) => {
   const id = req.params.id;
 
   try {
-    console.log(`🔍 Checking if topic exists: ${id}`);
-
     const topicExists = await Topic.exists({ _id: id });
     if (!topicExists) {
       return res.status(404).json({

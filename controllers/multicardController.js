@@ -45,7 +45,6 @@ const replaceVariables = (value) => {
  */
 const setVariable = (key, value) => {
     variables.set(key, value);
-    console.log(`📝 Variable stored: {{${key}}} = ${value}`);
 };
 
 /**
@@ -67,7 +66,6 @@ const getAllVariables = () => {
  */
 const clearVariables = () => {
     variables.clear();
-    console.log('🧹 All variables cleared.');
 };
 
 /**
@@ -75,7 +73,6 @@ const clearVariables = () => {
  */
 const deleteVariable = (key) => {
     variables.delete(key);
-    console.log(`🗑️ Variable deleted: {{${key}}}`);
 };
 
 
@@ -166,7 +163,6 @@ const initiatePayment = async (req, res) => {
         // Convert UZS to tiyin (Multicard expects tiyin)
         if (finalAmount < 10000000) {
             finalAmount = finalAmount * 100;
-            console.log(`💰 Amount: ${finalAmount / 100} UZS → ${finalAmount} tiyin`);
         }
         // Build OFD array according to API specs
         const ofdData = ofd.map(item => ({
@@ -196,14 +192,6 @@ const initiatePayment = async (req, res) => {
         if (sms) {
             payload.sms = sms;
         }
-
-        console.log('📤 Creating Multicard invoice:', {
-            invoiceId,
-            amount: finalAmount,
-            amountUZS: finalAmount / 100, // Display in UZS for logging
-            storeId,
-            itemCount: ofdData.length
-        });
 
         const response = await axios.post(`${API_URL}/payment/invoice`, payload, {
             headers: {
@@ -237,8 +225,6 @@ const initiatePayment = async (req, res) => {
         });
 
         await transaction.save();
-
-        console.log('✅ Invoice created successfully');
 
         res.json({
             success: true,
@@ -355,7 +341,6 @@ const handleSuccessCallback = async (req, res) => {
  */
 const handleWebhook = async (req, res) => {
     const webhookData = req.body;
-    console.log('🔔 Received Multicard webhook:', JSON.stringify(webhookData, null, 2));
 
     // Extract payment data from webhook
     const payment = webhookData.payment;
@@ -390,7 +375,6 @@ const handleWebhook = async (req, res) => {
 
         // Idempotency check: If already processed, return success
         if (transaction.status === 'paid' || transaction.status === 'failed' || transaction.status === 'canceled') {
-            console.log(`✅ Transaction already processed: ${payment.store_invoice_id}, status: ${transaction.status}`);
             return res.status(200).json({
                 success: true,
                 message: 'Webhook already processed'
@@ -434,27 +418,17 @@ const handleWebhook = async (req, res) => {
                 user.subscriptionAmount = transaction.amount;
                 user.lastPaymentDate = new Date();
                 await user.save();
-                console.log(`✅ Subscription granted for plan "${transaction.plan}" to user ${user.email}.`);
-                console.log(`   Payment ID: ${payment.id}`);
-                console.log(`   Payment System: ${payment.ps}`);
-                console.log(`   Card: ${payment.card_pan || 'N/A'}`);
-                console.log(`   Amount: ${payment.total_amount} tiyin`);
             } else {
                 console.error(`❌ User not found: ${transaction.userId}`);
             }
         } else if (payment.status === 'revert') {
             transaction.status = 'refunded';
-            console.warn(`🔄 Payment was refunded for invoice_id: ${payment.store_invoice_id}`);
         } else if (payment.status === 'error') {
             transaction.status = 'failed';
             transaction.errorCode = payment.ps_response_code;
             transaction.errorMessage = payment.ps_response_msg;
-            console.warn(`🔶 Payment failed for invoice_id: ${payment.store_invoice_id}`);
-            console.warn(`   Error Code: ${payment.ps_response_code}`);
-            console.warn(`   Error Message: ${payment.ps_response_msg}`);
         } else {
             // draft, progress, billing - transaction still pending
-            console.log(`⏳ Payment status: ${payment.status} for invoice_id: ${payment.store_invoice_id}`);
         }
 
         await transaction.save();
@@ -512,10 +486,6 @@ const getInvoiceInfo = async (req, res) => {
         // STEP 3: Fetch from Multicard API using UUID
         const token = await getAuthToken();
 
-        console.log(`🔍 Fetching invoice info:`);
-        console.log(`   Invoice ID: ${invoiceId}`);
-        console.log(`   Multicard UUID: ${transaction.multicardUuid}`);
-
         const response = await axios.get(
             `${API_URL}/payment/invoice/${transaction.multicardUuid}`,
             {
@@ -527,9 +497,6 @@ const getInvoiceInfo = async (req, res) => {
         );
 
         if (response.data?.success) {
-            console.log(`✅ Invoice found`);
-            console.log(`   Status: ${response.data.data.status || 'N/A'}`);
-
             res.json({
                 success: true,
                 data: {
@@ -698,9 +665,6 @@ const processScanPay = async (req, res) => {
 
         const token = await getAuthToken();
 
-        console.log(`📱 Processing scan payment for transaction: ${uuid}`);
-        console.log(`   Code: ${code.substring(0, 10)}...`);
-
         const response = await axios.put(
             `${API_URL}/payment/${uuid}/scanpay`,
             { code },
@@ -742,7 +706,6 @@ const processScanPay = async (req, res) => {
                 if (user) {
                     const durationDays = transaction.plan === 'pro' ? 365 : 30;
                     await user.grantSubscription(transaction.plan, durationDays, 'multicard');
-                    console.log(`✅ Subscription granted via ${paymentData.ps}`);
                 }
             }
 
@@ -780,7 +743,6 @@ const processScanPay = async (req, res) => {
  */
 const handleSuccessCallbackOld = async (req, res) => {
     const callbackData = req.body;
-    console.log('🔔 Received success callback (old format):', JSON.stringify(callbackData, null, 2));
 
     const {
         store_id,
@@ -799,15 +761,11 @@ const handleSuccessCallbackOld = async (req, res) => {
 
     // Verify signature: MD5({store_id}{invoice_id}{amount}{secret})
     const signatureString = `${store_id}${invoice_id}${amount}${process.env.MULTICARD_SECRET}`;
-    console.log('🔐 Signature string:', signatureString);
 
     const expectedSign = crypto
         .createHash('md5')
         .update(signatureString)
         .digest('hex');
-
-    console.log('✅ Expected signature:', expectedSign);
-    console.log('📨 Received signature:', sign);
 
     if (sign !== expectedSign) {
         console.error('❌ Invalid signature in success callback');
@@ -838,7 +796,6 @@ const handleSuccessCallbackOld = async (req, res) => {
 
         // Idempotency check
         if (transaction.status === 'paid') {
-            console.log(`✅ Transaction already paid: ${invoice_id}`);
             return res.status(200).json({
                 success: true,
                 message: 'Transaction already processed'
@@ -866,19 +823,9 @@ const handleSuccessCallbackOld = async (req, res) => {
         if (user) {
             const durationDays = transaction.plan === 'pro' ? 365 : 30;
             await user.grantSubscription(transaction.plan, durationDays, 'multicard');
-            console.log(`✅ Subscription granted (success callback): ${user.email}`);
-            console.log(`   Plan: ${transaction.plan}`);
-            console.log(`   Duration: ${durationDays} days`);
         } else {
             console.error(`❌ User not found: ${transaction.userId}`);
         }
-
-        console.log(`✅ Payment processed successfully via old callback`);
-        console.log(`   Transaction ID: ${invoice_id}`);
-        console.log(`   UUID: ${uuid}`);
-        console.log(`   Amount: ${amount} tiyin`);
-        console.log(`   Payment System: ${ps}`);
-        console.log(`   Card: ${card_pan}`);
 
         res.status(200).json({
             success: true,
@@ -901,7 +848,6 @@ const handleSuccessCallbackOld = async (req, res) => {
  */
 const handleWebhookCallback = async (req, res) => {
     const webhookData = req.body;
-    console.log('🔔 Received webhook callback:', JSON.stringify(webhookData, null, 2));
 
     const {
         uuid,
@@ -952,23 +898,19 @@ const handleWebhookCallback = async (req, res) => {
         // Handle different statuses
         switch (status) {
             case 'draft':
-                console.log(`📝 Transaction draft: ${invoice_id}`);
                 transaction.status = 'pending';
                 break;
 
             case 'progress':
-                console.log(`⏳ Transaction in progress: ${invoice_id}`);
                 transaction.status = 'pending';
                 break;
 
             case 'success':
                 // Idempotency check
                 if (transaction.status === 'paid') {
-                    console.log(`✅ Transaction already paid: ${invoice_id}`);
                     return res.status(200).json({ success: true });
                 }
 
-                console.log(`✅ Transaction successful: ${invoice_id}`);
                 transaction.status = 'paid';
                 transaction.paidAt = new Date(payment_time);
                 transaction.paymentDetails = {
@@ -986,17 +928,14 @@ const handleWebhookCallback = async (req, res) => {
                 if (user) {
                     const durationDays = transaction.plan === 'pro' ? 365 : 30;
                     await user.grantSubscription(transaction.plan, durationDays, 'multicard');
-                    console.log(`✅ Subscription granted: ${user.email}`);
                 }
                 break;
 
             case 'error':
-                console.warn(`❌ Transaction error: ${invoice_id}`);
                 transaction.status = 'failed';
                 break;
 
             case 'revert':
-                console.warn(`🔄 Transaction refunded: ${invoice_id}`);
                 transaction.status = 'refunded';
                 transaction.refundedAt = refund_time ? new Date(refund_time) : new Date();
 
@@ -1004,17 +943,15 @@ const handleWebhookCallback = async (req, res) => {
                 const userToRevoke = await User.findById(transaction.userId);
                 if (userToRevoke) {
                     await userToRevoke.revokeSubscription('multicard');
-                    console.log(`🔄 Subscription revoked: ${userToRevoke.email}`);
                 }
                 break;
 
             case 'hold':
-                console.log(`🔒 Transaction on hold: ${invoice_id}`);
                 transaction.status = 'pending';
                 break;
 
             default:
-                console.warn(`⚠️ Unknown status: ${status}`);
+                break;
         }
 
         await transaction.save();
@@ -1063,8 +1000,6 @@ const deleteInvoice = async (req, res) => {
         }
 
         const token = await getAuthToken();
-
-        console.log(`🗑️ Deleting invoice: ${uuid}`);
 
         const response = await axios.delete(
             `${API_URL}/payment/invoice/${uuid}`,
@@ -1137,9 +1072,6 @@ const createCardBindingSession = async (req, res) => {
 
         const finalCallbackUrl = callbackUrl || `${process.env.API_BASE_URL}/api/payments/multicard/card-binding/callback`;
 
-        console.log('💳 Creating card binding session for user:', userId);
-        console.log('📞 Callback URL:', finalCallbackUrl);
-
         const response = await axios.post(
             `${API_URL}/payment/card/bind`,
             {
@@ -1173,9 +1105,6 @@ const createCardBindingSession = async (req, res) => {
             });
             await bindingSession.save();
 
-            console.log('✅ Card binding session created');
-            console.log('   Session ID:', sessionData.session_id);
-            console.log('   Form URL:', sessionData.form_url);
 
             res.json({
                 success: true,
@@ -1217,7 +1146,6 @@ const createCardBindingSession = async (req, res) => {
  */
 const handleCardBindingCallback = async (req, res) => {
     const callbackData = req.body;
-    console.log('💳 Received card binding callback:', JSON.stringify(callbackData, null, 2));
 
     const { payer_id, card_token, card_pan, ps, status, phone, holder_name, pinfl } = callbackData;
 
@@ -1271,20 +1199,13 @@ const handleCardBindingCallback = async (req, res) => {
                 }
             }
 
-            console.log(`✅ Card bound successfully`);
-            console.log(`   User: ${user?.email || session.userId}`);
-            console.log(`   Card: ${card_pan}`);
-            console.log(`   PS: ${ps}`);
-            console.log(`   Token: ${card_token}`);
         } else if (status === 'draft') {
             session.status = 'pending';
             await session.save();
-            console.log(`⏳ Card binding in progress for session: ${payer_id}`);
         } else {
             session.status = 'failed';
             session.callbackPayload = callbackData;
             await session.save();
-            console.warn(`⚠️ Card binding failed with status: ${status}`);
         }
 
         res.status(200).json({
@@ -1323,8 +1244,6 @@ const checkCardBindingStatus = async (req, res) => {
 
         // Then check with Multicard API
         const token = await getAuthToken();
-
-        console.log(`🔍 Checking card binding status: ${sessionId}`);
 
         const response = await axios.get(
             `${API_URL}/payment/card/bind/${sessionId}`,
@@ -1401,8 +1320,6 @@ const getCardInfoByToken = async (req, res) => {
     try {
         const token = await getAuthToken();
 
-        console.log(`🔍 Getting card info by token: ${cardToken.substring(0, 10)}...`);
-
         const response = await axios.get(
             `${API_URL}/payment/card/${cardToken}`,
             {
@@ -1451,9 +1368,6 @@ const addCardByDetails = async (req, res) => {
     try {
         const token = await getAuthToken();
 
-        console.log('💳 Adding card by details (PCI DSS method)');
-        console.log(`   PAN: ${pan.substring(0, 6)}******${pan.substring(pan.length - 4)}`);
-
         const payload = {
             pan,
             expiry,
@@ -1476,10 +1390,6 @@ const addCardByDetails = async (req, res) => {
 
         if (response.data?.success) {
             const cardData = response.data.data;
-
-            console.log('✅ Card added, SMS sent');
-            console.log(`   Status: ${cardData.status}`);
-            console.log(`   Token: ${cardData.card_token}`);
 
             res.json({
                 success: true,
@@ -1522,9 +1432,6 @@ const confirmCardBinding = async (req, res) => {
     try {
         const token = await getAuthToken();
 
-        console.log(`✅ Confirming card binding with OTP`);
-        console.log(`   Token: ${cardToken.substring(0, 10)}...`);
-
         const response = await axios.put(
             `${API_URL}/payment/card/${cardToken}`,
             { otp },
@@ -1538,10 +1445,6 @@ const confirmCardBinding = async (req, res) => {
 
         if (response.data?.success) {
             const cardData = response.data.data;
-
-            console.log('✅ Card binding confirmed');
-            console.log(`   Status: ${cardData.status}`);
-            console.log(`   PAN: ${cardData.card_pan}`);
 
             res.json({
                 success: true,
@@ -1592,8 +1495,6 @@ const checkCardPinfl = async (req, res) => {
     try {
         const token = await getAuthToken();
 
-        console.log(`🔍 Checking PINFL for card: ${pan.substring(0, 6)}******${pan.substring(pan.length - 4)}`);
-
         const response = await axios.post(
             `${API_URL}/payment/card/check-pinfl`,
             { pan, pinfl },
@@ -1607,8 +1508,6 @@ const checkCardPinfl = async (req, res) => {
 
         if (response.data?.success !== undefined) {
             const matches = response.data.data;
-
-            console.log(`   Result: ${matches === true ? '✅ Match' : matches === false ? '❌ No match' : '❓ Unknown'}`);
 
             res.json({
                 success: true,
@@ -1639,8 +1538,6 @@ const deleteCardToken = async (req, res) => {
     try {
         const token = await getAuthToken();
 
-        console.log(`🗑️ Deleting card token: ${cardToken.substring(0, 10)}...`);
-
         const response = await axios.delete(
             `${API_URL}/payment/card/${cardToken}`,
             {
@@ -1649,8 +1546,6 @@ const deleteCardToken = async (req, res) => {
         );
 
         if (response.data?.success) {
-            console.log('✅ Card token deleted successfully');
-
             res.json({
                 success: true,
                 data: response.data.data || []
@@ -1689,8 +1584,6 @@ const checkCardByPan = async (req, res) => {
     try {
         const token = await getAuthToken();
 
-        console.log(`🔍 Checking card by PAN: ${pan.substring(0, 6)}******${pan.substring(pan.length - 4)}`);
-
         const response = await axios.get(
             `${API_URL}/payment/card/check/${pan}`,
             {
@@ -1700,11 +1593,6 @@ const checkCardByPan = async (req, res) => {
 
         if (response.data?.success) {
             const cardData = response.data.data;
-
-            console.log('✅ Card found');
-            console.log(`   Payment System: ${cardData.ps}`);
-            console.log(`   Bank: ${cardData.bank?.name || 'Unknown'}`);
-            console.log(`   Holder: ${cardData.holder_name || 'N/A'}`);
 
             res.json({
                 success: true,
@@ -1826,18 +1714,11 @@ const createPaymentByToken = async (req, res) => {
         // Add payment method to payload
         if (finalPaymentSystem) {
             payload.payment_system = finalPaymentSystem;
-            console.log('💳 Creating payment via app');
-            console.log(`   Payment System: ${finalPaymentSystem}`);
         } else if (card.token) {
             payload.card = { token: card.token };
-            console.log('💳 Creating payment via card token');
         } else {
             payload.card = { pan: card.pan, expiry: card.expiry };
-            console.log('💳 Creating payment via card PAN');
         }
-
-        console.log(`   Amount: ${amount} tiyin`);
-        console.log(`   Invoice: ${finalInvoiceId}`);
 
         const response = await axios.post(
             `${API_URL}/payment`,
@@ -1888,17 +1769,6 @@ const createPaymentByToken = async (req, res) => {
                 await transaction.save();
             }
 
-            console.log('✅ Payment created');
-            console.log(`   UUID: ${paymentData.uuid}`);
-            console.log(`   Status: ${paymentData.status}`);
-
-            if (paymentData.checkout_url) {
-                console.log(`   Checkout URL: ${paymentData.checkout_url}`);
-            }
-            if (paymentData.otp_hash) {
-                console.log(`   OTP Required: Yes`);
-            }
-
             // If payment successful immediately, grant subscription
             if (paymentData.status === 'success' && userObjectId) {
                 const User = require('../models/user');
@@ -1906,7 +1776,6 @@ const createPaymentByToken = async (req, res) => {
                 if (user) {
                     const durationDays = processedBody.plan === 'pro' ? 365 : 30;
                     await user.grantSubscription(processedBody.plan || 'start', durationDays, 'multicard');
-                    console.log(`✅ Subscription granted immediately: ${user.email}`);
                 }
             }
 
@@ -1968,10 +1837,6 @@ const createPaymentByCardDetails = async (req, res) => {
             ...(ofd && { ofd })
         };
 
-        console.log('💳 Creating payment by card details (PCI DSS)');
-        console.log(`   PAN: ${card.pan.substring(0, 6)}******${card.pan.substring(card.pan.length - 4)}`);
-        console.log(`   Amount: ${amount} tiyin`);
-
         const response = await axios.post(
             `${API_URL}/payment`,
             payload,
@@ -2014,9 +1879,6 @@ const createPaymentByCardDetails = async (req, res) => {
                 }
             });
             await transaction.save();
-
-            console.log('✅ Payment created, OTP sent');
-            console.log(`   UUID: ${paymentData.uuid}`);
 
             res.json({
                 success: true,
@@ -2083,10 +1945,6 @@ const createSplitPayment = async (req, res) => {
             ...(ofd && { ofd })
         };
 
-        console.log('💰 Creating split payment');
-        console.log(`   Total: ${amount} tiyin`);
-        console.log(`   Split into ${split.length} parts`);
-
         const response = await axios.post(
             `${API_URL}/payment`,
             payload,
@@ -2100,9 +1958,6 @@ const createSplitPayment = async (req, res) => {
 
         if (response.data?.success) {
             const paymentData = response.data.data;
-
-            console.log('✅ Split payment created');
-            console.log(`   UUID: ${paymentData.uuid}`);
 
             res.json({
                 success: true,
@@ -2165,9 +2020,6 @@ const createPaymentViaApp = async (req, res) => {
             ...(ofd && { ofd })
         };
 
-        console.log(`📱 Creating payment via ${paymentSystem.toUpperCase()}`);
-        console.log(`   Amount: ${amount} tiyin`);
-
         const response = await axios.post(
             `${API_URL}/payment`,
             payload,
@@ -2197,9 +2049,6 @@ const createPaymentViaApp = async (req, res) => {
                 }
             });
             await transaction.save();
-
-            console.log('✅ Payment app link created');
-            console.log(`   Checkout URL: ${paymentData.checkout_url}`);
 
             res.json({
                 success: true,
@@ -2251,8 +2100,6 @@ const confirmPayment = async (req, res) => {
             debit_available: debitAvailable || false
         };
 
-        console.log(`✅ Confirming payment: ${paymentUuid}`);
-
         const response = await axios.put(
             `${API_URL}/payment/${paymentUuid}`,
             payload,
@@ -2279,9 +2126,6 @@ const confirmPayment = async (req, res) => {
                 };
                 await transaction.save();
             }
-
-            console.log('✅ Payment confirmed');
-            console.log(`   Status: ${paymentData.status}`);
 
             res.json({
                 success: true,
@@ -2342,9 +2186,6 @@ const sendFiscalReceipt = async (req, res) => {
     try {
         const token = await getAuthToken();
 
-        console.log(`📄 Sending fiscal receipt for payment: ${paymentUuid}`);
-        console.log(`   URL: ${url}`);
-
         const response = await axios.patch(
             `${API_URL}/payment/${paymentUuid}/fiscal`,
             { url },
@@ -2357,8 +2198,6 @@ const sendFiscalReceipt = async (req, res) => {
         );
 
         if (response.data?.success !== undefined) {
-            console.log('✅ Fiscal receipt sent');
-
             res.json({
                 success: true,
                 message: 'Fiscal receipt URL saved'
@@ -2389,8 +2228,6 @@ const refundPayment = async (req, res) => {
     try {
         const token = await getAuthToken();
 
-        console.log(`🔄 Refunding payment: ${paymentUuid}`);
-
         const response = await axios.delete(
             `${API_URL}/payment/${paymentUuid}`,
             {
@@ -2413,12 +2250,9 @@ const refundPayment = async (req, res) => {
                     const user = await User.findById(transaction.userId);
                     if (user) {
                         await user.revokeSubscription('multicard');
-                        console.log(`🔄 Subscription revoked for user: ${user.email}`);
                     }
                 }
             }
-
-            console.log('✅ Payment refunded');
 
             res.json({
                 success: true,
@@ -2486,8 +2320,6 @@ const getApplicationInfo = async (req, res) => {
     try {
         const token = await getAuthToken();
 
-        console.log('ℹ️ Fetching application info...');
-
         const response = await axios.get(
             `${API_URL}/payment/application`,
             {
@@ -2497,11 +2329,6 @@ const getApplicationInfo = async (req, res) => {
 
         if (response.data?.success) {
             const appInfo = response.data.data;
-
-            console.log('✅ Application info retrieved');
-            console.log(`   Application ID: ${appInfo.application_id}`);
-            console.log(`   Official Name: ${appInfo.official_name}`);
-            console.log(`   Wallet Balance: ${appInfo.wallet_sum} tiyin`);
 
             res.json({
                 success: true,
@@ -2531,8 +2358,6 @@ const getRecipientBankAccount = async (req, res) => {
     try {
         const token = await getAuthToken();
 
-        console.log('🏦 Fetching recipient bank account...');
-
         const response = await axios.get(
             `${API_URL}/payment/merchant-account/recipient`,
             {
@@ -2542,12 +2367,6 @@ const getRecipientBankAccount = async (req, res) => {
 
         if (response.data?.success) {
             const accountInfo = response.data.data;
-
-            console.log('✅ Bank account info retrieved');
-            console.log(`   Official Name: ${accountInfo.official_name}`);
-            console.log(`   TIN: ${accountInfo.tin}`);
-            console.log(`   Account: ${accountInfo.account_no}`);
-            console.log(`   MFO: ${accountInfo.mfo}`);
 
             res.json({
                 success: true,
@@ -2616,11 +2435,6 @@ const getPaymentHistory = async (req, res) => {
             ...(onlyStatus && { only_status: onlyStatus })
         };
 
-        console.log('📊 Fetching payment history...');
-        console.log(`   Store ID: ${storeId}`);
-        console.log(`   Period: ${startDate} to ${endDate}`);
-        console.log(`   Status filter: ${onlyStatus || 'all'}`);
-
         const response = await axios.get(
             `${API_URL}/payment/store/${storeId}/history`,
             {
@@ -2631,18 +2445,6 @@ const getPaymentHistory = async (req, res) => {
 
         if (response.data?.success) {
             const historyData = response.data.data;
-
-            console.log('✅ Payment history retrieved');
-            console.log(`   Total transactions: ${historyData.pagination.total}`);
-            console.log(`   Returned: ${historyData.list.length}`);
-
-            // Calculate total amounts by status
-            const summary = {};
-            historyData.stat.forEach(stat => {
-                const key = `${stat.status}_${stat.ps}`;
-                summary[key] = stat.payment_amount;
-            });
-            console.log('   Summary:', summary);
 
             res.json({
                 success: true,
@@ -2723,10 +2525,6 @@ const getCreditHistory = async (req, res) => {
             ...(onlyStatus && { only_status: onlyStatus })
         };
 
-        console.log('💳 Fetching credit history (payouts)...');
-        console.log(`   Store ID: ${storeId}`);
-        console.log(`   Period: ${startDate} to ${endDate}`);
-
         const response = await axios.get(
             `${API_URL}/payment/store/${storeId}/credit-history`,
             {
@@ -2737,10 +2535,6 @@ const getCreditHistory = async (req, res) => {
 
         if (response.data?.success) {
             const creditData = response.data.data;
-
-            console.log('✅ Credit history retrieved');
-            console.log(`   Total payouts: ${creditData.pagination.total}`);
-            console.log(`   Returned: ${creditData.list.length}`);
 
             res.json({
                 success: true,
@@ -2820,11 +2614,6 @@ const getPaymentStatistics = async (req, res) => {
             const totalAmount = Object.values(aggregated).reduce((sum, s) => sum + s.amount, 0);
             const totalCount = response.data.data.pagination.total;
 
-            console.log('📈 Payment statistics:');
-            console.log(`   Total: ${totalAmount} tiyin (${totalCount} transactions)`);
-            console.log(`   Success: ${aggregated.success.amount} tiyin`);
-            console.log(`   Failed: ${aggregated.error.amount} tiyin`);
-
             res.json({
                 success: true,
                 data: {
@@ -2880,8 +2669,6 @@ const exportPaymentHistory = async (req, res) => {
         const limit = 100;
         let hasMore = true;
 
-        console.log('📥 Exporting payment history...');
-
         while (hasMore) {
             const response = await axios.get(
                 `${API_URL}/payment/store/${storeId}/history`,
@@ -2903,8 +2690,6 @@ const exportPaymentHistory = async (req, res) => {
 
                 hasMore = transactions.length === limit;
                 offset += limit;
-
-                console.log(`   Fetched ${allTransactions.length} transactions...`);
             } else {
                 hasMore = false;
             }
@@ -2917,8 +2702,6 @@ const exportPaymentHistory = async (req, res) => {
         ).join('\n');
 
         const csv = csvHeader + csvRows;
-
-        console.log(`✅ Exported ${allTransactions.length} transactions`);
 
         res.setHeader('Content-Type', 'text/csv');
         res.setHeader('Content-Disposition', `attachment; filename=payments_${storeId}_${startDate}_${endDate}.csv`);

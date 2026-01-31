@@ -180,7 +180,6 @@ router.get('/user-progress/user/:userId/lesson/:lessonId', async (req, res) => {
 
 // ✅ POST /api/user-progress/user/:userId/lesson/:lessonId
 router.post('/user-progress/user/:userId/lesson/:lessonId', async (req, res) => {
-  console.log('✅ ROUTE: POST /api/user-progress/user/:userId/lesson/:lessonId called');
   try {
     const { userId, lessonId } = req.params;
     const progressData = req.body;
@@ -270,8 +269,6 @@ router.post('/user-progress/user/:userId/lesson/:lessonId', async (req, res) => 
 
 // ✅ GET /api/user-progress (for general user progress queries)
 router.get('/user-progress', async (req, res) => {
-  console.log('📊 GET /api/user-progress called with query:', req.query);
-
   try {
     const { userId, lessonId } = req.query;
 

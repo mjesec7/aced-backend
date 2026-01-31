@@ -53,8 +53,6 @@ const upload = multer({
 // GET /api/updated-courses - Enhanced with structured JSON support
 router.get('/', async (req, res) => {
   try {
-    console.log('📚 Fetching updated courses with enhanced structure');
-    
     const {
       category,
       difficulty,
@@ -152,8 +150,6 @@ router.get('/', async (req, res) => {
 
     const total = await UpdatedCourse.countDocuments(filter);
 
-    console.log(`✅ Returned ${processedCourses.length} courses in ${format} format`);
-
     res.json({
       success: true,
       courses: processedCourses,
@@ -181,8 +177,6 @@ router.get('/', async (req, res) => {
 // ✅ NEW: GET /api/updated-courses/structured - Dedicated structured format endpoint
 router.get('/structured', async (req, res) => {
   try {
-    console.log('📚 Fetching courses in structured JSON format');
-
     const {
       category,
       difficulty,
@@ -246,8 +240,6 @@ router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { format = 'standard' } = req.query;
-    
-    console.log(`📚 Fetching course ${id} in ${format} format`);
 
     const course = await UpdatedCourse.findOne({
       $or: [
@@ -312,8 +304,6 @@ router.get('/:id/lessons', async (req, res) => {
   try {
     const { id } = req.params;
     const { format = 'standard' } = req.query;
-    
-    console.log(`📚 Fetching lessons for course ${id} in ${format} format`);
 
     const course = await UpdatedCourse.findOne({
       $or: [
@@ -383,8 +373,6 @@ router.get('/format/:format', async (req, res) => {
   try {
     const { format } = req.params;
     const { category, difficulty, search, limit = 50, page = 1 } = req.query;
-
-    console.log(`📚 Fetching courses in ${format} format`);
 
     if (!['standard', 'structured'].includes(format)) {
       return res.status(400).json({
@@ -465,8 +453,6 @@ router.get('/format/:format', async (req, res) => {
 // ✅ ENHANCED: Get updated courses with comprehensive data processing
 router.get('/enhanced', async (req, res) => {
   try {
-    console.log('📚 Enhanced courses endpoint called with comprehensive processing');
-    
     const {
       category,
       difficulty,
@@ -673,8 +659,6 @@ router.get('/enhanced', async (req, res) => {
       };
     }
 
-    console.log(`✅ Enhanced endpoint returned ${processedCourses.length} courses with full metadata`);
-
     res.json({
       success: true,
       courses: processedCourses,
@@ -700,8 +684,6 @@ router.get('/enhanced/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { format = 'standard', includeProgress = 'false' } = req.query;
-    
-    console.log(`📚 Enhanced single course endpoint called for: ${id}`);
 
     // Enhanced query with population and computed fields
     const course = await UpdatedCourse.findOne({
@@ -779,8 +761,6 @@ router.get('/enhanced/:id', async (req, res) => {
     const relatedCourses = await getRelatedCourses(course, 4);
     enhancedCourse.relatedCourses = relatedCourses;
 
-    console.log(`✅ Enhanced single course data prepared for: ${course.title}`);
-
     res.json({
       success: true,
       course: enhancedCourse,
@@ -808,8 +788,6 @@ router.get('/enhanced/:id', async (req, res) => {
 // ✅ Enhanced POST /api/updated-courses/admin - Support structured format creation
 router.post('/admin', authenticateUser, async (req, res) => {
   try {
-    console.log('📚 Admin: Creating new course with enhanced structure support');
-    
     const courseData = {
       ...req.body,
       createdBy: req.user.uid || req.user.email || 'admin',
@@ -892,8 +870,6 @@ router.post('/admin', authenticateUser, async (req, res) => {
 
     // ✅ ENHANCED: Process traditional curriculum format with improved image handling
     if (courseData.curriculum && Array.isArray(courseData.curriculum)) {
-      console.log('📚 Processing traditional curriculum format');
-      
       const contentIssues = [];
       
       courseData.curriculum = courseData.curriculum.map((lesson, lessonIndex) => {
@@ -1003,14 +979,8 @@ router.post('/admin', authenticateUser, async (req, res) => {
 
       // Enhanced validation
       const finalValidation = validateCourseContent(courseData.curriculum);
-      
-      if (finalValidation.length > 0) {
-        console.warn('⚠️ Content validation issues:', finalValidation);
-        // Don't block creation for minor issues, just log them
-      }
 
       const curriculumStats = generateCurriculumStats(courseData.curriculum);
-      console.log('📊 Curriculum statistics:', curriculumStats);
     } else {
       courseData.curriculum = [];
     }
@@ -1032,8 +1002,6 @@ router.post('/admin', authenticateUser, async (req, res) => {
     // Create the course
     const course = new UpdatedCourse(courseData);
     await course.save();
-
-    console.log('✅ Course created successfully:', course._id);
 
     res.status(201).json({
       success: true,
@@ -1070,8 +1038,6 @@ router.post('/admin', authenticateUser, async (req, res) => {
 // ✅ Enhanced PUT /api/updated-courses/admin/:id - Support structured format updates
 router.put('/admin/:id', authenticateUser, async (req, res) => {
   try {
-    console.log(`📚 Admin: Updating course ${req.params.id} with enhanced structure support`);
-    
     const course = await UpdatedCourse.findById(req.params.id);
     if (!course) {
       return res.status(404).json({
@@ -1087,8 +1053,6 @@ router.put('/admin/:id', authenticateUser, async (req, res) => {
     // ✅ NEW: Handle structured format updates
     if (req.body.format === 'structured' || req.body.structuredData) {
       const structuredData = req.body.structuredData || req.body;
-      
-      console.log('📚 Processing structured format update');
 
       // Update structured lessons
       if (structuredData.lessons && Array.isArray(structuredData.lessons)) {
@@ -1140,8 +1104,6 @@ router.put('/admin/:id', authenticateUser, async (req, res) => {
 
     // ✅ Process traditional curriculum updates
     if (req.body.curriculum && Array.isArray(req.body.curriculum)) {
-      console.log('📚 Processing traditional curriculum update');
-      
       const processedCurriculum = req.body.curriculum.map((lesson, lessonIndex) => {
         const processedLesson = {
           title: lesson.title || `Lesson ${lessonIndex + 1}`,
@@ -1211,12 +1173,8 @@ router.put('/admin/:id', authenticateUser, async (req, res) => {
       course.curriculum = processedCurriculum;
 
       const validationIssues = validateCourseContent(course.curriculum);
-      if (validationIssues.length > 0) {
-        console.warn('⚠️ Content validation issues:', validationIssues);
-      }
       
       const updateStats = generateCurriculumStats(course.curriculum);
-      console.log('📊 Update statistics:', updateStats);
     }
     
     // Auto-update courseMetadata
@@ -1232,8 +1190,6 @@ router.put('/admin/:id', authenticateUser, async (req, res) => {
 
     // Save the updated course
     await course.save();
-
-    console.log('✅ Course updated successfully:', course._id);
 
     res.json({
       success: true,
@@ -1263,8 +1219,6 @@ router.put('/admin/:id', authenticateUser, async (req, res) => {
 // ✅ NEW: Convert existing course to structured format
 router.post('/admin/:id/convert-to-structured', authenticateUser, async (req, res) => {
   try {
-    console.log(`📚 Admin: Converting course ${req.params.id} to structured format`);
-
     const course = await UpdatedCourse.findById(req.params.id);
     if (!course) {
       return res.status(404).json({
@@ -1278,8 +1232,6 @@ router.post('/admin/:id/convert-to-structured', authenticateUser, async (req, re
     
     // Save the updated course with structured lessons
     await course.save();
-
-    console.log('✅ Course converted to structured format successfully');
 
     res.json({
       success: true,
@@ -1301,8 +1253,6 @@ router.post('/admin/:id/convert-to-structured', authenticateUser, async (req, re
 // ✅ NEW: Validate structured course data
 router.post('/admin/validate-structured', authenticateUser, async (req, res) => {
   try {
-    console.log('📚 Admin: Validating structured course data');
-
     const { structuredData } = req.body;
     
     const validationResults = {
@@ -1548,8 +1498,6 @@ router.get('/admin/stats', authenticateUser, async (req, res) => {
 // ✅ NEW: Add individual lesson to existing course
 router.post('/admin/:courseId/lessons', authenticateUser, async (req, res) => {
   try {
-    console.log(`📖 Adding lesson to course ${req.params.courseId}`);
-    
     const course = await UpdatedCourse.findById(req.params.courseId);
     if (!course) {
       return res.status(404).json({
@@ -1648,8 +1596,6 @@ router.post('/admin/:courseId/lessons', authenticateUser, async (req, res) => {
     
     await course.save();
 
-    console.log('✅ Lesson added successfully');
-
     res.json({
       success: true,
       course: course,
@@ -1679,8 +1625,6 @@ router.post('/admin/:courseId/lessons', authenticateUser, async (req, res) => {
 // ✅ NEW: Update individual lesson in existing course
 router.put('/admin/:courseId/lessons/:lessonId', authenticateUser, async (req, res) => {
   try {
-    console.log(`📖 Updating lesson ${req.params.lessonId} in course ${req.params.courseId}`);
-    
     const course = await UpdatedCourse.findById(req.params.courseId);
     if (!course) {
       return res.status(404).json({
@@ -1781,8 +1725,6 @@ router.put('/admin/:courseId/lessons/:lessonId', authenticateUser, async (req, r
     course.updatedBy = req.user.uid || req.user.email || 'admin';
     await course.save();
 
-    console.log('✅ Lesson updated successfully');
-
     res.json({
       success: true,
       course: course,
@@ -1812,8 +1754,6 @@ router.put('/admin/:courseId/lessons/:lessonId', authenticateUser, async (req, r
 // ✅ NEW: Delete individual lesson from existing course
 router.delete('/admin/:courseId/lessons/:lessonId', authenticateUser, async (req, res) => {
   try {
-    console.log(`🗑️ Deleting lesson ${req.params.lessonId} from course ${req.params.courseId}`);
-    
     const course = await UpdatedCourse.findById(req.params.courseId);
     if (!course) {
       return res.status(404).json({
@@ -1843,8 +1783,6 @@ router.delete('/admin/:courseId/lessons/:lessonId', authenticateUser, async (req
     course.updatedBy = req.user.uid || req.user.email || 'admin';
     await course.save();
 
-    console.log('✅ Lesson deleted successfully');
-
     res.json({
       success: true,
       course: course,
@@ -1864,8 +1802,6 @@ router.delete('/admin/:courseId/lessons/:lessonId', authenticateUser, async (req
 // ✅ NEW: Bulk create course with lessons (import full course structure)
 router.post('/admin/bulk-create', authenticateUser, async (req, res) => {
   try {
-    console.log('📦 Bulk creating course with lessons');
-    
     const { courseData } = req.body;
     
     if (!courseData || !courseData.title || !courseData.lessons) {
@@ -1987,8 +1923,6 @@ router.post('/admin/bulk-create', authenticateUser, async (req, res) => {
 
     const course = new UpdatedCourse(fullCourseData);
     await course.save();
-
-    console.log('✅ Bulk course created successfully with', processedCurriculum.length, 'lessons');
 
     res.status(201).json({
       success: true,

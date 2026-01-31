@@ -48,7 +48,6 @@ class LessonService {
       
       await lesson.save();
       
-      console.log(`✅ Lesson created successfully: ${lesson._id}`);
       return lesson;
       
     } catch (error) {

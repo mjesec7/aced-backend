@@ -8,8 +8,6 @@ const mongoose = require('mongoose');
 
 const connectDB = async () => {
   try {
-    console.log('🔌 Connecting to MongoDB...');
-
     // Check if MongoDB URI exists
     if (!process.env.MONGO_URI) {
       throw new Error('MONGO_URI environment variable is not set');
@@ -48,17 +46,7 @@ const connectDB = async () => {
     // Attempt connection
     await mongoose.connect(process.env.MONGO_URI, connectionOptions);
 
-    console.log('✅ MongoDB connected successfully to acedDB');
-
-    // ✅ Check collections (from your db.js)
-    const collections = await mongoose.connection.db.listCollections().toArray();
-    console.log(`📊 Found ${collections.length} collections in database`);
-
     // Connection event listeners
-    mongoose.connection.on('connected', () => {
-      console.log('📡 Mongoose connected to MongoDB');
-    });
-
     mongoose.connection.on('error', (err) => {
       console.error('❌ MongoDB connection error:', err.message);
       if (err.stack && process.env.NODE_ENV === 'development') {
@@ -66,25 +54,12 @@ const connectDB = async () => {
       }
     });
 
-    mongoose.connection.on('disconnected', () => {
-      console.log('📴 Mongoose disconnected from MongoDB');
-    });
-
-    mongoose.connection.on('reconnected', () => {
-      console.log('🔄 Mongoose reconnected to MongoDB');
-    });
-
     mongoose.connection.on('timeout', () => {
       console.error('⏰ MongoDB connection timeout');
     });
 
-    mongoose.connection.on('close', () => {
-      console.log('🚪 MongoDB connection closed');
-    });
-
     // Test the connection
     await mongoose.connection.db.admin().ping();
-    console.log('🏓 MongoDB ping successful');
 
   } catch (error) {
     console.error('\n❌ MongoDB Connection Error:', error);

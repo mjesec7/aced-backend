@@ -22,11 +22,6 @@ const validateEnvVars = () => {
     if (missing.length > 0) {
         throw new Error(`Missing environment variables: ${missing.join(', ')}`);
     }
-    
-    console.log('✅ Environment variables validated');
-    console.log('   API URL:', process.env.MULTICARD_API_URL);
-    console.log('   Application ID:', process.env.MULTICARD_APPLICATION_ID);
-    console.log('   Secret:', process.env.MULTICARD_SECRET ? '***' + process.env.MULTICARD_SECRET.slice(-4) : 'MISSING');
 };
 
 /**
@@ -35,26 +30,16 @@ const validateEnvVars = () => {
 const getAuthToken = async () => {
     // Check if token is still valid
     if (authToken && Date.now() < tokenExpiry) {
-        console.log('🔑 Using cached token');
-        console.log('   Expires in:', Math.round((tokenExpiry - Date.now()) / 1000 / 60), 'minutes');
         return authToken;
     }
     
     try {
         validateEnvVars();
         
-        console.log('🔑 Requesting new Multicard auth token...');
-        console.log('   URL:', `${API_URL}/auth`);
-        
         const payload = {
             application_id: process.env.MULTICARD_APPLICATION_ID,
             secret: process.env.MULTICARD_SECRET,
         };
-        
-        console.log('   Payload:', {
-            application_id: payload.application_id,
-            secret: '***' + payload.secret.slice(-4)
-        });
 
         const response = await axios.post(
             `${API_URL}/auth`,
@@ -67,9 +52,6 @@ const getAuthToken = async () => {
                 timeout: 10000 // 10 second timeout
             }
         );
-
-        console.log('📥 Response status:', response.status);
-        console.log('📥 Response data:', JSON.stringify(response.data, null, 2));
 
         // Check response structure
         if (!response.data) {
@@ -105,13 +87,6 @@ const getAuthToken = async () => {
             
             // Set expiry with 1 hour safety margin
             tokenExpiry = expiryDate.getTime() - (60 * 60 * 1000);
-            
-            console.log('✅ Token obtained successfully');
-            console.log('   Token (first 20 chars):', authToken.substring(0, 20) + '...');
-            console.log('   Role:', response.data.role);
-            console.log('   Expires at:', response.data.expiry);
-            console.log('   Cache until:', new Date(tokenExpiry).toISOString());
-            console.log('   Valid for:', Math.round((tokenExpiry - Date.now()) / 1000 / 60), 'minutes');
             
             return authToken;
         }
@@ -163,10 +138,6 @@ const getAuthToken = async () => {
  */
 const testAuth = async (req, res) => {
     try {
-        console.log('\n========================================');
-        console.log('🧪 Testing Multicard Authentication');
-        console.log('========================================\n');
-        
         const token = await getAuthToken();
         
         res.json({
@@ -195,7 +166,6 @@ const testAuth = async (req, res) => {
  * Force token refresh
  */
 const forceRefreshToken = async (req, res) => {
-    console.log('🔄 Forcing token refresh...');
     authToken = null;
     tokenExpiry = 0;
     

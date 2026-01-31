@@ -70,10 +70,6 @@ router.post('/apply', authMiddleware, async (req, res) => {
     // ✅ FIXED: Get firebaseId from auth middleware (it sets req.user.uid)
     const firebaseId = req.user.uid || req.user.id || req.user.firebaseId;
 
-    console.log('🎟️ [promocodeRoutes] Apply request received');
-    console.log('🎟️ [promocodeRoutes] Code:', code);
-    console.log('🎟️ [promocodeRoutes] Firebase ID:', firebaseId);
-
     if (!code || !code.trim()) {
       return res.status(400).json({ success: false, message: 'Promocode is required.' });
     }
@@ -86,7 +82,6 @@ router.post('/apply', authMiddleware, async (req, res) => {
     const promoCode = await Promocode.findOne({ code: code.trim().toUpperCase(), isActive: true });
 
     if (!promoCode) {
-      console.log('❌ [promocodeRoutes] Promo code not found or inactive:', code);
       return res.status(404).json({ success: false, message: 'Promo code not found or is inactive.' });
     }
 
@@ -99,14 +94,11 @@ router.post('/apply', authMiddleware, async (req, res) => {
       // Try to find by _id as fallback (in case firebaseId is actually a MongoDB ObjectId)
       const userById = await User.findById(firebaseId).catch(() => null);
       if (userById) {
-        console.log('✅ [promocodeRoutes] Found user by _id instead');
         return processPromoApplication(userById, promoCode, res);
       }
 
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
-
-    console.log('✅ [promocodeRoutes] User found:', user.email);
 
     return processPromoApplication(user, promoCode, res);
 
@@ -1139,11 +1131,6 @@ async function processPromoApplication(user, promoCode, res) {
     }
 
     // --- Apply the promo code benefits ---
-    console.log('🎟️ [promocodeRoutes] Applying promo benefits:', {
-      plan: promoCode.grantsPlan,
-      days: promoCode.subscriptionDays
-    });
-
     // Use the centralized grantSubscription method if available
     if (typeof user.grantSubscription === 'function') {
       await user.grantSubscription(
@@ -1182,10 +1169,6 @@ async function processPromoApplication(user, promoCode, res) {
     await user.save();
     await promoCode.save();
 
-    console.log('✅ [promocodeRoutes] Promo code applied successfully');
-    console.log('✅ [promocodeRoutes] New plan:', user.subscriptionPlan);
-    console.log('✅ [promocodeRoutes] Expiry:', user.subscriptionExpiryDate);
-
     // --- Send Notification ---
     try {
       const Message = require('../models/message');
@@ -1196,7 +1179,6 @@ async function processPromoApplication(user, promoCode, res) {
           subscriptionDays: promoCode.subscriptionDays,
           expiryDate: user.subscriptionExpiryDate
         });
-        console.log('✅ Promo notification sent to inbox');
       }
     } catch (msgError) {
       console.error('⚠️ Failed to send promo notification:', msgError);

@@ -32,13 +32,9 @@ const normalizeLessonSteps = (lesson) => {
   lesson.steps = lesson.steps.map((step, index) => {
     const normalizedStep = { ...step };
 
-    console.log(`Normalizing step ${index + 1}: type=${step.type}`);
-
     // ✅ NEW: Handle steps with content.type (histogram, map, block-coding, etc.)
     // These are interactive exercise types with nested content structure
     if (step.content && typeof step.content === 'object' && step.content.type) {
-      console.log(`  → Found content.type: ${step.content.type}`);
-
       // CRITICAL: Preserve the content structure for frontend
       // Frontend expects: step.content.type and step.content.data
       normalizedStep.content = step.content;
@@ -62,7 +58,6 @@ const normalizeLessonSteps = (lesson) => {
     ];
 
     if (directInteractiveTypes.includes(step.type)) {
-      console.log(`  → Direct interactive type: ${step.type}`);
       normalizedStep.exerciseType = step.type;
       // Ensure content and data both have the step data
       normalizedStep.content = step.content || step.data || step;
@@ -77,16 +72,12 @@ const normalizeLessonSteps = (lesson) => {
       // Check various locations for exercise data
       if (step.content && step.content.exercises && Array.isArray(step.content.exercises)) {
         exercisesArray = step.content.exercises;
-        console.log(`  → Found ${exercisesArray.length} exercises in content.exercises`);
       } else if (step.content && Array.isArray(step.content)) {
         exercisesArray = step.content;
-        console.log(`  → Found ${exercisesArray.length} exercises in content (array)`);
       } else if (step.data && step.data.exercises && Array.isArray(step.data.exercises)) {
         exercisesArray = step.data.exercises;
-        console.log(`  → Found ${exercisesArray.length} exercises in data.exercises`);
       } else if (step.data && Array.isArray(step.data) && step.data.length > 0) {
         exercisesArray = step.data;
-        console.log(`  → Found ${exercisesArray.length} exercises in data (array)`);
       }
 
       if (exercisesArray && exercisesArray.length > 0) {
@@ -117,7 +108,6 @@ const normalizeLessonSteps = (lesson) => {
       }
       // If no exercises found but content exists with a type, preserve it
       else if (step.content && step.content.type) {
-        console.log(`  → Exercise step with content.type: ${step.content.type}`);
         normalizedStep.exerciseType = step.content.type;
         normalizedStep.data = step.content;
       }
@@ -127,7 +117,6 @@ const normalizeLessonSteps = (lesson) => {
     if (step.type === 'quiz') {
       if (step.content && step.content.questions) {
         normalizedStep.data = step.content.questions;
-        console.log(`  → Found ${step.content.questions.length} quiz questions`);
       } else if (step.data && step.data.questions) {
         normalizedStep.data = step.data.questions;
       }
@@ -137,7 +126,6 @@ const normalizeLessonSteps = (lesson) => {
     if (step.type === 'vocabulary') {
       if (step.content && step.content.terms) {
         normalizedStep.data = step.content.terms;
-        console.log(`  → Found ${step.content.terms.length} vocabulary terms`);
       } else if (step.data && step.data.terms) {
         normalizedStep.data = step.data.terms;
       }
@@ -145,7 +133,6 @@ const normalizeLessonSteps = (lesson) => {
 
     // ✅ Handle game steps
     if (step.type === 'game' || step.gameType) {
-      console.log(`  → Game step: ${step.gameType || 'unknown'}`);
       normalizedStep.data = step.gameConfig?.items || step.data || [];
     }
 
@@ -444,7 +431,6 @@ exports.completeLesson = async (req, res) => {
 // ✅ NEW: Handle lesson completion and extract content
 const handleLessonCompletion = async (userId, lessonId, lessonProgress, lesson = null) => {
   try {
-
     // Get the completed lesson if not provided
     if (!lesson) {
       lesson = await Lesson.findById(lessonId);
@@ -465,7 +451,6 @@ const handleLessonCompletion = async (userId, lessonId, lessonProgress, lesson =
     const homeworkExercises = await extractHomeworkFromLesson(lesson);
 
     if (homeworkExercises.length > 0) {
-
       // Check if homework already exists for this lesson
       const existingHomework = await Homework.findOne({
         linkedLessonIds: lessonId,
@@ -546,7 +531,6 @@ const handleLessonCompletion = async (userId, lessonId, lessonProgress, lesson =
     const vocabularyWords = await extractVocabularyFromLesson(lesson, userId);
 
     if (vocabularyWords.length > 0) {
-
       // Add to user's vocabulary collection
       for (const vocabData of vocabularyWords) {
         // Check if word already exists
@@ -603,7 +587,6 @@ const handleLessonCompletion = async (userId, lessonId, lessonProgress, lesson =
       message += ` ${results.vocabularyCount} words added to vocabulary.`;
     }
     results.message = message;
-
 
     return results;
 
@@ -1111,7 +1094,6 @@ async function processLessonSteps(steps) {
     return [];
   }
 
-
   const validStepTypes = [
     'explanation', 'example', 'practice', 'exercise',
     'vocabulary', 'quiz', 'video', 'audio',
@@ -1145,7 +1127,6 @@ async function processLessonSteps(steps) {
           if (step.content && step.content.type) {
             // Preserve the entire content structure - DON'T process it
             processedData = step.content;
-            console.log(`Preserving interactive exercise: ${step.content.type}`);
           } else {
             // Traditional exercise processing (array of questions)
             processedData = await processExerciseStep(step, index);
@@ -1278,7 +1259,6 @@ async function processExerciseStep(step, index) {
 }
 
 async function processQuizStep(step, index) {
-
   let quizzes = [];
 
   if (step.quizzes && Array.isArray(step.quizzes)) {

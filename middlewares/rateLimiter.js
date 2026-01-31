@@ -17,7 +17,6 @@ const createRateLimiter = (options) => {
         skip: (req) => {
             // Skip if user is authenticated and whitelisted
             if (req.user && req.user.uid && TEST_UIDS.includes(req.user.uid)) {
-                console.log(`🛡️ Rate Limit Skipped for Test User: ${req.user.uid}`);
                 return true;
             }
             return false;
