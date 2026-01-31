@@ -159,4 +159,56 @@ const authenticateUser = async (req, res, next) => {
   }
 };
 
+/**
+ * 🔒 ADMIN VERIFICATION MIDDLEWARE
+ * Use AFTER verifyToken to ensure the user has admin privileges.
+ * This checks the user's role in the database.
+ */
+const verifyAdmin = async (req, res, next) => {
+  try {
+    // Ensure user is authenticated first
+    if (!req.user || !req.user.uid) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required'
+      });
+    }
+
+    // Import User model here to avoid circular dependencies
+    const User = require('../models/user');
+    
+    // Check user's role in database
+    const user = await User.findOne({ firebaseId: req.user.uid }).select('role');
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    if (user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        error: 'Admin access required',
+        message: 'You do not have permission to perform this action'
+      });
+    }
+
+    // User is admin, proceed
+    req.isAdmin = true;
+    next();
+
+  } catch (error) {
+    console.error('❌ Admin verification failed:', error.message);
+    return res.status(500).json({
+      success: false,
+      error: 'Admin verification failed'
+    });
+  }
+};
+
+// Export both middlewares
 module.exports = authenticateUser;
+module.exports.verifyToken = authenticateUser;
+module.exports.verifyAdmin = verifyAdmin;

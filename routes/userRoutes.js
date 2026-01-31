@@ -18,6 +18,7 @@ const HomeworkProgress = require('../models/homeworkProgress');
 // ✅ Firebase & Middleware
 const admin = require('../config/firebase');
 const verifyToken = require('../middlewares/authMiddleware');
+const { verifyAdmin } = require('../middlewares/authMiddleware');
 
 // ✅ Controllers
 const homeworkController = require('../controllers/homeworkController');
@@ -82,6 +83,98 @@ const extractValidObjectId = (input, fieldName = 'ObjectId') => {
     return null;
   }
 };
+
+// ========================================
+// 🔒 SECURITY: User Data Sanitization
+// ========================================
+
+/**
+ * Sanitize user object to remove sensitive fields before sending to client.
+ * This prevents leaking internal IDs, personal data, and implementation details.
+ * 
+ * @param {Object} user - The user object (can be mongoose doc or plain object)
+ * @param {Object} options - Options for what to include
+ * @param {boolean} options.includeEmail - Include email (default: true for own profile)
+ * @param {boolean} options.includeSubscription - Include subscription details (default: true)
+ * @param {boolean} options.includeProgress - Include learning progress (default: false)
+ * @param {boolean} options.isAdmin - Admin view with more fields (default: false)
+ * @returns {Object} Sanitized user object
+ */
+const sanitizeUserData = (user, options = {}) => {
+  if (!user) return null;
+  
+  const {
+    includeEmail = true,
+    includeSubscription = true,
+    includeProgress = false,
+    isAdmin = false
+  } = options;
+
+  // Convert mongoose document to plain object if needed
+  const userData = user.toObject ? user.toObject() : { ...user };
+
+  // Base safe fields that are always included
+  const safeUser = {
+    // Public identifier (use firebaseId as the external ID, never expose _id)
+    uid: userData.firebaseId,
+    // Display info
+    name: userData.name || userData.displayName?.split(' ')[0] || '',
+    surname: userData.surname || userData.displayName?.split(' ')[1] || '',
+    displayName: userData.displayName || `${userData.name || ''} ${userData.surname || ''}`.trim(),
+    photoURL: userData.photoURL || null,
+    // Account info
+    createdAt: userData.createdAt,
+    // Status
+    userStatus: userData.subscriptionPlan || userData.userStatus || 'free',
+    subscriptionPlan: userData.subscriptionPlan || 'free'
+  };
+
+  // Include email only if explicitly allowed (own profile or admin)
+  if (includeEmail) {
+    safeUser.email = userData.email;
+  }
+
+  // Include subscription details
+  if (includeSubscription) {
+    safeUser.subscription = {
+      plan: userData.subscriptionPlan || 'free',
+      expiryDate: userData.subscriptionExpiryDate || null,
+      activatedAt: userData.subscriptionActivatedAt || null,
+      isActive: userData.subscriptionPlan !== 'free' && 
+                userData.subscriptionExpiryDate && 
+                new Date(userData.subscriptionExpiryDate) > new Date()
+    };
+  }
+
+  // Include progress summary (not detailed progress)
+  if (includeProgress) {
+    safeUser.progress = {
+      totalPoints: userData.totalPoints || 0,
+      lessonsCompleted: userData.lessonsCompleted || 0,
+      topicsCompleted: userData.topicsCompleted || 0
+    };
+  }
+
+  // Admin view includes additional fields (but still not sensitive ones)
+  if (isAdmin) {
+    safeUser.lastLoginAt = userData.lastLoginAt;
+    safeUser.authProvider = userData.authProvider;
+    // Don't include: _id, firebaseId directly, internal arrays, payment details
+  }
+
+  return safeUser;
+};
+
+/**
+ * Fields to exclude when selecting users from database
+ * Use with mongoose .select() to avoid loading sensitive data
+ */
+const SENSITIVE_FIELDS_EXCLUDE = '-__v -loginHistory -paymentHistory -internalNotes';
+
+/**
+ * Safe fields to select for public user listings
+ */
+const SAFE_USER_FIELDS = 'firebaseId name surname displayName photoURL subscriptionPlan subscriptionExpiryDate subscriptionActivatedAt createdAt totalPoints';
 
 // Enhanced data sanitization function
 const sanitizeProgressData = (data) => {
@@ -491,14 +584,22 @@ router.get('/:userId', verifyToken, validateUserId, async (req, res) => {
       });
     }
 
+    // 🔒 SECURITY: Use sanitized user data instead of spreading full object
+    const safeUser = sanitizeUserData(user, { 
+      includeEmail: true, 
+      includeSubscription: true,
+      includeProgress: true 
+    });
+    
     const responseUser = {
-      ...user,
-      userStatus: user.subscriptionPlan || 'free',
-      plan: user.subscriptionPlan || 'free',
+      ...safeUser,
       serverFetch: true,
       fetchTime: new Date().toISOString(),
-      currentUsage: user.getCurrentMonthAIUsage ? user.getCurrentMonthAIUsage() : {},
-      usageLimits: user.getUsageLimits ? user.getUsageLimits() : {}
+      // Include usage data (non-sensitive)
+      currentUsage: user.getCurrentMonthAIUsage ? user.getCurrentMonthAIUsage() : 
+        (user.aiUsage?.currentMonth || { messages: 0, images: 0 }),
+      usageLimits: user.getUsageLimits ? user.getUsageLimits() : 
+        { messages: user.subscriptionPlan === 'free' ? 50 : -1, images: user.subscriptionPlan === 'free' ? 5 : -1 }
     };
 
     res.json({
@@ -517,9 +618,20 @@ router.get('/:userId', verifyToken, validateUserId, async (req, res) => {
   }
 });
 
-router.get('/:firebaseId/status', validateFirebaseId, async (req, res) => {
+// 🔒 SECURITY FIX: Added authentication and ownership verification
+router.get('/:firebaseId/status', validateFirebaseId, verifyToken, async (req, res) => {
   try {
-    const user = await User.findOne({ firebaseId: req.params.firebaseId });
+    const { firebaseId } = req.params;
+    const authenticatedUserId = req.user.uid;
+
+    // 🔒 SECURITY: Only allow users to check their own status
+    if (firebaseId !== authenticatedUserId) {
+      return res.status(403).json({ 
+        error: 'Forbidden: You can only check your own subscription status' 
+      });
+    }
+
+    const user = await User.findOne({ firebaseId }).select('subscriptionPlan');
     if (!user) return res.status(404).json({ error: '❌ User not found' });
     res.json({ status: user.subscriptionPlan || 'free' });
   } catch (error) {
@@ -792,8 +904,8 @@ router.get('/:userId/lessons/:lessonId/access', verifyToken, async (req, res) =>
 // ========================================
 
 // ✅ NEW: POST /api/users/admin/:userId/reset-subscription - Reset subscription to free (admin)
-// ✅ NEW: POST /api/users/admin/:userId/reset-subscription - Reset subscription to free (admin)
-router.post('/admin/:userId/reset-subscription', validateUserId, verifyToken, async (req, res) => {
+// 🔒 SECURITY: Added verifyAdmin middleware
+router.post('/admin/:userId/reset-subscription', validateUserId, verifyToken, verifyAdmin, async (req, res) => {
   try {
     const { userId } = req.params;
     const { reason } = req.body;
@@ -889,8 +1001,8 @@ router.post('/admin/:userId/reset-subscription', validateUserId, verifyToken, as
 });
 
 // ✅ NEW: POST /api/users/admin/:userId/extend-subscription - Extend subscription (admin)
-router.post('/admin/:userId/extend-subscription', validateUserId, verifyToken, async (req, res) => {
-  // TODO: Add admin-level verification middleware here
+// 🔒 SECURITY: Added verifyAdmin middleware
+router.post('/admin/:userId/extend-subscription', validateUserId, verifyToken, verifyAdmin, async (req, res) => {
   try {
     const { userId } = req.params;
     const { days = 30 } = req.body;
@@ -952,7 +1064,8 @@ router.post('/admin/:userId/extend-subscription', validateUserId, verifyToken, a
 });
 
 // ✅ NEW: GET /api/users/admin/users-comprehensive - Get users with REAL progress data
-router.get('/admin/users-comprehensive', verifyToken, async (req, res) => {
+// 🔒 SECURITY: Added verifyAdmin middleware
+router.get('/admin/users-comprehensive', verifyToken, verifyAdmin, async (req, res) => {
   try {
     const { page = 1, limit = 50, search = '', plan = '', status = '' } = req.query;
     let filter = {};
@@ -1107,8 +1220,8 @@ router.get('/admin/users-comprehensive', verifyToken, async (req, res) => {
 });
 
 // ✅ NEW: GET /api/users/admin/users - Get all users (admin)
-router.get('/admin/users', verifyToken, async (req, res) => {
-  // TODO: Add admin-level verification middleware here
+// 🔒 SECURITY: Added verifyAdmin middleware
+router.get('/admin/users', verifyToken, verifyAdmin, async (req, res) => {
   try {
     const {
       page = 1,
@@ -1194,11 +1307,12 @@ router.get('/admin/users', verifyToken, async (req, res) => {
 });
 
 // ✅ NEW: GET /api/users/all - Get all users list
-router.get('/all', verifyToken, async (req, res) => {
-  // TODO: Add admin-level verification middleware here
+// 🔒 SECURITY: Added verifyAdmin middleware, removed sensitive fields from response
+router.get('/all', verifyToken, verifyAdmin, async (req, res) => {
   try {
+    // 🔒 SECURITY: Don't expose email in list view, only for admin detail views
     const users = await User.find({})
-      .select('firebaseId email name subscriptionPlan isBlocked createdAt lastLoginAt studyList')
+      .select('firebaseId name subscriptionPlan isBlocked createdAt lastLoginAt')
       .sort({ lastLoginAt: -1, createdAt: -1 })
       .limit(100)
       .lean();
