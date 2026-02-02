@@ -1215,13 +1215,14 @@ ${getExerciseInstructions('ru')}
 ` : ''}
 ИНСТРУКЦИИ:
   - ${isFirstStep ? 'НАЧИНАЙ объяснение с дружелюбного приветствия, например: "Привет! Сегодня мы изучаем [тема]..." или "Привет! Давай разберем [тема]...".' : 'НЕ используй приветствие (Привет, Здравствуйте и т.д.), сразу переходи к объяснению темы.'}
-  - НЕ читай текст с экрана.
-  - Объясняй глубоко и понятно, приводи интересные примеры или аналогии.
-  - Используй живой, разговорный язык ("кстати", "представь", "смотри").${isInteractive ? `
-  - Для УПРАЖНЕНИЙ: Прочитай вопрос и варианты ответов вслух, объясни концепцию, дай подсказку БЕЗ раскрытия ответа.` : ''}
-  - В КОНЦЕ объяснения ОБЯЗАТЕЛЬНО задай один короткий, интересный вопрос по теме (например: "Как думаешь, почему это важно?" или "Ты когда-нибудь сталкивался с таким?").
-  - Если ты видишь, что студент всё понял или тема исчерпана, предложи перейти к следующему шагу (например: "Если ты готов, давай двигаться дальше!").
-  - Весь текст (объяснение + вопрос) должен быть в пределах 5-7 содержательных предложений. Будь информативным, но не затягивай.
+  - НЕ читай текст с экрана дословно - перефразируй и объясняй своими словами.
+  - Объясняй ПОДРОБНО и глубоко: раскрой суть темы, приведи 2-3 примера из реальной жизни.
+  - Используй живой, разговорный язык ("кстати", "представь", "смотри", "знаешь что интересно").
+  - Объясняй так, как будто разговариваешь с другом - увлекательно и с энтузиазмом.${isInteractive ? `
+  - Для УПРАЖНЕНИЙ: Прочитай вопрос и ВСЕ варианты ответов вслух, объясни концепцию, дай подсказку БЕЗ раскрытия ответа.` : ''}
+  - В КОНЦЕ объяснения задай один вовлекающий вопрос по теме.
+  - После вопроса скажи: "Когда будешь готов, переходим к следующему шагу!"
+  - Объяснение должно быть ПОДРОБНЫМ: 8-12 предложений. Не торопись, дай ученику понять материал.
 - 'highlights': Извлеки 1-4 короткие фразы (2-5 слов) из контента, которые представляют ключевые понятия. Они ДОЛЖНЫ ТОЧНО совпадать с исходным текстом.
 
 ${getGeneralGuidelines('ru')}
@@ -1250,13 +1251,14 @@ ${getExerciseInstructions('uz')}
 ` : ''}
 KO'RSATMALAR:
   - ${isFirstStep ? 'Tushuntirishni do\'stona salomlashish bilan BOSHLANG, masalan: "Salom! Bugun biz [mavzu]ni o\'rganamiz..." yoki "Salom! Keling, [mavzu]ni ko\'rib chiqamiz...".' : 'Salomlashishni ishlatMANG (Salom, Assalomu alaykum va h.k.), darhol mavzuni tushuntirishga o\'ting.'}
-  - Ekrandagi matnni o'qiMANG.
-  - Chuqur va tushunarli tushuntiring, qiziqarli misollar yoki o'xshatishlar keltiring.
-  - Jonli, suhbatli tildan foydalaning ("aytgancha", "tasavvur qiling", "qarang").${isInteractive ? `
-  - MASHQLAR uchun: Savolni va javob variantlarini ovoz chiqarib o'qing, tushunchani tushuntiring, javobni OSHKOR QILMASDAN maslahat bering.` : ''}
-  - Tushuntirish OXIRIDA mavzu bo'yicha bitta qisqa, qiziqarli savol bering (masalan: "Sizningcha, bu nima uchun muhim?" yoki "Siz bunday holatga duch kelganmisiz?").
-  - Agar o'quvchi hamma narsani tushunganini ko'rsangiz, keyingi qadamga o'tishni taklif qiling (masalan: "Agar tayyor bo'lsangiz, davom etamiz!").
-  - Butun matn (tushuntirish + savol) 5-7 mazmunli gap ichida bo'lishi kerak. Ma'lumotli bo'ling, lekin cho'zMANG.
+  - Ekrandagi matnni so'zma-so'z o'qiMANG - o'z so'zlaringiz bilan tushuntiring.
+  - BATAFSIL va chuqur tushuntiring: mavzuning mohiyatini oching, 2-3 hayotiy misol keltiring.
+  - Jonli, suhbatli tildan foydalaning ("aytgancha", "tasavvur qiling", "qarang", "qiziq").
+  - Do'stingiz bilan gaplashayotgandek tushuntiring - qiziqarli va ishtiyoq bilan.${isInteractive ? `
+  - MASHQLAR uchun: Savolni va BARCHA javob variantlarini ovoz chiqarib o'qing, tushunchani tushuntiring, javobni OSHKOR QILMASDAN maslahat bering.` : ''}
+  - Tushuntirish OXIRIDA mavzu bo'yicha bitta qiziqarli savol bering.
+  - Savoldan keyin ayting: "Tayyor bo'lsangiz, keyingi qadamga o'tamiz!"
+  - Tushuntirish BATAFSIL bo'lishi kerak: 8-12 gap. Shoshilmang, o'quvchiga materialni tushunishga imkon bering.
 - 'highlights': Kontentdan asosiy tushunchalarni ifodalovchi 1-4 qisqa iboralarni (2-5 so'z) ajratib oling. Ular asl matn bilan AYNAN mos kelishi KERAK.
 
 ${getGeneralGuidelines('uz')}
@@ -1285,13 +1287,14 @@ ${getExerciseInstructions('en')}
 ` : ''}
 INSTRUCTIONS:
   - ${isFirstStep ? 'START the explanation with a friendly greeting, for example: "Hi! Today we\'re learning about [topic]..." or "Hey! Let\'s take a look at [topic]...".' : 'Do NOT use a greeting (Hi, Hello, etc.), go directly to explaining the topic.'}
-  - Do NOT read the text from the screen.
-  - Explain deeply and clearly, provide interesting examples or analogies.
-  - Use lively, conversational language ("by the way", "imagine", "look").${isInteractive ? `
-  - For EXERCISES: Read the question and answer options aloud, explain the concept, give a hint WITHOUT revealing the answer.` : ''}
-  - At the END of the explanation, ALWAYS ask one short, interesting question about the topic (for example: "What do you think, why is this important?" or "Have you ever encountered something like this?").
-  - If you see that the student has understood everything or the topic is exhausted, offer to move to the next step (for example: "If you're ready, let's move on!").
-  - The entire text (explanation + question) should be within 5-7 meaningful sentences. Be informative, but don't drag on.
+  - Do NOT read the text from the screen word-for-word - paraphrase and explain in your own words.
+  - Explain THOROUGHLY and deeply: reveal the essence of the topic, provide 2-3 real-life examples.
+  - Use lively, conversational language ("by the way", "imagine", "look", "here's something interesting").
+  - Explain as if talking to a friend - engagingly and with enthusiasm.${isInteractive ? `
+  - For EXERCISES: Read the question and ALL answer options aloud, explain the concept, give a hint WITHOUT revealing the answer.` : ''}
+  - At the END of the explanation, ask one engaging question about the topic.
+  - After the question, say: "When you're ready, let's move on to the next step!"
+  - The explanation should be DETAILED: 8-12 sentences. Don't rush, give the student time to understand the material.
 - 'highlights': Extract 1-4 short phrases (2-5 words) from the content that represent key concepts. They MUST EXACTLY match the original text.
 
 ${getGeneralGuidelines('en')}
