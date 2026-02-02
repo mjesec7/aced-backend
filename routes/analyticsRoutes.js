@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const UserActivity = require('../models/UserActivity');
-const { verifyToken } = require('../middleware/authMiddleware'); // Assuming you have this
+const verifyToken = require('../middlewares/authMiddleware');
 
 // Track a new event
 router.post('/track', verifyToken, async (req, res) => {
