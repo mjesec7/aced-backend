@@ -19,11 +19,18 @@ const voiceController = require('../controllers/voiceController');
 const verifyToken = require('../middlewares/authMiddleware');
 const createRateLimiter = require('../middlewares/rateLimiter');
 
-// Rate limiters
+// Rate limiters - Increased for production use (100+ concurrent users)
 const chatLimiter = createRateLimiter({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 50, // Limit each IP/User to 50 requests per windowMs
+  windowMs: 1 * 60 * 1000, // 1 minute window
+  max: 60, // 60 requests per minute per user (1 per second avg)
   message: { success: false, error: 'Too many chat requests, please try again later.' }
+});
+
+// Separate rate limiter for analyze-speech (can be called frequently during lessons)
+const analyzeSpeechLimiter = createRateLimiter({
+  windowMs: 1 * 60 * 1000, // 1 minute window
+  max: 30, // 30 analyze requests per minute per user
+  message: { success: false, error: 'Too many speech analysis requests, please slow down.' }
 });
 
 // ============================================
@@ -46,7 +53,7 @@ router.post('/', verifyToken, chatLimiter, getAIResponse);
 router.post('/lesson-context', verifyToken, chatLimiter, getLessonContextAIResponse);
 
 // Analyze lesson content for speech & highlights (Perfect Harmony endpoint)
-router.post('/analyze-speech', verifyToken, chatLimiter, analyzeLessonForSpeech);
+router.post('/analyze-speech', verifyToken, analyzeSpeechLimiter, analyzeLessonForSpeech);
 
 // GET handler for endpoints that require POST - return proper error
 router.get('/analyze-speech', (req, res) => {
