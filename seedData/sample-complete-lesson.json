@@ -1,0 +1,676 @@
+{
+  "_comment": "SAMPLE COMPLETE LESSON - Use this as a template for creating new lessons",
+  
+  "subject": "English Language",
+  "level": 2,
+  "topic": "Present Simple Tense",
+  "topicDescription": "Learn to use the present simple tense correctly",
+  
+  "lessonName": {
+    "en": "Present Simple: Daily Routines",
+    "ru": "Простое настоящее время: Ежедневные дела",
+    "uz": "Oddiy hozirgi zamon: Kundalik ishlar"
+  },
+  
+  "description": {
+    "en": "Learn how to talk about daily routines, habits, and general truths using the present simple tense.",
+    "ru": "Научитесь говорить о повседневных делах, привычках и общих истинах, используя простое настоящее время.",
+    "uz": "Oddiy hozirgi zamon yordamida kundalik ishlar, odatlar va umumiy haqiqatlar haqida gapirish qoidalarini o'rganing."
+  },
+  
+  "type": "free",
+  "difficulty": "beginner",
+  "status": "published",
+  "visibility": "public",
+  "isActive": true,
+  
+  "timing": {
+    "estimatedDuration": 30,
+    "minDuration": 20,
+    "maxDuration": 45
+  },
+  
+  "stepRequirements": {
+    "explanation": { "required": true, "minCount": 1, "maxCount": 3 },
+    "exercise": { "required": true, "minCount": 7, "maxCount": 15 },
+    "vocabulary": { "required": false, "minCount": 1, "maxCount": 2 },
+    "quiz": { "required": false, "minCount": 2, "maxCount": 5 }
+  },
+  
+  "steps": [
+    {
+      "type": "introduction",
+      "order": 0,
+      "title": {
+        "en": "Welcome to Present Simple!",
+        "ru": "Добро пожаловать в урок о простом настоящем времени!",
+        "uz": "Oddiy hozirgi zamon darsiga xush kelibsiz!"
+      },
+      "instructions": {
+        "en": "Get ready to learn about daily routines!",
+        "ru": "Приготовьтесь узнать о ежедневных делах!",
+        "uz": "Kundalik ishlar haqida o'rganishga tayyorlaning!"
+      },
+      "content": {
+        "text": {
+          "en": "In this lesson, you will learn how to use the **Present Simple** tense to talk about:\n\n• Daily routines (I wake up at 7am)\n• Habits (She drinks coffee every morning)\n• General truths (The sun rises in the east)\n• Schedules (The train leaves at 9pm)\n\nLet's begin!",
+          "ru": "В этом уроке вы научитесь использовать **простое настоящее время** для разговора о:\n\n• Ежедневных делах (Я просыпаюсь в 7 утра)\n• Привычках (Она пьёт кофе каждое утро)\n• Общих истинах (Солнце встаёт на востоке)\n• Расписаниях (Поезд отправляется в 9 вечера)\n\nДавайте начнём!",
+          "uz": "Bu darsda siz **oddiy hozirgi zamon**dan foydalanishni o'rganasiz:\n\n• Kundalik ishlar (Men soat 7da uyg'onaman)\n• Odatlar (U har kuni ertalab kofe ichadi)\n• Umumiy haqiqatlar (Quyosh sharqdan chiqadi)\n• Jadvallar (Poyezd soat 9da jo'naydi)\n\nBoshlaymiz!"
+        }
+      },
+      "difficulty": "beginner",
+      "estimatedDuration": 2,
+      "scoring": { "maxPoints": 0, "passingScore": 0, "weight": 0 }
+    },
+    
+    {
+      "type": "explanation",
+      "order": 1,
+      "title": {
+        "en": "How to Form Present Simple",
+        "ru": "Как образовать простое настоящее время",
+        "uz": "Oddiy hozirgi zamonni qanday tuzish kerak"
+      },
+      "instructions": {
+        "en": "Read and understand the rules for forming present simple sentences.",
+        "ru": "Прочитайте и поймите правила образования предложений в простом настоящем времени.",
+        "uz": "Oddiy hozirgi zamon gaplarini tuzish qoidalarini o'qing va tushuning."
+      },
+      "content": {
+        "text": {
+          "en": "## Forming Present Simple\n\n### Affirmative (Positive)\n\n| Subject | Verb |\n|---------|------|\n| I / You / We / They | work |\n| He / She / It | work**s** |\n\n**Examples:**\n- I **play** football on weekends.\n- She **watches** TV in the evening.\n- They **study** English every day.\n\n### Important Rule:\nWith **he, she, it**, we add **-s** or **-es** to the verb:\n- work → works\n- study → studies (y → ies)\n- watch → watches (add -es after ch, sh, s, x, o)\n- go → goes\n\n### Time Expressions:\nWe often use these words with present simple:\n- every day/week/month/year\n- always, usually, often, sometimes, rarely, never\n- in the morning/afternoon/evening\n- on Mondays/weekends",
+          "ru": "## Образование простого настоящего времени\n\n### Утвердительная форма\n\n| Подлежащее | Глагол |\n|------------|--------|\n| I / You / We / They | work |\n| He / She / It | work**s** |\n\n**Примеры:**\n- I **play** football on weekends. (Я играю в футбол по выходным)\n- She **watches** TV in the evening. (Она смотрит ТВ вечером)\n- They **study** English every day. (Они учат английский каждый день)\n\n### Важное правило:\nС **he, she, it** добавляем **-s** или **-es** к глаголу:\n- work → works\n- study → studies (y → ies)\n- watch → watches (добавляем -es после ch, sh, s, x, o)\n- go → goes\n\n### Слова-маркеры времени:\nМы часто используем эти слова с простым настоящим:\n- every day/week/month/year (каждый день/неделю/месяц/год)\n- always, usually, often, sometimes, rarely, never\n- in the morning/afternoon/evening\n- on Mondays/weekends",
+          "uz": "## Oddiy hozirgi zamonni tuzish\n\n### Tasdiq shakli\n\n| Ega | Fe'l |\n|-----|------|\n| I / You / We / They | work |\n| He / She / It | work**s** |\n\n**Misollar:**\n- I **play** football on weekends. (Men dam olish kunlari futbol o'ynayman)\n- She **watches** TV in the evening. (U kechqurun televizor ko'radi)\n- They **study** English every day. (Ular har kuni ingliz tilini o'rganishadi)\n\n### Muhim qoida:\n**he, she, it** bilan fe'lga **-s** yoki **-es** qo'shamiz:\n- work → works\n- study → studies (y → ies)\n- watch → watches (ch, sh, s, x, o dan keyin -es qo'shamiz)\n- go → goes\n\n### Vaqt iboralari:\nOddiy hozirgi zamon bilan ko'pincha bu so'zlardan foydalanamiz:\n- every day/week/month/year (har kun/hafta/oy/yil)\n- always, usually, often, sometimes, rarely, never\n- in the morning/afternoon/evening\n- on Mondays/weekends"
+        }
+      },
+      "difficulty": "beginner",
+      "estimatedDuration": 5,
+      "scoring": { "maxPoints": 0 }
+    },
+    
+    {
+      "type": "vocabulary",
+      "order": 2,
+      "title": {
+        "en": "Daily Routine Vocabulary",
+        "ru": "Словарь: Ежедневные дела",
+        "uz": "Lug'at: Kundalik ishlar"
+      },
+      "instructions": {
+        "en": "Learn these common verbs used for daily routines.",
+        "ru": "Выучите эти распространённые глаголы для описания ежедневных дел.",
+        "uz": "Kundalik ishlar uchun ishlatiladigan ushbu fe'llarni o'rganing."
+      },
+      "content": {
+        "terms": [
+          {
+            "term": { "en": "wake up", "ru": "просыпаться", "uz": "uyg'onmoq" },
+            "definition": { "en": "to stop sleeping and open your eyes", "ru": "прекратить спать и открыть глаза", "uz": "uyqudan turmoq va ko'zlarni ochmoq" },
+            "example": { "en": "I wake up at 7 o'clock.", "ru": "Я просыпаюсь в 7 часов.", "uz": "Men soat 7da uyg'onaman." },
+            "pronunciation": "/weɪk ʌp/"
+          },
+          {
+            "term": { "en": "have breakfast", "ru": "завтракать", "uz": "nonushta qilmoq" },
+            "definition": { "en": "to eat the first meal of the day", "ru": "есть первый приём пищи за день", "uz": "kunning birinchi ovqatini yemoq" },
+            "example": { "en": "She has breakfast at 8am.", "ru": "Она завтракает в 8 утра.", "uz": "U soat 8da nonushta qiladi." },
+            "pronunciation": "/hæv ˈbrekfəst/"
+          },
+          {
+            "term": { "en": "go to work/school", "ru": "идти на работу/в школу", "uz": "ishga/maktabga bormoq" },
+            "definition": { "en": "to travel to your place of work or study", "ru": "добираться до места работы или учёбы", "uz": "ish yoki o'qish joyiga bormoq" },
+            "example": { "en": "He goes to work by bus.", "ru": "Он ездит на работу на автобусе.", "uz": "U avtobus bilan ishga boradi." },
+            "pronunciation": "/ɡəʊ tuː wɜːk/"
+          },
+          {
+            "term": { "en": "come home", "ru": "приходить домой", "uz": "uyga kelmoq" },
+            "definition": { "en": "to return to your house", "ru": "возвращаться в свой дом", "uz": "o'z uyingizga qaytmoq" },
+            "example": { "en": "They come home at 6pm.", "ru": "Они приходят домой в 6 вечера.", "uz": "Ular soat 6da uyga kelishadi." },
+            "pronunciation": "/kʌm həʊm/"
+          },
+          {
+            "term": { "en": "go to bed", "ru": "ложиться спать", "uz": "yotmoq/uxlashga yotmoq" },
+            "definition": { "en": "to go to sleep", "ru": "идти спать", "uz": "uxlashga yotmoq" },
+            "example": { "en": "I go to bed at 10pm.", "ru": "Я ложусь спать в 10 вечера.", "uz": "Men soat 10da yotaman." },
+            "pronunciation": "/ɡəʊ tuː bed/"
+          }
+        ]
+      },
+      "difficulty": "beginner",
+      "estimatedDuration": 5,
+      "scoring": { "maxPoints": 0 }
+    },
+    
+    {
+      "type": "exercise",
+      "order": 3,
+      "title": {
+        "en": "Choose the Correct Verb Form",
+        "ru": "Выберите правильную форму глагола",
+        "uz": "To'g'ri fe'l shaklini tanlang"
+      },
+      "instructions": {
+        "en": "Select the correct verb form for each sentence.",
+        "ru": "Выберите правильную форму глагола для каждого предложения.",
+        "uz": "Har bir gap uchun to'g'ri fe'l shaklini tanlang."
+      },
+      "content": {
+        "exercises": [
+          {
+            "type": "multiple-choice",
+            "question": { "en": "She _____ breakfast at 7:30.", "ru": "Она _____ в 7:30.", "uz": "U soat 7:30da nonushta _____." },
+            "options": [
+              { "en": "have", "ru": "завтракаю", "uz": "qilaman" },
+              { "en": "has", "ru": "завтракает", "uz": "qiladi" },
+              { "en": "having", "ru": "завтракаем", "uz": "qilamiz" }
+            ],
+            "correctAnswer": 1,
+            "explanation": { "en": "With 'she', we use 'has' (have → has).", "ru": "С 'she' используем 'has' (have → has).", "uz": "'she' bilan 'has' ishlatamiz (have → has)." },
+            "points": 5,
+            "includeInHomework": true
+          },
+          {
+            "type": "multiple-choice",
+            "question": { "en": "They _____ to school every day.", "ru": "Они _____ в школу каждый день.", "uz": "Ular har kuni maktabga _____." },
+            "options": [
+              { "en": "goes", "ru": "ходит", "uz": "boradi" },
+              { "en": "go", "ru": "ходят", "uz": "borishadi" },
+              { "en": "going", "ru": "идут", "uz": "boradilar" }
+            ],
+            "correctAnswer": 1,
+            "explanation": { "en": "With 'they', we use the base form 'go'.", "ru": "С 'they' используем базовую форму 'go'.", "uz": "'they' bilan asosiy shakl 'go' ishlatamiz." },
+            "points": 5,
+            "includeInHomework": true
+          },
+          {
+            "type": "multiple-choice",
+            "question": { "en": "My brother _____ TV in the evening.", "ru": "Мой брат _____ телевизор вечером.", "uz": "Akam kechqurun televizor _____." },
+            "options": [
+              { "en": "watch", "ru": "смотрю", "uz": "ko'raman" },
+              { "en": "watchs", "ru": "смотрит", "uz": "ko'radi" },
+              { "en": "watches", "ru": "смотрит", "uz": "ko'radi" }
+            ],
+            "correctAnswer": 2,
+            "explanation": { "en": "After 'ch', we add '-es' (watch → watches).", "ru": "После 'ch' добавляем '-es' (watch → watches).", "uz": "'ch' dan keyin '-es' qo'shamiz (watch → watches)." },
+            "points": 5,
+            "includeInHomework": true
+          }
+        ]
+      },
+      "difficulty": "beginner",
+      "estimatedDuration": 4,
+      "scoring": { "maxPoints": 15, "passingScore": 10, "weight": 1 }
+    },
+    
+    {
+      "type": "english_sentence_fix",
+      "order": 4,
+      "title": {
+        "en": "Fix the Grammar Mistakes",
+        "ru": "Исправьте грамматические ошибки",
+        "uz": "Grammatik xatolarni tuzating"
+      },
+      "instructions": {
+        "en": "Find and fix the mistakes in these sentences.",
+        "ru": "Найдите и исправьте ошибки в этих предложениях.",
+        "uz": "Bu gaplardagi xatolarni toping va tuzating."
+      },
+      "content": {
+        "type": "english_sentence_fix",
+        "prompt": {
+          "en": "Tap the incorrect word and select the correct form.",
+          "ru": "Нажмите на неправильное слово и выберите правильную форму.",
+          "uz": "Noto'g'ri so'zni bosing va to'g'ri shaklini tanlang."
+        },
+        "originalSentence": "She go to school every day.",
+        "tokens": ["She", "go", "to", "school", "every", "day."],
+        "errors": [
+          {
+            "index": 1,
+            "correct": "goes",
+            "options": ["go", "goes", "went", "going"],
+            "explanation": {
+              "en": "With 'she', add -es to 'go' → 'goes'.",
+              "ru": "С 'she' добавляем -es к 'go' → 'goes'.",
+              "uz": "'she' bilan 'go' ga -es qo'shamiz → 'goes'."
+            }
+          }
+        ]
+      },
+      "difficulty": "beginner",
+      "estimatedDuration": 3,
+      "scoring": { "maxPoints": 10, "passingScore": 10 }
+    },
+    
+    {
+      "type": "english_sentence_order",
+      "order": 5,
+      "title": {
+        "en": "Build the Sentence",
+        "ru": "Составьте предложение",
+        "uz": "Gap tuzing"
+      },
+      "instructions": {
+        "en": "Arrange the words to form correct sentences.",
+        "ru": "Расставьте слова, чтобы получить правильные предложения.",
+        "uz": "To'g'ri gap tuzish uchun so'zlarni joylashtiring."
+      },
+      "content": {
+        "type": "english_sentence_order",
+        "prompt": {
+          "en": "Drag and drop the words to make a correct sentence about daily routine.",
+          "ru": "Перетащите слова, чтобы составить правильное предложение о ежедневных делах.",
+          "uz": "Kundalik ish haqida to'g'ri gap tuzish uchun so'zlarni suring."
+        },
+        "correctOrder": ["She", "usually", "wakes", "up", "at", "7", "o'clock."],
+        "scrambledOptions": ["up", "She", "at", "usually", "7", "wakes", "o'clock."]
+      },
+      "difficulty": "beginner",
+      "estimatedDuration": 3,
+      "scoring": { "maxPoints": 10 }
+    },
+    
+    {
+      "type": "chem_matching",
+      "order": 6,
+      "title": {
+        "en": "Match Subjects with Verbs",
+        "ru": "Сопоставьте подлежащие с глаголами",
+        "uz": "Egalarni fe'llar bilan moslang"
+      },
+      "instructions": {
+        "en": "Match each subject with the correct verb form.",
+        "ru": "Сопоставьте каждое подлежащее с правильной формой глагола.",
+        "uz": "Har bir egani to'g'ri fe'l shakli bilan moslang."
+      },
+      "content": {
+        "type": "chem_matching",
+        "prompt": {
+          "en": "Match the subject with the correct verb form.",
+          "ru": "Сопоставьте подлежащее с правильной формой глагола.",
+          "uz": "Egani to'g'ri fe'l shakli bilan moslang."
+        },
+        "pairs": [
+          { "id": "1", "name": "He", "formula": "works" },
+          { "id": "2", "name": "They", "formula": "work" },
+          { "id": "3", "name": "She", "formula": "studies" },
+          { "id": "4", "name": "We", "formula": "study" }
+        ]
+      },
+      "difficulty": "beginner",
+      "estimatedDuration": 3,
+      "scoring": { "maxPoints": 10 }
+    },
+    
+    {
+      "type": "language_noun_bag",
+      "order": 7,
+      "title": {
+        "en": "Sort the Verbs",
+        "ru": "Рассортируйте глаголы",
+        "uz": "Fe'llarni saralang"
+      },
+      "instructions": {
+        "en": "Drag verbs that need -s/-es into the bag for 'he/she/it'.",
+        "ru": "Перетащите глаголы, которым нужно -s/-es, в сумку для 'he/she/it'.",
+        "uz": "'he/she/it' uchun -s/-es kerak bo'lgan fe'llarni sumkaga torting."
+      },
+      "content": {
+        "type": "language_noun_bag",
+        "prompt": {
+          "en": "Which verbs change with he/she/it? Drag them into the bag!",
+          "ru": "Какие глаголы меняются с he/she/it? Перетащите их в сумку!",
+          "uz": "Qaysi fe'llar he/she/it bilan o'zgaradi? Ularni sumkaga torting!"
+        },
+        "words": [
+          { "text": "works", "pos": "noun" },
+          { "text": "work", "pos": "verb" },
+          { "text": "goes", "pos": "noun" },
+          { "text": "go", "pos": "verb" },
+          { "text": "watches", "pos": "noun" },
+          { "text": "watch", "pos": "verb" },
+          { "text": "studies", "pos": "noun" },
+          { "text": "study", "pos": "verb" }
+        ],
+        "targetPos": "noun",
+        "bagLabel": {
+          "en": "He/She/It forms",
+          "ru": "Формы для He/She/It",
+          "uz": "He/She/It shakllari"
+        },
+        "availableLabel": {
+          "en": "All verb forms",
+          "ru": "Все формы глаголов",
+          "uz": "Barcha fe'l shakllari"
+        }
+      },
+      "difficulty": "beginner",
+      "estimatedDuration": 4,
+      "scoring": { "maxPoints": 10 }
+    },
+    
+    {
+      "type": "exercise",
+      "order": 8,
+      "title": {
+        "en": "Fill in the Blanks",
+        "ru": "Заполните пропуски",
+        "uz": "Bo'sh joylarni to'ldiring"
+      },
+      "instructions": {
+        "en": "Type the correct verb form in each blank.",
+        "ru": "Введите правильную форму глагола в каждый пропуск.",
+        "uz": "Har bir bo'sh joyga to'g'ri fe'l shaklini yozing."
+      },
+      "content": {
+        "exercises": [
+          {
+            "type": "fill-blank",
+            "question": { "en": "Complete the sentence with the correct verb.", "ru": "Дополните предложение правильным глаголом.", "uz": "Gapni to'g'ri fe'l bilan to'ldiring." },
+            "template": "My father _____ (work) in a bank.",
+            "blanks": [
+              {
+                "id": "b1",
+                "correctAnswer": "works",
+                "placeholder": "...",
+                "acceptableAnswers": ["works", "Works"]
+              }
+            ],
+            "points": 5,
+            "includeInHomework": true
+          },
+          {
+            "type": "fill-blank",
+            "question": { "en": "Complete the sentence with the correct verb.", "ru": "Дополните предложение правильным глаголом.", "uz": "Gapni to'g'ri fe'l bilan to'ldiring." },
+            "template": "We _____ (have) lunch at 12 o'clock.",
+            "blanks": [
+              {
+                "id": "b2",
+                "correctAnswer": "have",
+                "placeholder": "...",
+                "acceptableAnswers": ["have", "Have"]
+              }
+            ],
+            "points": 5,
+            "includeInHomework": true
+          }
+        ]
+      },
+      "difficulty": "beginner",
+      "estimatedDuration": 4,
+      "scoring": { "maxPoints": 10 }
+    },
+    
+    {
+      "type": "exercise",
+      "order": 9,
+      "title": {
+        "en": "True or False",
+        "ru": "Правда или ложь",
+        "uz": "To'g'ri yoki noto'g'ri"
+      },
+      "instructions": {
+        "en": "Decide if each statement is true or false.",
+        "ru": "Решите, верно ли каждое утверждение.",
+        "uz": "Har bir gap to'g'ri yoki noto'g'ri ekanligini aniqlang."
+      },
+      "content": {
+        "exercises": [
+          {
+            "type": "true-false",
+            "question": { "en": "We add -s to verbs after I, you, we, they.", "ru": "Мы добавляем -s к глаголам после I, you, we, they.", "uz": "I, you, we, they dan keyin fe'llarga -s qo'shamiz." },
+            "statement": { "en": "We add -s to verbs after I, you, we, they.", "ru": "Мы добавляем -s к глаголам после I, you, we, they.", "uz": "I, you, we, they dan keyin fe'llarga -s qo'shamiz." },
+            "correctAnswer": false,
+            "explanation": { "en": "We only add -s/-es to verbs with he, she, it.", "ru": "Мы добавляем -s/-es только с he, she, it.", "uz": "Biz -s/-es ni faqat he, she, it bilan qo'shamiz." },
+            "points": 5,
+            "includeInHomework": true
+          },
+          {
+            "type": "true-false",
+            "question": { "en": "The present simple is used for habits and routines.", "ru": "Простое настоящее время используется для привычек и распорядка.", "uz": "Oddiy hozirgi zamon odatlar va kundalik ishlar uchun ishlatiladi." },
+            "statement": { "en": "The present simple is used for habits and routines.", "ru": "Простое настоящее время используется для привычек и распорядка.", "uz": "Oddiy hozirgi zamon odatlar va kundalik ishlar uchun ishlatiladi." },
+            "correctAnswer": true,
+            "explanation": { "en": "Yes! We use present simple for regular actions.", "ru": "Да! Мы используем простое настоящее для регулярных действий.", "uz": "Ha! Biz oddiy hozirgi zamonni muntazam harakatlar uchun ishlatamiz." },
+            "points": 5,
+            "includeInHomework": true
+          }
+        ]
+      },
+      "difficulty": "beginner",
+      "estimatedDuration": 3,
+      "scoring": { "maxPoints": 10 }
+    },
+    
+    {
+      "type": "language_tone_transformer",
+      "order": 10,
+      "title": {
+        "en": "Formal vs Informal",
+        "ru": "Формальный vs Неформальный",
+        "uz": "Rasmiy va norasmiy"
+      },
+      "instructions": {
+        "en": "Transform the sentence to a different tone.",
+        "ru": "Измените тон предложения.",
+        "uz": "Gap ohangini o'zgartiring."
+      },
+      "content": {
+        "type": "language_tone_transformer",
+        "originalSentence": "I get up at 6.",
+        "originalTone": "informal",
+        "targetTone": "formal",
+        "correctAnswer": "I wake up at 6 o'clock.",
+        "acceptableAnswers": [
+          "I wake up at 6 o'clock.",
+          "I wake up at six o'clock.",
+          "I rise at 6 o'clock."
+        ],
+        "toneOptions": ["informal", "formal", "polite"]
+      },
+      "difficulty": "intermediate",
+      "estimatedDuration": 3,
+      "scoring": { "maxPoints": 10 }
+    },
+    
+    {
+      "type": "quiz",
+      "order": 11,
+      "title": {
+        "en": "Present Simple Quiz",
+        "ru": "Тест: Простое настоящее время",
+        "uz": "Oddiy hozirgi zamon testi"
+      },
+      "instructions": {
+        "en": "Test your knowledge of Present Simple!",
+        "ru": "Проверьте свои знания о простом настоящем времени!",
+        "uz": "Oddiy hozirgi zamon bo'yicha bilimingizni tekshiring!"
+      },
+      "content": {
+        "questions": [
+          {
+            "id": "q1",
+            "question": { "en": "What time expression is NOT used with Present Simple?", "ru": "Какое выражение времени НЕ используется с простым настоящим?", "uz": "Qaysi vaqt ifodasi oddiy hozirgi zamon bilan ishlatilMAYDI?" },
+            "type": "multiple-choice",
+            "options": [
+              { "text": { "en": "every day", "ru": "каждый день", "uz": "har kuni" }, "value": 0 },
+              { "text": { "en": "right now", "ru": "прямо сейчас", "uz": "hozir" }, "value": 1 },
+              { "text": { "en": "usually", "ru": "обычно", "uz": "odatda" }, "value": 2 },
+              { "text": { "en": "always", "ru": "всегда", "uz": "doimo" }, "value": 3 }
+            ],
+            "correctAnswer": 1,
+            "explanation": { "en": "'Right now' is used with Present Continuous, not Present Simple.", "ru": "'Прямо сейчас' используется с Present Continuous, не Present Simple.", "uz": "'Right now' (hozir) Present Continuous bilan ishlatiladi, Present Simple bilan emas." },
+            "points": 10
+          },
+          {
+            "id": "q2",
+            "question": { "en": "Complete: 'The train _____ at 9pm.'", "ru": "Дополните: 'Поезд _____ в 9 вечера.'", "uz": "To'ldiring: 'Poyezd soat 9da _____.'" },
+            "type": "multiple-choice",
+            "options": [
+              { "text": "leave", "value": 0 },
+              { "text": "leaves", "value": 1 },
+              { "text": "leaving", "value": 2 }
+            ],
+            "correctAnswer": 1,
+            "explanation": { "en": "'Train' is 3rd person singular (like 'it'), so we use 'leaves'.", "ru": "'Train' - 3-е лицо ед. числа (как 'it'), поэтому используем 'leaves'.", "uz": "'Train' 3-shaxs birlik (xuddi 'it' kabi), shuning uchun 'leaves' ishlatamiz." },
+            "points": 10
+          },
+          {
+            "id": "q3",
+            "question": { "en": "We use Present Simple for facts that are always true.", "ru": "Мы используем Present Simple для фактов, которые всегда верны.", "uz": "Biz Present Simple ni doimo to'g'ri bo'lgan faktlar uchun ishlatamiz." },
+            "type": "true-false",
+            "correctAnswer": true,
+            "explanation": { "en": "Yes! 'The sun rises in the east' is a permanent truth.", "ru": "Да! 'Солнце встаёт на востоке' - постоянная истина.", "uz": "Ha! 'Quyosh sharqdan chiqadi' - doimiy haqiqat." },
+            "points": 5
+          }
+        ]
+      },
+      "difficulty": "beginner",
+      "estimatedDuration": 5,
+      "scoring": { "maxPoints": 25, "passingScore": 15, "weight": 2 }
+    },
+    
+    {
+      "type": "summary",
+      "order": 12,
+      "title": {
+        "en": "Lesson Summary",
+        "ru": "Итоги урока",
+        "uz": "Dars xulosasi"
+      },
+      "instructions": {
+        "en": "Review what you've learned.",
+        "ru": "Повторите изученное.",
+        "uz": "O'rganganlaringizni takrorlang."
+      },
+      "content": {
+        "text": {
+          "en": "## Congratulations! 🎉\n\nYou've completed the Present Simple lesson!\n\n### Key Points:\n\n✅ **Form:** I/you/we/they + base verb | he/she/it + verb + s/es\n\n✅ **Uses:**\n- Daily routines: *I wake up at 7am*\n- Habits: *She drinks coffee every morning*\n- Facts: *Water boils at 100°C*\n- Schedules: *The bus leaves at 8pm*\n\n✅ **Time expressions:**\n- every day, always, usually, often, sometimes, never\n- in the morning, on Mondays, at weekends\n\n### Next Steps:\n- Practice describing your daily routine\n- Learn negative sentences with 'don't/doesn't'\n- Study Present Simple questions",
+          "ru": "## Поздравляем! 🎉\n\nВы завершили урок о простом настоящем времени!\n\n### Ключевые моменты:\n\n✅ **Форма:** I/you/we/they + глагол | he/she/it + глагол + s/es\n\n✅ **Использование:**\n- Ежедневные дела: *Я просыпаюсь в 7 утра*\n- Привычки: *Она пьёт кофе каждое утро*\n- Факты: *Вода кипит при 100°C*\n- Расписания: *Автобус отправляется в 8 вечера*\n\n✅ **Выражения времени:**\n- every day, always, usually, often, sometimes, never\n- in the morning, on Mondays, at weekends\n\n### Следующие шаги:\n- Потренируйтесь описывать свой распорядок дня\n- Изучите отрицательные предложения с 'don't/doesn't'\n- Изучите вопросы в Present Simple",
+          "uz": "## Tabriklaymiz! 🎉\n\nSiz oddiy hozirgi zamon darsini tugatdingiz!\n\n### Asosiy nuqtalar:\n\n✅ **Shakl:** I/you/we/they + fe'l | he/she/it + fe'l + s/es\n\n✅ **Qo'llanilishi:**\n- Kundalik ishlar: *Men soat 7da uyg'onaman*\n- Odatlar: *U har kuni ertalab kofe ichadi*\n- Faktlar: *Suv 100°C da qaynaydi*\n- Jadvallar: *Avtobus soat 8da jo'naydi*\n\n✅ **Vaqt iboralari:**\n- every day, always, usually, often, sometimes, never\n- in the morning, on Mondays, at weekends\n\n### Keyingi qadamlar:\n- Kundalik tartibingizni tasvirlashni mashq qiling\n- 'don't/doesn't' bilan inkor gaplarni o'rganing\n- Present Simple savollarini o'rganing"
+        }
+      },
+      "difficulty": "beginner",
+      "estimatedDuration": 2,
+      "scoring": { "maxPoints": 0 }
+    }
+  ],
+  
+  "assessment": {
+    "enabled": true,
+    "passingScore": 70,
+    "certificateEligible": false,
+    "grading": {
+      "exercises": 50,
+      "quizzes": 30,
+      "participation": 20
+    }
+  },
+  
+  "gamification": {
+    "enabled": true,
+    "points": 120,
+    "badges": [
+      {
+        "id": "present-simple-beginner",
+        "name": { "en": "Present Simple Beginner", "ru": "Новичок в Present Simple", "uz": "Present Simple boshlang'ich" },
+        "icon": "🌟",
+        "condition": "Complete the lesson"
+      },
+      {
+        "id": "grammar-guru",
+        "name": { "en": "Grammar Guru", "ru": "Гуру грамматики", "uz": "Grammatika ustasi" },
+        "icon": "🏆",
+        "condition": "Score 100% on all exercises"
+      }
+    ],
+    "achievements": [
+      {
+        "id": "first-tense",
+        "name": { "en": "First Tense Mastered", "ru": "Первое время освоено", "uz": "Birinchi zamon o'zlashtirildi" },
+        "description": { "en": "Complete your first tense lesson", "ru": "Завершите первый урок о временах", "uz": "Birinchi zamon darsini yakunlang" },
+        "points": 25
+      }
+    ]
+  },
+  
+  "adaptive": {
+    "enabled": true,
+    "personalizedPaths": true,
+    "difficultyAdjustment": true,
+    "rules": [
+      {
+        "condition": "score < 50",
+        "action": "add_practice",
+        "parameters": { "stepType": "exercise", "count": 3 }
+      }
+    ]
+  },
+  
+  "ai": {
+    "enabled": true,
+    "chatbot": true,
+    "voiceAssistant": true,
+    "autoGrading": true,
+    "personalizedHints": true,
+    "adaptiveQuestions": true,
+    "learningAnalytics": true
+  },
+  
+  "modeRestrictions": {
+    "schoolOnly": false,
+    "studyCentreOnly": false,
+    "availableInBothModes": true,
+    "schoolRequirements": {
+      "mustCompleteInOrder": true,
+      "allowedRetakes": 3
+    },
+    "studyCentreFeatures": {
+      "allowSkipping": true,
+      "showHints": true,
+      "unlimitedAttempts": true,
+      "selfPaced": true
+    }
+  },
+  
+  "resources": {
+    "materials": [
+      {
+        "type": "pdf",
+        "title": { "en": "Present Simple Worksheet", "ru": "Рабочий лист Present Simple", "uz": "Present Simple ish varag'i" },
+        "url": "/resources/present-simple-worksheet.pdf",
+        "required": false
+      }
+    ],
+    "glossary": [
+      {
+        "term": "Present Simple",
+        "definition": { "en": "A verb tense used for habits, routines, and facts", "ru": "Время глагола для привычек, распорядка и фактов", "uz": "Odatlar, tartib va faktlar uchun ishlatiladigan fe'l zamoni" }
+      },
+      {
+        "term": "Third person singular",
+        "definition": { "en": "He, she, it - requires -s/-es on verbs", "ru": "He, she, it - требует -s/-es у глаголов", "uz": "He, she, it - fe'llarga -s/-es talab qiladi" }
+      }
+    ]
+  },
+  
+  "accessibility": {
+    "wcagLevel": "AA",
+    "screenReader": true,
+    "captions": true,
+    "transcripts": true
+  },
+  
+  "learningPath": {
+    "prerequisites": [],
+    "nextLessons": [],
+    "relatedLessons": []
+  },
+  
+  "metadata": {
+    "version": 1,
+    "language": "en",
+    "targetAudience": ["elementary", "beginner", "teenagers", "adults"],
+    "keywords": ["present simple", "daily routine", "grammar", "english", "tenses", "verbs"],
+    "seoTitle": "Learn Present Simple Tense - Daily Routines",
+    "seoDescription": "Master the present simple tense with interactive exercises about daily routines, habits, and general truths."
+  }
+}
