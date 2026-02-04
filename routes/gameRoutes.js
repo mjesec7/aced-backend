@@ -21,6 +21,28 @@ const logRequest = (routeName) => (req, res, next) => {
 router.post('/generate', logRequest('Generate Game'), verifyToken, gameController.generateGame);
 
 /**
+ * GET /api/games/submit - Return helpful error for wrong method
+ * This catches browser preflight/direct navigation attempts
+ */
+router.get('/submit', (req, res) => {
+  res.status(405).json({
+    success: false,
+    error: 'Method Not Allowed',
+    message: 'This endpoint requires POST method with game results in body',
+    expectedBody: {
+      userId: 'string',
+      lessonId: 'string',
+      stepIndex: 'number',
+      gameType: 'string',
+      score: 'number',
+      accuracy: 'number',
+      timeSpent: 'number',
+      completed: 'boolean'
+    }
+  });
+});
+
+/**
  * POST /api/games/submit
  * Submit game results and save analytics
  * Body: { userId, lessonId, stepIndex, gameType, score, accuracy, timeSpent, itemsCollected, correctItems, wrongItems, completed, actions?, metadata? }
