@@ -8,6 +8,8 @@ const TopicProgress = require('../models/topicProgress');
 const Lesson = require('../models/lesson');
 const Topic = require('../models/topic');
 const UserProgress = require('../models/userProgress');
+const CourseProgress = require('../models/courseProgress');
+const UpdatedCourse = require('../models/updatedCourse');
 const Homework = require('../models/homework');
 const Test = require('../models/Test');
 const TestResult = require('../models/TestResult');
@@ -2718,11 +2720,22 @@ router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwne
     }
 
 
+    // ✅ STEP 1: Get lesson-level progress (legacy system)
     const completedLessons = userProgress.filter(p => p.completed).length;
     const totalStars = userProgress.reduce((sum, p) => sum + (p.stars || 0), 0);
     const totalPoints = userProgress.reduce((sum, p) => sum + (p.points || 0), 0);
     const hintsUsed = userProgress.reduce((sum, p) => sum + (p.hintsUsed || 0), 0);
 
+    // ✅ STEP 2: Get course-level progress (course system)
+    const courseProgressRecords = await CourseProgress.find({ userId: firebaseId })
+      .populate('courseId', 'title thumbnail lessons curriculum')
+      .lean();
+
+    const courseLessonsCompleted = courseProgressRecords.reduce(
+      (sum, cp) => sum + (cp.completedLessons?.length || 0), 0
+    );
+
+    // ✅ STEP 3: Collect ALL study dates from all sources
     const studyDates = new Set();
 
     if (user.diary && user.diary.length > 0) {
@@ -2739,19 +2752,40 @@ router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwne
       }
     });
 
+    // Include course progress dates in study days
+    courseProgressRecords.forEach(cp => {
+      if (cp.updatedAt) studyDates.add(new Date(cp.updatedAt).toDateString());
+      if (cp.lastAccessedAt) studyDates.add(new Date(cp.lastAccessedAt).toDateString());
+      if (cp.startedAt) studyDates.add(new Date(cp.startedAt).toDateString());
+    });
+
     const studyDays = studyDates.size;
 
     const now = new Date();
     const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-    const weeklyLessons = userProgress.filter(p =>
+    // Count weekly/monthly lessons from BOTH systems
+    let weeklyLessons = userProgress.filter(p =>
       p.completed && p.updatedAt && new Date(p.updatedAt) >= oneWeekAgo
     ).length;
 
-    const monthlyLessons = userProgress.filter(p =>
+    let monthlyLessons = userProgress.filter(p =>
       p.completed && p.updatedAt && new Date(p.updatedAt) >= oneMonthAgo
     ).length;
+
+    // Add course lessons completed recently
+    courseProgressRecords.forEach(cp => {
+      if (cp.updatedAt && new Date(cp.updatedAt) >= oneWeekAgo && cp.completedLessons?.length > 0) {
+        weeklyLessons += cp.completedLessons.length;
+      }
+      if (cp.updatedAt && new Date(cp.updatedAt) >= oneMonthAgo && cp.completedLessons?.length > 0) {
+        monthlyLessons += cp.completedLessons.length;
+      }
+    });
+
+    // Combine lesson counts from both systems
+    const totalLessonsDone = completedLessons + courseLessonsCompleted;
 
     const avgPointsPerDay = studyDays > 0 ? Math.round(totalPoints / studyDays) : 0;
 
@@ -2764,16 +2798,46 @@ router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwne
 
     const knowledgeChart = new Array(12).fill(0);
 
-    const recentActivity = userProgress
-      .filter(p => p.completed && p.updatedAt)
-      .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
+    // ✅ STEP 4: Build recent activity from BOTH systems
+    // Legacy lesson progress activity
+    const lessonActivity = userProgress
+      .filter(p => p.completed && (p.updatedAt || p.completedAt))
+      .sort((a, b) => new Date(b.completedAt || b.updatedAt) - new Date(a.completedAt || a.updatedAt))
       .slice(0, 10)
       .map(p => ({
-        date: p.updatedAt,
+        date: p.completedAt || p.updatedAt,
         lesson: `Урок ${p.lessonId}`,
         points: p.points || 0,
-        duration: p.duration || 15
+        duration: p.duration || 15,
+        type: 'lesson'
       }));
+
+    // Course progress activity - one entry per recently completed course lesson
+    const courseActivity = [];
+    courseProgressRecords.forEach(cp => {
+      if (!cp.completedLessons || cp.completedLessons.length === 0) return;
+      const courseName = (cp.courseId && typeof cp.courseId === 'object') ? cp.courseId.title : 'Course';
+      const courseLessons = (cp.courseId && typeof cp.courseId === 'object')
+        ? (cp.courseId.lessons || cp.courseId.curriculum || [])
+        : [];
+
+      cp.completedLessons.forEach(lessonNum => {
+        const lesson = courseLessons.find(l => (l.lessonNumber || l.order) === lessonNum);
+        const lessonTitle = lesson?.title || `Урок ${lessonNum}`;
+        courseActivity.push({
+          date: cp.updatedAt || cp.lastAccessedAt,
+          lesson: `${lessonTitle} (${courseName})`,
+          points: 0,
+          duration: cp.totalTimeSpent ? Math.round(cp.totalTimeSpent / Math.max(1, cp.completedLessons.length)) : 0,
+          type: 'course'
+        });
+      });
+    });
+
+    // Merge and sort all activity by date
+    const recentActivity = [...lessonActivity, ...courseActivity]
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
+      .slice(0, 15);
 
     const lessons = await Lesson.find({});
     const topicMap = {};
@@ -2810,9 +2874,29 @@ router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwne
       progress: topic.total > 0 ? Math.round((topic.completed / topic.total) * 100) : 0
     }));
 
+    // ✅ STEP 5: Course stats summary
+    const courseStats = {
+      totalCoursesStarted: courseProgressRecords.length,
+      totalCoursesCompleted: courseProgressRecords.filter(cp => cp.completed).length,
+      averageCourseProgress: courseProgressRecords.length > 0
+        ? Math.round(courseProgressRecords.reduce((sum, cp) => sum + (cp.progressPercent || 0), 0) / courseProgressRecords.length)
+        : 0,
+      courseLessonsCompleted,
+      courseTotalTimeSpent: courseProgressRecords.reduce((sum, cp) => sum + (cp.totalTimeSpent || 0), 0),
+      inProgressCourses: courseProgressRecords
+        .filter(cp => !cp.completed && cp.progressPercent > 0)
+        .sort((a, b) => new Date(b.lastAccessedAt || b.updatedAt) - new Date(a.lastAccessedAt || a.updatedAt))
+        .slice(0, 5),
+      recentlyCompletedCourses: courseProgressRecords
+        .filter(cp => cp.completed)
+        .sort((a, b) => new Date(b.completedAt || b.updatedAt) - new Date(a.completedAt || a.updatedAt))
+        .slice(0, 5)
+    };
+
     const dataQuality = {
       hasActivityData: user.diary && user.diary.length > 0,
       hasSubjectData: subjects.length > 0,
+      hasCourseData: courseProgressRecords.length > 0,
       validDates: studyDays
     };
 
@@ -2821,7 +2905,7 @@ router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwne
       totalDays: studyDays,
       completedSubjects: subjects.filter(s => s.progress === 100).length,
       totalSubjects: subjects.length,
-      totalLessonsDone: completedLessons,
+      totalLessonsDone,
 
       weeklyLessons,
       monthlyLessons,
@@ -2835,6 +2919,7 @@ router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwne
 
       knowledgeChart,
       subjects,
+      courseStats,
 
       mostActiveDay: null, // Simplified for now
       recentActivity,

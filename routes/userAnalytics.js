@@ -32,6 +32,14 @@ router.get('/:userId', verifyToken, async (req, res) => {
       })
       .lean();
 
+    // ✅ STEP 1b: Get course progress (course system) with course details
+    const courseProgressRecords = await CourseProgress.find({ userId })
+      .populate('courseId', 'title thumbnail lessons curriculum')
+      .lean();
+
+    const courseLessonsCompleted = courseProgressRecords.reduce(
+      (sum, cp) => sum + (cp.completedLessons?.length || 0), 0
+    );
 
     // ✅ STEP 2: Get all lessons for topic mapping
     const allLessons = await Lesson.find({}).lean();
@@ -53,7 +61,7 @@ router.get('/:userId', verifyToken, async (req, res) => {
     const completedLessonsCount = completedProgress.length;
     const totalLessonsAttempted = userProgress.length;
 
-    // Calculate unique study days
+    // Calculate unique study days from ALL sources
     const uniqueDays = new Set();
     userProgress.forEach(progress => {
       if (progress.updatedAt) {
@@ -61,18 +69,35 @@ router.get('/:userId', verifyToken, async (req, res) => {
       }
     });
 
+    // Include course progress dates in study days
+    courseProgressRecords.forEach(cp => {
+      if (cp.updatedAt) uniqueDays.add(new Date(cp.updatedAt).toDateString());
+      if (cp.lastAccessedAt) uniqueDays.add(new Date(cp.lastAccessedAt).toDateString());
+      if (cp.startedAt) uniqueDays.add(new Date(cp.startedAt).toDateString());
+    });
+
     // Time-based calculations
     const now = new Date();
     const oneWeekAgo = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
     const oneMonthAgo = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
 
-    const weeklyLessons = userProgress.filter(p => 
+    let weeklyLessons = userProgress.filter(p =>
       p.completed && p.updatedAt && new Date(p.updatedAt) > oneWeekAgo
     ).length;
 
-    const monthlyLessons = userProgress.filter(p => 
+    let monthlyLessons = userProgress.filter(p =>
       p.completed && p.updatedAt && new Date(p.updatedAt) > oneMonthAgo
     ).length;
+
+    // Add course lessons completed recently
+    courseProgressRecords.forEach(cp => {
+      if (cp.updatedAt && new Date(cp.updatedAt) > oneWeekAgo && cp.completedLessons?.length > 0) {
+        weeklyLessons += cp.completedLessons.length;
+      }
+      if (cp.updatedAt && new Date(cp.updatedAt) > oneMonthAgo && cp.completedLessons?.length > 0) {
+        monthlyLessons += cp.completedLessons.length;
+      }
+    });
 
     // Calculate streak (simplified but working)
     const sortedDates = Array.from(uniqueDays)
@@ -177,40 +202,34 @@ router.get('/:userId', verifyToken, async (req, res) => {
       topicsCount: subject.topicsCount
     }));
 
-    // ✅ STEP 7: Build recent activity with PROPER lesson names
-    // FIXED: Show ALL recent completions sorted by date, not just last week
-    // This ensures newly completed lessons always appear
-    const recentActivity = userProgress
-      .filter(p => p.updatedAt || p.completedAt || p.createdAt) // Accept any valid date
+    // ✅ STEP 7: Build recent activity from BOTH lesson and course systems
+    // Legacy lesson progress activity
+    const lessonRecentActivity = userProgress
+      .filter(p => p.updatedAt || p.completedAt || p.createdAt)
       .sort((a, b) => {
-        // Sort by most recent date available (prefer completedAt for completed lessons)
         const dateA = a.completedAt || a.updatedAt || a.createdAt;
         const dateB = b.completedAt || b.updatedAt || b.createdAt;
         return new Date(dateB) - new Date(dateA);
       })
-      .slice(0, 15) // Show up to 15 recent activities
+      .slice(0, 15)
       .map(progress => {
-        // Get lesson details
         let lessonName = 'Unknown Lesson';
         let topicName = 'Unknown Topic';
-        
-        // Try to get from populated lesson first
+
         if (progress.lessonId && typeof progress.lessonId === 'object') {
           lessonName = progress.lessonId.lessonName || progress.lessonId.title || 'Lesson';
-          
-          // Get topic name from lesson's topic field or topicId
+
           if (progress.lessonId.topicId) {
             const topic = topicMap.get(progress.lessonId.topicId.toString());
             topicName = topic?.name || progress.lessonId.topic || 'Topic';
           } else if (progress.lessonId.topic) {
             topicName = progress.lessonId.topic;
           }
-        } else {
-          // Fallback: get from lesson map
+        } else if (progress.lessonId) {
           const lesson = lessonMap.get(progress.lessonId.toString());
           if (lesson) {
             lessonName = lesson.lessonName || lesson.title || 'Lesson';
-            
+
             if (lesson.topicId) {
               const topic = topicMap.get(lesson.topicId.toString());
               topicName = topic?.name || lesson.topic || 'Topic';
@@ -230,23 +249,64 @@ router.get('/:userId', verifyToken, async (req, res) => {
           completed: progress.completed || false,
           stars: progress.stars || 0,
           mistakes: progress.mistakes || 0,
-          progressPercent: progress.progressPercent || 0
+          progressPercent: progress.progressPercent || 0,
+          type: 'lesson'
         };
       });
 
-    recentActivity.forEach((activity, i) => {
+    // Course progress activity
+    const courseRecentActivity = [];
+    courseProgressRecords.forEach(cp => {
+      if (!cp.completedLessons || cp.completedLessons.length === 0) return;
+      const courseName = (cp.courseId && typeof cp.courseId === 'object') ? cp.courseId.title : 'Course';
+      const courseLessonsList = (cp.courseId && typeof cp.courseId === 'object')
+        ? (cp.courseId.lessons || cp.courseId.curriculum || [])
+        : [];
+
+      cp.completedLessons.forEach(lessonNum => {
+        const lesson = courseLessonsList.find(l => (l.lessonNumber || l.order) === lessonNum);
+        const lessonTitle = lesson?.title || `Урок ${lessonNum}`;
+        courseRecentActivity.push({
+          date: cp.updatedAt || cp.lastAccessedAt,
+          lesson: `${lessonTitle} (${courseName})`,
+          topic: courseName,
+          points: 0,
+          duration: cp.totalTimeSpent ? Math.round(cp.totalTimeSpent / Math.max(1, cp.completedLessons.length)) : 0,
+          completed: true,
+          stars: 0,
+          mistakes: 0,
+          progressPercent: 100,
+          type: 'course'
+        });
+      });
     });
 
-    // ✅ STEP 8: Knowledge chart (monthly progress)
+    // Merge and sort all recent activity by date
+    const recentActivity = [...lessonRecentActivity, ...courseRecentActivity]
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
+      .slice(0, 15);
+
+    // ✅ STEP 8: Knowledge chart (monthly progress from BOTH systems)
     const chart = Array(12).fill(0);
     const currentMonth = now.getMonth();
-    
+
     userProgress.forEach(progress => {
       if (progress.updatedAt && progress.completed) {
         const progressDate = new Date(progress.updatedAt);
         const monthsAgo = (currentMonth - progressDate.getMonth() + 12) % 12;
         if (monthsAgo < 12) {
           chart[11 - monthsAgo] += progress.points || 1;
+        }
+      }
+    });
+
+    // Include course progress in the knowledge chart
+    courseProgressRecords.forEach(cp => {
+      if (cp.updatedAt && cp.completedLessons?.length > 0) {
+        const progressDate = new Date(cp.updatedAt);
+        const monthsAgo = (currentMonth - progressDate.getMonth() + 12) % 12;
+        if (monthsAgo < 12) {
+          chart[11 - monthsAgo] += cp.completedLessons.length;
         }
       }
     });
@@ -264,6 +324,17 @@ router.get('/:userId', verifyToken, async (req, res) => {
           const dayIndex = new Date(progress.updatedAt).getDay();
           const dayName = dayNames[dayIndex];
           dayCount[dayName] = (dayCount[dayName] || 0) + 1;
+        } catch (err) {
+        }
+      }
+    });
+    // Include course progress in active day calculation
+    courseProgressRecords.forEach(cp => {
+      if (cp.updatedAt) {
+        try {
+          const dayIndex = new Date(cp.updatedAt).getDay();
+          const dayName = dayNames[dayIndex];
+          dayCount[dayName] = (dayCount[dayName] || 0) + (cp.completedLessons?.length || 1);
         } catch (err) {
         }
       }
@@ -303,8 +374,8 @@ router.get('/:userId', verifyToken, async (req, res) => {
         studyDays: uniqueDays.size,
         totalDays: Math.ceil((now - new Date(now.getFullYear(), 0, 1)) / (1000 * 60 * 60 * 24)),
 
-        // ✅ LESSON STATS (clear naming)
-        totalLessonsDone: completedLessonsCount,
+        // ✅ LESSON STATS (includes both legacy lessons AND course lessons)
+        totalLessonsDone: completedLessonsCount + courseLessonsCompleted,
         totalLessonsAttempted: totalLessonsAttempted,
 
         // ✅ TOPIC STATS - FIXED: Show meaningful progress
@@ -358,12 +429,12 @@ router.get('/:userId', verifyToken, async (req, res) => {
         // ✅ METADATA
         lastUpdated: new Date().toISOString(),
         dataQuality: {
-          hasActivityData: userProgress.length > 0,
+          hasActivityData: userProgress.length > 0 || courseProgressRecords.length > 0,
           hasSubjectData: subjects.length > 0,
           hasTopicData: topics.length > 0,
-          hasCourseData: courseAnalytics.totalCoursesStarted > 0,
+          hasCourseData: courseProgressRecords.length > 0,
           validDates: userProgress.filter(p => p.updatedAt || p.completedAt).length,
-          totalProgressRecords: userProgress.length
+          totalProgressRecords: userProgress.length + courseProgressRecords.length
         }
       }
     };

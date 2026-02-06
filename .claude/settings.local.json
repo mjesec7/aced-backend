@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Read(//d/ACED/aced-backend/**)",
+      "Bash(xargs:*)",
+      "Bash(node -e:*)",
+      "Bash(git add:*)",
+      "Bash(git push:*)",
+      "Bash(node -c:*)"
+    ]
+  }
+}
