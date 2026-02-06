@@ -2,6 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const UpdatedCourse = require('../models/updatedCourse');
+const CourseProgress = require('../models/courseProgress');
 const authenticateUser = require('../middlewares/authMiddleware');
 const multer = require('multer');
 const path = require('path');
@@ -118,19 +119,44 @@ router.get('/', async (req, res) => {
       .select('-seo -metadata.views -createdBy -updatedBy')
       .lean();
 
+    // Get user progress map if userId is provided (for course cards)
+    const { userId } = req.query;
+    let progressMap = {};
+    if (userId) {
+      try {
+        progressMap = await CourseProgress.getUserProgressMap(userId);
+      } catch (err) {
+        console.error('Error fetching progress map:', err.message);
+      }
+    }
+
     // ✅ NEW: Process courses based on format request
     const processedCourses = courses.map(course => {
+      const courseIdStr = course._id.toString();
+      const userProgress = progressMap[courseIdStr] || null;
+
       const baseCourse = {
         ...course,
-        id: course._id.toString(),
-        _id: course._id.toString(),
+        id: courseIdStr,
+        _id: courseIdStr,
         isBookmarked: false,
         instructor: {
           name: course.instructor?.name || 'Unknown Instructor',
           avatar: processImageUrl(course.instructor?.avatar),
           bio: course.instructor?.bio || ''
         },
-        thumbnail: processImageUrl(course.thumbnail)
+        thumbnail: processImageUrl(course.thumbnail),
+        // Attach user progress to course card
+        userProgress: userProgress ? {
+          progressPercent: userProgress.progressPercent,
+          completed: userProgress.completed,
+          completedLessons: userProgress.completedLessons?.length || 0,
+          totalLessons: userProgress.totalLessons,
+          currentLesson: userProgress.currentLesson,
+          lastAccessedAt: userProgress.lastAccessedAt,
+          startedAt: userProgress.startedAt,
+          completedAt: userProgress.completedAt
+        } : null
       };
 
       // Return structured format if requested
@@ -239,7 +265,7 @@ router.get('/structured', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { format = 'standard' } = req.query;
+    const { format = 'standard', userId } = req.query;
 
     const course = await UpdatedCourse.findOne({
       $or: [
@@ -260,6 +286,30 @@ router.get('/:id', async (req, res) => {
     // Increment views
     await course.incrementViews();
 
+    // Get user progress if userId is provided
+    let userProgress = null;
+    if (userId) {
+      try {
+        const progress = await CourseProgress.findOne({ userId, courseId: course._id }).lean();
+        if (progress) {
+          userProgress = {
+            progressPercent: progress.progressPercent,
+            completed: progress.completed,
+            completedLessons: progress.completedLessons,
+            totalLessons: progress.totalLessons,
+            currentLesson: progress.currentLesson,
+            lastAccessedAt: progress.lastAccessedAt,
+            startedAt: progress.startedAt,
+            completedAt: progress.completedAt,
+            totalTimeSpent: progress.totalTimeSpent,
+            homeworkCompleted: progress.homeworkCompleted
+          };
+        }
+      } catch (err) {
+        console.error('Error fetching course progress:', err.message);
+      }
+    }
+
     let courseData;
 
     if (format === 'structured') {
@@ -273,8 +323,8 @@ router.get('/:id', async (req, res) => {
         _id: course._id.toString(),
         isBookmarked: false,
         // Convert curriculum/lessons for frontend compatibility
-        lessons: course.lessons?.length ? 
-          processLessonsFromStructured(course.lessons) : 
+        lessons: course.lessons?.length ?
+          processLessonsFromStructured(course.lessons) :
           processLessonsFromCurriculum(course.curriculum || []),
         thumbnail: processImageUrl(course.thumbnail),
         instructor: {
@@ -283,6 +333,9 @@ router.get('/:id', async (req, res) => {
         }
       };
     }
+
+    // Attach user progress to course data
+    courseData.userProgress = userProgress;
 
     res.json({
       success: true,

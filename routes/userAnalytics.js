@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const UserProgress = require('../models/userProgress');
+const CourseProgress = require('../models/courseProgress');
 const Lesson = require('../models/lesson');
 const Topic = require('../models/topic');
 const SubjectProgress = require('../models/SubjectProgress');
@@ -277,6 +278,23 @@ router.get('/:userId', verifyToken, async (req, res) => {
     const inProgressTopics = topics.filter(t => t.progress > 0 && t.progress < 100);
     const startedTopics = topics.filter(t => t.completedLessons > 0);
 
+    // ✅ COURSE PROGRESS: Fetch course analytics for this user
+    let courseAnalytics = {
+      totalCoursesStarted: 0,
+      totalCoursesCompleted: 0,
+      averageProgress: 0,
+      totalTimeSpent: 0,
+      totalLessonsCompleted: 0,
+      totalHomeworkCompleted: 0,
+      inProgressCourses: [],
+      recentlyCompleted: []
+    };
+    try {
+      courseAnalytics = await CourseProgress.getUserCourseAnalytics(userId);
+    } catch (err) {
+      console.error('Error fetching course analytics:', err.message);
+    }
+
     // ✅ FINAL RESPONSE: Properly structured analytics
     const analyticsData = {
       success: true,
@@ -299,6 +317,18 @@ router.get('/:userId', verifyToken, async (req, res) => {
         completedSubjects: subjects.filter(s => s.progress === 100).length,
         subjectsInProgress: subjects.filter(s => s.progress > 0 && s.progress < 100).length,
         totalSubjects: subjects.length,
+
+        // ✅ COURSE STATS (from CourseProgress model)
+        courseStats: {
+          totalCoursesStarted: courseAnalytics.totalCoursesStarted,
+          totalCoursesCompleted: courseAnalytics.totalCoursesCompleted,
+          averageCourseProgress: Math.round(courseAnalytics.averageProgress || 0),
+          courseLessonsCompleted: courseAnalytics.totalLessonsCompleted,
+          courseHomeworkCompleted: courseAnalytics.totalHomeworkCompleted,
+          courseTotalTimeSpent: courseAnalytics.totalTimeSpent,
+          inProgressCourses: courseAnalytics.inProgressCourses,
+          recentlyCompletedCourses: courseAnalytics.recentlyCompleted
+        },
 
         // ✅ TIME-BASED METRICS
         weeklyLessons,
@@ -331,6 +361,7 @@ router.get('/:userId', verifyToken, async (req, res) => {
           hasActivityData: userProgress.length > 0,
           hasSubjectData: subjects.length > 0,
           hasTopicData: topics.length > 0,
+          hasCourseData: courseAnalytics.totalCoursesStarted > 0,
           validDates: userProgress.filter(p => p.updatedAt || p.completedAt).length,
           totalProgressRecords: userProgress.length
         }

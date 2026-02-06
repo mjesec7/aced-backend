@@ -302,6 +302,9 @@ mountRoute('/api/messages', './routes/messageRoutes', 'User inbox/messages route
 // COURSES, GUIDES & BOOKS ROUTES
 // ========================================
 
+// Course Progress (must be before courses routes)
+mountRoute('/api/course-progress', './routes/courseProgressRoutes', 'Course progress tracking routes');
+
 // Updated Courses (main frontend)
 mountRoute('/api/updated-courses', './routes/updatedCourses', 'Updated courses routes');
 
