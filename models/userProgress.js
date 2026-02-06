@@ -29,10 +29,11 @@ const userProgressSchema = new mongoose.Schema({
   topicId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Topic',
-    required: [true, 'Topic ID is required for proper tracking'],
+    required: false, // Made optional - will be populated from lesson if not provided
     validate: {
       validator: function(v) {
-        return mongoose.Types.ObjectId.isValid(v);
+        // Allow null/undefined or valid ObjectId
+        return !v || mongoose.Types.ObjectId.isValid(v);
       },
       message: 'Invalid topic ID format'
     }

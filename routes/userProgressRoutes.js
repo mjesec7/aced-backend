@@ -451,10 +451,8 @@ router.post('/', verifyToken, async (req, res) => {
     // ✅ CRITICAL: Only add topicId if it's valid
     if (finalTopicId) {
       updateData.topicId = finalTopicId;
-    } else {
-      // Explicitly unset topicId if it was invalid
-      updateData.$unset = { topicId: "" };
     }
+    // Don't unset topicId - it's now optional and we'll just leave it undefined
 
   
 

@@ -3,6 +3,7 @@ const router = express.Router();
 const mongoose = require('mongoose');
 const Topic = require('../models/topic');
 const Lesson = require('../models/lesson');
+const UserProgress = require('../models/userProgress');
 
 // ✅ Enhanced ObjectId validation
 function validateObjectId(req, res, next) {
@@ -40,9 +41,11 @@ function logRequest(req, res, next) {
   next();
 }
 
-// ✅ FIXED: Get topics grouped by subject and level (School Mode)
+// ✅ FIXED: Get topics grouped by subject and level (School Mode) WITH PROGRESS
 router.get('/grouped', logRequest, async (req, res) => {
   try {
+    const { userId } = req.query; // Accept userId for progress tracking
+
     if (mongoose.connection.readyState !== 1) {
       console.error('❌ Database not connected for grouped topics');
       return res.status(503).json({
@@ -79,6 +82,21 @@ router.get('/grouped', logRequest, async (req, res) => {
       }
     }
 
+    // ✅ NEW: Get user progress if userId provided
+    let userProgressMap = new Map();
+    if (userId) {
+      try {
+        const userProgress = await UserProgress.find({ userId }).lean();
+        userProgress.forEach(progress => {
+          if (progress.lessonId) {
+            userProgressMap.set(progress.lessonId.toString(), progress);
+          }
+        });
+      } catch (progressError) {
+        console.warn('⚠️ Could not fetch user progress:', progressError.message);
+      }
+    }
+
     // Group lessons by topic to create topic cards
     const topicsMap = new Map();
 
@@ -97,8 +115,12 @@ router.get('/grouped', logRequest, async (req, res) => {
           level: lesson.level || 1,
           type: lesson.type || 'free',
           lessonCount: 0,
+          completedLessons: 0,
           totalTime: 0,
-          lessons: []
+          totalPoints: 0,
+          totalStars: 0,
+          lessons: [],
+          lessonIds: []
         });
       }
 
@@ -106,6 +128,17 @@ router.get('/grouped', logRequest, async (req, res) => {
       topic.lessonCount++;
       topic.totalTime += lesson.estimatedTime || lesson.timing?.estimatedDuration || 10;
       topic.lessons.push(lesson);
+      topic.lessonIds.push(lesson._id.toString());
+
+      // ✅ NEW: Track progress for this lesson
+      if (userId) {
+        const lessonProgress = userProgressMap.get(lesson._id.toString());
+        if (lessonProgress?.completed) {
+          topic.completedLessons++;
+          topic.totalPoints += lessonProgress.points || 0;
+          topic.totalStars += lessonProgress.stars || 0;
+        }
+      }
     });
 
     // Convert to array and group by subject and level
@@ -123,6 +156,11 @@ router.get('/grouped', logRequest, async (req, res) => {
         acc[subject][level] = [];
       }
 
+      // ✅ Calculate progress percentage
+      const progressPercent = topic.lessonCount > 0
+        ? Math.round((topic.completedLessons / topic.lessonCount) * 100)
+        : 0;
+
       acc[subject][level].push({
         _id: topic.topicId,
         topicId: topic.topicId,
@@ -132,7 +170,21 @@ router.get('/grouped', logRequest, async (req, res) => {
         level: topic.level,
         lessonCount: topic.lessonCount,
         totalTime: topic.totalTime,
-        type: topic.type
+        type: topic.type,
+        // ✅ NEW: Progress fields
+        progress: {
+          completedLessons: topic.completedLessons,
+          totalLessons: topic.lessonCount,
+          progressPercent: progressPercent,
+          totalPoints: topic.totalPoints,
+          totalStars: topic.totalStars,
+          isCompleted: topic.completedLessons === topic.lessonCount && topic.lessonCount > 0,
+          isStarted: topic.completedLessons > 0
+        },
+        // Shorthand progress fields for easier access
+        progressPercent: progressPercent,
+        completedLessons: topic.completedLessons,
+        isCompleted: topic.completedLessons === topic.lessonCount && topic.lessonCount > 0
       });
 
       return acc;
@@ -143,7 +195,8 @@ router.get('/grouped', logRequest, async (req, res) => {
       data: grouped,
       mode: 'school',
       totalTopics: topicsArray.length,
-      totalLessons: lessons.length
+      totalLessons: lessons.length,
+      hasProgressData: !!userId
     });
   } catch (error) {
     console.error('❌ Error grouping topics:', error);
@@ -155,10 +208,10 @@ router.get('/grouped', logRequest, async (req, res) => {
   }
 });
 
-// ✅ FIXED: Get topics as flat course cards (Study Centre Mode)
+// ✅ FIXED: Get topics as flat course cards (Study Centre Mode) WITH PROGRESS
 router.get('/as-courses', logRequest, async (req, res) => {
   try {
-    const { search, subject, level } = req.query;
+    const { search, subject, level, userId } = req.query; // ✅ Accept userId
 
     if (mongoose.connection.readyState !== 1) {
       console.error('❌ Database not connected for course cards');
@@ -201,6 +254,21 @@ router.get('/as-courses', logRequest, async (req, res) => {
       }
     }
 
+    // ✅ NEW: Get user progress if userId provided
+    let userProgressMap = new Map();
+    if (userId) {
+      try {
+        const userProgress = await UserProgress.find({ userId }).lean();
+        userProgress.forEach(progress => {
+          if (progress.lessonId) {
+            userProgressMap.set(progress.lessonId.toString(), progress);
+          }
+        });
+      } catch (progressError) {
+        console.warn('⚠️ Could not fetch user progress:', progressError.message);
+      }
+    }
+
     // Group lessons by topic to create course cards
     const topicsMap = new Map();
 
@@ -222,20 +290,58 @@ router.get('/as-courses', logRequest, async (req, res) => {
           level: lesson.level || 1,
           type: lesson.type || 'free',
           lessonCount: 0,
+          completedLessons: 0,
           totalTime: 0,
+          totalPoints: 0,
+          totalStars: 0,
           thumbnail: `/api/placeholder/course-${lesson.subject || 'general'}.jpg`,
           displayAs: 'course',
-          mode: 'study-centre'
+          mode: 'study-centre',
+          lessonIds: []
         });
       }
 
       const topic = topicsMap.get(topicId);
       topic.lessonCount++;
       topic.totalTime += lesson.estimatedTime || lesson.timing?.estimatedDuration || 10;
+      topic.lessonIds.push(lesson._id.toString());
+
+      // ✅ NEW: Track progress for this lesson
+      if (userId) {
+        const lessonProgress = userProgressMap.get(lesson._id.toString());
+        if (lessonProgress?.completed) {
+          topic.completedLessons++;
+          topic.totalPoints += lessonProgress.points || 0;
+          topic.totalStars += lessonProgress.stars || 0;
+        }
+      }
     });
 
-    // Convert to array
-    let enrichedTopics = Array.from(topicsMap.values());
+    // Convert to array and add progress data
+    let enrichedTopics = Array.from(topicsMap.values()).map(topic => {
+      const progressPercent = topic.lessonCount > 0
+        ? Math.round((topic.completedLessons / topic.lessonCount) * 100)
+        : 0;
+
+      return {
+        ...topic,
+        // ✅ NEW: Progress fields
+        progress: {
+          completedLessons: topic.completedLessons,
+          totalLessons: topic.lessonCount,
+          progressPercent: progressPercent,
+          totalPoints: topic.totalPoints,
+          totalStars: topic.totalStars,
+          isCompleted: topic.completedLessons === topic.lessonCount && topic.lessonCount > 0,
+          isStarted: topic.completedLessons > 0
+        },
+        // Shorthand progress fields for easier access
+        progressPercent: progressPercent,
+        completedLessons: topic.completedLessons,
+        isCompleted: topic.completedLessons === topic.lessonCount && topic.lessonCount > 0,
+        isStarted: topic.completedLessons > 0
+      };
+    });
 
     // Filter by search if provided
     if (search) {
@@ -252,7 +358,8 @@ router.get('/as-courses', logRequest, async (req, res) => {
       data: enrichedTopics,
       courses: enrichedTopics, // Also add as 'courses' for compatibility
       total: enrichedTopics.length,
-      mode: 'study-centre'
+      mode: 'study-centre',
+      hasProgressData: !!userId
     });
   } catch (error) {
     console.error('❌ Error fetching course cards:', error);
@@ -264,9 +371,10 @@ router.get('/as-courses', logRequest, async (req, res) => {
   }
 });
 
-// ✅ FIXED: Get topic by ID with comprehensive error handling
+// ✅ FIXED: Get topic by ID with comprehensive error handling AND PROGRESS
 router.get('/:id', logRequest, validateObjectId, async (req, res) => {
   const id = req.params.id;
+  const { userId } = req.query; // ✅ Accept userId for progress
 
   try {
     if (mongoose.connection.readyState !== 1) {
@@ -373,11 +481,63 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
       }
     }
 
-    // Inject topicId into each lesson for frontend use
-    const lessonsWithTopicId = lessons.map(lesson => ({
-      ...lesson.toObject ? lesson.toObject() : lesson,
-      topicId: topic._id || topic.id
-    }));
+    // ✅ NEW: Get user progress if userId provided
+    let userProgressMap = new Map();
+    let completedLessons = 0;
+    let totalPoints = 0;
+    let totalStars = 0;
+
+    if (userId) {
+      try {
+        const lessonIds = lessons.map(l => l._id || l.id);
+        const userProgress = await UserProgress.find({
+          userId,
+          lessonId: { $in: lessonIds }
+        }).lean();
+
+        userProgress.forEach(progress => {
+          if (progress.lessonId) {
+            userProgressMap.set(progress.lessonId.toString(), progress);
+            if (progress.completed) {
+              completedLessons++;
+              totalPoints += progress.points || 0;
+              totalStars += progress.stars || 0;
+            }
+          }
+        });
+      } catch (progressError) {
+        console.warn('⚠️ Could not fetch user progress:', progressError.message);
+      }
+    }
+
+    // Inject topicId AND progress into each lesson for frontend use
+    const lessonsWithTopicId = lessons.map(lesson => {
+      const lessonObj = lesson.toObject ? lesson.toObject() : lesson;
+      const lessonId = (lesson._id || lesson.id).toString();
+      const lessonProgress = userProgressMap.get(lessonId);
+
+      return {
+        ...lessonObj,
+        topicId: topic._id || topic.id,
+        // ✅ NEW: Per-lesson progress
+        progress: lessonProgress ? {
+          completed: lessonProgress.completed || false,
+          progressPercent: lessonProgress.progressPercent || 0,
+          stars: lessonProgress.stars || 0,
+          points: lessonProgress.points || 0,
+          completedSteps: lessonProgress.completedSteps || [],
+          totalSteps: lessonProgress.totalSteps || 0,
+          lastAccessed: lessonProgress.lastAccessedAt
+        } : null,
+        isCompleted: lessonProgress?.completed || false,
+        userStars: lessonProgress?.stars || 0
+      };
+    });
+
+    // ✅ Calculate topic-level progress
+    const progressPercent = lessons.length > 0
+      ? Math.round((completedLessons / lessons.length) * 100)
+      : 0;
 
     // Build response
     const response = {
@@ -399,14 +559,28 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
         createdAt: topic.createdAt,
         updatedAt: topic.updatedAt,
         lessons: lessonsWithTopicId,
-        lessonsCount: lessons.length
+        lessonsCount: lessons.length,
+        // ✅ NEW: Topic-level progress
+        progress: {
+          completedLessons: completedLessons,
+          totalLessons: lessons.length,
+          progressPercent: progressPercent,
+          totalPoints: totalPoints,
+          totalStars: totalStars,
+          isCompleted: completedLessons === lessons.length && lessons.length > 0,
+          isStarted: completedLessons > 0
+        },
+        progressPercent: progressPercent,
+        completedLessons: completedLessons,
+        isCompleted: completedLessons === lessons.length && lessons.length > 0
       },
       meta: {
         topicId: id,
         actualTopicId: topic._id || topic.id,
         searchStrategy: searchStrategy,
         lessonsFound: lessons.length,
-        isConstructed: topic.isConstructed || false
+        isConstructed: topic.isConstructed || false,
+        hasProgressData: !!userId
       }
     };
 
@@ -434,6 +608,137 @@ router.get('/:id', logRequest, validateObjectId, async (req, res) => {
       error: 'DATABASE_ERROR',
       requestedId: id,
       details: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
+    });
+  }
+});
+
+// ✅ NEW: Get progress summary for all topics for a user (for analytics/dashboard)
+router.get('/user/:userId/progress', logRequest, async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'userId is required'
+      });
+    }
+
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        success: false,
+        error: 'DATABASE_NOT_CONNECTED'
+      });
+    }
+
+    // Get all active lessons grouped by topic
+    const lessons = await Lesson.find({ isActive: true }).lean();
+
+    // Build topic map
+    const topicsMap = new Map();
+    lessons.forEach(lesson => {
+      const topicId = lesson.topicId?.toString() || lesson.topic || 'uncategorized';
+      const topicName = lesson.topicName || lesson.topic || lesson.lessonName || 'Untitled Topic';
+
+      if (!topicsMap.has(topicId)) {
+        topicsMap.set(topicId, {
+          topicId,
+          name: topicName,
+          subject: lesson.subject || 'Uncategorized',
+          level: lesson.level || 1,
+          lessonCount: 0,
+          lessonIds: []
+        });
+      }
+
+      topicsMap.get(topicId).lessonCount++;
+      topicsMap.get(topicId).lessonIds.push(lesson._id.toString());
+    });
+
+    // Get user progress
+    const userProgress = await UserProgress.find({ userId }).lean();
+    const progressMap = new Map();
+    userProgress.forEach(p => {
+      if (p.lessonId) {
+        progressMap.set(p.lessonId.toString(), p);
+      }
+    });
+
+    // Calculate progress for each topic
+    const topicsProgress = [];
+    let totalCompleted = 0;
+    let totalLessons = 0;
+    let overallPoints = 0;
+    let overallStars = 0;
+
+    for (const [topicId, topic] of topicsMap) {
+      let completedLessons = 0;
+      let topicPoints = 0;
+      let topicStars = 0;
+
+      topic.lessonIds.forEach(lessonId => {
+        const progress = progressMap.get(lessonId);
+        if (progress?.completed) {
+          completedLessons++;
+          topicPoints += progress.points || 0;
+          topicStars += progress.stars || 0;
+        }
+      });
+
+      const progressPercent = topic.lessonCount > 0
+        ? Math.round((completedLessons / topic.lessonCount) * 100)
+        : 0;
+
+      topicsProgress.push({
+        topicId,
+        name: topic.name,
+        subject: topic.subject,
+        level: topic.level,
+        completedLessons,
+        totalLessons: topic.lessonCount,
+        progressPercent,
+        totalPoints: topicPoints,
+        totalStars: topicStars,
+        isCompleted: completedLessons === topic.lessonCount && topic.lessonCount > 0,
+        isStarted: completedLessons > 0
+      });
+
+      totalCompleted += completedLessons;
+      totalLessons += topic.lessonCount;
+      overallPoints += topicPoints;
+      overallStars += topicStars;
+    }
+
+    // Sort by progress (in progress first, then not started)
+    topicsProgress.sort((a, b) => {
+      if (a.isStarted && !a.isCompleted && (!b.isStarted || b.isCompleted)) return -1;
+      if (b.isStarted && !b.isCompleted && (!a.isStarted || a.isCompleted)) return 1;
+      return b.progressPercent - a.progressPercent;
+    });
+
+    res.json({
+      success: true,
+      data: {
+        topics: topicsProgress,
+        summary: {
+          totalTopics: topicsProgress.length,
+          completedTopics: topicsProgress.filter(t => t.isCompleted).length,
+          inProgressTopics: topicsProgress.filter(t => t.isStarted && !t.isCompleted).length,
+          totalLessons,
+          completedLessons: totalCompleted,
+          overallProgressPercent: totalLessons > 0 ? Math.round((totalCompleted / totalLessons) * 100) : 0,
+          totalPoints: overallPoints,
+          totalStars: overallStars
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching user topic progress:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch progress',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });

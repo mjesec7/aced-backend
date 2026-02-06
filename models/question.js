@@ -68,7 +68,8 @@ const questionSchema = new mongoose.Schema({
                     return v && v.length >= 2 && v.length <= 6;
                 }
                 if (this.questionType === 'true-false') {
-                    return v && v.length === 2;
+                    // True/false can have custom options or use defaults
+                    return !v || v.length === 0 || v.length === 2;
                 }
                 if (this.questionType === 'matching') {
                     return v && v.length >= 3;
@@ -79,17 +80,80 @@ const questionSchema = new mongoose.Schema({
         }
     },
 
-    // For multiple-choice and true-false (index of correct option)
+    // Enhanced True/False exercise fields
+    trueFalseData: {
+        // The statement to evaluate (alternative to questionText for clearer structure)
+        statement: {
+            type: String,
+            trim: true
+        },
+        // The correct answer as boolean for cleaner handling
+        isTrue: {
+            type: Boolean
+        },
+        // Explanation for why the statement is true
+        trueExplanation: {
+            type: String,
+            trim: true
+        },
+        // Explanation for why the statement is false
+        falseExplanation: {
+            type: String,
+            trim: true
+        },
+        // Category/topic hint shown to user
+        category: {
+            type: String,
+            trim: true
+        },
+        // Difficulty indicator text (e.g., "Easy", "Tricky", "Expert")
+        difficultyLabel: {
+            type: String,
+            enum: ['Easy', 'Medium', 'Tricky', 'Expert'],
+            default: 'Medium'
+        },
+        // Source or reference for the fact
+        source: {
+            type: String,
+            trim: true
+        },
+        // Related fact or "Did you know?" content
+        funFact: {
+            type: String,
+            trim: true
+        },
+        // Visual aid URL (image, diagram)
+        imageUrl: {
+            type: String,
+            trim: true
+        },
+        // Tags for filtering/grouping
+        tags: {
+            type: [String],
+            default: []
+        }
+    },
+
+    // For multiple-choice and true-false (index of correct option OR boolean)
     // For voice-answer and voice-spelling (string of expected answer)
     correctAnswer: {
         type: mongoose.Schema.Types.Mixed,
         required: function() {
+            // Not required for true-false if trueFalseData.isTrue is set
+            if (this.questionType === 'true-false' && this.trueFalseData?.isTrue !== undefined) {
+                return false;
+            }
             return ['multiple-choice', 'true-false', 'voice-answer', 'voice-spelling'].includes(this.questionType);
         },
         validate: {
             validator: function(v) {
-                if (this.questionType === 'multiple-choice' || this.questionType === 'true-false') {
+                if (this.questionType === 'multiple-choice') {
                     return typeof v === 'number' && v >= 0 && v < this.options.length;
+                }
+                if (this.questionType === 'true-false') {
+                    // Accept: number (0/1 index), boolean, or rely on trueFalseData.isTrue
+                    if (this.trueFalseData?.isTrue !== undefined) return true;
+                    return typeof v === 'number' || typeof v === 'boolean';
                 }
                 if (this.questionType === 'fill-in-blank') {
                     return typeof v === 'string' || Array.isArray(v);
@@ -209,8 +273,35 @@ questionSchema.index({ subject: 1, questionType: 1, isActive: 1 });
 questionSchema.methods.validateAnswer = function(userAnswer, similarity = null) {
     switch (this.questionType) {
         case 'multiple-choice':
-        case 'true-false':
             return userAnswer === this.correctAnswer;
+
+        case 'true-false':
+            // Get the correct answer from trueFalseData or correctAnswer
+            let correctValue;
+            if (this.trueFalseData?.isTrue !== undefined) {
+                correctValue = this.trueFalseData.isTrue;
+            } else if (typeof this.correctAnswer === 'boolean') {
+                correctValue = this.correctAnswer;
+            } else if (typeof this.correctAnswer === 'number') {
+                // 0 = True, 1 = False (based on options array)
+                correctValue = this.correctAnswer === 0;
+            } else {
+                return false;
+            }
+
+            // Normalize user answer to boolean
+            let userBool;
+            if (typeof userAnswer === 'boolean') {
+                userBool = userAnswer;
+            } else if (typeof userAnswer === 'number') {
+                userBool = userAnswer === 0;
+            } else if (typeof userAnswer === 'string') {
+                userBool = userAnswer.toLowerCase() === 'true' || userAnswer === '0';
+            } else {
+                return false;
+            }
+
+            return userBool === correctValue;
 
         case 'fill-in-blank':
             if (!userAnswer || typeof userAnswer !== 'string') return false;
@@ -254,6 +345,40 @@ questionSchema.methods.validateAnswer = function(userAnswer, similarity = null) 
         default:
             return false;
     }
+};
+
+// Method to get explanation for true/false questions
+questionSchema.methods.getTrueFalseExplanation = function(userWasCorrect) {
+    if (this.questionType !== 'true-false') {
+        return this.explanation || null;
+    }
+
+    const isTrue = this.trueFalseData?.isTrue ?? (this.correctAnswer === 0 || this.correctAnswer === true);
+
+    // Return appropriate explanation
+    if (isTrue) {
+        return this.trueFalseData?.trueExplanation || this.explanation || 'This statement is TRUE.';
+    } else {
+        return this.trueFalseData?.falseExplanation || this.explanation || 'This statement is FALSE.';
+    }
+};
+
+// Method to get formatted true/false question data for frontend
+questionSchema.methods.getTrueFalseDisplay = function() {
+    if (this.questionType !== 'true-false') {
+        return null;
+    }
+
+    return {
+        statement: this.trueFalseData?.statement || this.questionText,
+        category: this.trueFalseData?.category || this.category,
+        difficultyLabel: this.trueFalseData?.difficultyLabel || 'Medium',
+        imageUrl: this.trueFalseData?.imageUrl || null,
+        tags: this.trueFalseData?.tags || [],
+        funFact: this.trueFalseData?.funFact || null,
+        source: this.trueFalseData?.source || null,
+        options: this.options?.length === 2 ? this.options : ['True', 'False']
+    };
 };
 
 // Method to record usage
