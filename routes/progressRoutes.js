@@ -37,71 +37,95 @@ router.post('/', verifyToken, async (req, res) => {
 
     // Handle topicId - it might be a string (topic name) or ObjectId
     let finalTopicId = null;
-    
+
     if (topicId) {
       // Check if topicId is a valid ObjectId
-      if (topicId.match(/^[0-9a-fA-F]{24}$/)) {
+      if (topicId.match && topicId.match(/^[0-9a-fA-F]{24}$/)) {
         finalTopicId = topicId;
-      } else {
+      } else if (typeof topicId === 'string') {
         // If topicId is a string (like "Nouns"), try to find the topic by name
         try {
           // First try to get subject/level from the lesson
           const lesson = await Lesson.findById(lessonId);
           if (lesson) {
-            const topic = await Topic.findOne({ 
+            const topic = await Topic.findOne({
               name: topicId,
               subject: lesson.subject,
               level: lesson.level
             });
             if (topic) {
               finalTopicId = topic._id;
+              console.log(`✅ Resolved topicId from name "${topicId}" -> ${topic._id}`);
             } else {
               // If exact match not found, try just by name
               const topicByName = await Topic.findOne({ name: topicId });
               if (topicByName) {
                 finalTopicId = topicByName._id;
+                console.log(`✅ Resolved topicId from name (fallback) "${topicId}" -> ${topicByName._id}`);
+              } else {
+                console.warn(`⚠️ Could not find topic by name: "${topicId}"`);
               }
             }
           }
         } catch (error) {
+          console.error(`❌ Error resolving topicId from name "${topicId}":`, error.message);
         }
       }
     }
-    
+
     // If we still don't have topicId, try to get it from the lesson
     if (!finalTopicId && lessonId) {
       try {
         const lesson = await Lesson.findById(lessonId);
         if (lesson && lesson.topicId) {
           finalTopicId = lesson.topicId;
+          console.log(`✅ Got topicId from lesson: ${finalTopicId}`);
+        } else {
+          console.warn(`⚠️ Lesson ${lessonId} does not have a topicId`);
         }
       } catch (error) {
+        console.error(`❌ Error fetching lesson for topicId:`, error.message);
       }
     }
 
+    const now = new Date();
     const updateData = {
       completedSteps,
-      progressPercent,
-      completed,
-      mistakes,
-      medal,
-      duration,
-      stars,
-      points,
-      hintsUsed,
-      submittedHomework,
-      updatedAt: new Date()
+      progressPercent: Math.min(100, Math.max(0, Number(progressPercent) || 0)),
+      completed: Boolean(completed),
+      mistakes: Math.max(0, Number(mistakes) || 0),
+      medal: medal || 'none',
+      duration: Math.max(0, Number(duration) || 0),
+      stars: Math.min(3, Math.max(0, Number(stars) || 0)),
+      points: Math.max(0, Number(points) || 0),
+      hintsUsed: Math.max(0, Number(hintsUsed) || 0),
+      submittedHomework: Boolean(submittedHomework),
+      updatedAt: now,
+      lastAccessedAt: now
     };
+
+    // ✅ CRITICAL: Set completedAt when lesson is marked as completed
+    if (completed) {
+      updateData.completedAt = now;
+    }
 
     // Only add topicId if we have a valid ObjectId
     if (finalTopicId) {
       updateData.topicId = finalTopicId;
     }
 
+    console.log(`📊 Saving progress for user ${firebaseId}, lesson ${lessonId}:`, {
+      completed: updateData.completed,
+      progressPercent: updateData.progressPercent,
+      points: updateData.points,
+      stars: updateData.stars,
+      topicId: finalTopicId || 'not resolved'
+    });
+
     const updated = await UserProgress.findOneAndUpdate(
       { userId: firebaseId, lessonId },
       updateData,
-      { upsert: true, new: true }
+      { upsert: true, new: true, runValidators: true }
     );
 
     

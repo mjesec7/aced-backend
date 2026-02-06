@@ -280,11 +280,12 @@ router.post('/user-progress', verifyToken, async (req, res) => {
       points: Math.max(0, Number(progressData.points) || 0),
       hintsUsed: Math.max(0, Number(progressData.hintsUsed) || 0),
       submittedHomework: Boolean(progressData.submittedHomework),
-      updatedAt: new Date()
+      updatedAt: new Date(),
+      lastAccessedAt: new Date()
     };
 
-    // Set completedAt when lesson is marked as completed
-    if (updateData.completed && !updateData.completedAt) {
+    // ✅ FIXED: Set completedAt when lesson is marked as completed
+    if (updateData.completed) {
       updateData.completedAt = new Date();
     }
     
@@ -440,11 +441,12 @@ router.post('/', verifyToken, async (req, res) => {
       points: Math.max(0, Number(points) || 0),
       hintsUsed: Math.max(0, Number(hintsUsed) || 0),
       submittedHomework: Boolean(submittedHomework),
-      updatedAt: new Date()
+      updatedAt: new Date(),
+      lastAccessedAt: new Date()
     };
 
-    // Set completedAt when lesson is marked as completed
-    if (completed && !updateData.completedAt) {
+    // ✅ FIXED: Set completedAt when lesson is marked as completed
+    if (completed) {
       updateData.completedAt = new Date();
     }
 
@@ -452,7 +454,14 @@ router.post('/', verifyToken, async (req, res) => {
     if (finalTopicId) {
       updateData.topicId = finalTopicId;
     }
-    // Don't unset topicId - it's now optional and we'll just leave it undefined
+
+    console.log(`📊 Saving progress for user ${firebaseId}, lesson ${validLessonId}:`, {
+      completed: updateData.completed,
+      progressPercent: updateData.progressPercent,
+      points: updateData.points,
+      stars: updateData.stars,
+      topicId: finalTopicId || 'not resolved'
+    });
 
   
 

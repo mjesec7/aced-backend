@@ -207,6 +207,7 @@ mountRoute('/api/user-progress', './routes/userProgressRoutes', 'User progress r
 
 // Analytics routes
 mountRoute('/api/analytics', './routes/analyticsRoutes', 'User analytics routes');
+mountRoute('/api/user-analytics', './routes/userAnalytics', 'User progress analytics & stats');
 
 // ========================================
 // EDUCATIONAL CONTENT ROUTES

@@ -177,10 +177,17 @@ router.get('/:userId', verifyToken, async (req, res) => {
     }));
 
     // ✅ STEP 7: Build recent activity with PROPER lesson names
+    // FIXED: Show ALL recent completions sorted by date, not just last week
+    // This ensures newly completed lessons always appear
     const recentActivity = userProgress
-      .filter(p => p.updatedAt && new Date(p.updatedAt) > oneWeekAgo)
-      .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
-      .slice(0, 10)
+      .filter(p => p.updatedAt || p.completedAt || p.createdAt) // Accept any valid date
+      .sort((a, b) => {
+        // Sort by most recent date available (prefer completedAt for completed lessons)
+        const dateA = a.completedAt || a.updatedAt || a.createdAt;
+        const dateB = b.completedAt || b.updatedAt || b.createdAt;
+        return new Date(dateB) - new Date(dateA);
+      })
+      .slice(0, 15) // Show up to 15 recent activities
       .map(progress => {
         // Get lesson details
         let lessonName = 'Unknown Lesson';
@@ -213,13 +220,16 @@ router.get('/:userId', verifyToken, async (req, res) => {
         }
 
         return {
-          date: progress.updatedAt,
+          date: progress.completedAt || progress.updatedAt || progress.createdAt,
           lesson: lessonName,
+          lessonId: progress.lessonId?._id || progress.lessonId,
           topic: topicName,
           points: progress.points || 0,
           duration: progress.duration || 0,
           completed: progress.completed || false,
-          stars: progress.stars || 0
+          stars: progress.stars || 0,
+          mistakes: progress.mistakes || 0,
+          progressPercent: progress.progressPercent || 0
         };
       });
 
@@ -257,9 +267,15 @@ router.get('/:userId', verifyToken, async (req, res) => {
         }
       }
     });
-//bhj
     const mostActiveDay = Object.entries(dayCount)
       .sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+
+    // ✅ CALCULATE TOPIC STATS PROPERLY
+    // A topic is "completed" if ALL its lessons are done (100%)
+    // A topic is "in progress" if at least one lesson is done but not all
+    const fullyCompletedTopics = topics.filter(t => t.progress === 100 && t.totalLessons > 0);
+    const inProgressTopics = topics.filter(t => t.progress > 0 && t.progress < 100);
+    const startedTopics = topics.filter(t => t.completedLessons > 0);
 
     // ✅ FINAL RESPONSE: Properly structured analytics
     const analyticsData = {
@@ -268,47 +284,55 @@ router.get('/:userId', verifyToken, async (req, res) => {
         // ✅ BASIC STATS (corrected terminology)
         studyDays: uniqueDays.size,
         totalDays: Math.ceil((now - new Date(now.getFullYear(), 0, 1)) / (1000 * 60 * 60 * 24)),
-        
+
         // ✅ LESSON STATS (clear naming)
         totalLessonsDone: completedLessonsCount,
         totalLessonsAttempted: totalLessonsAttempted,
-        
-        // ✅ TOPIC STATS (clear distinction)
-        completedTopics: topics.filter(t => t.progress === 100).length,
+
+        // ✅ TOPIC STATS - FIXED: Show meaningful progress
+        completedTopics: fullyCompletedTopics.length, // Topics at 100%
+        topicsInProgress: inProgressTopics.length,    // Topics started but not complete
+        topicsStarted: startedTopics.length,          // Any topic with completed lessons
         totalTopics: topics.length,
-        
+
         // ✅ SUBJECT STATS (grouped topics)
         completedSubjects: subjects.filter(s => s.progress === 100).length,
+        subjectsInProgress: subjects.filter(s => s.progress > 0 && s.progress < 100).length,
         totalSubjects: subjects.length,
-        
+
         // ✅ TIME-BASED METRICS
         weeklyLessons,
         monthlyLessons,
         streakDays: streak,
         averageTime,
-        
+
         // ✅ PERFORMANCE METRICS
         totalPoints,
         totalStars,
         hintsUsed,
         avgPointsPerDay,
-        
+
         // ✅ CHARTS AND PROGRESS
         knowledgeChart: chart,
         subjects: subjects,
-        topics: topics,
-        
+        topics: topics.map(t => ({
+          ...t,
+          isCompleted: t.progress === 100,
+          isInProgress: t.progress > 0 && t.progress < 100
+        })),
+
         // ✅ ACTIVITY PATTERNS
         mostActiveDay,
         recentActivity,
-        
+
         // ✅ METADATA
         lastUpdated: new Date().toISOString(),
         dataQuality: {
           hasActivityData: userProgress.length > 0,
           hasSubjectData: subjects.length > 0,
           hasTopicData: topics.length > 0,
-          validDates: userProgress.filter(p => p.updatedAt).length
+          validDates: userProgress.filter(p => p.updatedAt || p.completedAt).length,
+          totalProgressRecords: userProgress.length
         }
       }
     };

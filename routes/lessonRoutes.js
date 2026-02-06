@@ -877,7 +877,22 @@ router.post('/debug', async (req, res) => {
 router.post('/:id/complete', verifyToken, validateObjectId, async (req, res) => {
   try {
     const lessonId = req.params.id;
-    const { userId, progress, stars, score } = req.body;
+    const {
+      userId,
+      progress,
+      stars,
+      score,
+      // ✅ ADDED: Accept all progress fields from frontend
+      points,
+      mistakes,
+      hintsUsed,
+      duration,
+      timeSpent,
+      completedSteps,
+      totalSteps,
+      medal,
+      progressPercent
+    } = req.body;
 
     if (!userId) {
       return res.status(400).json({
@@ -886,22 +901,60 @@ router.post('/:id/complete', verifyToken, validateObjectId, async (req, res) => 
       });
     }
 
+    const now = new Date();
+
+    // ✅ Get lesson details to resolve topicId
+    let topicId = null;
+    try {
+      const lesson = await Lesson.findById(lessonId);
+      if (lesson && lesson.topicId) {
+        topicId = lesson.topicId;
+      }
+    } catch (lessonErr) {
+      console.warn('⚠️ Could not get topicId from lesson:', lessonErr.message);
+    }
+
+    // ✅ Build comprehensive update data
+    const updateData = {
+      completed: true,
+      completedAt: now,
+      updatedAt: now,
+      lastAccessedAt: now,
+      progressPercent: 100,
+      stars: Math.min(3, Math.max(0, Number(stars) || 0)),
+      score: Math.max(0, Number(score) || 0),
+      points: Math.max(0, Number(points) || Number(score) || 0),
+      mistakes: Math.max(0, Number(mistakes) || 0),
+      hintsUsed: Math.max(0, Number(hintsUsed) || 0),
+      duration: Math.max(0, Number(duration) || Number(timeSpent) || 0),
+      completedSteps: Array.isArray(completedSteps) ? completedSteps : [],
+      totalSteps: Math.max(0, Number(totalSteps) || 0),
+      medal: medal || (stars >= 3 ? 'gold' : stars >= 2 ? 'silver' : stars >= 1 ? 'bronze' : 'none')
+    };
+
+    // Add topicId if resolved
+    if (topicId) {
+      updateData.topicId = topicId;
+    }
+
+    console.log(`📊 Completing lesson ${lessonId} for user ${userId}:`, {
+      stars: updateData.stars,
+      points: updateData.points,
+      mistakes: updateData.mistakes,
+      topicId: topicId || 'not found'
+    });
+
     // Check if lesson completion service is available
     if (!handleLessonCompletion) {
-
       // Fallback: just save basic user progress
       if (UserProgress) {
-        await UserProgress.findOneAndUpdate(
+        const savedProgress = await UserProgress.findOneAndUpdate(
           { userId, lessonId },
-          {
-            completed: true,
-            completedAt: new Date(),
-            stars: stars || 0,
-            score: score || 0,
-            finalProgress: progress
-          },
-          { upsert: true, new: true }
+          updateData,
+          { upsert: true, new: true, runValidators: true }
         );
+
+        console.log(`✅ Progress saved (basic mode):`, savedProgress._id);
       }
 
       return res.json({
@@ -909,11 +962,7 @@ router.post('/:id/complete', verifyToken, validateObjectId, async (req, res) => 
         message: '🎉 Lesson completed successfully! (Basic mode)',
         data: {
           lessonCompleted: true,
-          userProgress: {
-            completed: true,
-            stars: stars || 0,
-            score: score || 0
-          },
+          userProgress: updateData,
           extraction: {
             vocabularyAdded: 0,
             homeworkCreated: false,
@@ -926,21 +975,19 @@ router.post('/:id/complete', verifyToken, validateObjectId, async (req, res) => 
     // Process lesson completion and extract content
     const extractionResult = await handleLessonCompletion(userId, lessonId, progress);
 
-    // Update user progress
+    // ✅ Add extraction results to update data
+    updateData.homeworkGenerated = extractionResult.homeworkCreated;
+    updateData.vocabularyExtracted = extractionResult.vocabularyAdded;
+
+    // Update user progress with all fields
     if (UserProgress) {
-      await UserProgress.findOneAndUpdate(
+      const savedProgress = await UserProgress.findOneAndUpdate(
         { userId, lessonId },
-        {
-          completed: true,
-          completedAt: new Date(),
-          stars: stars || 0,
-          score: score || 0,
-          finalProgress: progress,
-          homeworkGenerated: extractionResult.homeworkCreated,
-          vocabularyExtracted: extractionResult.vocabularyAdded
-        },
-        { upsert: true, new: true }
+        updateData,
+        { upsert: true, new: true, runValidators: true }
       );
+
+      console.log(`✅ Progress saved (full mode):`, savedProgress._id);
     }
 
     res.json({
@@ -948,11 +995,7 @@ router.post('/:id/complete', verifyToken, validateObjectId, async (req, res) => 
       message: '🎉 Lesson completed successfully!',
       data: {
         lessonCompleted: true,
-        userProgress: {
-          completed: true,
-          stars: stars || 0,
-          score: score || 0
-        },
+        userProgress: updateData,
         extraction: extractionResult
       }
     });
