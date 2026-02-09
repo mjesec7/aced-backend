@@ -80,7 +80,17 @@ router.post('/generate-form', async (req, res) => {
     }
 
     const amount = PAYMENT_AMOUNTS[plan];
-    const merchantId = process.env.PAYME_MERCHANT_ID;
+    const amount = PAYMENT_AMOUNTS[plan];
+    let merchantId = process.env.PAYME_MERCHANT_ID;
+
+    // SANITIZATION FIX
+    if (merchantId && (merchantId.includes('&') || merchantId.includes('?') || merchantId.length > 30)) {
+      merchantId = merchantId.replace(/[^a-zA-Z0-9]/g, '');
+      if (merchantId.length > 24 && /^[0-9a-fA-F]+$/.test(merchantId)) {
+        merchantId = merchantId.substring(0, 24);
+      }
+    }
+
     const transactionId = `aced_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     if (method === 'post') {
@@ -166,7 +176,17 @@ router.post('/generate-button', async (req, res) => {
     }
 
     const amount = PAYMENT_AMOUNTS[plan];
-    const merchantId = process.env.PAYME_MERCHANT_ID;
+    const amount = PAYMENT_AMOUNTS[plan];
+    let merchantId = process.env.PAYME_MERCHANT_ID;
+
+    // SANITIZATION FIX
+    if (merchantId && (merchantId.includes('&') || merchantId.includes('?') || merchantId.length > 30)) {
+      merchantId = merchantId.replace(/[^a-zA-Z0-9]/g, '');
+      if (merchantId.length > 24 && /^[0-9a-fA-F]+$/.test(merchantId)) {
+        merchantId = merchantId.substring(0, 24);
+      }
+    }
+
     const transactionId = `aced_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     // Generate HTML according to documentation.

@@ -981,12 +981,22 @@ const normalizeAmountToTiyin = (amt) => {
 // FIXED: Generate direct PayMe URL (GET method)
 const generateDirectPaymeUrl = async (userId, plan, options = {}) => {
   try {
-    // Get merchant ID with validation
-    const merchantId = process.env.PAYME_MERCHANT_ID;
+    // Get merchant ID with validation and Sanitization
+    let merchantId = process.env.PAYME_MERCHANT_ID;
 
     if (!merchantId || merchantId === 'undefined' || typeof merchantId !== 'string') {
       console.error('❌ Merchant ID not loaded properly');
       throw new Error('PayMe Merchant ID not configured. Check your .env file.');
+    }
+
+    // SANITIZATION FIX: Remove garbage characters if present
+    if (merchantId.includes('&') || merchantId.includes('?') || merchantId.length > 30) {
+      console.warn(`⚠️ Suspicious Merchant ID detected (length ${merchantId.length}). Sanitizing...`);
+      merchantId = merchantId.replace(/[^a-zA-Z0-9]/g, '');
+      if (merchantId.length > 24 && /^[0-9a-fA-F]+$/.test(merchantId)) {
+        merchantId = merchantId.substring(0, 24);
+      }
+      console.log(`✅ Sanitized Merchant ID: ${merchantId.substring(0, 4)}...`);
     }
 
     const amounts = getPaymentAmounts();
@@ -1065,10 +1075,18 @@ const generateDirectPaymeUrl = async (userId, plan, options = {}) => {
 const generateDirectPaymeForm = async (userId, plan, options = {}) => {
   try {
 
-    const merchantId = process.env.PAYME_MERCHANT_ID;
+    let merchantId = process.env.PAYME_MERCHANT_ID;
 
     if (!merchantId || merchantId === 'undefined' || merchantId.length < 10) {
       throw new Error('Invalid PayMe Merchant ID configuration');
+    }
+
+    // SANITIZATION FIX
+    if (merchantId.includes('&') || merchantId.includes('?') || merchantId.length > 30) {
+      merchantId = merchantId.replace(/[^a-zA-Z0-9]/g, '');
+      if (merchantId.length > 24 && /^[0-9a-fA-F]+$/.test(merchantId)) {
+        merchantId = merchantId.substring(0, 24);
+      }
     }
 
     const amounts = getPaymentAmounts();
@@ -1124,12 +1142,24 @@ const initiatePaymePayment = async (req, res) => {
       return safeErrorResponse(res, 400, 'Plan is required', 'Payment initiation');
     }
 
-    // Environment validation
-    const merchantId = process.env.PAYME_MERCHANT_ID;
+    // Get merchant ID with validation and Sanitization
+    let merchantId = process.env.PAYME_MERCHANT_ID;
 
-    if (!merchantId || merchantId === 'undefined') {
-      console.error('❌ PAYME_MERCHANT_ID not properly set');
-      return safeErrorResponse(res, 500, 'PayMe merchant configuration error', 'Payment initiation');
+    if (!merchantId || merchantId === 'undefined' || typeof merchantId !== 'string') {
+      console.error('❌ Merchant ID not loaded properly');
+      throw new Error('PayMe Merchant ID not configured. Check your .env file.');
+    }
+
+    // SANITIZATION FIX: Remove garbage characters if present
+    if (merchantId.includes('&') || merchantId.includes('?') || merchantId.length > 30) {
+      console.warn(`⚠️ Suspicious Merchant ID detected (length ${merchantId.length}). Sanitizing...`);
+      // Keep only alphanumeric characters (Payme IDs are 24-char hex, or sometimes 15+ alphanumeric)
+      merchantId = merchantId.replace(/[^a-zA-Z0-9]/g, '');
+      // Limit length if it's excessively long (standard Mongo ObjectId is 24)
+      if (merchantId.length > 24 && /^[0-9a-fA-F]+$/.test(merchantId)) {
+        merchantId = merchantId.substring(0, 24);
+      }
+      console.log(`✅ Sanitized Merchant ID: ${merchantId.substring(0, 4)}...${merchantId.substring(merchantId.length - 4)}`);
     }
 
     // Determine amount in tiyin. Allow override from request body (accepts UZS or tiyin).
