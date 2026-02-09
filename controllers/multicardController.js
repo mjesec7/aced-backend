@@ -166,7 +166,28 @@ const initiatePayment = async (req, res) => {
         const timestamp = Date.now();
         const invoiceId = `ACED_${plan.toUpperCase()}_${timestamp}`;
 
-        const callbackUrl = `${process.env.API_BASE_URL}/api/payments/multicard/webhook`;
+        // ✅ CRITICAL: Verify API_BASE_URL is set correctly
+        const apiBaseUrl = process.env.API_BASE_URL;
+        if (!apiBaseUrl) {
+            console.error('❌ CRITICAL: API_BASE_URL environment variable not set');
+            return res.status(500).json({
+                success: false,
+                error: {
+                    code: 'CONFIG_ERROR',
+                    details: 'API_BASE_URL not configured. Webhook callback URL cannot be generated.',
+                    hint: 'Set API_BASE_URL environment variable to your API domain (e.g., https://api.aced.live)'
+                }
+            });
+        }
+
+        // ✅ Verify API_BASE_URL is HTTPS (required by Multicard)
+        if (!apiBaseUrl.startsWith('https://')) {
+            console.warn(`⚠️  API_BASE_URL is not HTTPS: ${apiBaseUrl}`);
+            console.warn('   Multicard requires HTTPS callbacks. This may cause webhook failures.');
+        }
+
+        const callbackUrl = `${apiBaseUrl}/api/payments/multicard/webhook`;
+        console.log('📋 Callback URL for Multicard:', callbackUrl);
 
         // ✅ FIX: Use correct store ID from env
         const storeId = parseInt(process.env.MULTICARD_STORE_ID) || 2660;
@@ -357,6 +378,14 @@ const handleSuccessCallback = async (req, res) => {
  * This is the authoritative notification about payment status.
  */
 const handleWebhook = async (req, res) => {
+    // ✅ WEBHOOK LOGGING: Track every webhook call for debugging
+    console.log('🔔 MULTICARD WEBHOOK RECEIVED');
+    console.log('   Headers:', JSON.stringify(req.headers, null, 2));
+    console.log('   Body:', JSON.stringify(req.body, null, 2));
+    console.log('   Method:', req.method);
+    console.log('   URL:', req.originalUrl);
+    console.log('   IP:', req.ip);
+    
     const webhookData = req.body;
 
     // Extract payment data from webhook
@@ -364,6 +393,7 @@ const handleWebhook = async (req, res) => {
 
     if (!payment || !payment.store_invoice_id) {
         console.error('❌ Invalid webhook data: store_invoice_id is missing.');
+        console.error('   Webhook data:', JSON.stringify(webhookData, null, 2));
         return res.status(400).json({
             success: false,
             error: {

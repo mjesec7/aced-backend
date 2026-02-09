@@ -25,6 +25,22 @@ router.options('*', (req, res) => {
     res.sendStatus(200);
 });
 
+// ============================================
+// ✅ AUTH BYPASS FOR WEBHOOKS
+// ============================================
+// Middleware to explicitly handle webhook auth
+// Multicard webhooks must NOT require user authentication
+router.use((req, res, next) => {
+    // ✅ CRITICAL: Do not validate auth for webhook endpoints
+    // Multicard's server sends callbacks without user tokens
+    if (req.path === '/webhook' || req.path === '/webhook/test') {
+        console.log('🔓 Webhook request - auth bypass applied');
+        // Skip any auth middleware for webhooks
+        req.skipAuth = true;
+    }
+    next();
+});
+
 // Middleware for all multicard requests
 router.use((req, res, next) => {
     next();
@@ -236,8 +252,26 @@ router.post('/initiate', multicardController.initiatePayment);
 // QR code payment (PaymeGo, ClickPass, Uzum, etc.)
 router.put('/payment/:uuid/scanpay', multicardController.processScanPay);
 
+// ============================================
+// ✅ CRITICAL WEBHOOK ENDPOINTS
+// ============================================
+
 // Webhooks - New format (recommended)
 router.post('/webhook', multicardController.handleWebhook);
+
+// Webhook debug endpoint - returns 200 for any request (helps test connectivity)
+router.post('/webhook/test', (req, res) => {
+    console.log('🔔 TEST WEBHOOK ENDPOINT HIT');
+    console.log('   Method:', req.method);
+    console.log('   Headers:', Object.keys(req.headers));
+    console.log('   Auth header present:', !!req.headers.authorization);
+    res.status(200).json({
+        success: true,
+        message: 'Test webhook endpoint is reachable',
+        timestamp: new Date().toISOString(),
+        receivedAt: new Date().toISOString()
+    });
+});
 
 // Success callback - Old format (deprecated but kept for compatibility)
 router.post('/success', multicardController.handleSuccessCallbackOld);

@@ -5,12 +5,14 @@ const admin = require('../config/firebase');
 const authenticateUser = async (req, res, next) => {
   try {
     // ✅ PUBLIC PATHS - Skip authentication for webhooks and callbacks
+    // These endpoints are called by external services (Multicard, PayMe) without user tokens
     const publicPaths = [
       '/api/payments/multicard/webhook',
       '/api/payments/multicard/callback',
       '/api/payments/multicard/callback/success',
       '/api/payments/multicard/return/success',
       '/api/payments/multicard/return/error',
+      '/api/payments/multicard/webhook/test', // ✅ NEW: Debug test endpoint
       '/api/payments/payme',
       '/api/payments/payme/notify',
       '/api/payments/payme/return/success',
@@ -22,10 +24,15 @@ const authenticateUser = async (req, res, next) => {
       '/api/routes'
     ];
 
-    // Check if current path is public
-    const isPublicPath = publicPaths.some(path => req.path === path || req.path.startsWith(path));
+    // ✅ CRITICAL FIX: Use originalUrl (full path) not path (without mounting prefix)
+    // This ensures webhook paths are correctly identified even when mounted as sub-routes
+    const fullPath = req.originalUrl.split('?')[0]; // Remove query string
+    const isPublicPath = publicPaths.some(path => 
+      fullPath === path || fullPath.startsWith(path + '/')
+    );
     
     if (isPublicPath) {
+      console.log(`✅ Public path accessed (auth bypassed): ${fullPath}`);
       return next(); // Skip authentication for public paths
     }
 
