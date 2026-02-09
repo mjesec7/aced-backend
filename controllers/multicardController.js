@@ -284,6 +284,8 @@ const initiatePayment = async (req, res) => {
     } catch (error) {
         // ✅ ENHANCED ERROR LOGGING
         console.error('❌ Multicard API Error Details:');
+        console.error('Error message:', error.message);
+        console.error('Error stack:', error.stack);
 
         if (error.response) {
             console.error('Status:', error.response.status);
@@ -330,7 +332,8 @@ const initiatePayment = async (req, res) => {
                 success: false,
                 error: {
                     code: 'REQUEST_SETUP_ERROR',
-                    details: error.message
+                    details: error.message,
+                    fullError: process.env.NODE_ENV === 'development' ? error.toString() : undefined
                 }
             });
         }

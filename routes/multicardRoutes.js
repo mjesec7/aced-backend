@@ -47,6 +47,28 @@ router.use((req, res, next) => {
 });
 
 // ============================================
+// ✅ CRITICAL WEBHOOK ENDPOINTS (MUST BE FIRST)
+// ============================================
+// These must be before any catch-all routes and debug routes
+
+// Webhooks - New format (recommended)
+router.post('/webhook', multicardController.handleWebhook);
+
+// Webhook debug endpoint - returns 200 for any request (helps test connectivity)
+router.post('/webhook/test', (req, res) => {
+    console.log('🔔 TEST WEBHOOK ENDPOINT HIT');
+    console.log('   Method:', req.method);
+    console.log('   Headers:', Object.keys(req.headers));
+    console.log('   Auth header present:', !!req.headers.authorization);
+    res.status(200).json({
+        success: true,
+        message: 'Test webhook endpoint is reachable',
+        timestamp: new Date().toISOString(),
+        receivedAt: new Date().toISOString()
+    });
+});
+
+// ============================================
 // DEBUG / TEST ROUTES (Place these first)
 // ============================================
 
@@ -251,27 +273,6 @@ router.post('/initiate', multicardController.initiatePayment);
 
 // QR code payment (PaymeGo, ClickPass, Uzum, etc.)
 router.put('/payment/:uuid/scanpay', multicardController.processScanPay);
-
-// ============================================
-// ✅ CRITICAL WEBHOOK ENDPOINTS
-// ============================================
-
-// Webhooks - New format (recommended)
-router.post('/webhook', multicardController.handleWebhook);
-
-// Webhook debug endpoint - returns 200 for any request (helps test connectivity)
-router.post('/webhook/test', (req, res) => {
-    console.log('🔔 TEST WEBHOOK ENDPOINT HIT');
-    console.log('   Method:', req.method);
-    console.log('   Headers:', Object.keys(req.headers));
-    console.log('   Auth header present:', !!req.headers.authorization);
-    res.status(200).json({
-        success: true,
-        message: 'Test webhook endpoint is reachable',
-        timestamp: new Date().toISOString(),
-        receivedAt: new Date().toISOString()
-    });
-});
 
 // Success callback - Old format (deprecated but kept for compatibility)
 router.post('/success', multicardController.handleSuccessCallbackOld);
