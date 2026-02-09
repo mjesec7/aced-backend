@@ -278,7 +278,10 @@ const generatePaymePostForm = (userId, plan, options = {}) => {
       throw new Error('PAYME_MERCHANT_ID not configured');
     }
 
-    const amount = PAYMENT_AMOUNTS[plan];
+    // Allow options.amount override (tiyin) or fallback to configured plan amounts
+    const amount = options.amount && Number.isFinite(Number(options.amount))
+      ? Number(options.amount)
+      : PAYMENT_AMOUNTS[plan];
     if (!amount) {
       throw new Error(`Invalid plan: ${plan}`);
     }
@@ -944,6 +947,21 @@ const safeErrorResponse = (res, statusCode, error, context = 'Operation') => {
   });
 };
 
+// Normalize incoming amount to tiyin (minor units).
+// If amount looks like UZS (e.g., < 1_000_000) treat it as UZS and convert to tiyin.
+const normalizeAmountToTiyin = (amt) => {
+  if (amt === undefined || amt === null) return null;
+  const n = Number(amt);
+  if (Number.isNaN(n)) return null;
+  if (n > 0 && n < 1000000) {
+    // looks like UZS (e.g., 10000 -> 1,000,000 tiyin)
+    const converted = Math.round(n * 100);
+    console.warn('Converting amount from UZS to tiyin:', n, '->', converted);
+    return converted;
+  }
+  return Math.round(n);
+};
+
 // FIXED: Generate direct PayMe URL (GET method)
 const generateDirectPaymeUrl = async (userId, plan, options = {}) => {
   try {
@@ -958,7 +976,10 @@ const generateDirectPaymeUrl = async (userId, plan, options = {}) => {
 
 
     const amounts = getPaymentAmounts();
-    const planAmount = amounts[plan]?.tiyin;
+    // Allow override via options.amount (already normalized to tiyin by caller)
+    const planAmount = options.amount && Number.isFinite(Number(options.amount))
+      ? Number(options.amount)
+      : amounts[plan]?.tiyin;
 
     if (!planAmount) {
       throw new Error(`Plan "${plan}" not found. Available: start, pro`);
@@ -1010,7 +1031,10 @@ const generateDirectPaymeForm = async (userId, plan, options = {}) => {
     }
 
     const amounts = getPaymentAmounts();
-    const planAmount = amounts[plan]?.tiyin;
+    // allow override via options.amount (tiyin)
+    const planAmount = options.amount && Number.isFinite(Number(options.amount))
+      ? Number(options.amount)
+      : amounts[plan]?.tiyin;
 
     if (!planAmount) {
       throw new Error(`Unknown plan: ${plan}`);
@@ -1047,7 +1071,7 @@ const generateDirectPaymeForm = async (userId, plan, options = {}) => {
 // FIXED: Main payment initiation function
 const initiatePaymePayment = async (req, res) => {
   try {
-    const { userId, plan, additionalData = {}, method: requestMethod } = req.body;
+    const { userId, plan, amount: rawAmount, additionalData = {}, method: requestMethod } = req.body;
 
 
     // Validation
@@ -1067,10 +1091,13 @@ const initiatePaymePayment = async (req, res) => {
       return safeErrorResponse(res, 500, 'PayMe merchant configuration error', 'Payment initiation');
     }
 
-    const amount = PAYMENT_AMOUNTS[plan];
-    if (!amount) {
+    // Determine amount in tiyin. Allow override from request body (accepts UZS or tiyin).
+    const overrideAmount = normalizeAmountToTiyin(rawAmount);
+    const defaultAmount = PAYMENT_AMOUNTS[plan];
+    if (!defaultAmount && !overrideAmount) {
       return safeErrorResponse(res, 400, 'Invalid plan amount', 'Payment initiation');
     }
+    const amount = overrideAmount || defaultAmount;
 
     // Generate clean order ID
     const timestamp = Date.now();
@@ -1092,6 +1119,9 @@ const initiatePaymePayment = async (req, res) => {
             `https://api.aced.live/api/payments/payme/return/success?transaction=${cleanOrderId}&userId=${userId}`,
           callback_timeout: Number(additionalData.callback_timeout) || 15000
         };
+
+        // pass normalized amount (tiyin) to URL generator
+        urlOptions.amount = amount;
 
 
         const result = await generateDirectPaymeUrl(userId, plan, urlOptions);
@@ -1125,8 +1155,11 @@ const initiatePaymePayment = async (req, res) => {
           lang: additionalData.lang || 'ru',
           callback: additionalData.callback ||
             `https://api.aced.live/api/payments/payme/return/success?transaction=${cleanOrderId}&userId=${userId}`,
-          callback_timeout: Number(additionalData.callback_timeout) || 15000
+          callback_timeout: Number(additionalData.callback_timeout) || 15000,
+          amount: amount
         });
+        // include amount override for form generation
+        // (generateDirectPaymeForm will prefer options.amount if provided)
 
         if (result.success) {
 

@@ -14,6 +14,20 @@ const API_URL = process.env.MULTICARD_API_URL;
 // Store for variables (in-memory)
 const variables = new Map();
 
+// Normalize incoming amount to tiyin (minor units).
+// If amount looks like UZS (e.g., < 1_000_000) treat it as UZS and convert to tiyin.
+const normalizeAmountToTiyin = (amt) => {
+    if (amt === undefined || amt === null) return null;
+    const n = Number(amt);
+    if (Number.isNaN(n)) return null;
+    if (n > 0 && n < 1000000) {
+        const converted = Math.round(n * 100);
+        console.warn('Converting amount from UZS to tiyin:', n, '->', converted);
+        return converted;
+    }
+    return Math.round(n);
+};
+
 /**
  * Replace {{variables}} in any value (string, object, array)
  */
@@ -157,19 +171,26 @@ const initiatePayment = async (req, res) => {
         // ✅ FIX: Use correct store ID from env
         const storeId = parseInt(process.env.MULTICARD_STORE_ID) || 2660;
 
-        // Expect `amount` to be provided in tiyin (minor units).
-        // Frontend sends tiyin via `uzsToTiyin()` helper. Use sensible defaults in tiyin.
-        let finalAmount = amount || (plan === 'pro' ? 45500000 : 26000000);
-        // Build OFD array according to API specs
-        const ofdData = ofd.map(item => ({
-            qty: item.qty || 1,
-            price: item.price || finalAmount, // Price in tiyin
-            mxik: item.mxik || '10899002001000000',
-            total: item.total || finalAmount, // Total in tiyin
-            package_code: item.package_code || '1236095', // ✅ Use your actual package code
-            name: item.name || `ACED ${plan.toUpperCase()} Plan`,
-            vat: item.vat || 0
-        }));
+        // Normalize amount (frontend may send UZS or tiyin). Use defaults in tiyin.
+        const normalized = normalizeAmountToTiyin(amount);
+        let finalAmount = normalized || (plan === 'pro' ? 45500000 : 26000000);
+
+        // Build OFD array according to API specs, normalizing item prices/totals
+        const ofdData = ofd.map(item => {
+            const qty = item.qty || 1;
+            const price = item.price ? (normalizeAmountToTiyin(item.price) || finalAmount) : finalAmount;
+            const total = item.total ? (normalizeAmountToTiyin(item.total) || (qty * price)) : (qty * price);
+
+            return {
+                qty: qty,
+                price: price,
+                mxik: item.mxik || '10899002001000000',
+                total: total,
+                package_code: item.package_code || '1236095',
+                name: item.name || `ACED ${plan.toUpperCase()} Plan`,
+                vat: item.vat || 0
+            };
+        });
 
         const payload = {
             store_id: storeId,
