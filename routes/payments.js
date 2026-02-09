@@ -266,7 +266,6 @@ router.post('/initiate', async (req, res) => {
 
     // Generate transaction ID
     const transactionId = `aced_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const isProduction = process.env.NODE_ENV === 'production';
 
     // Store transaction metadata for later reference
     const transactionMeta = {
@@ -292,39 +291,29 @@ router.post('/initiate', async (req, res) => {
       return initiatePaymePayment(req, res);
     }
 
-    // Fallback payment initiation
-    if (isProduction && process.env.PAYME_MERCHANT_ID) {
-      const paymeParams = new URLSearchParams({
-        m: process.env.PAYME_MERCHANT_ID,
-        'ac.Login': userId,
-        a: finalAmount,
-        c: transactionId,
-        l: 'uz',
-        cr: 'UZS'
-      });
-
-      const paymentUrl = `https://checkout.paycom.uz/?${paymeParams.toString()}`;
-
-      return res.json({
-        success: true,
-        paymentUrl: paymentUrl,
-        transaction: transactionMeta
-      });
-    } else {
-      const checkoutUrl = `https://aced.live/payment/checkout?${new URLSearchParams({
-        transactionId,
-        userId,
-        amount: finalAmount,
-        plan,
-        duration
-      }).toString()}`;
-
-      return res.json({
-        success: true,
-        paymentUrl: checkoutUrl,
-        transaction: transactionMeta
+    // Fallback payment initiation (only reached if controller not loaded)
+    if (!process.env.PAYME_MERCHANT_ID) {
+      return res.status(500).json({
+        success: false,
+        message: 'PAYME_MERCHANT_ID is not configured on the server'
       });
     }
+
+    // Generate PayMe URL using base64-encoded GET format
+    const paramString = [
+      `m=${process.env.PAYME_MERCHANT_ID}`,
+      `ac.Login=${userId}`,
+      `a=${finalAmount}`,
+      `l=uz`
+    ].join(';');
+    const base64Params = Buffer.from(paramString, 'utf8').toString('base64');
+    const paymentUrl = `https://checkout.paycom.uz/${base64Params}`;
+
+    return res.json({
+      success: true,
+      paymentUrl: paymentUrl,
+      transaction: transactionMeta
+    });
 
   } catch (error) {
     console.error('❌ Payment initiation error:', error);
@@ -767,7 +756,7 @@ router.post('/promo-code', async (req, res) => {
 
     // Find the promo code
     const promocode = await Promocode.findOne({
-      code: codeValue.trim().toUpperCase(),
+      code: code.trim().toUpperCase(),
       isActive: true
     });
 

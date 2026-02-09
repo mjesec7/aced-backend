@@ -1095,8 +1095,8 @@ const initiatePaymePayment = async (req, res) => {
       return safeErrorResponse(res, 400, 'Valid userId is required', 'Payment initiation');
     }
 
-    if (!plan || !['start', 'pro'].includes(plan)) {
-      return safeErrorResponse(res, 400, 'Valid plan (start or pro) is required', 'Payment initiation');
+    if (!plan) {
+      return safeErrorResponse(res, 400, 'Plan is required', 'Payment initiation');
     }
 
     // Environment validation
@@ -1122,100 +1122,77 @@ const initiatePaymePayment = async (req, res) => {
     const cleanOrderId = baseOrderId.replace(/[^a-zA-Z0-9]/g, '');
 
 
-    const isProduction = process.env.NODE_ENV === 'production';
+    // Always generate a real PayMe URL if merchant ID is configured
+    if (!merchantId) {
+      return safeErrorResponse(res, 500, 'PAYME_MERCHANT_ID is not configured on the server', 'Payment initiation');
+    }
 
-    if (isProduction && merchantId) {
-      const useGetMethod = requestMethod === 'get' || additionalData.useGetMethod;
+    // Get lang from top-level body (frontend sends it there, not in additionalData)
+    const lang = req.body.lang || additionalData.lang || 'ru';
+    const useGetMethod = requestMethod === 'get' || additionalData.useGetMethod;
 
-      if (useGetMethod) {
-        // Clean options for GET method
-        const urlOptions = {
-          lang: ['ru', 'uz', 'en'].includes(additionalData.lang) ? additionalData.lang : 'ru',
-          callback: additionalData.callback ||
-            `https://api.aced.live/api/payments/payme/return/success?transaction=${cleanOrderId}&userId=${userId}`,
-          callback_timeout: Number(additionalData.callback_timeout) || 15000
-        };
+    if (useGetMethod) {
+      // Clean options for GET method
+      const urlOptions = {
+        lang: ['ru', 'uz', 'en'].includes(lang) ? lang : 'ru',
+        callback: additionalData.callback ||
+          `https://api.aced.live/api/payments/payme/return/success?transaction=${cleanOrderId}&userId=${userId}`,
+        callback_timeout: Number(additionalData.callback_timeout) || 15000
+      };
 
-        // pass normalized amount (tiyin) to URL generator
-        urlOptions.amount = amount;
+      // pass normalized amount (tiyin) to URL generator
+      urlOptions.amount = amount;
 
+      const result = await generateDirectPaymeUrl(userId, plan, urlOptions);
 
-        const result = await generateDirectPaymeUrl(userId, plan, urlOptions);
+      if (result.success) {
+        // Final URL validation
+        if (!result.paymentUrl || result.paymentUrl.includes('undefined') || result.paymentUrl.includes('[object Object]')) {
+          throw new Error('Generated URL contains invalid data');
+        }
 
-        if (result.success) {
-          // Final URL validation
-          if (!result.paymentUrl || result.paymentUrl.includes('undefined') || result.paymentUrl.includes('[object Object]')) {
-            throw new Error('Generated URL contains invalid data');
+        return res.json({
+          success: true,
+          message: '✅ PayMe checkout URL generated',
+          paymentUrl: result.paymentUrl,
+          method: 'GET',
+          transaction: {
+            id: cleanOrderId,
+            amount: amount,
+            plan: plan,
+            state: 1
           }
-
-
-          return res.json({
-            success: true,
-            message: '✅ PayMe checkout URL generated',
-            paymentUrl: result.paymentUrl,
-            method: 'GET',
-            transaction: {
-              id: cleanOrderId,
-              amount: amount,
-              plan: plan,
-              state: 1
-            }
-          });
-        } else {
-          throw new Error(result.error || 'URL generation failed');
-        }
-      } else {
-        // POST method with clean form data
-        const result = await generateDirectPaymeForm(userId, plan, {
-          Login: cleanOrderId,
-          lang: additionalData.lang || 'ru',
-          callback: additionalData.callback ||
-            `https://api.aced.live/api/payments/payme/return/success?transaction=${cleanOrderId}&userId=${userId}`,
-          callback_timeout: Number(additionalData.callback_timeout) || 15000,
-          amount: amount
         });
-        // include amount override for form generation
-        // (generateDirectPaymeForm will prefer options.amount if provided)
-
-        if (result.success) {
-
-          return res.json({
-            success: true,
-            message: '✅ PayMe checkout form generated',
-            formHtml: result.formHtml,
-            method: 'POST',
-            transaction: {
-              id: cleanOrderId,
-              amount: amount,
-              plan: plan,
-              state: 1
-            }
-          });
-        } else {
-          throw new Error(result.error || 'Form generation failed');
-        }
+      } else {
+        throw new Error(result.error || 'URL generation failed');
       }
     } else {
-      // Development fallback with clean parameters
-      const checkoutUrl = `https://aced.live/payment/checkout?${new URLSearchParams({
-        transactionId: cleanOrderId,
-        userId: userId,
-        amount: amount,
-        plan: plan,
-        method: requestMethod || 'get'
-      }).toString()}`;
-
-      return res.json({
-        success: true,
-        message: '✅ Development checkout',
-        paymentUrl: checkoutUrl,
-        transaction: {
-          id: cleanOrderId,
-          amount: amount,
-          plan: plan,
-          state: 1
-        }
+      // POST method with clean form data
+      const result = await generateDirectPaymeForm(userId, plan, {
+        Login: cleanOrderId,
+        lang: lang || 'ru',
+        callback: additionalData.callback ||
+          `https://api.aced.live/api/payments/payme/return/success?transaction=${cleanOrderId}&userId=${userId}`,
+        callback_timeout: Number(additionalData.callback_timeout) || 15000,
+        amount: amount
       });
+
+      if (result.success) {
+        return res.json({
+          success: true,
+          message: '✅ PayMe checkout form generated',
+          formHtml: result.formHtml,
+          method: 'POST',
+          transaction: {
+            id: cleanOrderId,
+            amount: amount,
+            plan: plan,
+            state: 1
+          }
+        });
+      } else {
+        throw new Error(result.error || 'Form generation failed');
+      }
     }
 
   } catch (error) {
