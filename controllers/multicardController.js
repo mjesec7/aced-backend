@@ -157,13 +157,9 @@ const initiatePayment = async (req, res) => {
         // ✅ FIX: Use correct store ID from env
         const storeId = parseInt(process.env.MULTICARD_STORE_ID) || 2660;
 
-        // ✅ FIX: Ensure amount is in tiyin (100 tiyin = 1 UZS)
-        let finalAmount = amount || (plan === 'pro' ? 455000 : 260000);
-
-        // Convert UZS to tiyin (Multicard expects tiyin)
-        if (finalAmount < 10000000) {
-            finalAmount = finalAmount * 100;
-        }
+        // Expect `amount` to be provided in tiyin (minor units).
+        // Frontend sends tiyin via `uzsToTiyin()` helper. Use sensible defaults in tiyin.
+        let finalAmount = amount || (plan === 'pro' ? 45500000 : 26000000);
         // Build OFD array according to API specs
         const ofdData = ofd.map(item => ({
             qty: item.qty || 1,
@@ -410,8 +406,8 @@ const handleWebhook = async (req, res) => {
             // Find the user and grant them their subscription/purchase
             const user = await User.findById(transaction.userId);
             if (user) {
-                const durationDays = transaction.plan === 'pro' ? (transaction.amount >= 100000000 ? 180 : (transaction.amount >= 60000000 ? 90 : 30)) : 30;
-                const durationMonths = durationDays / 30;
+                const durationDays = transaction.plan === 'pro' ? (transaction.amount <= 1000000 ? 1 : (transaction.amount >= 100000000 ? 180 : (transaction.amount >= 60000000 ? 90 : 30))) : 30;
+                const durationMonths = durationDays === 1 ? 0 : durationDays / 30;
 
                 await user.grantSubscription(transaction.plan, durationDays, 'multicard', durationMonths);
 

@@ -253,7 +253,7 @@ userSchema.methods.grantSubscription = async function (plan, durationInDays, sou
     this.subscriptionSource = source;
 
     // Calculate duration tier in months if not provided
-    if (!durationMonths) {
+    if (durationMonths === null || durationMonths === undefined) {
         if (durationInDays <= 31) {
             durationMonths = 1;
         } else if (durationInDays <= 95) {
