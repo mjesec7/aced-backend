@@ -210,13 +210,21 @@ const initiatePayment = async (req, res) => {
             };
         });
 
+        // ✅ Build frontend URLs with fallback
+        let frontendUrl = process.env.FRONTEND_URL;
+        if (!frontendUrl) {
+            // Fallback: Use https://aced.live if FRONTEND_URL not set
+            frontendUrl = 'https://aced.live';
+            console.warn(`⚠️  FRONTEND_URL not set. Using fallback: ${frontendUrl}`);
+        }
+
         const payload = {
             store_id: storeId,
             amount: finalAmount, // ✅ Amount in tiyin
             invoice_id: invoiceId,
             callback_url: callbackUrl,
-            return_url: `${process.env.FRONTEND_URL}/payment-success`,
-            return_error_url: `${process.env.FRONTEND_URL}/payment-failed`,
+            return_url: `${frontendUrl}/payment-success`,
+            return_error_url: `${frontendUrl}/payment-failed`,
             lang: lang || 'ru',
             ofd: ofdData,
             // ✅ ADD: Store name for display
