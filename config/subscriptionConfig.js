@@ -9,6 +9,20 @@
  */
 
 const SUBSCRIPTION_TIERS = {
+    ONE_DAY: {
+        id: 'pro-1day',
+        duration: 1, // days
+        durationMonths: 0,
+        priceInTiyin: 1000000, // 10,000 UZS
+        priceInUZS: 10000,
+        displayPrice: '10,000',
+        currency: 'UZS',
+        savings: null,
+        savingsPercentage: 0,
+        label: '1 Day',
+        description: 'Daily trial',
+        featured: false
+    },
     ONE_MONTH: {
         id: 'pro-1',
         duration: 30, // days
@@ -60,6 +74,7 @@ const SUBSCRIPTION_TIERS = {
  * @deprecated Use SUBSCRIPTION_TIERS instead
  */
 const PAYMENT_AMOUNTS = {
+    'pro-1day': SUBSCRIPTION_TIERS.ONE_DAY.priceInTiyin,
     'pro-1': SUBSCRIPTION_TIERS.ONE_MONTH.priceInTiyin,
     'pro-3': SUBSCRIPTION_TIERS.THREE_MONTHS.priceInTiyin,
     'pro-6': SUBSCRIPTION_TIERS.SIX_MONTHS.priceInTiyin
@@ -72,6 +87,8 @@ const PAYMENT_AMOUNTS = {
  */
 const getTierByDuration = (months) => {
     switch (months) {
+        case 0:
+            return SUBSCRIPTION_TIERS.ONE_DAY;
         case 1:
             return SUBSCRIPTION_TIERS.ONE_MONTH;
         case 3:
@@ -90,6 +107,8 @@ const getTierByDuration = (months) => {
  */
 const getTierById = (tierId) => {
     switch (tierId) {
+        case 'pro-1day':
+            return SUBSCRIPTION_TIERS.ONE_DAY;
         case 'pro-1':
             return SUBSCRIPTION_TIERS.ONE_MONTH;
         case 'pro-3':
@@ -107,6 +126,7 @@ const getTierById = (tierId) => {
  */
 const getAllTiers = () => {
     return [
+        SUBSCRIPTION_TIERS.ONE_DAY,
         SUBSCRIPTION_TIERS.ONE_MONTH,
         SUBSCRIPTION_TIERS.THREE_MONTHS,
         SUBSCRIPTION_TIERS.SIX_MONTHS

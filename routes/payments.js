@@ -238,12 +238,13 @@ router.post('/initiate', async (req, res) => {
     // Import subscription config for pricing
     const { getTierByDuration, SUBSCRIPTION_TIERS } = require('../config/subscriptionConfig');
 
-    // Get tier based on duration
-    const tier = getTierByDuration(parseInt(duration) || 1);
+    // Get tier based on duration (0 = 1 day, 1/3/6 = months)
+    const parsedDuration = parseInt(duration);
+    const tier = !isNaN(parsedDuration) ? getTierByDuration(parsedDuration) : getTierByDuration(1);
     if (!tier) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid duration. Must be 1, 3, or 6 months.'
+        message: 'Invalid duration. Must be 0 (1 day), 1, 3, or 6 months.'
       });
     }
 

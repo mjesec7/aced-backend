@@ -1,2 +1,5 @@
+[variables]
+NIXPACKS_NODE_VERSION = "18"
+
 [start]
 cmd = "node server.js"

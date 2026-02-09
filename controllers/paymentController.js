@@ -587,7 +587,10 @@ const handlePerformTransaction = async (req, res, id, params) => {
         let durationDays = 30;
         let durationMonths = 1;
 
-        if (transaction.amount === PAYMENT_AMOUNTS['pro-3']) {
+        if (transaction.amount === PAYMENT_AMOUNTS['pro-1day']) {
+          durationDays = 1;   // 1 day
+          durationMonths = 0;
+        } else if (transaction.amount === PAYMENT_AMOUNTS['pro-3']) {
           durationDays = 90;  // 3 months
           durationMonths = 3;
         } else if (transaction.amount === PAYMENT_AMOUNTS['pro-6']) {
