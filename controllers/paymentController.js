@@ -1,8 +1,8 @@
 // controllers/paymentController.js - FIXED COMPLETE VERSION FOLLOWING PAYME DOCUMENTATION
 
-import User from '../models/user.js';
-import axios from 'axios';
-import { PAYMENT_AMOUNTS, getTierById } from '../config/subscriptionConfig.js';
+const User = require('../models/user');
+const axios = require('axios');
+const { PAYMENT_AMOUNTS, getTierById } = require('../config/subscriptionConfig');
 
 // ================================================
 // CONFIGURATION AND CONSTANTS
@@ -913,12 +913,28 @@ const handleSandboxPayment = async (req, res) => {
 const getPaymentAmounts = () => {
   return {
     start: {
-      tiyin: PAYMENT_AMOUNTS.start,
-      uzs: PAYMENT_AMOUNTS.start / 100
+      tiyin: PAYMENT_AMOUNTS['pro-1'] || 25000000,
+      uzs: (PAYMENT_AMOUNTS['pro-1'] || 25000000) / 100
     },
     pro: {
-      tiyin: PAYMENT_AMOUNTS.pro,
-      uzs: PAYMENT_AMOUNTS.pro / 100
+      tiyin: PAYMENT_AMOUNTS['pro-1'] || 25000000,
+      uzs: (PAYMENT_AMOUNTS['pro-1'] || 25000000) / 100
+    },
+    'pro-1day': {
+      tiyin: PAYMENT_AMOUNTS['pro-1day'] || 1000000,
+      uzs: (PAYMENT_AMOUNTS['pro-1day'] || 1000000) / 100
+    },
+    'pro-1': {
+      tiyin: PAYMENT_AMOUNTS['pro-1'] || 25000000,
+      uzs: (PAYMENT_AMOUNTS['pro-1'] || 25000000) / 100
+    },
+    'pro-3': {
+      tiyin: PAYMENT_AMOUNTS['pro-3'] || 67500000,
+      uzs: (PAYMENT_AMOUNTS['pro-3'] || 67500000) / 100
+    },
+    'pro-6': {
+      tiyin: PAYMENT_AMOUNTS['pro-6'] || 120000000,
+      uzs: (PAYMENT_AMOUNTS['pro-6'] || 120000000) / 100
     }
   };
 };
@@ -2427,8 +2443,7 @@ setInterval(cleanupOldTransactions, 24 * 60 * 60 * 1000);
 // ================================================
 // Export All Functions
 // ================================================
-//what to doo
-export {
+module.exports = {
   // Main PayMe functions
   applyPromoCode,
   initiatePaymePayment,
@@ -2447,7 +2462,7 @@ export {
   // Test integration
   testPaymeIntegration,
 
-  // User management functions  
+  // User management functions
   validateUserRoute,
   getUserInfo,
   getUserStatus,
