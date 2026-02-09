@@ -1,7 +1,7 @@
 {
   "name": "aced-backend",
   "version": "1.0.0",
-  "description": "ACED backend with frontend build in /dist",
+  "description": "ACED backend API",
   "main": "server.js",
   "scripts": {
     "dev": "nodemon server.js",
