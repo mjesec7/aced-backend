@@ -80,7 +80,6 @@ router.post('/generate-form', async (req, res) => {
     }
 
     const amount = PAYMENT_AMOUNTS[plan];
-    const amount = PAYMENT_AMOUNTS[plan];
     let merchantId = process.env.PAYME_MERCHANT_ID;
 
     // SANITIZATION FIX
@@ -175,7 +174,6 @@ router.post('/generate-button', async (req, res) => {
       });
     }
 
-    const amount = PAYMENT_AMOUNTS[plan];
     const amount = PAYMENT_AMOUNTS[plan];
     let merchantId = process.env.PAYME_MERCHANT_ID;
 
