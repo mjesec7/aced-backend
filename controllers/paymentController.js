@@ -1532,12 +1532,8 @@ const checkPaymentStatus = async (req, res) => {
       const user = await User.findById(userId);
 
       if (sandboxTransaction.state === TransactionState.COMPLETED && user) {
-        let plan = 'free';
-        if (sandboxTransaction.amount === PAYMENT_AMOUNTS.start) {
-          plan = 'start';
-        } else if (sandboxTransaction.amount === PAYMENT_AMOUNTS.pro) {
-          plan = 'pro';
-        }
+        const validAmounts = Object.values(PAYMENT_AMOUNTS);
+        const plan = validAmounts.includes(sandboxTransaction.amount) ? 'pro' : 'free';
 
         if (user.subscriptionPlan !== plan || user.paymentStatus !== 'paid') {
           user.subscriptionPlan = plan;
@@ -1826,17 +1822,12 @@ const handlePaymeWebhook = async (req, res) => {
             const userId = orderIdParts[1];
             const user = await User.findById(userId);
             if (user) {
-              let plan = 'free';
-              if (params.amount === PAYMENT_AMOUNTS.start) {
-                plan = 'start';
-              } else if (params.amount === PAYMENT_AMOUNTS.pro) {
-                plan = 'pro';
-              }
+              const validAmounts = Object.values(PAYMENT_AMOUNTS);
+              const plan = validAmounts.includes(params.amount) ? 'pro' : 'free';
               user.subscriptionPlan = plan;
               user.paymentStatus = 'paid';
               user.lastPaymentDate = new Date();
               await user.save();
-
             }
           }
         }
@@ -1887,12 +1878,8 @@ const handlePaymeReturnSuccess = async (req, res) => {
         try {
           const user = await User.findById(userId);
           if (user) {
-            let plan = 'free';
-            if (transaction.amount === PAYMENT_AMOUNTS.start) {
-              plan = 'start';
-            } else if (transaction.amount === PAYMENT_AMOUNTS.pro) {
-              plan = 'pro';
-            }
+            const validAmounts = Object.values(PAYMENT_AMOUNTS);
+            const plan = validAmounts.includes(transaction.amount) ? 'pro' : 'free';
             user.subscriptionPlan = plan;
             user.paymentStatus = 'paid';
             user.lastPaymentDate = new Date();
@@ -2048,28 +2035,29 @@ const getPaymentConfig = async (req, res) => {
     res.json({
       amounts: PAYMENT_AMOUNTS,
       plans: {
-        start: {
-          name: 'Start Plan',
-          price: PAYMENT_AMOUNTS.start,
-          priceUzs: PAYMENT_AMOUNTS.start / 100,
-          features: [
-            'Access to basic courses',
-            'Homework assignments',
-            'Basic tests',
-            'Progress tracking'
-          ]
+        'pro-1day': {
+          name: '1 Day Trial',
+          price: PAYMENT_AMOUNTS['pro-1day'],
+          priceUzs: PAYMENT_AMOUNTS['pro-1day'] / 100,
+          features: ['Full access for 1 day']
         },
-        pro: {
-          name: 'Pro Plan',
-          price: PAYMENT_AMOUNTS.pro,
-          priceUzs: PAYMENT_AMOUNTS.pro / 100,
-          features: [
-            'All Start features',
-            'Advanced courses',
-            'Personal analytics',
-            'Priority support',
-            'Exclusive materials'
-          ]
+        'pro-1': {
+          name: 'Pro 1 Month',
+          price: PAYMENT_AMOUNTS['pro-1'],
+          priceUzs: PAYMENT_AMOUNTS['pro-1'] / 100,
+          features: ['Full access to all courses', 'Unlimited AI chat', 'Priority support']
+        },
+        'pro-3': {
+          name: 'Pro 3 Months',
+          price: PAYMENT_AMOUNTS['pro-3'],
+          priceUzs: PAYMENT_AMOUNTS['pro-3'] / 100,
+          features: ['Full access to all courses', 'Unlimited AI chat', 'Priority support', 'Analytics']
+        },
+        'pro-6': {
+          name: 'Pro 6 Months',
+          price: PAYMENT_AMOUNTS['pro-6'],
+          priceUzs: PAYMENT_AMOUNTS['pro-6'] / 100,
+          features: ['Full access to all courses', 'Unlimited AI chat', 'Priority support', 'Analytics', 'Custom courses']
         }
       },
       sandbox: {
