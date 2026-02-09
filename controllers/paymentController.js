@@ -981,7 +981,6 @@ const normalizeAmountToTiyin = (amt) => {
 // FIXED: Generate direct PayMe URL (GET method)
 const generateDirectPaymeUrl = async (userId, plan, options = {}) => {
   try {
-
     // Get merchant ID with validation
     const merchantId = process.env.PAYME_MERCHANT_ID;
 
@@ -989,7 +988,6 @@ const generateDirectPaymeUrl = async (userId, plan, options = {}) => {
       console.error('❌ Merchant ID not loaded properly');
       throw new Error('PayMe Merchant ID not configured. Check your .env file.');
     }
-
 
     const amounts = getPaymentAmounts();
     // Allow override via options.amount (already normalized to tiyin by caller)
@@ -1007,14 +1005,41 @@ const generateDirectPaymeUrl = async (userId, plan, options = {}) => {
     const baseOrderId = `aced${timestamp}${randomPart}`;
     const orderId = baseOrderId.replace(/[^a-zA-Z0-9]/g, '');
 
-
-
     // Create account object with Login
     const account = { Login: orderId };
 
-    // Use the fixed generatePaymeGetUrl function
+    // Use the fixed generatePaymeGetUrl function with logging
+    console.log(`Generating PayMe URL for user ${userId}, plan ${plan}, amount ${planAmount}`);
     const paymentUrl = generatePaymeGetUrl(merchantId, account, planAmount, options);
+    console.log(`Generated PayMe URL: ${paymentUrl}`);
 
+    // Extra validation to catch the "missing m=" bug
+    if (paymentUrl.includes('checkout.paycom.uz/')) {
+      const base64Part = paymentUrl.split('checkout.paycom.uz/')[1];
+      if (base64Part) {
+        try {
+          const decoded = Buffer.from(base64Part, 'base64').toString('utf8');
+          if (!decoded.startsWith('m=')) {
+            console.error('CRITICAL ERROR: Generated PayMe URL missing m= prefix!');
+            // Emergency fix
+            const fixedParamString = `m=${merchantId};${decoded}`;
+            const fixedBase64 = Buffer.from(fixedParamString).toString('base64');
+            return {
+              success: true,
+              paymentUrl: `https://checkout.paycom.uz/${fixedBase64}`,
+              method: 'GET',
+              transaction: {
+                id: orderId,
+                amount: planAmount,
+                plan
+              }
+            };
+          }
+        } catch (e) {
+          console.error('Error validating PayMe URL:', e);
+        }
+      }
+    }
 
     return {
       success: true,
