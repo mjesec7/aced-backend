@@ -174,7 +174,7 @@ router.post('/generate-button', async (req, res) => {
       });
     }
 
-    const amount = PAYMENT_AMOUNTS[plan];
+    const txnAmount = PAYMENT_AMOUNTS[plan];
     let merchantId = process.env.PAYME_MERCHANT_ID;
 
     // SANITIZATION FIX
@@ -194,7 +194,7 @@ router.post('/generate-button', async (req, res) => {
         <form id="form-payme" method="POST" action="https://checkout.paycom.uz/">
           <input type="hidden" name="merchant" value="${merchantId}">
           <input type="hidden" name="account[Login]" value="${user._id}">
-          <input type="hidden" name="amount" value="${amount}">
+          <input type="hidden" name="amount" value="${txnAmount}">
           <input type="hidden" name="lang" value="${lang}">
           <input type="hidden" name="button" data-type="svg" value="${style}">
           <div id="button-container"></div>
@@ -208,7 +208,7 @@ router.post('/generate-button', async (req, res) => {
         <form id="form-payme" method="POST" action="https://checkout.paycom.uz/">
           <input type="hidden" name="merchant" value="${merchantId}">
           <input type="hidden" name="account[Login]" value="${user._id}">
-          <input type="hidden" name="amount" value="${amount}">
+          <input type="hidden" name="amount" value="${txnAmount}">
           <input type="hidden" name="lang" value="${lang}">
           <input type="hidden" name="qr" data-width="250">
           <div id="qr-container"></div>
@@ -224,7 +224,7 @@ router.post('/generate-button', async (req, res) => {
       qrHtml: type === 'qr' ? qrHtml : null,
       transaction: {
         id: transactionId,
-        amount: amount,
+        amount: txnAmount,
         plan: plan
       }
     });
