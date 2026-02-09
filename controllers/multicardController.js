@@ -166,24 +166,21 @@ const initiatePayment = async (req, res) => {
         const timestamp = Date.now();
         const invoiceId = `ACED_${plan.toUpperCase()}_${timestamp}`;
 
-        // ✅ CRITICAL: Verify API_BASE_URL is set correctly
-        const apiBaseUrl = process.env.API_BASE_URL;
+        // ✅ Build callback URL with fallback
+        let apiBaseUrl = process.env.API_BASE_URL;
+        
+        // Fallback: Construct from request if API_BASE_URL not set
         if (!apiBaseUrl) {
-            console.error('❌ CRITICAL: API_BASE_URL environment variable not set');
-            return res.status(500).json({
-                success: false,
-                error: {
-                    code: 'CONFIG_ERROR',
-                    details: 'API_BASE_URL not configured. Webhook callback URL cannot be generated.',
-                    hint: 'Set API_BASE_URL environment variable to your API domain (e.g., https://api.aced.live)'
-                }
-            });
+            const protocol = req.protocol || 'https';
+            const host = process.env.API_HOST || req.get('host') || 'api.aced.live';
+            apiBaseUrl = `${protocol}://${host}`;
+            console.warn(`⚠️  API_BASE_URL not set. Using fallback: ${apiBaseUrl}`);
         }
 
-        // ✅ Verify API_BASE_URL is HTTPS (required by Multicard)
-        if (!apiBaseUrl.startsWith('https://')) {
+        // Verify callback URL is HTTPS in production
+        if (process.env.NODE_ENV === 'production' && !apiBaseUrl.startsWith('https://')) {
             console.warn(`⚠️  API_BASE_URL is not HTTPS: ${apiBaseUrl}`);
-            console.warn('   Multicard requires HTTPS callbacks. This may cause webhook failures.');
+            console.warn('   Multicard requires HTTPS callbacks in production. This may cause webhook failures.');
         }
 
         const callbackUrl = `${apiBaseUrl}/api/payments/multicard/webhook`;
