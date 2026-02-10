@@ -154,7 +154,7 @@ const initiatePayment = async (req, res) => {
         if (!user) {
             user = await User.findOneAndUpdate(
                 { firebaseId: userId },
-                { $setOnInsert: { firebaseId: userId, subscriptionPlan: 'free' } },
+                { $setOnInsert: { firebaseId: userId, Login: userId, subscriptionPlan: 'free' } },
                 { upsert: true, new: true, setDefaultsOnInsert: true }
             );
             console.log('Auto-created MongoDB user for Multicard payment:', userId);

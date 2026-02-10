@@ -579,7 +579,7 @@ const handlePerformTransaction = async (req, res, id, params) => {
         // User paid but doesn't have a MongoDB record yet — create one
         user = await User.findOneAndUpdate(
           { firebaseId: accountLogin },
-          { $setOnInsert: { firebaseId: accountLogin, subscriptionPlan: 'free' } },
+          { $setOnInsert: { firebaseId: accountLogin, Login: accountLogin, subscriptionPlan: 'free' } },
           { upsert: true, new: true, setDefaultsOnInsert: true }
         );
         console.log('Auto-created MongoDB user for PayMe payment:', accountLogin);

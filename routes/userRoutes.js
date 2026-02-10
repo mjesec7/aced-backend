@@ -289,10 +289,9 @@ router.post('/save', verifyToken, async (req, res) => {
       }
     });
 
-    // Maintain original logic for lastLoginAt and Login
-    if (updates.email) {
-      updates.Login = updates.email;
-    }
+    // Always set Login: prefer email, fallback to Firebase UID
+    // This prevents null Login in unique index and ensures PayMe compatibility
+    updates.Login = updates.email || uid;
     updates.lastLoginAt = new Date();
     // ------------------------------------------------
 
@@ -302,7 +301,7 @@ router.post('/save', verifyToken, async (req, res) => {
       { firebaseId: uid }, // Use the verified UID
       {
         $set: updates,
-        $setOnInsert: { firebaseId: uid } // Ensure firebaseId is set on creation
+        $setOnInsert: { firebaseId: uid, email: updates.email || uid } // Ensure firebaseId and email are set on creation
       },
       {
         new: true,
@@ -342,10 +341,21 @@ router.post('/save', verifyToken, async (req, res) => {
     });
 
   } catch (err) {
-    console.error('❌ User save error:', err);
+    console.error('❌ User save error:', err.message, err.code || '');
+
+    // Handle duplicate key errors specifically
+    if (err.code === 11000) {
+      const field = Object.keys(err.keyPattern || {})[0] || 'unknown';
+      return res.status(409).json({
+        success: false,
+        error: `Duplicate ${field} value`,
+        details: `A user with this ${field} already exists`
+      });
+    }
+
     res.status(500).json({
       success: false,
-      error: '❌ Server error',
+      error: err.message || '❌ Server error',
       details: err.message
     });
   }
@@ -2677,7 +2687,8 @@ router.get('/:firebaseId/analytics', validateFirebaseId, verifyToken, verifyOwne
       // Create a minimal user record if it doesn't exist
       const newUser = new User({
         firebaseId: firebaseId,
-        email: req.user.email,
+        Login: req.user.email || firebaseId,
+        email: req.user.email || firebaseId,
         name: req.user.name || req.user.email || 'User',
         subscriptionPlan: 'free',
         diary: [],

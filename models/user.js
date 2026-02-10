@@ -117,9 +117,9 @@ const completedLevelSchema = new mongoose.Schema({
 const userSchema = new mongoose.Schema({
     // --- Core Identification & Credentials ---
     firebaseId: { type: String, required: true, unique: true, index: true },
-    Login: { type: String, required: true, unique: true }, // For PayMe compatibility
+    Login: { type: String, unique: true, sparse: true }, // For PayMe compatibility (sparse allows multiple null values)
     name: String,
-    email: { type: String, required: true, unique: true, index: true },
+    email: { type: String, unique: true, sparse: true, index: true },
     photoURL: String,
     role: { type: String, enum: ['admin', 'user'], default: 'user' },
 
@@ -713,4 +713,30 @@ userSchema.pre('save', function (next) {
 
 // --- Export Model ---
 const User = mongoose.models.User || mongoose.model('User', userSchema);
+
+// --- Index Migration: Convert non-sparse unique indexes to sparse ---
+// This runs once on startup to fix indexes that prevent multiple null values
+(async () => {
+    try {
+        const collection = User.collection;
+        const indexes = await collection.indexes();
+
+        for (const idx of indexes) {
+            // Drop non-sparse unique indexes on Login and email, then let Mongoose recreate as sparse
+            if (idx.unique && !idx.sparse && (idx.key.Login || idx.key.email) && idx.name !== '_id_') {
+                console.log(`Dropping non-sparse unique index: ${idx.name}`);
+                await collection.dropIndex(idx.name);
+            }
+        }
+
+        // Ensure the sparse indexes are created
+        await User.syncIndexes();
+    } catch (err) {
+        // Silently ignore if collection doesn't exist yet or indexes already correct
+        if (err.code !== 26 && err.codeName !== 'NamespaceNotFound') {
+            console.warn('Index migration warning:', err.message);
+        }
+    }
+})();
+
 module.exports = User;
