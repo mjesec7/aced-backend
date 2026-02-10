@@ -448,9 +448,8 @@ const handleCheckPerformTransaction = async (req, res, id, params) => {
 
   const { amount, account } = params;
 
-  // Validate amount against allowed amounts
-  const validAmounts = Object.values(PAYMENT_AMOUNTS);
-  if (!validAmounts.includes(amount)) {
+  // Validate amount: must be a positive integer (tiyin) and at least 100 tiyin (1 UZS)
+  if (!Number.isInteger(amount) || amount < 100) {
     return res.status(200).json(createErrorResponse(id, PaymeErrorCode.INVALID_AMOUNT));
   }
 
@@ -506,9 +505,8 @@ const handleCreateTransaction = async (req, res, id, params) => {
     });
   }
 
-  // Validate amount
-  const validAmounts = Object.values(PAYMENT_AMOUNTS);
-  if (!validAmounts.includes(amount)) {
+  // Validate amount: must be a positive integer (tiyin) and at least 100 tiyin (1 UZS)
+  if (!Number.isInteger(amount) || amount < 100) {
     return res.status(200).json(createErrorResponse(id, PaymeErrorCode.INVALID_AMOUNT));
   }
 
@@ -526,9 +524,9 @@ const handleCreateTransaction = async (req, res, id, params) => {
     create_time: new Date(),
     amount: amount,
     state: TransactionState.CREATED,
-    Login: account.Login || 0,
-    user_id: account.Login || '',
-    payment_type: 'subscription',
+    Login: account.Login || 'unknown',
+    user_id: account.Login || 'unknown',
+    payment_type: 'one_time',
     metadata: { account }
   });
 
@@ -814,25 +812,25 @@ const handleSandboxPayment = async (req, res) => {
     }
 
 
-    // STEP 2: Route to method handlers
+    // STEP 2: Route to method handlers (await ensures errors are caught by try/catch)
     switch (method) {
       case 'CheckPerformTransaction':
-        return handleCheckPerformTransaction(req, res, id, params);
+        return await handleCheckPerformTransaction(req, res, id, params);
 
       case 'CreateTransaction':
-        return handleCreateTransaction(req, res, id, params);
+        return await handleCreateTransaction(req, res, id, params);
 
       case 'PerformTransaction':
-        return handlePerformTransaction(req, res, id, params);
+        return await handlePerformTransaction(req, res, id, params);
 
       case 'CancelTransaction':
-        return handleCancelTransaction(req, res, id, params);
+        return await handleCancelTransaction(req, res, id, params);
 
       case 'CheckTransaction':
-        return handleCheckTransaction(req, res, id, params);
+        return await handleCheckTransaction(req, res, id, params);
 
       case 'GetStatement':
-        return handleGetStatement(req, res, id, params);
+        return await handleGetStatement(req, res, id, params);
 
       case 'ChangePassword':
         return handleChangePassword(req, res, id, params);

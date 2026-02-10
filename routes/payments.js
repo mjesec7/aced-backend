@@ -30,8 +30,8 @@ router.post('/', async (req, res) => {
   
   try {
     if (handleSandboxPayment) {
-      // Use the existing PayMe handler
-      return handleSandboxPayment(req, res);
+      // Use the existing PayMe handler (await to catch async errors)
+      return await handleSandboxPayment(req, res);
     } else {
       // Emergency fallback for PayMe JSON-RPC
       const { method, params, id } = req.body || {};
