@@ -153,6 +153,33 @@ const calculateSavingsPercentage = (tier) => {
     return Math.round(((basePrice - tier.priceInUZS) / basePrice) * 100);
 };
 
+/**
+ * Get subscription duration from payment amount in tiyin.
+ * Used by all payment handlers (PayMe, Multicard) to consistently
+ * map payment amounts to subscription durations.
+ * @param {number} amountInTiyin - Payment amount in tiyin
+ * @returns {{ durationDays: number, durationMonths: number }}
+ */
+const getDurationFromAmount = (amountInTiyin) => {
+    const tiers = getAllTiers();
+    // Try exact match first
+    for (const tier of tiers) {
+        if (amountInTiyin === tier.priceInTiyin) {
+            return { durationDays: tier.duration, durationMonths: tier.durationMonths };
+        }
+    }
+    // Fallback: find closest tier (for amounts that may include commission)
+    // Sort tiers by price descending so we match the highest tier first
+    const sortedTiers = [...tiers].sort((a, b) => b.priceInTiyin - a.priceInTiyin);
+    for (const tier of sortedTiers) {
+        if (amountInTiyin >= tier.priceInTiyin) {
+            return { durationDays: tier.duration, durationMonths: tier.durationMonths };
+        }
+    }
+    // Default: 1 day (smallest plan) if amount is too small or unknown
+    return { durationDays: 1, durationMonths: 0 };
+};
+
 module.exports = {
     SUBSCRIPTION_TIERS,
     PAYMENT_AMOUNTS,
@@ -160,5 +187,6 @@ module.exports = {
     getTierById,
     getAllTiers,
     calculatePricePerMonth,
-    calculateSavingsPercentage
+    calculateSavingsPercentage,
+    getDurationFromAmount
 };

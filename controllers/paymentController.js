@@ -3,7 +3,7 @@
 const User = require('../models/user');
 const PaymeTransaction = require('../models/paymeTransaction');
 const axios = require('axios');
-const { PAYMENT_AMOUNTS, getTierById } = require('../config/subscriptionConfig');
+const { PAYMENT_AMOUNTS, getTierById, getDurationFromAmount } = require('../config/subscriptionConfig');
 
 // ================================================
 // CONFIGURATION AND CONSTANTS
@@ -586,19 +586,7 @@ const handlePerformTransaction = async (req, res, id, params) => {
       }
 
       if (user) {
-        let durationDays = 30;
-        let durationMonths = 1;
-
-        if (transaction.amount === PAYMENT_AMOUNTS['pro-1day']) {
-          durationDays = 1;
-          durationMonths = 0;
-        } else if (transaction.amount === PAYMENT_AMOUNTS['pro-3']) {
-          durationDays = 90;
-          durationMonths = 3;
-        } else if (transaction.amount === PAYMENT_AMOUNTS['pro-6']) {
-          durationDays = 180;
-          durationMonths = 6;
-        }
+        const { durationDays, durationMonths } = getDurationFromAmount(transaction.amount);
 
         await user.grantSubscription('pro', durationDays, 'payment', durationMonths);
 

@@ -6,6 +6,7 @@ const mongoose = require('mongoose');
 const MulticardTransaction = require('../models/MulticardTransaction');
 const User = require('../models/user');
 const { getAuthToken } = require('./multicardAuth');
+const { getDurationFromAmount } = require('../config/subscriptionConfig');
 
 dotenv.config();
 
@@ -192,7 +193,7 @@ const initiatePayment = async (req, res) => {
 
         // Normalize amount (frontend may send UZS or tiyin). Use defaults in tiyin.
         const normalized = normalizeAmountToTiyin(amount);
-        let finalAmount = normalized || (plan === 'pro' ? 45500000 : 26000000);
+        let finalAmount = normalized || 25000000; // Default: 1-month pro (250,000 UZS)
 
         // Build OFD array according to API specs, normalizing item prices/totals
         const ofdData = ofd.map(item => {
@@ -463,10 +464,9 @@ const handleWebhook = async (req, res) => {
             // Find the user and grant them their subscription/purchase
             const user = await User.findById(transaction.userId);
             if (user) {
-                const durationDays = transaction.plan === 'pro' ? (transaction.amount <= 1000000 ? 1 : (transaction.amount >= 100000000 ? 180 : (transaction.amount >= 60000000 ? 90 : 30))) : 30;
-                const durationMonths = durationDays === 1 ? 0 : durationDays / 30;
+                const { durationDays, durationMonths } = getDurationFromAmount(transaction.amount);
 
-                await user.grantSubscription(transaction.plan, durationDays, 'multicard', durationMonths);
+                await user.grantSubscription(transaction.plan || 'pro', durationDays, 'multicard', durationMonths);
 
                 user.subscriptionAmount = transaction.amount;
                 user.lastPaymentDate = new Date();
@@ -757,8 +757,12 @@ const processScanPay = async (req, res) => {
                 // Grant subscription
                 const user = await User.findById(transaction.userId);
                 if (user) {
-                    const durationDays = transaction.plan === 'pro' ? 365 : 30;
-                    await user.grantSubscription(transaction.plan, durationDays, 'multicard');
+                    const { durationDays, durationMonths } = getDurationFromAmount(transaction.amount);
+                    await user.grantSubscription(transaction.plan || 'pro', durationDays, 'multicard', durationMonths);
+
+                    user.subscriptionAmount = transaction.amount;
+                    user.lastPaymentDate = new Date();
+                    await user.save();
                 }
             }
 
@@ -775,9 +779,18 @@ const processScanPay = async (req, res) => {
     } catch (error) {
         console.error('❌ Error processing scan payment:', error.message);
 
-        // Check for specific error codes
-        if (error.response?.data?.error?.code === 'ERROR_DEBIT_UNKNOWN') {
-            console.warn('⚠️ Unknown debit error - check payment status manually');
+        // Update transaction status to failed in database
+        if (transaction) {
+            const errorCode = error.response?.data?.error?.code;
+            // For unknown debit errors, keep as pending (payment may still process)
+            if (errorCode === 'ERROR_DEBIT_UNKNOWN') {
+                console.warn('⚠️ Unknown debit error - keeping as pending, check status manually');
+            } else {
+                transaction.status = 'failed';
+                transaction.errorCode = errorCode || 'SCANPAY_ERROR';
+                transaction.errorMessage = error.response?.data?.error?.details || error.message;
+                await transaction.save();
+            }
         }
 
         res.status(error.response?.status || 500).json({
@@ -874,8 +887,12 @@ const handleSuccessCallbackOld = async (req, res) => {
         // Grant subscription to user
         const user = await User.findById(transaction.userId);
         if (user) {
-            const durationDays = transaction.plan === 'pro' ? 365 : 30;
-            await user.grantSubscription(transaction.plan, durationDays, 'multicard');
+            const { durationDays, durationMonths } = getDurationFromAmount(transaction.amount);
+            await user.grantSubscription(transaction.plan || 'pro', durationDays, 'multicard', durationMonths);
+
+            user.subscriptionAmount = transaction.amount;
+            user.lastPaymentDate = new Date();
+            await user.save();
         } else {
             console.error(`❌ User not found: ${transaction.userId}`);
         }
@@ -979,13 +996,19 @@ const handleWebhookCallback = async (req, res) => {
                 // Grant subscription
                 const user = await User.findById(transaction.userId);
                 if (user) {
-                    const durationDays = transaction.plan === 'pro' ? 365 : 30;
-                    await user.grantSubscription(transaction.plan, durationDays, 'multicard');
+                    const { durationDays, durationMonths } = getDurationFromAmount(transaction.amount);
+                    await user.grantSubscription(transaction.plan || 'pro', durationDays, 'multicard', durationMonths);
+
+                    user.subscriptionAmount = transaction.amount;
+                    user.lastPaymentDate = new Date();
+                    await user.save();
                 }
                 break;
 
             case 'error':
                 transaction.status = 'failed';
+                transaction.errorCode = webhookData.ps_response_code || webhookData.error_code;
+                transaction.errorMessage = webhookData.ps_response_msg || webhookData.error_message;
                 break;
 
             case 'revert':
@@ -1827,8 +1850,13 @@ const createPaymentByToken = async (req, res) => {
                 const User = require('../models/user');
                 const user = await User.findById(userObjectId);
                 if (user) {
-                    const durationDays = processedBody.plan === 'pro' ? 365 : 30;
-                    await user.grantSubscription(processedBody.plan || 'start', durationDays, 'multicard');
+                    const txAmount = paymentData.total_amount || amount;
+                    const { durationDays, durationMonths } = getDurationFromAmount(txAmount);
+                    await user.grantSubscription(processedBody.plan || 'pro', durationDays, 'multicard', durationMonths);
+
+                    user.subscriptionAmount = txAmount;
+                    user.lastPaymentDate = new Date();
+                    await user.save();
                 }
             }
 
