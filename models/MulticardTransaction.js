@@ -1,13 +1,17 @@
 const mongoose = require('mongoose');
 
 const multicardTransactionSchema = new mongoose.Schema({
-    userId: { 
-        type: mongoose.Schema.Types.ObjectId, 
-        ref: 'User', 
+    userId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
         required: true,
-        index: true 
+        index: true
     },
-    
+    firebaseUserId: {
+        type: String,
+        index: true
+    },
+
     // Type of transaction
     transactionType: {
         type: String,

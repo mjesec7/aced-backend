@@ -572,7 +572,18 @@ const handlePerformTransaction = async (req, res, id, params) => {
   try {
     const accountLogin = transaction.metadata?.account?.Login || transaction.user_id;
     if (accountLogin) {
-      const user = await User.findOne({ firebaseId: accountLogin });
+      // Find user by firebaseId, or auto-create if they exist in Firebase but not MongoDB
+      let user = await User.findOne({ firebaseId: accountLogin });
+
+      if (!user && accountLogin.length > 5 && !accountLogin.startsWith('aced')) {
+        // User paid but doesn't have a MongoDB record yet — create one
+        user = await User.findOneAndUpdate(
+          { firebaseId: accountLogin },
+          { $setOnInsert: { firebaseId: accountLogin, subscriptionPlan: 'free' } },
+          { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
+        console.log('Auto-created MongoDB user for PayMe payment:', accountLogin);
+      }
 
       if (user) {
         let durationDays = 30;
@@ -964,8 +975,8 @@ const generateDirectPaymeUrl = async (userId, plan, options = {}) => {
 
 
 
-    // Create account object with Login
-    const account = { Login: orderId };
+    // Create account object with Login = Firebase UID so PerformTransaction can find the user
+    const account = { Login: userId };
 
     // Use the fixed generatePaymeGetUrl function
     const paymentUrl = generatePaymeGetUrl(merchantId, account, planAmount, options);
@@ -1124,7 +1135,7 @@ const initiatePaymePayment = async (req, res) => {
     } else {
       // POST method with clean form data
       const result = await generateDirectPaymeForm(userId, plan, {
-        Login: cleanOrderId,
+        Login: userId,
         lang: lang || 'ru',
         callback: additionalData.callback ||
           `https://api.aced.live/api/payments/payme/return/success?transaction=${cleanOrderId}&userId=${userId}`,

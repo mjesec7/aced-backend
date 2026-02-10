@@ -142,21 +142,22 @@ const initiatePayment = async (req, res) => {
 
     try {
         // Find user by firebaseId or MongoDB _id
-        const user = await User.findOne({
+        let user = await User.findOne({
             $or: [
                 { firebaseId: userId },
                 { _id: mongoose.Types.ObjectId.isValid(userId) ? userId : null }
             ]
         });
 
+        // Auto-create user if they exist in Firebase but not in MongoDB
+        // (request is already authenticated via Firebase auth middleware)
         if (!user) {
-            return res.status(404).json({
-                success: false,
-                error: {
-                    code: 'USER_NOT_FOUND',
-                    details: 'User not found'
-                }
-            });
+            user = await User.findOneAndUpdate(
+                { firebaseId: userId },
+                { $setOnInsert: { firebaseId: userId, subscriptionPlan: 'free' } },
+                { upsert: true, new: true, setDefaultsOnInsert: true }
+            );
+            console.log('Auto-created MongoDB user for Multicard payment:', userId);
         }
 
         // ✅ FIX: Get authentication token with proper credentials
