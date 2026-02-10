@@ -16,26 +16,7 @@ const {
   setMerchantKey
 } = require('../controllers/paymentController');
 
-// In-memory storage for sandbox transactions
-let sandboxTransactions = new Map();
-
-// Helper functions for transaction management
-const getTransaction = (transactionId) => {
-  return sandboxTransactions.get(transactionId) || null;
-};
-
-const setTransaction = (transactionId, transaction) => {
-  sandboxTransactions.set(transactionId, transaction);
-};
-
-const findTransactionById = (transactionId) => {
-  for (let [key, value] of sandboxTransactions) {
-    if (value.id === transactionId || key === transactionId) {
-      return value;
-    }
-  }
-  return null;
-};
+const PaymeTransaction = require('../models/paymeTransaction');
 
 // Payment amounts configuration
 const PAYMENT_AMOUNTS = {
@@ -684,12 +665,11 @@ router.post('/complete', async (req, res) => {
     user.lastPaymentDate = new Date();
     await user.save();
 
-    // Update sandbox transaction if it exists in memory
-    if (typeof sandboxTransactions !== 'undefined' && sandboxTransactions.has(transactionId)) {
-      const transaction = sandboxTransactions.get(transactionId);
-      transaction.state = 2; // Mark as Completed
-      transaction.perform_time = Date.now();
-    }
+    // Update transaction in DB if it exists
+    await PaymeTransaction.findOneAndUpdate(
+      { paycom_transaction_id: transactionId },
+      { state: 2, perform_time: new Date() }
+    );
 
     return res.json({
       success: true,
@@ -765,23 +745,22 @@ router.get('/status/:transactionId', checkPaymentStatus);
 // ======================================
 
 if (process.env.NODE_ENV !== 'production') {
-  // List all sandbox transactions - UPDATED to use local storage
-  router.get('/transactions', (req, res) => {
-    const transactions = Array.from(sandboxTransactions.values());
+  // List all transactions from DB
+  router.get('/transactions', async (req, res) => {
+    const transactions = await PaymeTransaction.find().sort({ create_time: -1 }).limit(100);
     res.json({
-      message: '✅ Sandbox transactions',
+      message: 'Transactions',
       count: transactions.length,
       transactions: transactions,
       timestamp: new Date().toISOString()
     });
   });
 
-  // Clear all sandbox transactions - UPDATED
-  router.delete('/transactions/clear', (req, res) => {
-    const count = sandboxTransactions.size;
-    sandboxTransactions.clear();
+  // Clear all transactions (dev only)
+  router.delete('/transactions/clear', async (req, res) => {
+    const result = await PaymeTransaction.deleteMany({});
     res.json({
-      message: `✅ Cleared ${count} sandbox transactions`,
+      message: `Cleared ${result.deletedCount} transactions`,
       timestamp: new Date().toISOString()
     });
   });

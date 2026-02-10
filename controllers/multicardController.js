@@ -186,8 +186,8 @@ const initiatePayment = async (req, res) => {
         const callbackUrl = `${apiBaseUrl}/api/payments/multicard/webhook`;
         console.log('📋 Callback URL for Multicard:', callbackUrl);
 
-        // ✅ FIX: Use correct store ID from env
-        const storeId = parseInt(process.env.MULTICARD_STORE_ID) || 2660;
+        // store_id must be sent as string per API docs (ID (int) or UUID (string))
+        const storeId = process.env.MULTICARD_STORE_ID || '2660';
 
         // Normalize amount (frontend may send UZS or tiyin). Use defaults in tiyin.
         const normalized = normalizeAmountToTiyin(amount);
@@ -220,15 +220,13 @@ const initiatePayment = async (req, res) => {
 
         const payload = {
             store_id: storeId,
-            amount: finalAmount, // ✅ Amount in tiyin
+            amount: finalAmount,
             invoice_id: invoiceId,
             callback_url: callbackUrl,
             return_url: `${frontendUrl}/payment-success`,
             return_error_url: `${frontendUrl}/payment-failed`,
             lang: lang || 'ru',
-            ofd: ofdData,
-            // ✅ ADD: Store name for display
-            store_name: 'ACED Education Platform'
+            ofd: ofdData
         };
 
         // Add optional SMS field if provided
@@ -240,8 +238,7 @@ const initiatePayment = async (req, res) => {
             headers: {
                 'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json',
-                'X-Application-Id': process.env.MULTICARD_APPLICATION_ID,
-                'X-Secret': process.env.MULTICARD_SECRET
+                'Accept': 'application/json'
             },
         });
 

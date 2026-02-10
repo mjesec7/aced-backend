@@ -157,9 +157,10 @@ const paymeTransactionSchema = new mongoose.Schema({
   
   // Order and User Info
   Login: {
-    type: Number,
+    type: String,
     required: true,
-    index: true
+    index: true,
+    trim: true
   },
   user_id: {
     type: String,
@@ -281,7 +282,7 @@ paymeTransactionSchema.statics.findByPaymeId = function(paymeId) {
 };
 
 paymeTransactionSchema.statics.findByOrderId = function(orderId) {
-  return this.findOne({ Login: parseInt(orderId) });
+  return this.findOne({ Login: String(orderId) });
 };
 
 paymeTransactionSchema.statics.getStatement = function(from, to) {

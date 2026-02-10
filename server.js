@@ -30,7 +30,7 @@ app.use(helmet({
 app.use(compression());
 
 // Body parsing (Increased limit is good for AI text payloads)
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '10mb', type: ['application/json', 'text/json'] }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // ========================================
@@ -184,14 +184,11 @@ mountRoute('/api/user', './routes/userRoutes', 'User routes (legacy)');
 // 1. Multicard routes FIRST (most specific paths)
 mountRoute('/api/payments/multicard', './routes/multicardRoutes', 'Multicard payment routes');
 
-// 2. Main payments routes (includes PayMe and general payment logic)
+// 2. Main payments routes (includes PayMe webhook at root POST /)
 mountRoute('/api/payments', './routes/payments', 'Main payment routes');
 
-// 3. PayMe specific routes (if separate file exists)
-try {
-  mountRoute('/api/payments', './routes/paymeRoutes', 'PayMe routes');
-} catch (e) {
-}
+// 3. PayMe specific routes (form generation, return handlers, sandbox, etc.)
+mountRoute('/api/payments', './routes/paymeRoutes', 'PayMe routes');
 
 // 4. Promocode routes
 mountRoute('/api/promocodes', './routes/promocodeRoutes', 'Promocode routes');

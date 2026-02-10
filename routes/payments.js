@@ -31,7 +31,7 @@ router.post('/', async (req, res) => {
   try {
     if (handleSandboxPayment) {
       // Use the existing PayMe handler
-      handleSandboxPayment(req, res);
+      return handleSandboxPayment(req, res);
     } else {
       // Emergency fallback for PayMe JSON-RPC
       const { method, params, id } = req.body || {};
@@ -198,7 +198,7 @@ router.get('/', (req, res) => {
 // ✅ PayMe Webhook Route (alternative endpoint)
 router.post('/webhook/payme', (req, res) => {
   if (handleSandboxPayment) {
-    handleSandboxPayment(req, res);
+    return handleSandboxPayment(req, res);
   } else {
     res.status(503).json({
       jsonrpc: "2.0",
@@ -328,7 +328,7 @@ router.post('/initiate', async (req, res) => {
 // ✅ Alternative endpoint names to match your frontend
 router.post('/initiate-payme', (req, res) => {
   if (initiatePaymePayment) {
-    initiatePaymePayment(req, res);
+    return initiatePaymePayment(req, res);
   } else {
     // Redirect to /initiate
     req.url = '/initiate';
@@ -1029,31 +1029,7 @@ router.post('/test-auth', (req, res) => {
   }
 });
 
-// ================================
-// ERROR HANDLING
-// ================================
-
-// 404 handler for unmatched routes
-router.use('*', (req, res) => {
-  
-  res.status(404).json({
-    message: '❌ Payment endpoint not found',
-    path: req.originalUrl,
-    method: req.method,
-    server: 'api.aced.live',
-    availableEndpoints: [
-      'POST /api/payments (PayMe webhook root)',
-      'GET /api/payments (status)',
-      'POST /api/payments/initiate',
-      'POST /api/payments/initiate-payme',
-      'GET /api/payments/validate-user/:userId',
-      'GET /api/payments/plans',
-      'GET /api/payments/status/:orderId',
-      'POST /api/payments/webhook/payme',
-      'GET /api/payments/test',
-      'POST /api/payments/test-auth'
-    ]
-  });
-});
+// No catch-all here - unmatched routes fall through to paymeRoutes.js
+// which is also mounted at /api/payments
 
 module.exports = router;

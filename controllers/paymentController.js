@@ -1,6 +1,7 @@
 // controllers/paymentController.js - FIXED COMPLETE VERSION FOLLOWING PAYME DOCUMENTATION
 
 const User = require('../models/user');
+const PaymeTransaction = require('../models/paymeTransaction');
 const axios = require('axios');
 const { PAYMENT_AMOUNTS, getTierById } = require('../config/subscriptionConfig');
 
@@ -58,9 +59,7 @@ const PaymeErrorCode = {
   INVALID_AUTHORIZATION: -32504
 };
 
-// In-memory storage for sandbox testing
-const sandboxTransactions = new Map();
-const accountStates = new Map();
+// MongoDB-backed transaction storage via PaymeTransaction model
 let currentMerchantKey = null;
 
 // ================================================
@@ -492,17 +491,17 @@ const handleCreateTransaction = async (req, res, id, params) => {
 
   const { id: txId, time, amount, account } = params;
 
-  // Check if transaction already exists
-  const existingTransaction = sandboxTransactions.get(txId);
+  // Check if transaction already exists in MongoDB
+  const existingTransaction = await PaymeTransaction.findOne({ paycom_transaction_id: txId });
   if (existingTransaction) {
     return res.status(200).json({
       jsonrpc: "2.0",
       id: id,
       result: {
-        create_time: existingTransaction.create_time,
-        transaction: existingTransaction.transaction,
+        create_time: existingTransaction.create_time.getTime(),
+        transaction: existingTransaction._id.toString(),
         state: existingTransaction.state,
-        receivers: existingTransaction.receivers || null
+        receivers: existingTransaction.receivers ? JSON.parse(existingTransaction.receivers) : null
       }
     });
   }
@@ -513,103 +512,91 @@ const handleCreateTransaction = async (req, res, id, params) => {
     return res.status(200).json(createErrorResponse(id, PaymeErrorCode.INVALID_AMOUNT));
   }
 
-  // ✅ FIXED: Validate account
+  // Validate account
   const accountValidation = await validateAccountAndState(account);
   if (!accountValidation.exists) {
     return res.status(200).json(createErrorResponse(id, PaymeErrorCode.INVALID_ACCOUNT, getAccountFieldName()));
   }
 
-  // Create new transaction
-  const newTransaction = {
-    id: txId,
-    transaction: txId.toString(),
-    state: TransactionState.CREATED,
-    create_time: Date.now(),
-    perform_time: 0,
-    cancel_time: 0,
+  // Create new transaction in MongoDB
+  const newTransaction = await PaymeTransaction.create({
+    paycom_transaction_id: txId,
+    paycom_time: String(time),
+    paycom_time_datetime: new Date(time),
+    create_time: new Date(),
     amount: amount,
-    account: account,
-    cancelled: false,
-    reason: null,
-    receivers: null
-  };
-
-  // Store transaction
-  sandboxTransactions.set(txId, newTransaction);
-
+    state: TransactionState.CREATED,
+    Login: account.Login || 0,
+    user_id: account.Login || '',
+    payment_type: 'subscription',
+    metadata: { account }
+  });
 
   return res.status(200).json({
     jsonrpc: "2.0",
     id: id,
     result: {
-      create_time: newTransaction.create_time,
-      transaction: newTransaction.transaction,
+      create_time: newTransaction.create_time.getTime(),
+      transaction: newTransaction._id.toString(),
       state: newTransaction.state,
-      receivers: newTransaction.receivers
+      receivers: null
     }
   });
 };
 
 const handlePerformTransaction = async (req, res, id, params) => {
-  // --- Start of PayMe Protocol Logic (UNCHANGED) ---
   if (!params?.id) {
     return res.status(200).json(createErrorResponse(id, PaymeErrorCode.INVALID_PARAMS));
   }
-  const transaction = sandboxTransactions.get(params.id);
+
+  const transaction = await PaymeTransaction.findOne({ paycom_transaction_id: params.id });
   if (!transaction) {
     return res.status(200).json(createErrorResponse(id, PaymeErrorCode.TRANSACTION_NOT_FOUND));
   }
+
   if (transaction.state === TransactionState.COMPLETED) {
     return res.status(200).json({
       jsonrpc: "2.0",
       id: id,
       result: {
-        transaction: transaction.transaction,
-        perform_time: transaction.perform_time,
+        transaction: transaction._id.toString(),
+        perform_time: transaction.perform_time ? transaction.perform_time.getTime() : 0,
         state: transaction.state
       }
     });
   }
+
   if (transaction.state < 0) {
     return res.status(200).json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
   }
-  // --- End of PayMe Protocol Logic ---
 
-  // ✅ =======================================================
-  // ✅ ADDITION: Your Business Logic Starts Here
-  // ✅ This part happens AFTER PayMe rules are checked but BEFORE you reply.
-  // =======================================================
+  // Business logic: grant subscription to the user
   try {
-    const accountLogin = transaction.account?.Login;
+    const accountLogin = transaction.metadata?.account?.Login || transaction.user_id;
     if (accountLogin) {
-      // The User model is already imported at the top of the file
       const user = await User.findOne({ firebaseId: accountLogin });
 
       if (user) {
-        // Determine duration based on amount paid
         let durationDays = 30;
         let durationMonths = 1;
 
         if (transaction.amount === PAYMENT_AMOUNTS['pro-1day']) {
-          durationDays = 1;   // 1 day
+          durationDays = 1;
           durationMonths = 0;
         } else if (transaction.amount === PAYMENT_AMOUNTS['pro-3']) {
-          durationDays = 90;  // 3 months
+          durationDays = 90;
           durationMonths = 3;
         } else if (transaction.amount === PAYMENT_AMOUNTS['pro-6']) {
-          durationDays = 180; // 6 months
+          durationDays = 180;
           durationMonths = 6;
         }
 
-        // Grant Pro subscription for the determined duration
         await user.grantSubscription('pro', durationDays, 'payment', durationMonths);
 
-        // Save payment details
         user.subscriptionAmount = transaction.amount;
         user.lastPaymentDate = new Date();
         await user.save();
 
-        // --- Send Notification ---
         try {
           const Message = require('../models/message');
           await Message.createPaymentMessage(user._id, user.firebaseId, {
@@ -619,32 +606,29 @@ const handlePerformTransaction = async (req, res, id, params) => {
             startDate: user.subscriptionActivatedAt || new Date(),
             endDate: user.subscriptionExpiryDate,
             paymentMethod: 'PayMe',
-            transactionId: transaction.transaction
+            transactionId: transaction._id.toString()
           });
         } catch (msgError) {
-          console.error('⚠️ Failed to send payment notification:', msgError);
+          console.error('Failed to send payment notification:', msgError);
         }
       }
     }
   } catch (dbError) {
-    console.error('❌ CRITICAL: Database error during PerformTransaction:', dbError);
-    // If your database fails, you must tell PayMe there was an error.
+    console.error('Database error during PerformTransaction:', dbError);
     return res.status(200).json(createErrorResponse(id, PaymeErrorCode.INTERNAL_ERROR));
   }
-  // ✅ =======================================================
-  // ✅ Your Business Logic Ends Here
-  // =======================================================
 
-  // --- Start of PayMe Success Response (UNCHANGED) ---
+  // Update transaction state in MongoDB
   transaction.state = TransactionState.COMPLETED;
-  transaction.perform_time = Date.now();
+  transaction.perform_time = new Date();
+  await transaction.save();
 
   return res.status(200).json({
     jsonrpc: "2.0",
     id: id,
     result: {
-      transaction: transaction.transaction,
-      perform_time: transaction.perform_time,
+      transaction: transaction._id.toString(),
+      perform_time: transaction.perform_time.getTime(),
       state: transaction.state
     }
   });
@@ -657,7 +641,7 @@ const handleCancelTransaction = async (req, res, id, params) => {
     return res.status(200).json(createErrorResponse(id, PaymeErrorCode.INVALID_PARAMS));
   }
 
-  const transaction = sandboxTransactions.get(params.id);
+  const transaction = await PaymeTransaction.findOne({ paycom_transaction_id: params.id });
   if (!transaction) {
     return res.status(200).json(createErrorResponse(id, PaymeErrorCode.TRANSACTION_NOT_FOUND));
   }
@@ -670,8 +654,8 @@ const handleCancelTransaction = async (req, res, id, params) => {
       jsonrpc: "2.0",
       id: id,
       result: {
-        transaction: transaction.transaction,
-        cancel_time: transaction.cancel_time,
+        transaction: transaction._id.toString(),
+        cancel_time: transaction.cancel_time ? transaction.cancel_time.getTime() : 0,
         state: transaction.state
       }
     });
@@ -681,77 +665,50 @@ const handleCancelTransaction = async (req, res, id, params) => {
   let newState, reason;
   if (originalState === TransactionState.CREATED) {
     newState = TransactionState.CANCELLED_AFTER_CREATE;
-    reason = 3;
-    transaction.perform_time = 0;
+    reason = params.reason || 3;
   } else if (originalState === TransactionState.COMPLETED) {
     newState = TransactionState.CANCELLED_AFTER_COMPLETE;
-    reason = 5;
+    reason = params.reason || 5;
   } else {
     return res.status(200).json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
   }
 
-  // Update transaction
+  // Update transaction in MongoDB
   transaction.state = newState;
-  transaction.cancel_time = Date.now();
+  transaction.cancel_time = new Date();
   transaction.reason = reason;
-  transaction.cancelled = true;
-
+  await transaction.save();
 
   return res.status(200).json({
     jsonrpc: "2.0",
     id: id,
     result: {
-      transaction: transaction.transaction,
-      cancel_time: transaction.cancel_time,
+      transaction: transaction._id.toString(),
+      cancel_time: transaction.cancel_time.getTime(),
       state: transaction.state
     }
   });
 };
 
-// ✅ FIXED: CheckTransaction handler
 const handleCheckTransaction = async (req, res, id, params) => {
 
   if (!params?.id) {
     return res.status(200).json(createErrorResponse(id, PaymeErrorCode.INVALID_PARAMS));
   }
 
-  const transaction = sandboxTransactions.get(params.id);
+  const transaction = await PaymeTransaction.findOne({ paycom_transaction_id: params.id });
   if (!transaction) {
     return res.status(200).json(createErrorResponse(id, PaymeErrorCode.TRANSACTION_NOT_FOUND));
   }
 
-  let result = {
-    create_time: transaction.create_time,
-    perform_time: 0,
-    cancel_time: 0,
-    transaction: transaction.transaction,
+  const result = {
+    create_time: transaction.create_time.getTime(),
+    perform_time: transaction.perform_time ? transaction.perform_time.getTime() : 0,
+    cancel_time: transaction.cancel_time ? transaction.cancel_time.getTime() : 0,
+    transaction: transaction._id.toString(),
     state: transaction.state,
-    reason: null
+    reason: transaction.reason || null
   };
-
-  switch (transaction.state) {
-    case TransactionState.CREATED:
-      result.perform_time = 0;
-      result.cancel_time = 0;
-      result.reason = null;
-      break;
-    case TransactionState.COMPLETED:
-      result.perform_time = transaction.perform_time || Date.now();
-      result.cancel_time = 0;
-      result.reason = null;
-      break;
-    case TransactionState.CANCELLED_AFTER_CREATE:
-      result.perform_time = 0;
-      result.cancel_time = transaction.cancel_time || Date.now();
-      result.reason = transaction.reason || 3;
-      break;
-    case TransactionState.CANCELLED_AFTER_COMPLETE:
-      result.perform_time = transaction.perform_time || Date.now();
-      result.cancel_time = transaction.cancel_time || Date.now();
-      result.reason = transaction.reason || 5;
-      break;
-  }
-
 
   return res.status(200).json({
     jsonrpc: "2.0",
@@ -760,31 +717,31 @@ const handleCheckTransaction = async (req, res, id, params) => {
   });
 };
 
-// FIXED: GetStatement handler
-const handleGetStatement = (req, res, id, params) => {
+const handleGetStatement = async (req, res, id, params) => {
 
   const from = params?.from || 0;
   const to = params?.to || Date.now();
 
-  const transactions = [];
-  for (const [transactionId, transaction] of sandboxTransactions.entries()) {
-    if (transaction.create_time >= from && transaction.create_time <= to) {
-      transactions.push({
-        id: transaction.id,
-        time: transaction.create_time,
-        amount: transaction.amount,
-        account: transaction.account,
-        create_time: transaction.create_time,
-        perform_time: transaction.perform_time || 0,
-        cancel_time: transaction.cancel_time || 0,
-        transaction: transaction.transaction,
-        state: transaction.state,
-        reason: transaction.reason || null,
-        receivers: transaction.receivers || null
-      });
+  const dbTransactions = await PaymeTransaction.find({
+    create_time: {
+      $gte: new Date(from),
+      $lte: new Date(to)
     }
-  }
+  }).sort({ create_time: 1 });
 
+  const transactions = dbTransactions.map(tx => ({
+    id: tx.paycom_transaction_id,
+    time: tx.create_time.getTime(),
+    amount: tx.amount,
+    account: tx.metadata?.account || { Login: tx.Login },
+    create_time: tx.create_time.getTime(),
+    perform_time: tx.perform_time ? tx.perform_time.getTime() : 0,
+    cancel_time: tx.cancel_time ? tx.cancel_time.getTime() : 0,
+    transaction: tx._id.toString(),
+    state: tx.state,
+    reason: tx.reason || null,
+    receivers: tx.receivers ? JSON.parse(tx.receivers) : null
+  }));
 
   return res.status(200).json({
     jsonrpc: "2.0",
@@ -816,9 +773,9 @@ const handleChangePassword = (req, res, id, params) => {
 const handleSandboxPayment = async (req, res) => {
   try {
 
-
-    // Parse JSON-RPC request
-    const { method, params, id } = req.body;
+    // Parse JSON-RPC request (safely handle undefined body from text/json content-type)
+    const body = req.body || {};
+    const { method, params, id } = body;
 
     // Validate JSON-RPC format
     if (!method) {
@@ -981,23 +938,15 @@ const normalizeAmountToTiyin = (amt) => {
 // FIXED: Generate direct PayMe URL (GET method)
 const generateDirectPaymeUrl = async (userId, plan, options = {}) => {
   try {
-    // Get merchant ID with validation and Sanitization
-    let merchantId = process.env.PAYME_MERCHANT_ID;
+
+    // Get merchant ID with validation
+    const merchantId = process.env.PAYME_MERCHANT_ID;
 
     if (!merchantId || merchantId === 'undefined' || typeof merchantId !== 'string') {
       console.error('❌ Merchant ID not loaded properly');
       throw new Error('PayMe Merchant ID not configured. Check your .env file.');
     }
 
-    // SANITIZATION FIX: Remove garbage characters if present
-    if (merchantId.includes('&') || merchantId.includes('?') || merchantId.length > 30) {
-      console.warn(`⚠️ Suspicious Merchant ID detected (length ${merchantId.length}). Sanitizing...`);
-      merchantId = merchantId.replace(/[^a-zA-Z0-9]/g, '');
-      if (merchantId.length > 24 && /^[0-9a-fA-F]+$/.test(merchantId)) {
-        merchantId = merchantId.substring(0, 24);
-      }
-      console.log(`✅ Sanitized Merchant ID: ${merchantId.substring(0, 4)}...`);
-    }
 
     const amounts = getPaymentAmounts();
     // Allow override via options.amount (already normalized to tiyin by caller)
@@ -1015,41 +964,14 @@ const generateDirectPaymeUrl = async (userId, plan, options = {}) => {
     const baseOrderId = `aced${timestamp}${randomPart}`;
     const orderId = baseOrderId.replace(/[^a-zA-Z0-9]/g, '');
 
+
+
     // Create account object with Login
     const account = { Login: orderId };
 
-    // Use the fixed generatePaymeGetUrl function with logging
-    console.log(`Generating PayMe URL for user ${userId}, plan ${plan}, amount ${planAmount}`);
+    // Use the fixed generatePaymeGetUrl function
     const paymentUrl = generatePaymeGetUrl(merchantId, account, planAmount, options);
-    console.log(`Generated PayMe URL: ${paymentUrl}`);
 
-    // Extra validation to catch the "missing m=" bug
-    if (paymentUrl.includes('checkout.paycom.uz/')) {
-      const base64Part = paymentUrl.split('checkout.paycom.uz/')[1];
-      if (base64Part) {
-        try {
-          const decoded = Buffer.from(base64Part, 'base64').toString('utf8');
-          if (!decoded.startsWith('m=')) {
-            console.error('CRITICAL ERROR: Generated PayMe URL missing m= prefix!');
-            // Emergency fix
-            const fixedParamString = `m=${merchantId};${decoded}`;
-            const fixedBase64 = Buffer.from(fixedParamString).toString('base64');
-            return {
-              success: true,
-              paymentUrl: `https://checkout.paycom.uz/${fixedBase64}`,
-              method: 'GET',
-              transaction: {
-                id: orderId,
-                amount: planAmount,
-                plan
-              }
-            };
-          }
-        } catch (e) {
-          console.error('Error validating PayMe URL:', e);
-        }
-      }
-    }
 
     return {
       success: true,
@@ -1075,18 +997,10 @@ const generateDirectPaymeUrl = async (userId, plan, options = {}) => {
 const generateDirectPaymeForm = async (userId, plan, options = {}) => {
   try {
 
-    let merchantId = process.env.PAYME_MERCHANT_ID;
+    const merchantId = process.env.PAYME_MERCHANT_ID;
 
     if (!merchantId || merchantId === 'undefined' || merchantId.length < 10) {
       throw new Error('Invalid PayMe Merchant ID configuration');
-    }
-
-    // SANITIZATION FIX
-    if (merchantId.includes('&') || merchantId.includes('?') || merchantId.length > 30) {
-      merchantId = merchantId.replace(/[^a-zA-Z0-9]/g, '');
-      if (merchantId.length > 24 && /^[0-9a-fA-F]+$/.test(merchantId)) {
-        merchantId = merchantId.substring(0, 24);
-      }
     }
 
     const amounts = getPaymentAmounts();
@@ -1142,24 +1056,12 @@ const initiatePaymePayment = async (req, res) => {
       return safeErrorResponse(res, 400, 'Plan is required', 'Payment initiation');
     }
 
-    // Get merchant ID with validation and Sanitization
-    let merchantId = process.env.PAYME_MERCHANT_ID;
+    // Environment validation
+    const merchantId = process.env.PAYME_MERCHANT_ID;
 
-    if (!merchantId || merchantId === 'undefined' || typeof merchantId !== 'string') {
-      console.error('❌ Merchant ID not loaded properly');
-      throw new Error('PayMe Merchant ID not configured. Check your .env file.');
-    }
-
-    // SANITIZATION FIX: Remove garbage characters if present
-    if (merchantId.includes('&') || merchantId.includes('?') || merchantId.length > 30) {
-      console.warn(`⚠️ Suspicious Merchant ID detected (length ${merchantId.length}). Sanitizing...`);
-      // Keep only alphanumeric characters (Payme IDs are 24-char hex, or sometimes 15+ alphanumeric)
-      merchantId = merchantId.replace(/[^a-zA-Z0-9]/g, '');
-      // Limit length if it's excessively long (standard Mongo ObjectId is 24)
-      if (merchantId.length > 24 && /^[0-9a-fA-F]+$/.test(merchantId)) {
-        merchantId = merchantId.substring(0, 24);
-      }
-      console.log(`✅ Sanitized Merchant ID: ${merchantId.substring(0, 4)}...${merchantId.substring(merchantId.length - 4)}`);
+    if (!merchantId || merchantId === 'undefined') {
+      console.error('❌ PAYME_MERCHANT_ID not properly set');
+      return safeErrorResponse(res, 500, 'PayMe merchant configuration error', 'Payment initiation');
     }
 
     // Determine amount in tiyin. Allow override from request body (accepts UZS or tiyin).
@@ -1527,8 +1429,8 @@ const getUserStatus = async (req, res) => {
 // ================================================
 
 // Helper functions
-const findTransactionById = (transactionId) => {
-  return sandboxTransactions.get(transactionId);
+const findTransactionById = async (transactionId) => {
+  return PaymeTransaction.findOne({ paycom_transaction_id: transactionId });
 };
 
 const getTransactionStateText = (state) => {
@@ -1557,15 +1459,14 @@ const checkPaymentStatus = async (req, res) => {
       });
     }
 
-    const isProduction = process.env.NODE_ENV === 'production';
-    const sandboxTransaction = findTransactionById(transactionId);
+    const transaction = await findTransactionById(transactionId);
 
-    if (sandboxTransaction) {
+    if (transaction) {
       const user = await User.findById(userId);
 
-      if (sandboxTransaction.state === TransactionState.COMPLETED && user) {
+      if (transaction.state === TransactionState.COMPLETED && user) {
         const validAmounts = Object.values(PAYMENT_AMOUNTS);
-        const plan = validAmounts.includes(sandboxTransaction.amount) ? 'pro' : 'free';
+        const plan = validAmounts.includes(transaction.amount) ? 'pro' : 'free';
 
         if (user.subscriptionPlan !== plan || user.paymentStatus !== 'paid') {
           user.subscriptionPlan = plan;
@@ -1575,39 +1476,26 @@ const checkPaymentStatus = async (req, res) => {
       }
 
       return res.json({
-        message: '✅ Transaction status retrieved',
+        message: 'Transaction status retrieved',
         success: true,
         server: 'api.aced.live',
         transaction: {
-          id: sandboxTransaction.id,
-          state: sandboxTransaction.state,
-          amount: sandboxTransaction.amount,
-          create_time: sandboxTransaction.create_time,
-          perform_time: sandboxTransaction.perform_time || 0,
-          cancel_time: sandboxTransaction.cancel_time || 0,
-          stateText: getTransactionStateText(sandboxTransaction.state)
-        },
-        sandbox: true
+          id: transaction.paycom_transaction_id,
+          state: transaction.state,
+          amount: transaction.amount,
+          create_time: transaction.create_time.getTime(),
+          perform_time: transaction.perform_time ? transaction.perform_time.getTime() : 0,
+          cancel_time: transaction.cancel_time ? transaction.cancel_time.getTime() : 0,
+          stateText: getTransactionStateText(transaction.state)
+        }
       });
     }
 
-    if (!isProduction) {
-      return res.json({
-        message: '❌ Transaction not found in sandbox',
-        success: false,
-        server: 'api.aced.live',
-        transactionId,
-        sandbox: true
-      });
-    }
-
-    // Production payment status check would go here
-    res.json({
-      message: '⚠️ Production payment status check not implemented',
+    return res.json({
+      message: 'Transaction not found',
       success: false,
       server: 'api.aced.live',
-      transactionId,
-      userId
+      transactionId
     });
   } catch (error) {
     console.error('❌ Payment status check error:', error);
@@ -1621,52 +1509,53 @@ const checkPaymentStatus = async (req, res) => {
 
 const listTransactions = async (req, res) => {
   try {
-    const transactions = [];
+    const dbTransactions = await PaymeTransaction.find()
+      .sort({ create_time: -1 })
+      .limit(100);
 
-    for (const [id, transaction] of sandboxTransactions.entries()) {
-      transactions.push({
-        id: transaction.id,
-        state: transaction.state,
-        stateText: getTransactionStateText(transaction.state),
-        amount: transaction.amount,
-        amountUzs: transaction.amount / 100,
-        account: transaction.account,
-        create_time: new Date(transaction.create_time).toISOString(),
-        perform_time: transaction.perform_time ? new Date(transaction.perform_time).toISOString() : null,
-        cancel_time: transaction.cancel_time ? new Date(transaction.cancel_time).toISOString() : null
-      });
-    }
+    const transactions = dbTransactions.map(tx => ({
+      id: tx.paycom_transaction_id,
+      state: tx.state,
+      stateText: getTransactionStateText(tx.state),
+      amount: tx.amount,
+      amountUzs: tx.amount / 100,
+      account: tx.metadata?.account || { Login: tx.Login },
+      create_time: tx.create_time.toISOString(),
+      perform_time: tx.perform_time ? tx.perform_time.toISOString() : null,
+      cancel_time: tx.cancel_time ? tx.cancel_time.toISOString() : null
+    }));
 
     res.json({
-      message: '✅ All sandbox transactions',
+      message: 'All transactions',
       count: transactions.length,
-      transactions: transactions.sort((a, b) => b.create_time.localeCompare(a.create_time)),
+      transactions: transactions,
       server: 'api.aced.live'
     });
   } catch (error) {
-    console.error('❌ Error listing transactions:', error);
+    console.error('Error listing transactions:', error);
     res.status(500).json({
-      message: '❌ Error listing transactions',
+      message: 'Error listing transactions',
       error: error.message
     });
   }
 };
 
 const clearSandboxTransactions = async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(403).json({ message: 'Not available in production' });
+  }
   try {
-    const count = sandboxTransactions.size;
-    sandboxTransactions.clear();
-    accountStates.clear();
+    const result = await PaymeTransaction.deleteMany({});
 
     res.json({
-      message: '✅ Sandbox transactions and account states cleared',
-      clearedCount: count,
+      message: 'Transactions cleared',
+      clearedCount: result.deletedCount,
       server: 'api.aced.live'
     });
   } catch (error) {
-    console.error('❌ Error clearing transactions:', error);
+    console.error('Error clearing transactions:', error);
     res.status(500).json({
-      message: '❌ Error clearing transactions',
+      message: 'Error clearing transactions',
       error: error.message
     });
   }
@@ -2127,13 +2016,13 @@ const getPaymentConfig = async (req, res) => {
 
 const getPaymentHealth = async (req, res) => {
   try {
+    const txCount = await PaymeTransaction.countDocuments();
     const health = {
       status: 'OK',
       timestamp: new Date().toISOString(),
-      sandbox: {
-        transactions: sandboxTransactions.size,
-        accountStates: accountStates.size,
-        endpoint: 'https://api.aced.live/api/payments/sandbox'
+      transactions: {
+        total: txCount,
+        endpoint: 'https://api.aced.live/api/payments'
       },
       configuration: {
         merchantKey: process.env.PAYME_MERCHANT_KEY ? 'configured' : 'missing',
@@ -2169,16 +2058,35 @@ const getPaymentHealth = async (req, res) => {
 
 const getPaymentStats = async (req, res) => {
   try {
+    const txAgg = await PaymeTransaction.aggregate([
+      {
+        $group: {
+          _id: '$state',
+          count: { $sum: 1 },
+          totalAmount: { $sum: '$amount' }
+        }
+      }
+    ]);
+
+    const statsByState = { created: 0, completed: 0, cancelled: 0 };
+    let totalAmount = 0;
+    let completedAmount = 0;
+    let totalTransactions = 0;
+
+    for (const item of txAgg) {
+      totalTransactions += item.count;
+      totalAmount += item.totalAmount;
+      if (item._id === TransactionState.CREATED) statsByState.created = item.count;
+      else if (item._id === TransactionState.COMPLETED) { statsByState.completed = item.count; completedAmount = item.totalAmount; }
+      else if (item._id < 0) statsByState.cancelled += item.count;
+    }
+
     const stats = {
-      sandbox: {
-        totalTransactions: sandboxTransactions.size,
-        transactionsByState: {
-          created: 0,
-          completed: 0,
-          cancelled: 0
-        },
-        totalAmount: 0,
-        completedAmount: 0
+      transactions: {
+        totalTransactions,
+        transactionsByState: statsByState,
+        totalAmount,
+        completedAmount
       },
       users: {
         total: 0,
@@ -2194,23 +2102,6 @@ const getPaymentStats = async (req, res) => {
         }
       }
     };
-
-    for (const transaction of sandboxTransactions.values()) {
-      switch (transaction.state) {
-        case TransactionState.CREATED:
-          stats.sandbox.transactionsByState.created++;
-          break;
-        case TransactionState.COMPLETED:
-          stats.sandbox.transactionsByState.completed++;
-          stats.sandbox.completedAmount += transaction.amount;
-          break;
-        case TransactionState.CANCELLED_AFTER_CREATE:
-        case TransactionState.CANCELLED_AFTER_COMPLETE:
-          stats.sandbox.transactionsByState.cancelled++;
-          break;
-      }
-      stats.sandbox.totalAmount += transaction.amount;
-    }
 
     try {
       const userCounts = await User.aggregate([
@@ -2247,9 +2138,9 @@ const setAccountState = async (req, res) => {
         message: '❌ Invalid state. Valid states: ' + validStates.join(', ')
       });
     }
-    accountStates.set(accountLogin, state);
+    // Account states are now validated against the database directly
     res.json({
-      message: '✅ Account state updated',
+      message: 'Account state noted (validation uses database)',
       accountLogin,
       state,
       validStates
@@ -2289,21 +2180,21 @@ const setMerchantKey = async (req, res) => {
 // Debug and Testing Functions (Development Only)
 // ================================================
 
-const getDebugInfo = (req, res) => {
+const getDebugInfo = async (req, res) => {
   if (process.env.NODE_ENV === 'production') {
     return res.status(403).json({ message: 'Not available in production' });
   }
+
+  const transactions = await PaymeTransaction.find().sort({ create_time: -1 }).limit(50);
 
   res.json({
     config: {
       merchantId: process.env.PAYME_MERCHANT_ID ? 'configured' : 'not_configured',
       hasKey: !!process.env.PAYME_MERCHANT_KEY,
-      Login: process.env.PAYME_Login || 'Paycom',
       minAmount: process.env.PAYME_MIN_AMOUNT || 100000,
       maxAmount: process.env.PAYME_MAX_AMOUNT || 10000000000
     },
-    transactions: Array.from(sandboxTransactions.values()),
-    accountStates: Object.fromEntries(accountStates.entries()),
+    transactions: transactions,
     planAmounts: PAYMENT_AMOUNTS,
     errorCodes: PaymeErrorCode,
     timestamp: new Date().toISOString()
@@ -2317,26 +2208,28 @@ const createTestTransaction = async (req, res) => {
   try {
     const { userId, plan, amount } = req.body;
     const transactionId = `test_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const testTransaction = {
-      id: transactionId,
-      transaction: transactionId,
+    const loginValue = `${userId}_${plan}_${Date.now()}`;
+    const txAmount = amount || PAYMENT_AMOUNTS[plan] || 26000000;
+
+    const testTransaction = await PaymeTransaction.create({
+      paycom_transaction_id: transactionId,
+      paycom_time: String(Date.now()),
+      paycom_time_datetime: new Date(),
+      create_time: new Date(),
+      amount: txAmount,
       state: TransactionState.CREATED,
-      create_time: Date.now(),
-      amount: amount || PAYMENT_AMOUNTS[plan] || 26000000,
-      account: { Login: `${userId}_${plan}_${Date.now()}` }, // FIXED: Use Login
-      cancelled: false,
-      perform_time: 0,
-      cancel_time: 0,
-      reason: null,
-      receivers: null
-    };
-    sandboxTransactions.set(transactionId, testTransaction);
+      Login: loginValue,
+      user_id: userId || '',
+      payment_type: 'subscription',
+      metadata: { account: { Login: loginValue } }
+    });
+
     res.json({
       message: 'Test transaction created',
       transaction: testTransaction
     });
   } catch (error) {
-    console.error('❌ Create test transaction error:', error);
+    console.error('Create test transaction error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
@@ -2347,18 +2240,19 @@ const completeTestTransaction = async (req, res) => {
   }
   try {
     const { transactionId } = req.params;
-    const transaction = sandboxTransactions.get(transactionId);
+    const transaction = await PaymeTransaction.findOne({ paycom_transaction_id: transactionId });
     if (!transaction) {
       return res.status(404).json({ message: 'Transaction not found' });
     }
     transaction.state = TransactionState.COMPLETED;
-    transaction.perform_time = Date.now();
+    transaction.perform_time = new Date();
+    await transaction.save();
     res.json({
       message: 'Transaction completed',
       transaction: transaction
     });
   } catch (error) {
-    console.error('❌ Complete test transaction error:', error);
+    console.error('Complete test transaction error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
@@ -2441,24 +2335,14 @@ const getTransactionStatusText = (state) => {
   }
 };
 
-// Helper to store transaction in sandbox
-const setTransaction = (id, transaction) => {
-  sandboxTransactions.set(id, transaction);
+// Helper to store transaction in DB
+const setTransaction = async (id, transaction) => {
+  await PaymeTransaction.findOneAndUpdate(
+    { paycom_transaction_id: id },
+    transaction,
+    { upsert: true }
+  );
 };
-
-// Cleanup transactions older than 7 days
-const cleanupOldTransactions = () => {
-  const now = Date.now();
-  const MAX_AGE = 7 * 24 * 60 * 60 * 1000;
-  for (const [id, transaction] of sandboxTransactions.entries()) {
-    if (now - transaction.create_time > MAX_AGE) {
-      sandboxTransactions.delete(id);
-    }
-  }
-};
-
-// Schedule cleanup every 24 hours
-setInterval(cleanupOldTransactions, 24 * 60 * 60 * 1000);
 
 // ================================================
 // Export All Functions

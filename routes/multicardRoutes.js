@@ -52,19 +52,6 @@ router.use((req, res, next) => {
 // These must be before any catch-all routes and debug routes
 
 // Webhooks - New format (recommended)
-// ✅ Added GET handler to catch HTTP->HTTPS redirect issues
-router.get('/webhook', (req, res) => {
-    console.error('❌ Multicard Webhook Error: Received GET request. This usually means HTTP->HTTPS redirect lost the POST body.');
-    res.status(400).json({
-        success: false,
-        error: {
-            code: 'INVALID_METHOD',
-            message: 'You are sending a GET request to the webhook.',
-            solution: 'Please update your Multicard Dashboard Webhook URL to use https:// instead of http://'
-        }
-    });
-});
-
 router.post('/webhook', multicardController.handleWebhook);
 
 // Webhook debug endpoint - returns 200 for any request (helps test connectivity)
@@ -230,7 +217,7 @@ router.get('/debug/env', (req, res) => {
  */
 router.get('/debug/routes', (req, res) => {
     const routes = [];
-
+    
     router.stack.forEach(layer => {
         if (layer.route) {
             const methods = Object.keys(layer.route.methods).join(', ').toUpperCase();
@@ -256,7 +243,7 @@ router.get('/debug/routes', (req, res) => {
 // ✅ CRITICAL: Handle GET method with clear error
 router.get('/initiate', (req, res) => {
     console.warn('⚠️  Received GET request to /initiate - This endpoint requires POST!');
-
+    
     res.status(405).json({
         success: false,
         error: {
