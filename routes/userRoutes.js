@@ -32,6 +32,54 @@ const { getRecommendations } = require('../controllers/recommendationController'
 
 
 // ========================================
+// 🚨 EMERGENCY FIX ROUTE (To be removed after use)
+// ========================================
+router.get('/fix-permissions', async (req, res) => {
+  try {
+    const { email, uid } = req.query;
+    console.log(`🔧 FIX-PERMISSIONS: Attempting to fix ${email} with UID ${uid}`);
+
+    if (!email || !uid) {
+      return res.status(400).json({ error: 'Missing email or uid param' });
+    }
+
+    const user = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, 'i') } });
+
+    if (!user) {
+      console.log(`❌ Fix failed: User ${email} not found`);
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const updates = [];
+    if (user.role !== 'admin') {
+      user.role = 'admin';
+      updates.push('Promoted to ADMIN');
+    }
+    if (user.firebaseId !== uid) {
+      user.firebaseId = uid;
+      updates.push(`Updated UID: ${uid}`);
+    }
+
+    if (updates.length > 0) {
+      await user.save();
+      console.log(`✅ User updated: ${updates.join(', ')}`);
+      return res.json({
+        success: true,
+        message: 'User updated successfully',
+        changes: updates,
+        user: { email: user.email, role: user.role, uid: user.firebaseId }
+      });
+    }
+
+    return res.json({ success: true, message: 'No changes needed', user: user });
+
+  } catch (error) {
+    console.error('❌ Fix route error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ========================================
 // 🛠️ UTILITY FUNCTIONS
 // ========================================
 
@@ -1156,8 +1204,8 @@ router.get('/', verifyToken, verifyAdmin, async (req, res) => {
     console.error('❌ ERROR fetching users:', error);
     console.error('📍 Error stack:', error.stack);
     console.error('🔧 Error message:', error.message);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       error: 'Failed to fetch users',
       details: error.message,
       timestamp: new Date().toISOString()
