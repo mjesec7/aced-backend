@@ -27,10 +27,10 @@ const authenticateUser = async (req, res, next) => {
     // ✅ CRITICAL FIX: Use originalUrl (full path) not path (without mounting prefix)
     // This ensures webhook paths are correctly identified even when mounted as sub-routes
     const fullPath = req.originalUrl.split('?')[0]; // Remove query string
-    const isPublicPath = publicPaths.some(path => 
+    const isPublicPath = publicPaths.some(path =>
       fullPath === path || fullPath.startsWith(path + '/')
     );
-    
+
     if (isPublicPath) {
       console.log(`✅ Public path accessed (auth bypassed): ${fullPath}`);
       return next(); // Skip authentication for public paths
@@ -41,23 +41,23 @@ const authenticateUser = async (req, res, next) => {
     // 🔒 Validate Authorization header presence and format
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       console.warn('⚠️ Missing or invalid auth header. Header:', authHeader ? 'EXISTS' : 'MISSING');
-      return res.status(401).json({ 
-        success: false, 
-        error: 'Authorization header required' 
+      return res.status(401).json({
+        success: false,
+        error: 'Authorization header required'
       });
     }
 
     // Extract token using substring method for consistency
     const token = authHeader.substring(7); // Remove 'Bearer ' prefix
-    
+
     console.log('🔑 Token received, length:', token.length);
     console.log('🔑 Token preview:', token.slice(0, 50) + '...');
-    
+
     if (!token || token.length < 20) {
       console.warn('⚠️ Token too short:', token.length);
-      return res.status(401).json({ 
-        success: false, 
-        error: 'Invalid token format' 
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid token format'
       });
     }
 
@@ -74,24 +74,24 @@ const authenticateUser = async (req, res, next) => {
         backendProjectId: process.env.FIREBASE_PROJECT_ID,
         expectedProjectId: 'aced-9cf72'
       });
-      
+
       // Specific error handling
       if (verificationError.code === 'auth/project-not-found') {
-        return res.status(401).json({ 
-          success: false, 
+        return res.status(401).json({
+          success: false,
           error: 'Firebase project configuration mismatch',
           details: 'Backend project ID does not match frontend'
         });
       }
-      
+
       if (verificationError.code === 'auth/argument-error') {
-        return res.status(401).json({ 
-          success: false, 
+        return res.status(401).json({
+          success: false,
           error: 'Invalid Firebase configuration',
           details: 'Check Firebase private key and project settings'
         });
       }
-      
+
       throw verificationError;
     }
 
@@ -103,8 +103,8 @@ const authenticateUser = async (req, res, next) => {
     // Check if token is from correct project
     if (tokenAud !== REQUIRED_PROJECT_ID) {
       console.error(`❌ [CRITICAL] Token from wrong project. Expected "${REQUIRED_PROJECT_ID}", got "${tokenAud}"`);
-      return res.status(403).json({ 
-        success: false, 
+      return res.status(403).json({
+        success: false,
         error: 'Token from incorrect Firebase project',
         expected: REQUIRED_PROJECT_ID,
         received: tokenAud
@@ -114,8 +114,8 @@ const authenticateUser = async (req, res, next) => {
     // Check if backend is configured for correct project
     if (envProjectId !== REQUIRED_PROJECT_ID) {
       console.error(`❌ [CRITICAL] Backend misconfigured. FIREBASE_PROJECT_ID should be "${REQUIRED_PROJECT_ID}", got "${envProjectId}"`);
-      return res.status(500).json({ 
-        success: false, 
+      return res.status(500).json({
+        success: false,
         error: 'Backend Firebase project misconfiguration',
         details: `Backend should be configured for project: ${REQUIRED_PROJECT_ID}`
       });
@@ -124,9 +124,9 @@ const authenticateUser = async (req, res, next) => {
     // Additional expiration check
     const nowInSeconds = Math.floor(Date.now() / 1000);
     if (decodedToken.exp && decodedToken.exp < nowInSeconds) {
-      return res.status(401).json({ 
-        success: false, 
-        error: 'Token expired' 
+      return res.status(401).json({
+        success: false,
+        error: 'Token expired'
       });
     }
 
@@ -152,7 +152,7 @@ const authenticateUser = async (req, res, next) => {
 
     // Enhanced error handling with specific Firebase error codes
     let errorResponse = { success: false, error: 'Authentication failed' };
-    
+
     if (error.code === 'auth/id-token-expired') {
       errorResponse.error = 'Token expired';
     } else if (error.code === 'auth/id-token-revoked') {
@@ -193,10 +193,10 @@ const verifyAdmin = async (req, res, next) => {
 
     // Import User model here to avoid circular dependencies
     const User = require('../models/user');
-    
+
     // Check user's role in database
     const user = await User.findOne({ firebaseId: req.user.uid }).select('role firebaseId email');
-    
+
     console.log('📋 User found in DB:', user ? 'YES' : 'NO');
     if (user) {
       console.log('👤 User details - Email:', user.email, 'Role:', user.role);
@@ -205,9 +205,11 @@ const verifyAdmin = async (req, res, next) => {
     }
 
     if (!user) {
-      return res.status(404).json({
+      console.warn('❌ verifyAdmin: User not found in DB for UID:', req.user.uid);
+      return res.status(403).json({
         success: false,
-        error: 'User not found'
+        error: 'Access denied: User record not found in database',
+        details: 'Your authentication token is valid, but your user profile does not exist in the database.'
       });
     }
 
