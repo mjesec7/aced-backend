@@ -1096,6 +1096,44 @@ router.get('/all', verifyToken, verifyAdmin, async (req, res) => {
   }
 });
 
+// ✅ NEW: GET /api/users - Root endpoint (admin only, fallback for list requests)
+// This handles requests to /api/users directly
+router.get('/', verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const { page = 1, limit = 20, search = '' } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const filter = search ? {
+      $or: [
+        { email: { $regex: search, $options: 'i' } },
+        { name: { $regex: search, $options: 'i' } }
+      ]
+    } : {};
+
+    const [users, total] = await Promise.all([
+      User.find(filter)
+        .sort({ lastLoginAt: -1, createdAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean(),
+      User.countDocuments(filter)
+    ]);
+
+    res.json({
+      success: true,
+      users: users.map(u => ({
+        ...u,
+        subscriptionPlan: u.subscriptionPlan || 'free'
+      })),
+      pagination: { page: parseInt(page), limit: parseInt(limit), total, pages: Math.ceil(total / parseInt(limit)) },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('❌ Error fetching users:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch users' });
+  }
+});
+
 // ✅ NEW: GET /api/users/test - Test endpoint
 router.get('/test', (req, res) => {
   res.json({
@@ -1103,23 +1141,10 @@ router.get('/test', (req, res) => {
     server: 'api.aced.live',
     timestamp: new Date().toISOString(),
     adminRoutes: [
+      'GET /api/users (root - admin only)',
       'GET /api/users/admin/users-comprehensive',
       'GET /api/users/admin/users',
       'GET /api/users/all',
-    ],
-    allRoutes: [
-      'POST /api/users/save',
-      'GET /api/users/:userId',
-      'GET /api/users/:firebaseId/status',
-      'PUT /api/users/:userId/status',
-      'GET /api/users/:userId/subscription-status',
-      'GET /api/users/:firebaseId/usage/:monthKey',
-      'POST /api/users/chat',
-      'GET /api/users/:firebaseId/recommendations',
-      'GET /api/users/:firebaseId/homeworks',
-      'GET /api/users/:firebaseId/tests',
-      'POST /api/users/:firebaseId/tests/:testId/submit',
-      'GET /api/users/test'
     ]
   });
 });
