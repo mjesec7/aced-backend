@@ -1098,11 +1098,16 @@ router.get('/all', verifyToken, verifyAdmin, async (req, res) => {
 
 // ✅ NEW: GET /api/users/test - Test endpoint
 router.get('/test', (req, res) => {
-  JSON.stringify(res.json({
+  res.json({
     message: '✅ User routes are working',
     server: 'api.aced.live',
     timestamp: new Date().toISOString(),
-    routes: [
+    adminRoutes: [
+      'GET /api/users/admin/users-comprehensive',
+      'GET /api/users/admin/users',
+      'GET /api/users/all',
+    ],
+    allRoutes: [
       'POST /api/users/save',
       'GET /api/users/:userId',
       'GET /api/users/:firebaseId/status',
@@ -1114,24 +1119,9 @@ router.get('/test', (req, res) => {
       'GET /api/users/:firebaseId/homeworks',
       'GET /api/users/:firebaseId/tests',
       'POST /api/users/:firebaseId/tests/:testId/submit',
-      'GET /api/users/:firebaseId/homework/:homeworkId',
-      'POST /api/users/:firebaseId/homework/:homeworkId/submit',
-      'POST /api/users/:firebaseId/lesson/:lessonId',
-      'POST /api/users/:firebaseId/progress/save',
-      'GET /api/users/:firebaseId/study-list',
-      'POST /api/users/:firebaseId/study-list',
-      'DELETE /api/users/:firebaseId/study-list/:topicId',
-      'GET /api/users/:firebaseId/progress',
-      'GET /api/users/:firebaseId/analytics',
-      'GET /api/users/:firebaseId/diary',
-      'POST /api/users/:firebaseId/diary',
-      'POST /api/users/admin/:userId/extend-subscription',
-      'GET /api/users/admin/users-comprehensive',
-      'GET /api/users/admin/users',
-      'GET /api/users/all',
       'GET /api/users/test'
     ]
-  }));
+  });
 });
 
 // ========================================
