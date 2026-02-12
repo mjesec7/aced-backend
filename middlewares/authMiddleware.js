@@ -40,6 +40,7 @@ const authenticateUser = async (req, res, next) => {
 
     // 🔒 Validate Authorization header presence and format
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      console.warn('⚠️ Missing or invalid auth header. Header:', authHeader ? 'EXISTS' : 'MISSING');
       return res.status(401).json({ 
         success: false, 
         error: 'Authorization header required' 
@@ -49,7 +50,11 @@ const authenticateUser = async (req, res, next) => {
     // Extract token using substring method for consistency
     const token = authHeader.substring(7); // Remove 'Bearer ' prefix
     
+    console.log('🔑 Token received, length:', token.length);
+    console.log('🔑 Token preview:', token.slice(0, 50) + '...');
+    
     if (!token || token.length < 20) {
+      console.warn('⚠️ Token too short:', token.length);
       return res.status(401).json({ 
         success: false, 
         error: 'Invalid token format' 
@@ -59,7 +64,9 @@ const authenticateUser = async (req, res, next) => {
     // 🔐 Verify token via Firebase Admin with enhanced error handling
     let decodedToken;
     try {
+      console.log('🔐 Verifying token with Firebase...');
       decodedToken = await admin.auth().verifyIdToken(token);
+      console.log('✅ Token verified successfully. UID:', decodedToken.uid);
     } catch (verificationError) {
       console.error('❌ Token verification failed:', {
         error: verificationError.message,
@@ -175,18 +182,28 @@ const verifyAdmin = async (req, res, next) => {
   try {
     // Ensure user is authenticated first
     if (!req.user || !req.user.uid) {
+      console.warn('⚠️ verifyAdmin: No user authenticated');
       return res.status(401).json({
         success: false,
         error: 'Authentication required'
       });
     }
 
+    console.log('🔍 verifyAdmin checking for UID:', req.user.uid);
+
     // Import User model here to avoid circular dependencies
     const User = require('../models/user');
     
     // Check user's role in database
-    const user = await User.findOne({ firebaseId: req.user.uid }).select('role');
+    const user = await User.findOne({ firebaseId: req.user.uid }).select('role firebaseId email');
     
+    console.log('📋 User found in DB:', user ? 'YES' : 'NO');
+    if (user) {
+      console.log('👤 User details - Email:', user.email, 'Role:', user.role);
+    } else {
+      console.warn('⚠️ User not found in database for UID:', req.user.uid);
+    }
+
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -194,10 +211,32 @@ const verifyAdmin = async (req, res, next) => {
       });
     }
 
+    console.log('🔐 Checking admin role:', user.role, '(should be "admin")');
+
     if (user.role !== 'admin') {
+      console.warn('❌ User is not admin. Role:', user.role);
       return res.status(403).json({
         success: false,
         error: 'Admin access required',
+        userRole: user.role
+      });
+    }
+
+    // User is admin, proceed
+    console.log('✅ Admin verification passed for user:', user.email);
+    req.isAdmin = true;
+    next();
+
+  } catch (error) {
+    console.error('❌ Admin verification failed:', error.message);
+    console.error('📍 Stack:', error.stack);
+    return res.status(500).json({
+      success: false,
+      error: 'Admin verification failed',
+      details: error.message
+    });
+  }
+};
         message: 'You do not have permission to perform this action'
       });
     }

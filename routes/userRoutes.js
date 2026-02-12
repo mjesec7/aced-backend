@@ -1100,8 +1100,16 @@ router.get('/all', verifyToken, verifyAdmin, async (req, res) => {
 // This handles requests to /api/users directly
 router.get('/', verifyToken, verifyAdmin, async (req, res) => {
   try {
+    console.log('🔍 GET /api/users CALLED');
+    console.log('📋 Query params:', req.query);
+    console.log('👤 Authenticated user:', req.user?.uid);
+    console.log('✅ Admin status:', req.isAdmin);
+
     const { page = 1, limit = 20, search = '' } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    console.log('📊 Pagination - Page:', page, 'Limit:', limit, 'Skip:', skip);
+    console.log('🔎 Search term:', search);
 
     const filter = search ? {
       $or: [
@@ -1109,6 +1117,8 @@ router.get('/', verifyToken, verifyAdmin, async (req, res) => {
         { name: { $regex: search, $options: 'i' } }
       ]
     } : {};
+
+    console.log('🎯 MongoDB filter:', JSON.stringify(filter));
 
     const [users, total] = await Promise.all([
       User.find(filter)
@@ -1119,6 +1129,15 @@ router.get('/', verifyToken, verifyAdmin, async (req, res) => {
       User.countDocuments(filter)
     ]);
 
+    console.log('✅ Query result - Found users:', users.length, 'Total count:', total);
+    console.log('📝 First user sample:', users[0] ? { firebaseId: users[0].firebaseId, email: users[0].email, name: users[0].name } : 'NO USERS');
+
+    if (users.length === 0) {
+      console.warn('⚠️ No users found! Checking database...');
+      const allUsersCount = await User.countDocuments({});
+      console.warn('📊 Total users in database:', allUsersCount);
+    }
+
     res.json({
       success: true,
       users: users.map(u => ({
@@ -1126,11 +1145,23 @@ router.get('/', verifyToken, verifyAdmin, async (req, res) => {
         subscriptionPlan: u.subscriptionPlan || 'free'
       })),
       pagination: { page: parseInt(page), limit: parseInt(limit), total, pages: Math.ceil(total / parseInt(limit)) },
-      timestamp: new Date().toISOString()
+      debug: {
+        usersReturned: users.length,
+        totalCount: total,
+        filter: filter,
+        timestamp: new Date().toISOString()
+      }
     });
   } catch (error) {
-    console.error('❌ Error fetching users:', error);
-    res.status(500).json({ success: false, error: 'Failed to fetch users' });
+    console.error('❌ ERROR fetching users:', error);
+    console.error('📍 Error stack:', error.stack);
+    console.error('🔧 Error message:', error.message);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to fetch users',
+      details: error.message,
+      timestamp: new Date().toISOString()
+    });
   }
 });
 
