@@ -170,7 +170,7 @@ const initiatePayment = async (req, res) => {
 
         // ✅ Build callback URL with fallback
         let apiBaseUrl = process.env.API_BASE_URL;
-        
+
         // Fallback: Construct from request if API_BASE_URL not set
         if (!apiBaseUrl) {
             const protocol = req.protocol || 'https';
@@ -206,7 +206,7 @@ const initiatePayment = async (req, res) => {
                 price: price,
                 mxik: item.mxik || '10899002001000000',
                 total: total,
-                package_code: item.package_code || '1236095',
+                package_code: String(item.package_code || '1236095'),
                 name: item.name || `ACED ${plan.toUpperCase()} Plan`,
                 vat: item.vat || 0
             };
@@ -221,7 +221,7 @@ const initiatePayment = async (req, res) => {
         }
 
         const payload = {
-            store_id: storeId,
+            store_id: parseInt(storeId), // Ensure store_id is integer
             amount: finalAmount,
             invoice_id: invoiceId,
             callback_url: callbackUrl,
@@ -230,6 +230,8 @@ const initiatePayment = async (req, res) => {
             lang: lang || 'ru',
             ofd: ofdData
         };
+
+        console.log('🚀 Sending Multicard Invoice Request:', JSON.stringify(payload, null, 2));
 
         // Add optional SMS field if provided
         if (sms) {
@@ -392,7 +394,7 @@ const handleWebhook = async (req, res) => {
     console.log('   Method:', req.method);
     console.log('   URL:', req.originalUrl);
     console.log('   IP:', req.ip);
-    
+
     const webhookData = req.body;
 
     // Extract payment data from webhook
