@@ -14,6 +14,8 @@ const Homework = require('../models/homework');
 const Test = require('../models/Test');
 const TestResult = require('../models/TestResult');
 const HomeworkProgress = require('../models/homeworkProgress');
+const PaymeTransaction = require('../models/paymeTransaction');
+const MulticardTransaction = require('../models/MulticardTransaction');
 // Note: Rewards and LearningProfile are defined inline in userProgressRoutes.js
 // We'll access them via mongoose.models if they exist
 
@@ -104,7 +106,7 @@ const extractValidObjectId = (input, fieldName = 'ObjectId') => {
  */
 const sanitizeUserData = (user, options = {}) => {
   if (!user) return null;
-  
+
   const {
     includeEmail = true,
     includeSubscription = true,
@@ -142,9 +144,9 @@ const sanitizeUserData = (user, options = {}) => {
       plan: userData.subscriptionPlan || 'free',
       expiryDate: userData.subscriptionExpiryDate || null,
       activatedAt: userData.subscriptionActivatedAt || null,
-      isActive: userData.subscriptionPlan !== 'free' && 
-                userData.subscriptionExpiryDate && 
-                new Date(userData.subscriptionExpiryDate) > new Date()
+      isActive: userData.subscriptionPlan !== 'free' &&
+        userData.subscriptionExpiryDate &&
+        new Date(userData.subscriptionExpiryDate) > new Date()
     };
   }
 
@@ -597,20 +599,20 @@ router.get('/:userId', verifyToken, validateUserId, async (req, res) => {
     }
 
     // 🔒 SECURITY: Use sanitized user data instead of spreading full object
-    const safeUser = sanitizeUserData(user, { 
-      includeEmail: true, 
+    const safeUser = sanitizeUserData(user, {
+      includeEmail: true,
       includeSubscription: true,
-      includeProgress: true 
+      includeProgress: true
     });
-    
+
     const responseUser = {
       ...safeUser,
       serverFetch: true,
       fetchTime: new Date().toISOString(),
       // Include usage data (non-sensitive)
-      currentUsage: user.getCurrentMonthAIUsage ? user.getCurrentMonthAIUsage() : 
+      currentUsage: user.getCurrentMonthAIUsage ? user.getCurrentMonthAIUsage() :
         (user.aiUsage?.currentMonth || { messages: 0, images: 0 }),
-      usageLimits: user.getUsageLimits ? user.getUsageLimits() : 
+      usageLimits: user.getUsageLimits ? user.getUsageLimits() :
         { messages: user.subscriptionPlan === 'free' ? 50 : -1, images: user.subscriptionPlan === 'free' ? 5 : -1 }
     };
 
@@ -638,8 +640,8 @@ router.get('/:firebaseId/status', validateFirebaseId, verifyToken, async (req, r
 
     // 🔒 SECURITY: Only allow users to check their own status
     if (firebaseId !== authenticatedUserId) {
-      return res.status(403).json({ 
-        error: 'Forbidden: You can only check your own subscription status' 
+      return res.status(403).json({
+        error: 'Forbidden: You can only check your own subscription status'
       });
     }
 
@@ -1101,8 +1103,8 @@ router.get('/admin/users-comprehensive', verifyToken, verifyAdmin, async (req, r
     // Fetch ALL progress data in bulk for efficiency
     const firebaseIds = users.map(u => u.firebaseId);
 
-    // Fetch progress, rewards, and learning profiles in parallel
-    const [allProgress, allRewards, allProfiles] = await Promise.all([
+    // Fetch progress, rewards, learning profiles, and payment data in parallel
+    const [allProgress, allRewards, allProfiles, paymePayments, multicardPayments] = await Promise.all([
       UserProgress.aggregate([
         { $match: { userId: { $in: firebaseIds } } },
         {
@@ -1127,7 +1129,17 @@ router.get('/admin/users-comprehensive', verifyToken, verifyAdmin, async (req, r
       // Try to get Rewards model (defined in userProgressRoutes.js)
       mongoose.models.Rewards ? mongoose.models.Rewards.find({ userId: { $in: firebaseIds } }).lean() : Promise.resolve([]),
       // Try to get LearningProfile model (defined in userProgressRoutes.js)
-      mongoose.models.LearningProfile ? mongoose.models.LearningProfile.find({ userId: { $in: firebaseIds } }).lean() : Promise.resolve([])
+      mongoose.models.LearningProfile ? mongoose.models.LearningProfile.find({ userId: { $in: firebaseIds } }).lean() : Promise.resolve([]),
+      // Aggregate Payme payments (completed = state 2)
+      PaymeTransaction.aggregate([
+        { $match: { user_id: { $in: firebaseIds }, state: 2 } },
+        { $group: { _id: '$user_id', count: { $sum: 1 }, total: { $sum: '$amount' }, lastPayment: { $max: '$perform_time' } } }
+      ]),
+      // Aggregate Multicard payments (completed = status 'paid')
+      MulticardTransaction.aggregate([
+        { $match: { firebaseUserId: { $in: firebaseIds }, status: 'paid' } },
+        { $group: { _id: '$firebaseUserId', count: { $sum: 1 }, total: { $sum: '$amount' }, lastPayment: { $max: '$paidAt' } } }
+      ])
     ]);
 
     const progressMap = {};
@@ -1138,6 +1150,23 @@ router.get('/admin/users-comprehensive', verifyToken, verifyAdmin, async (req, r
 
     const profileMap = {};
     allProfiles.forEach(lp => { profileMap[lp.userId] = lp; });
+
+    // Build combined payment map from both Payme and Multicard
+    const paymentMap = {};
+    paymePayments.forEach(p => {
+      paymentMap[p._id] = { count: p.count, total: p.total, lastPayment: p.lastPayment };
+    });
+    multicardPayments.forEach(p => {
+      if (paymentMap[p._id]) {
+        paymentMap[p._id].count += p.count;
+        paymentMap[p._id].total += p.total;
+        if (p.lastPayment && (!paymentMap[p._id].lastPayment || p.lastPayment > paymentMap[p._id].lastPayment)) {
+          paymentMap[p._id].lastPayment = p.lastPayment;
+        }
+      } else {
+        paymentMap[p._id] = { count: p.count, total: p.total, lastPayment: p.lastPayment };
+      }
+    });
 
     const determineLearnerType = (p, lp) => {
       if (lp?.cognitiveProfile) {
@@ -1164,11 +1193,26 @@ router.get('/admin/users-comprehensive', verifyToken, verifyAdmin, async (req, r
       const p = progressMap[user.firebaseId] || {};
       const r = rewardsMap[user.firebaseId] || {};
       const lp = profileMap[user.firebaseId] || {};
+      const pay = paymentMap[user.firebaseId] || {};
 
       // Use rewards data (points, streak) - this is the real source
       const totalPoints = r.totalPoints || p.totalPoints || user.totalPoints || 0;
       const streak = r.streak || 0;
       const level = r.level || 1;
+
+      // Subscription time left calculation
+      let subscriptionTimeLeft = null;
+      if (user.subscriptionExpiryDate && user.subscriptionPlan !== 'free') {
+        const now = new Date();
+        const expiry = new Date(user.subscriptionExpiryDate);
+        const diffMs = expiry - now;
+        if (diffMs > 0) {
+          const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+          subscriptionTimeLeft = days > 0 ? `${days} days` : 'Less than 1 day';
+        } else {
+          subscriptionTimeLeft = 'Expired';
+        }
+      }
 
       return {
         ...user,
@@ -1179,8 +1223,24 @@ router.get('/admin/users-comprehensive', verifyToken, verifyAdmin, async (req, r
         engagementLevel: user.lastLoginAt && (Date.now() - new Date(user.lastLoginAt).getTime()) < (7 * 24 * 60 * 60 * 1000) ? 'high' : 'low',
         isActivePaidUser: user.subscriptionPlan !== 'free',
         isActiveStudent: user.studyList?.length > 0,
-        // accountValue is calculated on frontend based on payments
         lastActivity: p.lastActivity || user.lastLoginAt || user.updatedAt,
+        lastLoginAt: user.lastLoginAt,
+        // Subscription fields (explicit)
+        subscriptionPlan: user.subscriptionPlan || 'free',
+        subscriptionExpiryDate: user.subscriptionExpiryDate || null,
+        subscriptionActivatedAt: user.subscriptionActivatedAt || null,
+        subscriptionSource: user.subscriptionSource || null,
+        subscriptionDuration: user.subscriptionDuration || null,
+        subscriptionAmount: user.subscriptionAmount || null,
+        lastPaymentDate: user.lastPaymentDate || pay.lastPayment || null,
+        paymentStatus: user.paymentStatus || null,
+        subscriptionTimeLeft,
+        // Payment data from real transactions
+        paymentCount: pay.count || 0,
+        totalPaid: pay.total || 0,
+        hasPaid: (pay.count || 0) > 0,
+        lifetimeValue: pay.total || 0,
+        lastPaymentAmount: user.subscriptionAmount || null,
         // Learning Profile data (Learning DNA)
         learningProfile: lp ? {
           learningStyle: lp.learningStyle?.primary || 'visual',
@@ -1274,27 +1334,63 @@ router.get('/admin/users', verifyToken, verifyAdmin, async (req, res) => {
       User.countDocuments(filter)
     ]);
 
-    const enhancedUsers = users.map(user => ({
-      ...user,
-      studyListCount: user.studyList?.length || 0,
-      paymentCount: 0,
-      totalPaid: 0,
-      promocodeCount: 0,
-      userSegment: user.subscriptionPlan === 'free' ? 'free-inactive' : 'premium-active',
-      engagementLevel: user.lastLoginAt && (Date.now() - new Date(user.lastLoginAt).getTime()) < (7 * 24 * 60 * 60 * 1000) ? 'high' : 'low',
-      riskLevel: 'low',
-      isActivePaidUser: user.subscriptionPlan !== 'free',
-      isActiveStudent: user.studyList?.length > 0,
-      // accountValue is calculated on frontend
-      lastActivity: user.lastLoginAt || user.updatedAt,
-      analytics: {
-        studyDays: user.studyList?.length || 0,
-        totalLessonsDone: 0,
-        totalPoints: 0,
-        weeklyLessons: 0,
-        monthlyLessons: 0
+    // Aggregate payment data for these users
+    const firebaseIds = users.map(u => u.firebaseId);
+    const [paymePayments, multicardPayments] = await Promise.all([
+      PaymeTransaction.aggregate([
+        { $match: { user_id: { $in: firebaseIds }, state: 2 } },
+        { $group: { _id: '$user_id', count: { $sum: 1 }, total: { $sum: '$amount' } } }
+      ]),
+      MulticardTransaction.aggregate([
+        { $match: { firebaseUserId: { $in: firebaseIds }, status: 'paid' } },
+        { $group: { _id: '$firebaseUserId', count: { $sum: 1 }, total: { $sum: '$amount' } } }
+      ])
+    ]);
+
+    const paymentMap = {};
+    paymePayments.forEach(p => { paymentMap[p._id] = { count: p.count, total: p.total }; });
+    multicardPayments.forEach(p => {
+      if (paymentMap[p._id]) {
+        paymentMap[p._id].count += p.count;
+        paymentMap[p._id].total += p.total;
+      } else {
+        paymentMap[p._id] = { count: p.count, total: p.total };
       }
-    }));
+    });
+
+    const enhancedUsers = users.map(user => {
+      const pay = paymentMap[user.firebaseId] || {};
+      return {
+        ...user,
+        studyListCount: user.studyList?.length || 0,
+        paymentCount: pay.count || 0,
+        totalPaid: pay.total || 0,
+        hasPaid: (pay.count || 0) > 0,
+        promocodeCount: 0,
+        // Subscription fields
+        subscriptionPlan: user.subscriptionPlan || 'free',
+        subscriptionExpiryDate: user.subscriptionExpiryDate || null,
+        subscriptionActivatedAt: user.subscriptionActivatedAt || null,
+        subscriptionSource: user.subscriptionSource || null,
+        subscriptionDuration: user.subscriptionDuration || null,
+        subscriptionAmount: user.subscriptionAmount || null,
+        lastPaymentDate: user.lastPaymentDate || null,
+        paymentStatus: user.paymentStatus || null,
+        userSegment: user.subscriptionPlan === 'free' ? 'free-inactive' : 'premium-active',
+        engagementLevel: user.lastLoginAt && (Date.now() - new Date(user.lastLoginAt).getTime()) < (7 * 24 * 60 * 60 * 1000) ? 'high' : 'low',
+        riskLevel: 'low',
+        isActivePaidUser: user.subscriptionPlan !== 'free',
+        isActiveStudent: user.studyList?.length > 0,
+        lastActivity: user.lastLoginAt || user.updatedAt,
+        analytics: {
+          studyDays: user.studyList?.length || 0,
+          totalLessonsDone: 0,
+          totalPoints: 0,
+          weeklyLessons: 0,
+          monthlyLessons: 0
+        }
+      };
+    });
 
     res.json({
       success: true,
