@@ -220,8 +220,15 @@ const initiatePayment = async (req, res) => {
             console.warn(`⚠️  FRONTEND_URL not set. Using fallback: ${frontendUrl}`);
         }
 
+        // ✅ FIX: Safer store_id parsing
+        let parsedStoreId = parseInt(storeId);
+        if (isNaN(parsedStoreId) || parsedStoreId <= 0) {
+            console.warn(`⚠️ Invalid MULTICARD_STORE_ID: "${storeId}". Fallback to 2660.`);
+            parsedStoreId = 2660;
+        }
+
         const payload = {
-            store_id: parseInt(storeId), // Ensure store_id is integer
+            store_id: parsedStoreId, // Ensure store_id is a valid integer
             amount: finalAmount,
             invoice_id: invoiceId,
             callback_url: callbackUrl,
@@ -1146,7 +1153,12 @@ const createCardBindingSession = async (req, res) => {
         }
 
         const token = await getAuthToken();
-        const storeId = parseInt(process.env.MULTICARD_STORE_ID);
+        // ✅ FIX: Safer store_id parsing
+        let storeId = parseInt(process.env.MULTICARD_STORE_ID);
+        if (isNaN(storeId) || storeId <= 0) {
+            console.warn(`⚠️ Invalid MULTICARD_STORE_ID: "${process.env.MULTICARD_STORE_ID}". Fallback to 2660.`);
+            storeId = 2660;
+        }
 
         const finalCallbackUrl = callbackUrl || `${process.env.API_BASE_URL}/api/payments/multicard/card-binding/callback`;
 
