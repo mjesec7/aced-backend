@@ -401,120 +401,112 @@ const handleSuccessCallback = async (req, res) => {
 const handleWebhook = async (req, res) => {
     // ✅ WEBHOOK LOGGING: Track every webhook call for debugging
     console.log('🔔 MULTICARD WEBHOOK RECEIVED');
-    console.log('   Headers:', JSON.stringify(req.headers, null, 2));
+    // console.log('   Headers:', JSON.stringify(req.headers, null, 2)); // Too verbose
     console.log('   Body:', JSON.stringify(req.body, null, 2));
-    console.log('   Method:', req.method);
-    console.log('   URL:', req.originalUrl);
-    console.log('   IP:', req.ip);
 
-    const webhookData = req.body;
+    let webhookData = req.body;
+    let paymentData = {};
 
-    // Extract payment data from webhook
-    const payment = webhookData.payment;
+    // 1. Normalize Payload (Handle flat vs nested 'payment' object)
+    if (webhookData.payment) {
+        paymentData = webhookData.payment;
+        // Legacy/Wrapper format mapping
+        paymentData.invoice_id = paymentData.store_invoice_id || paymentData.invoice_id;
+    } else {
+        paymentData = webhookData;
+    }
 
-    if (!payment || !payment.store_invoice_id) {
-        console.error('❌ Invalid webhook data: store_invoice_id is missing.');
-        console.error('   Webhook data:', JSON.stringify(webhookData, null, 2));
-        return res.status(400).json({
-            success: false,
-            error: {
-                code: 'INVALID_WEBHOOK',
-                details: 'Missing store_invoice_id in webhook payload'
-            }
-        });
+    const {
+        store_id,
+        amount,
+        invoice_id,
+        billing_id,
+        payment_time,
+        uuid,
+        sign,
+        card_token,
+        card_pan,
+        status // 'success' implied if hitting this endpoint per spec? Or passed explicitly?
+    } = paymentData;
+
+    // 2. Validate Required Fields
+    if (!invoice_id || !amount || !store_id) {
+        console.error('❌ Invalid webhook data: Missing required fields (invoice_id, amount, store_id)');
+        return res.status(400).json({ success: false, message: 'Missing required fields' });
+    }
+
+    // 3. Signature Validation (MD5)
+    // format: {store_id}{invoice_id}{amount}{secret}
+    const secret = process.env.MULTICARD_SECRET;
+    if (secret && sign) {
+        const rawString = `${store_id}${invoice_id}${amount}${secret}`;
+        const calculatedSign = crypto.createHash('md5').update(rawString).digest('hex');
+
+        if (calculatedSign !== sign) {
+            console.error(`❌ Signature mismatch! Expected: ${calculatedSign}, Received: ${sign}`);
+            console.error(`   Raw string: ${store_id}${invoice_id}${amount}***`);
+            return res.status(400).json({ success: false, message: 'Invalid signature' });
+        }
+        console.log('✅ Signature verified');
+    } else {
+        console.warn('⚠️ Signature validation skipped (Missing secret or sign)');
     }
 
     try {
-        // Find the transaction using your internal invoice ID
-        const transaction = await MulticardTransaction.findOne({
-            invoiceId: payment.store_invoice_id
-        });
+        // 4. Find Transaction
+        const transaction = await MulticardTransaction.findOne({ invoiceId: invoice_id });
 
         if (!transaction) {
-            console.error(`❌ Transaction not found for invoice_id: ${payment.store_invoice_id}`);
-            return res.status(404).json({
-                success: false,
-                error: {
-                    code: 'TRANSACTION_NOT_FOUND',
-                    details: `Transaction not found for invoice_id: ${payment.store_invoice_id}`
-                }
-            });
+            console.error(`❌ Transaction not found for invoice_id: ${invoice_id}`);
+            return res.status(404).json({ success: false, message: 'Transaction not found' });
         }
 
-        // Idempotency check: If already processed, return success
-        if (transaction.status === 'paid' || transaction.status === 'failed' || transaction.status === 'canceled') {
-            return res.status(200).json({
-                success: true,
-                message: 'Webhook already processed'
-            });
+        // 5. Idempotency Check
+        if (transaction.status === 'paid') {
+            return res.status(200).json({ success: true, message: 'Already processed' });
         }
 
-        // Store the full webhook payload for auditing
+        // 6. Update Transaction
         transaction.webhookPayload = webhookData;
-        transaction.multicardUuid = payment.uuid;
+        transaction.multicardUuid = uuid;
+        if (billing_id) transaction.billingId = billing_id; // Store billing_id if present
+
+        // Update payment details
         transaction.paymentDetails = {
-            paymentAmount: payment.payment_amount,
-            commissionAmount: payment.commission_amount,
-            commissionType: payment.commission_type,
-            totalAmount: payment.total_amount,
-            ps: payment.ps, // Payment service (uzcard, humo, visa, etc.)
-            phone: payment.phone,
-            cardPan: payment.card_pan,
-            terminalId: payment.terminal_id,
-            merchantId: payment.merchant_id,
-            psUniqId: payment.ps_uniq_id, // RRN/RefNum
-            psResponseCode: payment.ps_response_code,
-            psResponseMsg: payment.ps_response_msg,
-            receiptUrl: payment.receipt_url,
-            paymentTime: payment.payment_time,
+            ...transaction.paymentDetails,
+            paymentAmount: amount,
+            cardPan: card_pan,
+            cardToken: card_token,
+            paymentTime: payment_time,
+            fullResponse: paymentData
         };
 
-        // Process based on payment status
-        // Status enum: draft, progress, billing, success, error, revert
-        if (payment.status === 'success') {
-            transaction.status = 'paid';
-            transaction.paidAt = new Date(payment.payment_time || Date.now());
+        // 7. Mark as Paid (Assumes callback implies success per OpenAPI)
+        // Spec says: "После успешного списания... отправляется callback"
+        transaction.status = 'paid';
+        transaction.paidAt = new Date(payment_time || Date.now());
 
-            // Find the user and grant them their subscription/purchase
-            const user = await User.findById(transaction.userId);
-            if (user) {
-                const { durationDays, durationMonths } = getDurationFromAmount(transaction.amount);
+        // 8. Grant Subscription
+        const user = await User.findById(transaction.userId);
+        if (user) {
+            const { durationDays, durationMonths } = getDurationFromAmount(transaction.amount);
+            await user.grantSubscription(transaction.plan || 'pro', durationDays, 'multicard', durationMonths);
 
-                await user.grantSubscription(transaction.plan || 'pro', durationDays, 'multicard', durationMonths);
-
-                user.subscriptionAmount = transaction.amount;
-                user.lastPaymentDate = new Date();
-                await user.save();
-            } else {
-                console.error(`❌ User not found: ${transaction.userId}`);
-            }
-        } else if (payment.status === 'revert') {
-            transaction.status = 'refunded';
-        } else if (payment.status === 'error') {
-            transaction.status = 'failed';
-            transaction.errorCode = payment.ps_response_code;
-            transaction.errorMessage = payment.ps_response_msg;
+            user.subscriptionAmount = transaction.amount;
+            user.lastPaymentDate = new Date();
+            await user.save();
+            console.log(`✅ Subscription granted to user ${user.email}`);
         } else {
-            // draft, progress, billing - transaction still pending
+            console.error(`❌ User not found linked to transaction: ${transaction.userId}`);
         }
 
         await transaction.save();
 
-        // Always return success to Multicard to prevent retries
-        res.status(200).json({
-            success: true,
-            message: 'Webhook processed successfully'
-        });
+        res.status(200).json({ success: true, message: 'Webhook processed' });
 
     } catch (error) {
         console.error('❌ Error processing webhook:', error.message);
-        res.status(500).json({
-            success: false,
-            error: {
-                code: 'INTERNAL_ERROR',
-                details: 'Failed to process webhook'
-            }
-        });
+        res.status(500).json({ success: false, message: 'Internal server error' });
     }
 };
 
