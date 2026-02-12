@@ -300,6 +300,7 @@ function validateObjectId(req, res, next) {
 router.post('/save', verifyToken, async (req, res) => {
   try {
     const uid = req.user.uid; // Correctly get UID from token
+    const { email } = req.body;
 
     // --- SECURITY FIX: STRICT VALIDATION & MASS ASSIGNMENT PROTECTION ---
 
@@ -331,7 +332,7 @@ router.post('/save', verifyToken, async (req, res) => {
       'schoolProfile'
     ];
 
-    // 3. Create a new object containing ONLY the allowed fields from req.body
+    // 3. Create a new object containing ONLY the allowed fields
     const updates = {};
     bodyKeys.forEach((key) => {
       if (allowedUpdates.includes(key)) {
@@ -339,27 +340,56 @@ router.post('/save', verifyToken, async (req, res) => {
       }
     });
 
-    // Always set Login: prefer email, fallback to Firebase UID
-    // This prevents null Login in unique index and ensures PayMe compatibility
-    updates.Login = updates.email || uid;
-    updates.lastLoginAt = new Date();
-    // ------------------------------------------------
+    // Always keep Login and Email in sync if email is provided
+    if (updates.email) {
+      updates.Login = updates.email;
+    }
+    updates.lastLoginAt = new Date(); // Always update login time
 
-    // Update using the 'updates' object, NOT 'req.body'
-    // ✅ FIX: Use findOneAndUpdate with upsert to prevent VersionError
-    const user = await User.findOneAndUpdate(
-      { firebaseId: uid }, // Use the verified UID
-      {
-        $set: updates,
-        $setOnInsert: { firebaseId: uid, email: updates.email || uid } // Ensure firebaseId and email are set on creation
-      },
-      {
-        new: true,
-        upsert: true,
-        setDefaultsOnInsert: true,
-        runValidators: true
+    // --- ✅ SMART ACCOUNT RESOLUTION LOGIC ---
+
+    // Step 1: Try to find user by Firebase ID (Standard case)
+    let user = await User.findOne({ firebaseId: uid });
+
+    // Step 2: If not found, try to find by Email (Account Healing case)
+    if (!user && updates.email) {
+      console.log(`🔍 User not found by UID ${uid}, checking email ${updates.email}...`);
+      const existingUserByEmail = await User.findOne({ email: updates.email });
+
+      if (existingUserByEmail) {
+        // Found a user with this email but different/missing UID. 
+        // This is the "orphaned" account. We should claim it.
+        console.log(`🔗 Linking existing user ${existingUserByEmail.email} to new UID ${uid}`);
+
+        // Security check: Only allow linking if the existing user doesn't have a DIFFERENT Firebase ID
+        // (or if we decide to overwrite it - for now, assuming if they authenticated with this email via Firebase, they own it)
+        user = existingUserByEmail;
+        user.firebaseId = uid; // Link the account
       }
-    );
+    }
+
+    // Step 3: Perform Update or Create
+    if (user) {
+      // UPDATE existing user
+      Object.keys(updates).forEach(key => {
+        user[key] = updates[key];
+      });
+
+      // Ensure firebaseId is set (in case it was missing on the found doc)
+      if (!user.firebaseId) user.firebaseId = uid;
+
+      await user.save();
+    } else {
+      // CREATE new user
+      updates.firebaseId = uid;
+      updates.Login = updates.email || uid; // Fallback for Login
+      updates.subscriptionPlan = 'free'; // Default for new users
+
+      user = await User.create(updates);
+      console.log(`✨ Created new user for ${uid}`);
+    }
+
+    // --- RESPONSE ---
 
     // ✅ CRITICAL: Return all status fields
     const responseUser = {
@@ -393,13 +423,15 @@ router.post('/save', verifyToken, async (req, res) => {
   } catch (err) {
     console.error('❌ User save error:', err.message, err.code || '');
 
-    // Handle duplicate key errors specifically
+    // Handle duplicate key errors specifically (in case of race conditions or other conflicts)
     if (err.code === 11000) {
       const field = Object.keys(err.keyPattern || {})[0] || 'unknown';
+      // If we *still* get a conflict here, it means the email is taken by YET ANOTHER user
+      // that isn't the one we found.
       return res.status(409).json({
         success: false,
         error: `Duplicate ${field} value`,
-        details: `A user with this ${field} already exists`
+        details: `This ${field} is already associated with another account.`
       });
     }
 
