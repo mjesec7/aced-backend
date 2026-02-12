@@ -238,6 +238,11 @@ const initiatePayment = async (req, res) => {
             ofd: ofdData
         };
 
+        // Add billing_id if provided (for recurring payments or specific billing flows)
+        if (req.body.billing_id) {
+            payload.billing_id = req.body.billing_id;
+        }
+
         console.log('🚀 Sending Multicard Invoice Request:', JSON.stringify(payload, null, 2));
 
         // Add optional SMS field if provided
