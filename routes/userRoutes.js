@@ -568,7 +568,574 @@ async function makeAIRequest(userInput, imageUrl, lessonId) {
 }
 
 // ========================================
-// 📄 USER INFO ROUTES
+// � ADMIN & MISC ROUTES (MOVED HERE - MUST BE BEFORE /:userId CATCH-ALL)
+// ========================================
+
+// ✅ NEW: POST /api/users/admin/:userId/reset-subscription - Reset subscription to free (admin)
+// 🔒 SECURITY: Added verifyAdmin middleware
+router.post('/admin/:userId/reset-subscription', validateUserId, verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { reason } = req.body;
+
+    const user = await User.findOne({
+      $or: [
+        { firebaseId: userId },
+        { _id: mongoose.Types.ObjectId.isValid(userId) ? userId : null }
+      ]
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    const previousPlan = user.subscriptionPlan;
+    const previousExpiry = user.subscriptionExpiryDate;
+
+    // Reset all subscription fields to free
+    user.subscriptionPlan = 'free';
+    user.userStatus = 'free';
+    user.plan = 'free';
+    user.subscriptionExpiryDate = null;
+    user.subscriptionActivatedAt = null;
+    user.subscriptionSource = null;
+    user.subscriptionDuration = null;
+    user.lastStatusUpdate = new Date();
+    user.statusSource = 'admin_reset';
+
+    // Track the reset in a new field
+    if (!user.subscriptionHistory) user.subscriptionHistory = [];
+    user.subscriptionHistory.push({
+      action: 'admin_reset',
+      previousPlan: previousPlan,
+      previousExpiry: previousExpiry,
+      resetAt: new Date(),
+      reason: reason || 'Admin reset'
+    });
+
+    await user.save();
+
+    // ✅ SYNC WITH FIREBASE (Firestore & Auth Claims)
+    // This ensures the frontend updates immediately
+    try {
+      const admin = require('../config/firebase');
+      if (admin && user.firebaseId) {
+        // 1. Update Firestore Document
+        await admin.firestore().collection('users').doc(user.firebaseId).set({
+          subscriptionPlan: 'free',
+          plan: 'free',
+          subscriptionExpiryDate: null,
+          subscriptionStatus: 'free',
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+
+        // 2. Update Custom Claims
+        await admin.auth().setCustomUserClaims(user.firebaseId, {
+          plan: 'free',
+          status: 'free'
+        });
+
+
+      }
+    } catch (firebaseError) {
+      console.error('⚠️ Failed to sync reset with Firebase:', firebaseError);
+      // Don't fail the request, just log it
+    }
+
+
+
+    res.json({
+      success: true,
+      message: `User subscription reset to free successfully`,
+      user: {
+        firebaseId: user.firebaseId,
+        email: user.email,
+        previousPlan: previousPlan,
+        previousExpiry: previousExpiry,
+        subscriptionPlan: 'free',
+        subscriptionExpiryDate: null
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error resetting subscription:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to reset subscription'
+    });
+  }
+});
+
+// ✅ NEW: POST /api/users/admin/:userId/extend-subscription - Extend subscription (admin)
+// 🔒 SECURITY: Added verifyAdmin middleware
+router.post('/admin/:userId/extend-subscription', validateUserId, verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { days = 30 } = req.body;
+
+    const user = await User.findOne({
+      $or: [
+        { firebaseId: userId },
+        { _id: mongoose.Types.ObjectId.isValid(userId) ? userId : null }
+      ]
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    if (user.subscriptionPlan === 'free') {
+      return res.status(400).json({
+        success: false,
+        error: 'User has no active subscription to extend'
+      });
+    }
+
+    const now = new Date();
+    let newExpiry;
+
+    if (user.subscriptionExpiryDate && new Date(user.subscriptionExpiryDate) > now) {
+      newExpiry = new Date(new Date(user.subscriptionExpiryDate).getTime() + (days * 24 * 60 * 60 * 1000));
+    } else {
+      newExpiry = new Date(now.getTime() + (days * 24 * 60 * 60 * 1000));
+    }
+
+    user.subscriptionExpiryDate = newExpiry;
+    user.lastExtendedAt = now;
+    user.lastExtensionDays = days;
+
+    await user.save();
+
+
+
+    res.json({
+      success: true,
+      message: `Subscription extended by ${days} days`,
+      user: {
+        subscriptionPlan: user.subscriptionPlan,
+        subscriptionExpiryDate: newExpiry,
+        daysExtended: days
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error extending subscription:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to extend subscription'
+    });
+  }
+});
+
+// ✅ NEW: GET /api/users/admin/users-comprehensive - Get users with REAL progress data
+// 🔒 SECURITY: Added verifyAdmin middleware
+router.get('/admin/users-comprehensive', verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const { page = 1, limit = 50, search = '', plan = '', status = '' } = req.query;
+    let filter = {};
+    if (search) {
+      filter.$or = [
+        { email: { $regex: search, $options: 'i' } },
+        { name: { $regex: search, $options: 'i' } },
+        { Login: { $regex: search, $options: 'i' } }
+      ];
+    }
+    if (plan && plan !== 'all') filter.subscriptionPlan = plan;
+    if (status === 'active') filter.isBlocked = { $ne: true };
+    else if (status === 'blocked') filter.isBlocked = true;
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const [users, total] = await Promise.all([
+      User.find(filter).sort({ lastLoginAt: -1, createdAt: -1 }).skip(skip).limit(parseInt(limit)).lean(),
+      User.countDocuments(filter)
+    ]);
+
+    // Fetch ALL progress data in bulk for efficiency
+    const firebaseIds = users.map(u => u.firebaseId);
+
+    // Fetch progress, rewards, learning profiles, and payment data in parallel
+    const [allProgress, allRewards, allProfiles, paymePayments, multicardPayments] = await Promise.all([
+      UserProgress.aggregate([
+        { $match: { userId: { $in: firebaseIds } } },
+        {
+          $group: {
+            _id: '$userId',
+            totalLessons: { $sum: 1 },
+            completedLessons: { $sum: { $cond: ['$completed', 1, 0] } },
+            totalPoints: { $sum: '$points' },
+            totalStars: { $sum: '$stars' },
+            totalMistakes: { $sum: '$mistakes' },
+            totalHints: { $sum: '$hintsUsed' },
+            totalDuration: { $sum: '$duration' },
+            goldMedals: { $sum: { $cond: [{ $eq: ['$medal', 'gold'] }, 1, 0] } },
+            silverMedals: { $sum: { $cond: [{ $eq: ['$medal', 'silver'] }, 1, 0] } },
+            bronzeMedals: { $sum: { $cond: [{ $eq: ['$medal', 'bronze'] }, 1, 0] } },
+            perfectScores: { $sum: { $cond: [{ $eq: ['$stars', 3] }, 1, 0] } },
+            gamesCompleted: { $sum: { $ifNull: ['$gamesCompleted', 0] } },
+            lastActivity: { $max: '$lastAccessedAt' }
+          }
+        }
+      ]),
+      // Try to get Rewards model (defined in userProgressRoutes.js)
+      mongoose.models.Rewards ? mongoose.models.Rewards.find({ userId: { $in: firebaseIds } }).lean() : Promise.resolve([]),
+      // Try to get LearningProfile model (defined in userProgressRoutes.js)
+      mongoose.models.LearningProfile ? mongoose.models.LearningProfile.find({ userId: { $in: firebaseIds } }).lean() : Promise.resolve([]),
+      // Aggregate Payme payments (completed = state 2)
+      PaymeTransaction.aggregate([
+        { $match: { user_id: { $in: firebaseIds }, state: 2 } },
+        { $group: { _id: '$user_id', count: { $sum: 1 }, total: { $sum: '$amount' }, lastPayment: { $max: '$perform_time' } } }
+      ]),
+      // Aggregate Multicard payments (completed = status 'paid')
+      MulticardTransaction.aggregate([
+        { $match: { firebaseUserId: { $in: firebaseIds }, status: 'paid' } },
+        { $group: { _id: '$firebaseUserId', count: { $sum: 1 }, total: { $sum: '$amount' }, lastPayment: { $max: '$paidAt' } } }
+      ])
+    ]);
+
+    const progressMap = {};
+    allProgress.forEach(p => { progressMap[p._id] = p; });
+
+    const rewardsMap = {};
+    allRewards.forEach(r => { rewardsMap[r.userId] = r; });
+
+    const profileMap = {};
+    allProfiles.forEach(lp => { profileMap[lp.userId] = lp; });
+
+    // Build combined payment map from both Payme and Multicard
+    const paymentMap = {};
+    paymePayments.forEach(p => {
+      paymentMap[p._id] = { count: p.count, total: p.total, lastPayment: p.lastPayment };
+    });
+    multicardPayments.forEach(p => {
+      if (paymentMap[p._id]) {
+        paymentMap[p._id].count += p.count;
+        paymentMap[p._id].total += p.total;
+        if (p.lastPayment && (!paymentMap[p._id].lastPayment || p.lastPayment > paymentMap[p._id].lastPayment)) {
+          paymentMap[p._id].lastPayment = p.lastPayment;
+        }
+      } else {
+        paymentMap[p._id] = { count: p.count, total: p.total, lastPayment: p.lastPayment };
+      }
+    });
+
+    const determineLearnerType = (p, lp) => {
+      if (lp?.cognitiveProfile) {
+        // Use learning profile data if available
+        const cognitive = lp.cognitiveProfile;
+        const strengths = Object.entries(cognitive).sort((a, b) => b[1] - a[1]);
+        const topStrength = strengths[0]?.[0];
+        if (topStrength === 'logicalMathematical') return 'analytical';
+        if (topStrength === 'visualSpatial') return 'visual-learner';
+        if (topStrength === 'verbalLinguistic') return 'verbal-learner';
+      }
+      if (!p || !p.totalLessons) return 'new';
+      const accuracy = p.totalMistakes > 0 ? (p.completedLessons / (p.completedLessons + p.totalMistakes)) * 100 : 100;
+      const avgStars = p.completedLessons > 0 ? p.totalStars / p.completedLessons : 0;
+      const hints = p.completedLessons > 0 ? p.totalHints / p.completedLessons : 0;
+      if (avgStars >= 2.5 && accuracy >= 85 && hints < 1) return 'fast-learner';
+      if (hints > 3 || accuracy < 50) return 'needs-support';
+      if ((p.gamesCompleted || 0) > p.completedLessons * 0.5) return 'game-oriented';
+      if (p.completedLessons >= 10 && accuracy >= 70) return 'consistent';
+      return 'explorer';
+    };
+
+    const enhancedUsers = users.map(user => {
+      const p = progressMap[user.firebaseId] || {};
+      const r = rewardsMap[user.firebaseId] || {};
+      const lp = profileMap[user.firebaseId] || {};
+      const pay = paymentMap[user.firebaseId] || {};
+
+      // Use rewards data (points, streak) - this is the real source
+      const totalPoints = r.totalPoints || p.totalPoints || user.totalPoints || 0;
+      const streak = r.streak || 0;
+      const level = r.level || 1;
+
+      // Subscription time left calculation
+      let subscriptionTimeLeft = null;
+      if (user.subscriptionExpiryDate && user.subscriptionPlan !== 'free') {
+        const now = new Date();
+        const expiry = new Date(user.subscriptionExpiryDate);
+        const diffMs = expiry - now;
+        if (diffMs > 0) {
+          const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+          subscriptionTimeLeft = days > 0 ? `${days} days` : 'Less than 1 day';
+        } else {
+          subscriptionTimeLeft = 'Expired';
+        }
+      }
+
+      return {
+        ...user,
+        studyListCount: user.studyList?.length || 0,
+        learnerType: determineLearnerType(p, lp),
+        learningMode: user.learningMode || 'study_centre',
+        userSegment: user.subscriptionPlan === 'free' ? 'free-inactive' : 'premium-active',
+        engagementLevel: user.lastLoginAt && (Date.now() - new Date(user.lastLoginAt).getTime()) < (7 * 24 * 60 * 60 * 1000) ? 'high' : 'low',
+        isActivePaidUser: user.subscriptionPlan !== 'free',
+        isActiveStudent: user.studyList?.length > 0,
+        lastActivity: p.lastActivity || user.lastLoginAt || user.updatedAt,
+        lastLoginAt: user.lastLoginAt,
+        // Subscription fields (explicit)
+        subscriptionPlan: user.subscriptionPlan || 'free',
+        subscriptionExpiryDate: user.subscriptionExpiryDate || null,
+        subscriptionActivatedAt: user.subscriptionActivatedAt || null,
+        subscriptionSource: user.subscriptionSource || null,
+        subscriptionDuration: user.subscriptionDuration || null,
+        subscriptionAmount: user.subscriptionAmount || null,
+        lastPaymentDate: user.lastPaymentDate || pay.lastPayment || null,
+        paymentStatus: user.paymentStatus || null,
+        subscriptionTimeLeft,
+        // Payment data from real transactions
+        paymentCount: pay.count || 0,
+        totalPaid: pay.total || 0,
+        hasPaid: (pay.count || 0) > 0,
+        lifetimeValue: pay.total || 0,
+        lastPaymentAmount: user.subscriptionAmount || null,
+        // Learning Profile data (Learning DNA)
+        learningProfile: lp ? {
+          learningStyle: lp.learningStyle?.primary || 'visual',
+          chronotype: lp.chronotype?.type || 'third-bird',
+          cognitiveStrengths: lp.cognitiveProfile || {},
+          optimalSessionLength: lp.optimalSessionLength || 30,
+          difficulty: lp.difficulty || 0.7
+        } : null,
+        // Rewards data (Points, Streak, Level)
+        rewards: {
+          totalPoints,
+          streak,
+          level,
+          currentLevelProgress: r.currentLevelProgress || 0,
+          achievements: r.achievements?.length || 0
+        },
+        analytics: {
+          totalLessonsDone: p.completedLessons || 0,
+          totalLessonsStarted: p.totalLessons || 0,
+          totalPoints: totalPoints,
+          totalStars: p.totalStars || 0,
+          totalMistakes: p.totalMistakes || 0,
+          totalHints: p.totalHints || 0,
+          durationMinutes: Math.round((p.totalDuration || 0) / 60),
+          goldMedals: p.goldMedals || 0,
+          silverMedals: p.silverMedals || 0,
+          bronzeMedals: p.bronzeMedals || 0,
+          perfectScores: p.perfectScores || 0,
+          gamesCompleted: p.gamesCompleted || 0,
+          streak: streak,
+          level: level,
+          accuracy: p.completedLessons > 0 ? Math.round((p.completedLessons / (p.completedLessons + (p.totalMistakes || 0))) * 100) : 0,
+          avgStars: p.completedLessons > 0 ? Math.round((p.totalStars / p.completedLessons) * 100) / 100 : 0
+        }
+      };
+    });
+
+    res.json({
+      success: true,
+      users: enhancedUsers,
+      pagination: { page: parseInt(page), limit: parseInt(limit), total, pages: Math.ceil(total / parseInt(limit)) },
+      dataSource: 'comprehensive_backend',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('❌ Error fetching comprehensive users:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch users', details: error.message });
+  }
+});
+
+// ✅ NEW: GET /api/users/admin/users - Get all users (admin)
+// 🔒 SECURITY: Added verifyAdmin middleware
+router.get('/admin/users', verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 50,
+      search = '',
+      plan = '',
+      status = ''
+    } = req.query;
+
+    const filter = {};
+
+    if (search) {
+      filter.$or = [
+        { email: { $regex: search, $options: 'i' } },
+        { name: { $regex: search, $options: 'i' } },
+        { firebaseId: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    if (plan && plan !== 'all') {
+      filter.subscriptionPlan = plan;
+    }
+
+    if (status === 'active') {
+      filter.isBlocked = { $ne: true };
+    } else if (status === 'blocked') {
+      filter.isBlocked = true;
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const [users, total] = await Promise.all([
+      User.find(filter)
+        .sort({ lastLoginAt: -1, createdAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean(),
+      User.countDocuments(filter)
+    ]);
+
+    // Aggregate payment data for these users
+    const firebaseIds = users.map(u => u.firebaseId);
+    const [paymePayments, multicardPayments] = await Promise.all([
+      PaymeTransaction.aggregate([
+        { $match: { user_id: { $in: firebaseIds }, state: 2 } },
+        { $group: { _id: '$user_id', count: { $sum: 1 }, total: { $sum: '$amount' } } }
+      ]),
+      MulticardTransaction.aggregate([
+        { $match: { firebaseUserId: { $in: firebaseIds }, status: 'paid' } },
+        { $group: { _id: '$firebaseUserId', count: { $sum: 1 }, total: { $sum: '$amount' } } }
+      ])
+    ]);
+
+    const paymentMap = {};
+    paymePayments.forEach(p => { paymentMap[p._id] = { count: p.count, total: p.total }; });
+    multicardPayments.forEach(p => {
+      if (paymentMap[p._id]) {
+        paymentMap[p._id].count += p.count;
+        paymentMap[p._id].total += p.total;
+      } else {
+        paymentMap[p._id] = { count: p.count, total: p.total };
+      }
+    });
+
+    const enhancedUsers = users.map(user => {
+      const pay = paymentMap[user.firebaseId] || {};
+      return {
+        ...user,
+        studyListCount: user.studyList?.length || 0,
+        paymentCount: pay.count || 0,
+        totalPaid: pay.total || 0,
+        hasPaid: (pay.count || 0) > 0,
+        promocodeCount: 0,
+        // Subscription fields
+        subscriptionPlan: user.subscriptionPlan || 'free',
+        subscriptionExpiryDate: user.subscriptionExpiryDate || null,
+        subscriptionActivatedAt: user.subscriptionActivatedAt || null,
+        subscriptionSource: user.subscriptionSource || null,
+        subscriptionDuration: user.subscriptionDuration || null,
+        subscriptionAmount: user.subscriptionAmount || null,
+        lastPaymentDate: user.lastPaymentDate || null,
+        paymentStatus: user.paymentStatus || null,
+        userSegment: user.subscriptionPlan === 'free' ? 'free-inactive' : 'premium-active',
+        engagementLevel: user.lastLoginAt && (Date.now() - new Date(user.lastLoginAt).getTime()) < (7 * 24 * 60 * 60 * 1000) ? 'high' : 'low',
+        riskLevel: 'low',
+        isActivePaidUser: user.subscriptionPlan !== 'free',
+        isActiveStudent: user.studyList?.length > 0,
+        lastActivity: user.lastLoginAt || user.updatedAt,
+        analytics: {
+          studyDays: user.studyList?.length || 0,
+          totalLessonsDone: 0,
+          totalPoints: 0,
+          weeklyLessons: 0,
+          monthlyLessons: 0
+        }
+      };
+    });
+
+    res.json({
+      success: true,
+      users: enhancedUsers,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit))
+      },
+      dataSource: 'real_backend',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('❌ Error fetching admin users:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch users',
+      details: error.message
+    });
+  }
+});
+
+// ✅ NEW: GET /api/users/all - Get all users list
+// 🔒 SECURITY: Added verifyAdmin middleware, removed sensitive fields from response
+router.get('/all', verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    // 🔒 SECURITY: Don't expose email in list view, only for admin detail views
+    const users = await User.find({})
+      .select('firebaseId name subscriptionPlan isBlocked createdAt lastLoginAt')
+      .sort({ lastLoginAt: -1, createdAt: -1 })
+      .limit(100)
+      .lean();
+
+    res.json({
+      success: true,
+      data: users,
+      count: users.length,
+      dataSource: 'real_backend',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('❌ Error fetching all users:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch users',
+      details: error.message
+    });
+  }
+});
+
+// ✅ NEW: GET /api/users/test - Test endpoint
+router.get('/test', (req, res) => {
+  JSON.stringify(res.json({
+    message: '✅ User routes are working',
+    server: 'api.aced.live',
+    timestamp: new Date().toISOString(),
+    routes: [
+      'POST /api/users/save',
+      'GET /api/users/:userId',
+      'GET /api/users/:firebaseId/status',
+      'PUT /api/users/:userId/status',
+      'GET /api/users/:userId/subscription-status',
+      'GET /api/users/:firebaseId/usage/:monthKey',
+      'POST /api/users/chat',
+      'GET /api/users/:firebaseId/recommendations',
+      'GET /api/users/:firebaseId/homeworks',
+      'GET /api/users/:firebaseId/tests',
+      'POST /api/users/:firebaseId/tests/:testId/submit',
+      'GET /api/users/:firebaseId/homework/:homeworkId',
+      'POST /api/users/:firebaseId/homework/:homeworkId/submit',
+      'POST /api/users/:firebaseId/lesson/:lessonId',
+      'POST /api/users/:firebaseId/progress/save',
+      'GET /api/users/:firebaseId/study-list',
+      'POST /api/users/:firebaseId/study-list',
+      'DELETE /api/users/:firebaseId/study-list/:topicId',
+      'GET /api/users/:firebaseId/progress',
+      'GET /api/users/:firebaseId/analytics',
+      'GET /api/users/:firebaseId/diary',
+      'POST /api/users/:firebaseId/diary',
+      'POST /api/users/admin/:userId/extend-subscription',
+      'GET /api/users/admin/users-comprehensive',
+      'GET /api/users/admin/users',
+      'GET /api/users/all',
+      'GET /api/users/test'
+    ]
+  }));
+});
+
+// ========================================
+// �📄 USER INFO ROUTES
 // ========================================
 
 // ✅ UPDATED: Replaced old /:firebaseId route with new /:userId route
