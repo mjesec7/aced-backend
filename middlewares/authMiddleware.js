@@ -237,22 +237,6 @@ const verifyAdmin = async (req, res, next) => {
     });
   }
 };
-        message: 'You do not have permission to perform this action'
-      });
-    }
-
-    // User is admin, proceed
-    req.isAdmin = true;
-    next();
-
-  } catch (error) {
-    console.error('❌ Admin verification failed:', error.message);
-    return res.status(500).json({
-      success: false,
-      error: 'Admin verification failed'
-    });
-  }
-};
 
 // Export both middlewares
 module.exports = authenticateUser;
