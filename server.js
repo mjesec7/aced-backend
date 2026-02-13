@@ -51,7 +51,7 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
     'https://checkout.multicard.uz',
     'https://dev-checkout.multicard.uz',
     // ElevenLabs WebSocket Helper (Optional, if you proxy audio)
-    'wss://api.elevenlabs.io' 
+    'wss://api.elevenlabs.io'
   ];
 
 if (process.env.NODE_ENV === 'development') {
@@ -356,6 +356,34 @@ if (fs.existsSync(distPath)) {
 // ========================================
 
 app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+
+  // ========================================
+  // 📅 SUBSCRIPTION EXPIRY CHECKER
+  // ========================================
+  const { checkExpiredSubscriptions } = require('./utils/subscriptionChecker');
+
+  // Run once on startup (after DB connects)
+  setTimeout(async () => {
+    try {
+      const result = await checkExpiredSubscriptions();
+      console.log('📅 Subscription expiry check (startup):', result);
+    } catch (err) {
+      console.error('❌ Startup subscription check failed:', err.message);
+    }
+  }, 10000); // Wait 10s for DB connection
+
+  // Run every hour
+  setInterval(async () => {
+    try {
+      const result = await checkExpiredSubscriptions();
+      if (result.expired > 0) {
+        console.log(`📅 Expired ${result.expired} subscription(s)`);
+      }
+    } catch (err) {
+      console.error('❌ Scheduled subscription check failed:', err.message);
+    }
+  }, 60 * 60 * 1000); // Every 1 hour
 });
 
 module.exports = app;

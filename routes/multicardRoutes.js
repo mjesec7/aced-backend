@@ -80,6 +80,62 @@ router.post('/webhook/test', (req, res) => {
 });
 
 // ============================================
+// 💳 USER PAYMENT HISTORY (AUTHENTICATED)
+// ============================================
+
+/**
+ * Get current user's payment transactions
+ * Used by AcedSettings to display payment history
+ */
+router.get('/my-transactions', async (req, res) => {
+    try {
+        // Get user from auth middleware (firebaseId set by verifyToken)
+        const firebaseId = req.user?.uid || req.user?.firebaseId;
+        if (!firebaseId) {
+            return res.status(401).json({ success: false, message: 'Authentication required' });
+        }
+
+        // Find user to get MongoDB _id
+        const User = require('../models/user');
+        const user = await User.findOne({ firebaseId });
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        // Fetch transactions for this user
+        const transactions = await MulticardTransaction.find({
+            userId: user._id,
+            transactionType: 'payment'
+        })
+            .sort({ createdAt: -1 })
+            .limit(50)
+            .select('invoiceId amount plan status cardPan ps paidAt createdAt paymentDetails.receiptUrl');
+
+        const formattedTransactions = transactions.map(tx => ({
+            id: tx._id,
+            invoiceId: tx.invoiceId,
+            amount: tx.amount ? Math.round(tx.amount / 100) : 0, // tiyin → UZS
+            plan: tx.plan || 'pro',
+            status: tx.status,
+            cardPan: tx.cardPan || null,
+            paymentSystem: tx.ps || null,
+            receiptUrl: tx.paymentDetails?.receiptUrl || null,
+            paidAt: tx.paidAt || null,
+            createdAt: tx.createdAt
+        }));
+
+        res.json({
+            success: true,
+            count: formattedTransactions.length,
+            transactions: formattedTransactions
+        });
+    } catch (error) {
+        console.error('❌ Error fetching user transactions:', error.message);
+        res.status(500).json({ success: false, message: 'Failed to fetch transactions' });
+    }
+});
+
+// ============================================
 // DEBUG / TEST ROUTES (Place these first)
 // ============================================
 
