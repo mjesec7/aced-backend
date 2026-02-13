@@ -478,6 +478,38 @@ router.delete('/variables/:key', (req, res) => {
 });
 
 // ============================================
+// USER TRANSACTION HISTORY
+// ============================================
+
+// Get current user's transactions (requires auth)
+router.get('/my-transactions', async (req, res) => {
+    try {
+        const firebaseUid = req.user && req.user.uid;
+        if (!firebaseUid) {
+            return res.status(401).json({ success: false, error: 'Authentication required' });
+        }
+
+        const transactions = await MulticardTransaction.find({
+            $or: [
+                { firebaseUserId: firebaseUid },
+                { userId: firebaseUid }
+            ]
+        })
+            .sort({ createdAt: -1 })
+            .limit(50)
+            .select('invoiceId multicardUuid status amount plan createdAt checkoutUrl transactionType');
+
+        res.json({
+            success: true,
+            transactions
+        });
+    } catch (error) {
+        console.error('❌ Error fetching user transactions:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
 // CATCH-ALL ERROR HANDLER
 // ============================================
 

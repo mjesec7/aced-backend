@@ -303,7 +303,7 @@ router.post('/save', verifyToken, async (req, res) => {
       { firebaseId: uid }, // Use the verified UID
       {
         $set: updates,
-        $setOnInsert: { firebaseId: uid, email: updates.email || uid } // Ensure firebaseId and email are set on creation
+        $setOnInsert: { firebaseId: uid } // Only set fields NOT already in $set
       },
       {
         new: true,
