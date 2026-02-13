@@ -173,22 +173,22 @@ const initiatePayment = async (req, res) => {
 
         // Fallback: Construct from request if API_BASE_URL not set
         if (!apiBaseUrl) {
-            const protocol = req.protocol || 'https';
             const host = process.env.API_HOST || req.get('host') || 'api.aced.live';
-            apiBaseUrl = `${protocol}://${host}`;
+            // ALWAYS use HTTPS for callback URLs (Railway/proxies report HTTP internally)
+            apiBaseUrl = `https://${host}`;
             console.warn(`⚠️  API_BASE_URL not set. Using fallback: ${apiBaseUrl}`);
         }
 
-        // Verify callback URL is HTTPS in production
-        if (process.env.NODE_ENV === 'production' && !apiBaseUrl.startsWith('https://')) {
-            console.warn(`⚠️  API_BASE_URL is not HTTPS: ${apiBaseUrl}`);
-            console.warn('   Multicard requires HTTPS callbacks in production. This may cause webhook failures.');
+        // Force HTTPS on callback URL (Multicard requires HTTPS, HTTP causes 301 redirect)
+        if (apiBaseUrl.startsWith('http://')) {
+            apiBaseUrl = apiBaseUrl.replace('http://', 'https://');
+            console.warn(`⚠️  Forced API_BASE_URL to HTTPS: ${apiBaseUrl}`);
         }
 
         const callbackUrl = `${apiBaseUrl}/api/payments/multicard/webhook`;
         console.log('📋 Callback URL for Multicard:', callbackUrl);
 
-        // store_id must be sent as string per API docs (ID (int) or UUID (string))
+        // store_id: Multicard API accepts both integer IDs and UUID strings
         const storeId = process.env.MULTICARD_STORE_ID || '2660';
 
         // Normalize amount (frontend may send UZS or tiyin). Use defaults in tiyin.
@@ -220,15 +220,24 @@ const initiatePayment = async (req, res) => {
             console.warn(`⚠️  FRONTEND_URL not set. Using fallback: ${frontendUrl}`);
         }
 
-        // ✅ FIX: Safer store_id parsing
-        let parsedStoreId = parseInt(storeId);
-        if (isNaN(parsedStoreId) || parsedStoreId <= 0) {
+        // ✅ FIX: Accept both UUID and integer store_id from Multicard
+        // Multicard API supports store_id as int OR uuid string
+        let parsedStoreId = storeId;
+        const numericStoreId = parseInt(storeId);
+        if (!isNaN(numericStoreId) && numericStoreId > 0 && String(numericStoreId) === storeId.trim()) {
+            // It's a pure integer string like "2660"
+            parsedStoreId = numericStoreId;
+        } else if (storeId && storeId.length > 0) {
+            // It's a UUID or other string format - send as-is
+            parsedStoreId = storeId.trim();
+            console.log(`ℹ️  Using UUID store_id: ${parsedStoreId}`);
+        } else {
             console.warn(`⚠️ Invalid MULTICARD_STORE_ID: "${storeId}". Fallback to 2660.`);
             parsedStoreId = 2660;
         }
 
         const payload = {
-            store_id: parsedStoreId, // Ensure store_id is a valid integer
+            store_id: parsedStoreId, // UUID string or integer
             amount: finalAmount,
             invoice_id: invoiceId,
             callback_url: callbackUrl,
@@ -453,36 +462,26 @@ const handleWebhook = async (req, res) => {
             return res.status(200).json({ success: true, message: 'Acknowledged (missing fields logged)' });
         }
 
-        // Signature Verification
+        // Signature Verification — MD5 per Multicard docs:
+        // "sign формируется как md5-хеш от строки: {store_id}{invoice_id}{amount}{secret}"
         const secret = process.env.MULTICARD_SECRET;
         if (secret && sign) {
-            let calculatedSign;
-            let rawStringForLog;
-
-            if (isWebhookCallback) {
-                // Webhook: SHA1({uuid}{invoice_id}{amount}{secret})
-                const rawString = `${uuid}${invoice_id}${amount}${secret}`;
-                calculatedSign = crypto.createHash('sha1').update(rawString).digest('hex');
-                rawStringForLog = `${uuid}${invoice_id}${amount}***`;
-            } else {
-                // Success callback: MD5({store_id}{invoice_id}{amount}{secret})
-                const rawString = `${store_id}${invoice_id}${amount}${secret}`;
-                calculatedSign = crypto.createHash('md5').update(rawString).digest('hex');
-                rawStringForLog = `${store_id}${invoice_id}${amount}***`;
-            }
+            // Use store_id from webhook payload, or fallback to env var
+            const signStoreId = store_id || process.env.MULTICARD_STORE_ID || '';
+            const rawString = `${signStoreId}${invoice_id}${amount}${secret}`;
+            const calculatedSign = crypto.createHash('md5').update(rawString).digest('hex');
 
             if (calculatedSign !== sign) {
                 console.error(`❌ Signature mismatch!`);
-                console.error(`   Type: ${isWebhookCallback ? 'SHA1' : 'MD5'}`);
                 console.error(`   Expected: ${calculatedSign}`);
                 console.error(`   Received: ${sign}`);
-                console.error(`   Raw string: ${rawStringForLog}`);
+                console.error(`   Raw string: ${signStoreId}${invoice_id}${amount}***`);
 
                 // ⚠️ IMPORTANT: Still return 200 to prevent payment reversal
                 // But do NOT process the payment (security)
                 return res.status(200).json({ success: false, message: 'Signature mismatch (logged)' });
             }
-            console.log(`✅ Signature verified (${isWebhookCallback ? 'SHA1' : 'MD5'})`);
+            console.log('✅ Signature verified (MD5)');
         } else {
             console.warn('⚠️ Signature validation skipped (missing secret or sign field)');
         }
@@ -1210,14 +1209,19 @@ const createCardBindingSession = async (req, res) => {
         }
 
         const token = await getAuthToken();
-        // ✅ FIX: Safer store_id parsing
-        let storeId = parseInt(process.env.MULTICARD_STORE_ID);
-        if (isNaN(storeId) || storeId <= 0) {
-            console.warn(`⚠️ Invalid MULTICARD_STORE_ID: "${process.env.MULTICARD_STORE_ID}". Fallback to 2660.`);
-            storeId = 2660;
+        // ✅ FIX: Accept both UUID and integer store_id
+        const rawStoreId = process.env.MULTICARD_STORE_ID || '2660';
+        let storeId = rawStoreId.trim();
+        const numStoreId = parseInt(rawStoreId);
+        if (!isNaN(numStoreId) && numStoreId > 0 && String(numStoreId) === rawStoreId.trim()) {
+            storeId = numStoreId;
         }
 
-        const finalCallbackUrl = callbackUrl || `${process.env.API_BASE_URL}/api/payments/multicard/card-binding/callback`;
+        let baseUrl = process.env.API_BASE_URL || 'https://api.aced.live';
+        if (baseUrl.startsWith('http://')) {
+            baseUrl = baseUrl.replace('http://', 'https://');
+        }
+        const finalCallbackUrl = callbackUrl || `${baseUrl}/api/payments/multicard/card-binding/callback`;
 
         const response = await axios.post(
             `${API_URL}/payment/card/bind`,
