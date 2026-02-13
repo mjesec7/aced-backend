@@ -4,6 +4,8 @@ const axios = require('axios');
 const multicardController = require('../controllers/multicardController');
 const { getAuthToken } = require('../controllers/multicardAuth');
 const MulticardTransaction = require('../models/MulticardTransaction');
+const PaymeTransaction = require('../models/paymeTransaction');
+const User = require('../models/user');
 const verifyToken = require('../middlewares/authMiddleware');
 const {
     setVariable,
@@ -490,15 +492,56 @@ router.get('/my-transactions', verifyToken, async (req, res) => {
             return res.status(401).json({ success: false, error: 'Authentication required' });
         }
 
-        const transactions = await MulticardTransaction.find({
-            $or: [
-                { firebaseUserId: firebaseUid },
-                { userId: firebaseUid }
-            ]
-        })
-            .sort({ createdAt: -1 })
-            .limit(50)
-            .select('invoiceId multicardUuid status amount plan createdAt checkoutUrl transactionType');
+        // userId is ObjectId in MulticardTransaction, so look up the user's _id first
+        const user = await User.findOne({ firebaseId: firebaseUid }).select('_id Login');
+        const multicardQuery = user
+            ? { $or: [{ firebaseUserId: firebaseUid }, { userId: user._id }] }
+            : { firebaseUserId: firebaseUid };
+
+        // Fetch both Multicard and PayMe transactions in parallel
+        const [multicardTxs, paymeTxs] = await Promise.all([
+            MulticardTransaction.find(multicardQuery)
+                .sort({ createdAt: -1 })
+                .limit(50)
+                .select('invoiceId multicardUuid status amount plan createdAt checkoutUrl transactionType')
+                .lean(),
+            PaymeTransaction.find({
+                $or: [
+                    { user_id: firebaseUid },
+                    ...(user?.Login ? [{ Login: user.Login }] : [])
+                ]
+            })
+                .sort({ create_time: -1 })
+                .limit(50)
+                .select('paycom_transaction_id state amount subscription_plan create_time perform_time card_info')
+                .lean()
+        ]);
+
+        // Normalize PayMe transactions to match frontend expected shape
+        const paymeStateToStatus = { 1: 'pending', 2: 'paid', 3: 'pending', '-1': 'cancelled', '-2': 'cancelled', '-3': 'failed' };
+        const normalizedPayme = paymeTxs.map(tx => ({
+            _id: tx._id,
+            invoiceId: tx.paycom_transaction_id,
+            status: paymeStateToStatus[String(tx.state)] || 'unknown',
+            amount: Math.round(tx.amount / 100), // tiyins → UZS
+            plan: tx.subscription_plan || null,
+            createdAt: tx.create_time,
+            paidAt: tx.perform_time || null,
+            cardPan: tx.card_info?.masked_pan || null,
+            transactionType: 'payment',
+            provider: 'payme'
+        }));
+
+        // Tag multicard transactions with provider
+        const normalizedMulticard = multicardTxs.map(tx => ({
+            ...tx,
+            provider: 'multicard'
+        }));
+
+        // Merge and sort by date descending
+        const transactions = [...normalizedMulticard, ...normalizedPayme]
+            .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+            .slice(0, 50);
 
         res.json({
             success: true,
