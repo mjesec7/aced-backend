@@ -86,24 +86,23 @@ router.post('/webhook/test', (req, res) => {
 
 /**
  * Get current user's payment transactions
- * Used by AcedSettings to display payment history
+ * Also syncs pending transaction statuses with Multicard API
  */
 router.get('/my-transactions', verifyToken, async (req, res) => {
     try {
-        // Get user from auth middleware (firebaseId set by verifyToken)
         const firebaseId = req.user?.uid || req.user?.firebaseId;
         if (!firebaseId) {
             return res.status(401).json({ success: false, message: 'Authentication required' });
         }
 
-        // Find user to get MongoDB _id
         const User = require('../models/user');
+        const { getDurationFromAmount } = require('../config/subscriptionConfig');
         const user = await User.findOne({ firebaseId });
         if (!user) {
             return res.status(404).json({ success: false, message: 'User not found' });
         }
 
-        // Fetch transactions for this user (by userId OR firebaseUserId)
+        // Fetch all transactions for this user
         const transactions = await MulticardTransaction.find({
             $or: [
                 { userId: user._id },
@@ -112,13 +111,54 @@ router.get('/my-transactions', verifyToken, async (req, res) => {
             transactionType: { $ne: 'card_binding' }
         })
             .sort({ createdAt: -1 })
-            .limit(50)
-            .select('invoiceId amount plan status cardPan ps paidAt createdAt paymentDetails.receiptUrl');
+            .limit(50);
+
+        // Background sync: check pending transactions with Multicard API
+        const pendingTxs = transactions.filter(tx => tx.status === 'pending' && tx.multicardUuid);
+        if (pendingTxs.length > 0) {
+            try {
+                const token = await getAuthToken();
+                const API_URL = process.env.MULTICARD_API_URL || 'https://api.multicard.uz/api/v1';
+
+                for (const tx of pendingTxs.slice(0, 10)) { // Max 10 at a time
+                    try {
+                        const resp = await axios.get(
+                            `${API_URL}/payment/invoice/${tx.multicardUuid}`,
+                            { headers: { 'Authorization': `Bearer ${token}` }, timeout: 5000 }
+                        );
+                        const pd = resp.data?.data?.payment;
+                        if (pd?.status === 'success' && tx.status !== 'paid') {
+                            tx.status = 'paid';
+                            tx.paidAt = new Date(pd.payment_time || Date.now());
+                            if (pd.card_pan) tx.cardPan = pd.card_pan;
+                            if (pd.ps) tx.ps = pd.ps;
+                            await tx.save();
+                            // Grant subscription if not already active
+                            if (user.subscriptionPlan !== 'pro' || !user.subscriptionExpiryDate || user.subscriptionExpiryDate < new Date()) {
+                                const { durationDays, durationMonths } = getDurationFromAmount(tx.amount);
+                                await user.grantSubscription(tx.plan || 'pro', durationDays, 'multicard', durationMonths);
+                                user.subscriptionAmount = tx.amount;
+                                user.lastPaymentDate = new Date();
+                                await user.save();
+                            }
+                        } else if (pd?.status === 'error') {
+                            tx.status = 'failed';
+                            await tx.save();
+                        } else if (pd?.status === 'revert') {
+                            tx.status = 'refunded';
+                            await tx.save();
+                        }
+                    } catch (e) { /* skip individual failures */ }
+                }
+            } catch (e) {
+                console.error('Sync error:', e.message);
+            }
+        }
 
         const formattedTransactions = transactions.map(tx => ({
             id: tx._id,
             invoiceId: tx.invoiceId,
-            amount: tx.amount ? Math.round(tx.amount / 100) : 0, // tiyin → UZS
+            amount: tx.amount ? Math.round(tx.amount / 100) : 0,
             plan: tx.plan || 'pro',
             status: tx.status,
             cardPan: tx.cardPan || null,
