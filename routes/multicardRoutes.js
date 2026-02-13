@@ -4,6 +4,7 @@ const axios = require('axios');
 const multicardController = require('../controllers/multicardController');
 const { getAuthToken } = require('../controllers/multicardAuth');
 const MulticardTransaction = require('../models/MulticardTransaction');
+const verifyToken = require('../middlewares/authMiddleware');
 const {
     setVariable,
     getVariable,
@@ -87,7 +88,7 @@ router.post('/webhook/test', (req, res) => {
  * Get current user's payment transactions
  * Used by AcedSettings to display payment history
  */
-router.get('/my-transactions', async (req, res) => {
+router.get('/my-transactions', verifyToken, async (req, res) => {
     try {
         // Get user from auth middleware (firebaseId set by verifyToken)
         const firebaseId = req.user?.uid || req.user?.firebaseId;
@@ -102,10 +103,13 @@ router.get('/my-transactions', async (req, res) => {
             return res.status(404).json({ success: false, message: 'User not found' });
         }
 
-        // Fetch transactions for this user
+        // Fetch transactions for this user (by userId OR firebaseUserId)
         const transactions = await MulticardTransaction.find({
-            userId: user._id,
-            transactionType: 'payment'
+            $or: [
+                { userId: user._id },
+                { firebaseUserId: firebaseId }
+            ],
+            transactionType: { $ne: 'card_binding' }
         })
             .sort({ createdAt: -1 })
             .limit(50)
