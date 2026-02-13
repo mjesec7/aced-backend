@@ -53,6 +53,8 @@ router.use((req, res, next) => {
 
 // Webhooks - New format (recommended)
 router.post('/webhook', multicardController.handleWebhook);
+// Allow GET /webhook for connectivity checks or browser testing
+router.get('/webhook', (req, res) => res.status(200).json({ success: true, message: 'Webhook endpoint is reachable' }));
 
 // Webhook debug endpoint - returns 200 for any request (helps test connectivity)
 router.post('/webhook/test', (req, res) => {
@@ -217,7 +219,7 @@ router.get('/debug/env', (req, res) => {
  */
 router.get('/debug/routes', (req, res) => {
     const routes = [];
-    
+
     router.stack.forEach(layer => {
         if (layer.route) {
             const methods = Object.keys(layer.route.methods).join(', ').toUpperCase();
@@ -243,7 +245,7 @@ router.get('/debug/routes', (req, res) => {
 // ✅ CRITICAL: Handle GET method with clear error
 router.get('/initiate', (req, res) => {
     console.warn('⚠️  Received GET request to /initiate - This endpoint requires POST!');
-    
+
     res.status(405).json({
         success: false,
         error: {

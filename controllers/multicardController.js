@@ -435,19 +435,24 @@ const handleWebhook = async (req, res) => {
         return res.status(400).json({ success: false, message: 'Missing required fields' });
     }
 
-    // 3. Signature Validation (MD5)
-    // format: {store_id}{invoice_id}{amount}{secret}
+    // 3. Signature Validation (SHA1) per new OpenAPI spec
+    // format: {uuid}{invoice_id}{amount}{secret}
+    // Spec says: "sign формируется как sha1-хеш от строки (без скобок): {uuid}{invoice_id}{amount}{secret}"
     const secret = process.env.MULTICARD_SECRET;
     if (secret && sign) {
-        const rawString = `${store_id}${invoice_id}${amount}${secret}`;
-        const calculatedSign = crypto.createHash('md5').update(rawString).digest('hex');
+        const rawString = `${uuid}${invoice_id}${amount}${secret}`;
+        const calculatedSign = crypto.createHash('sha1').update(rawString).digest('hex');
 
         if (calculatedSign !== sign) {
             console.error(`❌ Signature mismatch! Expected: ${calculatedSign}, Received: ${sign}`);
-            console.error(`   Raw string: ${store_id}${invoice_id}${amount}***`);
+            console.error(`   Raw string: ${uuid}${invoice_id}${amount}***`);
+            // Return 200 OK with error message as per some webhook best practices to stop retries if logic fails but request was received? 
+            // The spec says "Для успешного ответа... HTTP STATUS=2xx".
+            // If we return 400, it might retry. But invalid signature is permanent failure.
+            // Let's stick to 400 for now to indicate actionable error to Multicard or user testing.
             return res.status(400).json({ success: false, message: 'Invalid signature' });
         }
-        console.log('✅ Signature verified');
+        console.log('✅ Signature verified (SHA1)');
     } else {
         console.warn('⚠️ Signature validation skipped (Missing secret or sign)');
     }
