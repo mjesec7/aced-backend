@@ -4,7 +4,6 @@ const axios = require('axios');
 const multicardController = require('../controllers/multicardController');
 const { getAuthToken } = require('../controllers/multicardAuth');
 const MulticardTransaction = require('../models/MulticardTransaction');
-const verifyToken = require('../middlewares/authMiddleware');
 const {
     setVariable,
     getVariable,
@@ -51,20 +50,9 @@ router.use((req, res, next) => {
 // ✅ CRITICAL WEBHOOK ENDPOINTS (MUST BE FIRST)
 // ============================================
 // These must be before any catch-all routes and debug routes
-// IMPORTANT: Register both with and without trailing slash to prevent 301 redirects
-// Multicard may send callbacks to either /webhook or /webhook/
 
-// Webhooks - unified handler (SHA1 for status webhooks, MD5 for success callbacks)
+// Webhooks - New format (recommended)
 router.post('/webhook', multicardController.handleWebhook);
-router.post('/webhook/', multicardController.handleWebhook);
-
-// Allow GET /webhook for connectivity checks or browser testing
-router.get('/webhook', (req, res) => res.status(200).json({ success: true, message: 'Webhook endpoint is reachable' }));
-router.get('/webhook/', (req, res) => res.status(200).json({ success: true, message: 'Webhook endpoint is reachable' }));
-
-// Success callback (old format, MD5) - also register with trailing slash
-router.post('/success', multicardController.handleSuccessCallbackOld);
-router.post('/success/', multicardController.handleSuccessCallbackOld);
 
 // Webhook debug endpoint - returns 200 for any request (helps test connectivity)
 router.post('/webhook/test', (req, res) => {
@@ -78,111 +66,6 @@ router.post('/webhook/test', (req, res) => {
         timestamp: new Date().toISOString(),
         receivedAt: new Date().toISOString()
     });
-});
-
-// ============================================
-// 💳 USER PAYMENT HISTORY (AUTHENTICATED)
-// ============================================
-
-/**
- * Get current user's payment transactions
- * Also syncs pending transaction statuses with Multicard API
- */
-router.get('/my-transactions', verifyToken, async (req, res) => {
-    try {
-        const firebaseId = req.user?.uid || req.user?.firebaseId;
-        if (!firebaseId) {
-            return res.status(401).json({ success: false, message: 'Authentication required' });
-        }
-
-        const User = require('../models/user');
-        const { getDurationFromAmount } = require('../config/subscriptionConfig');
-        const user = await User.findOne({ firebaseId });
-        if (!user) {
-            return res.status(404).json({ success: false, message: 'User not found' });
-        }
-
-        // Fetch all transactions for this user
-        const transactions = await MulticardTransaction.find({
-            $or: [
-                { userId: user._id },
-                { firebaseUserId: firebaseId }
-            ],
-            transactionType: { $ne: 'card_binding' }
-        })
-            .sort({ createdAt: -1 })
-            .limit(50);
-
-        // Background sync: check pending transactions with Multicard API
-        const pendingTxs = transactions.filter(tx => tx.status === 'pending' && tx.multicardUuid);
-        if (pendingTxs.length > 0) {
-            try {
-                const token = await getAuthToken();
-                const API_URL = process.env.MULTICARD_API_URL || 'https://api.multicard.uz/api/v1';
-
-                for (const tx of pendingTxs.slice(0, 10)) {
-                    try {
-                        const resp = await axios.get(
-                            `${API_URL}/payment/invoice/${tx.multicardUuid}`,
-                            { headers: { 'Authorization': `Bearer ${token}` }, timeout: 5000 }
-                        );
-                        const pd = resp.data?.data?.payment;
-                        console.log(`🔄 Sync tx ${tx.invoiceId}: MC status=${pd?.status}, our status=${tx.status}`);
-
-                        if (pd?.status === 'success' && tx.status !== 'paid') {
-                            tx.status = 'paid';
-                            tx.paidAt = new Date(pd.payment_time || Date.now());
-                            if (pd.card_pan) tx.cardPan = pd.card_pan;
-                            if (pd.ps) tx.ps = pd.ps;
-                            await tx.save();
-
-                            // Always grant subscription for newly-paid transactions
-                            // grantSubscription() handles extending existing subscriptions
-                            const { durationDays, durationMonths } = getDurationFromAmount(tx.amount);
-                            console.log(`💳 Granting subscription: amount=${tx.amount} tiyin → ${durationDays} days`);
-                            await user.grantSubscription(tx.plan || 'pro', durationDays, 'multicard', durationMonths);
-                            user.subscriptionAmount = tx.amount;
-                            user.lastPaymentDate = new Date();
-                            await user.save();
-                            console.log(`✅ Subscription granted: plan=${user.subscriptionPlan}, expires=${user.subscriptionExpiryDate}`);
-                        } else if (pd?.status === 'error') {
-                            tx.status = 'failed';
-                            await tx.save();
-                        } else if (pd?.status === 'revert') {
-                            tx.status = 'refunded';
-                            await tx.save();
-                        }
-                    } catch (e) {
-                        console.error(`⚠️ Sync failed for ${tx.invoiceId}: ${e.message}`);
-                    }
-                }
-            } catch (e) {
-                console.error('Sync error:', e.message);
-            }
-        }
-
-        const formattedTransactions = transactions.map(tx => ({
-            id: tx._id,
-            invoiceId: tx.invoiceId,
-            amount: tx.amount ? Math.round(tx.amount / 100) : 0,
-            plan: tx.plan || 'pro',
-            status: tx.status,
-            cardPan: tx.cardPan || null,
-            paymentSystem: tx.ps || null,
-            receiptUrl: tx.paymentDetails?.receiptUrl || null,
-            paidAt: tx.paidAt || null,
-            createdAt: tx.createdAt
-        }));
-
-        res.json({
-            success: true,
-            count: formattedTransactions.length,
-            transactions: formattedTransactions
-        });
-    } catch (error) {
-        console.error('❌ Error fetching user transactions:', error.message);
-        res.status(500).json({ success: false, message: 'Failed to fetch transactions' });
-    }
 });
 
 // ============================================
@@ -334,7 +217,7 @@ router.get('/debug/env', (req, res) => {
  */
 router.get('/debug/routes', (req, res) => {
     const routes = [];
-
+    
     router.stack.forEach(layer => {
         if (layer.route) {
             const methods = Object.keys(layer.route.methods).join(', ').toUpperCase();
@@ -360,7 +243,7 @@ router.get('/debug/routes', (req, res) => {
 // ✅ CRITICAL: Handle GET method with clear error
 router.get('/initiate', (req, res) => {
     console.warn('⚠️  Received GET request to /initiate - This endpoint requires POST!');
-
+    
     res.status(405).json({
         success: false,
         error: {
@@ -391,7 +274,8 @@ router.post('/initiate', multicardController.initiatePayment);
 // QR code payment (PaymeGo, ClickPass, Uzum, etc.)
 router.put('/payment/:uuid/scanpay', multicardController.processScanPay);
 
-// Success callback moved to top of file (with trailing slash support)
+// Success callback - Old format (deprecated but kept for compatibility)
+router.post('/success', multicardController.handleSuccessCallbackOld);
 
 // User return callbacks
 router.get('/return/success', multicardController.handleSuccessCallback);
