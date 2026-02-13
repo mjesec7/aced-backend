@@ -284,7 +284,7 @@ router.post('/success', multicardController.handleSuccessCallbackOld);
 // User return callbacks
 router.get('/return/success', multicardController.handleSuccessCallback);
 router.get('/return/error', (req, res) => {
-    res.redirect(`${process.env.FRONTEND_URL}/payment-failed`);
+    res.redirect(`${process.env.FRONTEND_URL || 'https://aced.live'}/payment/failed/multicard`);
 });
 
 // Invoice management

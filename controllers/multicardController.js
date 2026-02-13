@@ -225,8 +225,8 @@ const initiatePayment = async (req, res) => {
             amount: finalAmount,
             invoice_id: invoiceId,
             callback_url: callbackUrl,
-            return_url: `${frontendUrl}/payment-success`,
-            return_error_url: `${frontendUrl}/payment-failed`,
+            return_url: `${frontendUrl}/payment/success/multicard`,
+            return_error_url: `${frontendUrl}/payment/failed/multicard`,
             lang: lang || 'ru',
             ofd: ofdData
         };
@@ -346,16 +346,17 @@ const initiatePayment = async (req, res) => {
  */
 const handleSuccessCallback = async (req, res) => {
     const { invoice_id, uuid } = req.query;
+    const frontendUrl = process.env.FRONTEND_URL || 'https://aced.live';
 
     if (!invoice_id) {
-        return res.redirect(`${process.env.FRONTEND_URL}/payment-failed?error=missing_invoice_id`);
+        return res.redirect(`${frontendUrl}/payment/success/multicard?status=failed&error=missing_invoice_id`);
     }
 
     try {
         const transaction = await MulticardTransaction.findOne({ invoiceId: invoice_id });
         if (!transaction) {
             console.error(`❌ Transaction not found for invoice_id: ${invoice_id}`);
-            return res.redirect(`${process.env.FRONTEND_URL}/payment-failed?error=transaction_not_found`);
+            return res.redirect(`${frontendUrl}/payment/success/multicard?status=failed&error=transaction_not_found`);
         }
 
         // Verify payment status with Multicard API
@@ -368,15 +369,31 @@ const handleSuccessCallback = async (req, res) => {
         );
 
         if (response.data?.success && response.data.data?.payment?.status === 'success') {
-            // Payment confirmed - but wait for webhook for final processing
-            res.redirect(`${process.env.FRONTEND_URL}/payment-success?invoice_id=${invoice_id}`);
+            // Grant subscription NOW (idempotent — safe even if webhook already processed it)
+            if (transaction.status !== 'paid') {
+                transaction.status = 'paid';
+                transaction.paidAt = new Date();
+
+                const user = await User.findById(transaction.userId);
+                if (user) {
+                    const { durationDays, durationMonths } = getDurationFromAmount(transaction.amount);
+                    await user.grantSubscription(transaction.plan || 'pro', durationDays, 'multicard', durationMonths);
+                    user.subscriptionAmount = transaction.amount;
+                    user.lastPaymentDate = new Date();
+                    await user.save();
+                    console.log(`✅ Subscription granted via return callback for user ${user.firebaseId}`);
+                }
+                await transaction.save();
+            }
+
+            res.redirect(`${frontendUrl}/payment/success/multicard?invoice_id=${invoice_id}&plan=${transaction.plan || 'pro'}`);
         } else {
-            res.redirect(`${process.env.FRONTEND_URL}/payment-pending?invoice_id=${invoice_id}`);
+            res.redirect(`${frontendUrl}/payment/success/multicard?status=pending&invoice_id=${invoice_id}`);
         }
 
     } catch (error) {
         console.error('❌ Error handling success callback:', error.message);
-        res.redirect(`${process.env.FRONTEND_URL}/payment-failed?error=verification_failed`);
+        res.redirect(`${frontendUrl}/payment/success/multicard?status=failed&error=verification_failed`);
     }
 };
 
