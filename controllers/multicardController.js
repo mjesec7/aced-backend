@@ -429,7 +429,25 @@ const handleWebhook = async (req, res) => {
         status // 'success' implied if hitting this endpoint per spec? Or passed explicitly?
     } = paymentData;
 
-    // 2. Validate Required Fields
+    // 2. Validate IP (Optional but recommended)
+    // "Запрос отправляется со следующего IP: 195.158.26.90"
+    const allowedIps = ['195.158.26.90'];
+    // Allow local dev loopback or if explicit bypass is enabled
+    // Note: req.ip might be ::ffff:195.158.26.90
+    const requestIp = req.ip || req.connection.remoteAddress;
+    const isAllowedIp = allowedIps.some(ip => requestIp.includes(ip)) ||
+        process.env.NODE_ENV === 'development';
+
+    if (!isAllowedIp) {
+        console.warn(`⚠️  Webhook request from unauthorized IP: ${requestIp}`);
+        // We warn but do not block yet to avoid false positives behind proxies/load balancers
+        // unless STRICT_IP_CHECK is enabled
+        if (process.env.MULTICARD_STRICT_IP_CHECK === 'true') {
+            return res.status(403).json({ success: false, message: 'Unauthorized IP' });
+        }
+    }
+
+    // 3. Validate Required Fields
     if (!invoice_id || !amount || !store_id) {
         console.error('❌ Invalid webhook data: Missing required fields (invoice_id, amount, store_id)');
         return res.status(400).json({ success: false, message: 'Missing required fields' });

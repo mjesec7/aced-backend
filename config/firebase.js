@@ -16,8 +16,29 @@ if (!FIREBASE_PROJECT_ID || !FIREBASE_CLIENT_EMAIL || !FIREBASE_PRIVATE_KEY) {
     clientEmail: !!FIREBASE_CLIENT_EMAIL,
     privateKey: !!FIREBASE_PRIVATE_KEY
   });
-  console.error('🚨 SERVER CANNOT START WITHOUT FIREBASE CONFIG');
-  process.exit(1);
+  console.warn('🚨 SERVER STARTING IN MOCK FIREBASE MODE (Auth will fail)');
+
+  // Return a mock admin object to prevent crashes
+  module.exports = {
+    credential: {
+      cert: () => { }
+    },
+    auth: () => ({
+      verifyIdToken: async () => { throw new Error('Firebase not configured'); },
+      getUser: async () => ({ email: 'mock@example.com' })
+    }),
+    firestore: () => ({
+      collection: () => ({
+        doc: () => ({
+          get: async () => ({ exists: false }),
+          set: async () => { },
+          update: async () => { }
+        })
+      })
+    }),
+    initializeApp: () => { }
+  };
+  return;
 }
 
 // ❗ CRITICAL: Check project ID match
@@ -40,43 +61,43 @@ function initializeFirebase() {
   try {
     // ✅ Enhanced private key processing
     let processedPrivateKey = FIREBASE_PRIVATE_KEY;
-    
+
     // Remove surrounding quotes if present (single or double)
     if ((processedPrivateKey.startsWith('"') && processedPrivateKey.endsWith('"')) ||
-        (processedPrivateKey.startsWith("'") && processedPrivateKey.endsWith("'"))) {
+      (processedPrivateKey.startsWith("'") && processedPrivateKey.endsWith("'"))) {
       processedPrivateKey = processedPrivateKey.slice(1, -1);
     }
-    
+
     // Handle double-escaped newlines first (\\n -> \n)
     if (processedPrivateKey.includes('\\\\n')) {
       processedPrivateKey = processedPrivateKey.replace(/\\\\n/g, '\n');
     }
-    
+
     // Then handle single-escaped newlines (\n -> actual newline)
     if (processedPrivateKey.includes('\\n')) {
       processedPrivateKey = processedPrivateKey.replace(/\\n/g, '\n');
     }
-    
+
     // Validate private key format
     if (!processedPrivateKey.includes('-----BEGIN PRIVATE KEY-----')) {
       console.error('❌ Invalid private key format - missing header');
       console.error('Key start:', processedPrivateKey.slice(0, 50) + '...');
       throw new Error('Invalid private key format - missing header');
     }
-    
+
     if (!processedPrivateKey.includes('-----END PRIVATE KEY-----')) {
       console.error('❌ Invalid private key format - missing footer');
       console.error('Key end:', '...' + processedPrivateKey.slice(-50));
       throw new Error('Invalid private key format - missing footer');
     }
-    
+
     // Create credential
     const credential = admin.credential.cert({
       projectId: FIREBASE_PROJECT_ID.trim(),
       clientEmail: FIREBASE_CLIENT_EMAIL.trim(),
       privateKey: processedPrivateKey,
     });
-    
+
     // Initialize app
     adminApp = admin.initializeApp({
       credential: credential,
@@ -84,7 +105,7 @@ function initializeFirebase() {
     });
 
     return adminApp;
-    
+
   } catch (error) {
     console.error('❌ Firebase Admin SDK initialization failed:', error.message);
     console.error('🔍 Error details:', {
@@ -92,9 +113,9 @@ function initializeFirebase() {
       code: error.code,
       message: error.message
     });
-    
+
     if (error.stack) console.error('Stack:', error.stack);
-    
+
     // Enhanced error analysis
     if (error.message.includes('private key')) {
       console.error('💡 Solution: Check your FIREBASE_PRIVATE_KEY format');
@@ -105,7 +126,7 @@ function initializeFirebase() {
     } else if (error.message.includes('email')) {
       console.error('💡 Solution: Check your FIREBASE_CLIENT_EMAIL');
     }
-    
+
     console.error('🚨 SERVER CANNOT START WITHOUT FIREBASE');
     process.exit(1);
   }
