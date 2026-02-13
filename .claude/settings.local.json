@@ -8,7 +8,16 @@
       "Bash(git add:*)",
       "Bash(git push:*)",
       "Bash(node -c:*)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Read(//d/ACED/**)",
+      "Bash(findstr:*)",
+      "Bash(git clean:*)",
+      "Bash(powershell -Command \"& { cmd /c ''del /f /q \\\\?\\\\D:\\\\ACED\\\\aced-backend\\\\nul'' }\")",
+      "Bash(python3 -c \"import os; os.remove\\(''\\\\\\\\?\\\\D:\\\\ACED\\\\aced-backend\\\\nul''\\)\")",
+      "Bash(python -c \"import os; os.remove\\(''\\\\\\\\?\\\\D:\\\\ACED\\\\aced-backend\\\\nul''\\)\")",
+      "Bash(powershell -Command:*)",
+      "Bash(git -C \"d:/ACED/aced-backend\" check-ignore nul)",
+      "Bash(git -C \"d:/ACED/aced-backend\" add .)"
     ]
   }
 }

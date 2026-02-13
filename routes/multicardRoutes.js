@@ -7,6 +7,7 @@ const MulticardTransaction = require('../models/MulticardTransaction');
 const PaymeTransaction = require('../models/paymeTransaction');
 const User = require('../models/user');
 const verifyToken = require('../middlewares/authMiddleware');
+const { getDurationFromAmount, getAllTiers } = require('../config/subscriptionConfig');
 const {
     setVariable,
     getVariable,
@@ -517,6 +518,11 @@ router.get('/my-transactions', verifyToken, async (req, res) => {
                 .lean()
         ]);
 
+        // Helper: get duration months from amount in tiyins using subscriptionConfig
+        const getDurationMonths = (amountInTiyin) => {
+            return getDurationFromAmount(amountInTiyin).durationMonths;
+        };
+
         // Normalize PayMe transactions to match frontend expected shape
         const paymeStateToStatus = { 1: 'pending', 2: 'paid', 3: 'pending', '-1': 'cancelled', '-2': 'cancelled', '-3': 'failed' };
         const normalizedPayme = paymeTxs.map(tx => ({
@@ -524,6 +530,7 @@ router.get('/my-transactions', verifyToken, async (req, res) => {
             invoiceId: tx.paycom_transaction_id,
             status: paymeStateToStatus[String(tx.state)] || 'unknown',
             amount: Math.round(tx.amount / 100), // tiyins → UZS
+            durationMonths: getDurationMonths(tx.amount),
             plan: tx.subscription_plan || null,
             createdAt: tx.create_time,
             paidAt: tx.perform_time || null,
@@ -532,9 +539,11 @@ router.get('/my-transactions', verifyToken, async (req, res) => {
             provider: 'payme'
         }));
 
-        // Tag multicard transactions with provider
+        // Normalize Multicard transactions: convert tiyins → UZS + add durationLabel
         const normalizedMulticard = multicardTxs.map(tx => ({
             ...tx,
+            amount: Math.round(tx.amount / 100), // tiyins → UZS
+            durationMonths: getDurationMonths(tx.amount),
             provider: 'multicard'
         }));
 
