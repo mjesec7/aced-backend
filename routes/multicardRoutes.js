@@ -50,11 +50,20 @@ router.use((req, res, next) => {
 // ✅ CRITICAL WEBHOOK ENDPOINTS (MUST BE FIRST)
 // ============================================
 // These must be before any catch-all routes and debug routes
+// IMPORTANT: Register both with and without trailing slash to prevent 301 redirects
+// Multicard may send callbacks to either /webhook or /webhook/
 
-// Webhooks - New format (recommended)
+// Webhooks - unified handler (SHA1 for status webhooks, MD5 for success callbacks)
 router.post('/webhook', multicardController.handleWebhook);
+router.post('/webhook/', multicardController.handleWebhook);
+
 // Allow GET /webhook for connectivity checks or browser testing
 router.get('/webhook', (req, res) => res.status(200).json({ success: true, message: 'Webhook endpoint is reachable' }));
+router.get('/webhook/', (req, res) => res.status(200).json({ success: true, message: 'Webhook endpoint is reachable' }));
+
+// Success callback (old format, MD5) - also register with trailing slash
+router.post('/success', multicardController.handleSuccessCallbackOld);
+router.post('/success/', multicardController.handleSuccessCallbackOld);
 
 // Webhook debug endpoint - returns 200 for any request (helps test connectivity)
 router.post('/webhook/test', (req, res) => {
@@ -276,8 +285,7 @@ router.post('/initiate', multicardController.initiatePayment);
 // QR code payment (PaymeGo, ClickPass, Uzum, etc.)
 router.put('/payment/:uuid/scanpay', multicardController.processScanPay);
 
-// Success callback - Old format (deprecated but kept for compatibility)
-router.post('/success', multicardController.handleSuccessCallbackOld);
+// Success callback moved to top of file (with trailing slash support)
 
 // User return callbacks
 router.get('/return/success', multicardController.handleSuccessCallback);
