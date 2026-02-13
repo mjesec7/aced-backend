@@ -4,6 +4,7 @@ const axios = require('axios');
 const multicardController = require('../controllers/multicardController');
 const { getAuthToken } = require('../controllers/multicardAuth');
 const MulticardTransaction = require('../models/MulticardTransaction');
+const verifyToken = require('../middlewares/authMiddleware');
 const {
     setVariable,
     getVariable,
@@ -482,7 +483,7 @@ router.delete('/variables/:key', (req, res) => {
 // ============================================
 
 // Get current user's transactions (requires auth)
-router.get('/my-transactions', async (req, res) => {
+router.get('/my-transactions', verifyToken, async (req, res) => {
     try {
         const firebaseUid = req.user && req.user.uid;
         if (!firebaseUid) {
