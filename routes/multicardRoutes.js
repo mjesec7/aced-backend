@@ -120,27 +120,31 @@ router.get('/my-transactions', verifyToken, async (req, res) => {
                 const token = await getAuthToken();
                 const API_URL = process.env.MULTICARD_API_URL || 'https://api.multicard.uz/api/v1';
 
-                for (const tx of pendingTxs.slice(0, 10)) { // Max 10 at a time
+                for (const tx of pendingTxs.slice(0, 10)) {
                     try {
                         const resp = await axios.get(
                             `${API_URL}/payment/invoice/${tx.multicardUuid}`,
                             { headers: { 'Authorization': `Bearer ${token}` }, timeout: 5000 }
                         );
                         const pd = resp.data?.data?.payment;
+                        console.log(`🔄 Sync tx ${tx.invoiceId}: MC status=${pd?.status}, our status=${tx.status}`);
+
                         if (pd?.status === 'success' && tx.status !== 'paid') {
                             tx.status = 'paid';
                             tx.paidAt = new Date(pd.payment_time || Date.now());
                             if (pd.card_pan) tx.cardPan = pd.card_pan;
                             if (pd.ps) tx.ps = pd.ps;
                             await tx.save();
-                            // Grant subscription if not already active
-                            if (user.subscriptionPlan !== 'pro' || !user.subscriptionExpiryDate || user.subscriptionExpiryDate < new Date()) {
-                                const { durationDays, durationMonths } = getDurationFromAmount(tx.amount);
-                                await user.grantSubscription(tx.plan || 'pro', durationDays, 'multicard', durationMonths);
-                                user.subscriptionAmount = tx.amount;
-                                user.lastPaymentDate = new Date();
-                                await user.save();
-                            }
+
+                            // Always grant subscription for newly-paid transactions
+                            // grantSubscription() handles extending existing subscriptions
+                            const { durationDays, durationMonths } = getDurationFromAmount(tx.amount);
+                            console.log(`💳 Granting subscription: amount=${tx.amount} tiyin → ${durationDays} days`);
+                            await user.grantSubscription(tx.plan || 'pro', durationDays, 'multicard', durationMonths);
+                            user.subscriptionAmount = tx.amount;
+                            user.lastPaymentDate = new Date();
+                            await user.save();
+                            console.log(`✅ Subscription granted: plan=${user.subscriptionPlan}, expires=${user.subscriptionExpiryDate}`);
                         } else if (pd?.status === 'error') {
                             tx.status = 'failed';
                             await tx.save();
@@ -148,7 +152,9 @@ router.get('/my-transactions', verifyToken, async (req, res) => {
                             tx.status = 'refunded';
                             await tx.save();
                         }
-                    } catch (e) { /* skip individual failures */ }
+                    } catch (e) {
+                        console.error(`⚠️ Sync failed for ${tx.invoiceId}: ${e.message}`);
+                    }
                 }
             } catch (e) {
                 console.error('Sync error:', e.message);

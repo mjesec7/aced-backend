@@ -410,15 +410,16 @@ const handleSuccessCallback = async (req, res) => {
             }
             await transaction.save();
 
-            // Grant subscription
+            // Grant subscription — always grant, grantSubscription() extends existing ones
             const user = await User.findById(transaction.userId);
-            if (user && (!user.hasActiveSubscription || !user.hasActiveSubscription())) {
+            if (user) {
                 const { durationDays, durationMonths } = getDurationFromAmount(transaction.amount);
+                console.log(`💳 Success callback: amount=${transaction.amount} tiyin → ${durationDays} days`);
                 await user.grantSubscription(transaction.plan || 'pro', durationDays, 'multicard', durationMonths);
                 user.subscriptionAmount = transaction.amount;
                 user.lastPaymentDate = new Date();
                 await user.save();
-                console.log(`   ✅ Subscription granted via success callback to user ${user.email || user._id}`);
+                console.log(`✅ Subscription granted via success callback: plan=${user.subscriptionPlan}, expires=${user.subscriptionExpiryDate}`);
             }
 
             res.redirect(`${process.env.FRONTEND_URL}/payment-success?invoice_id=${invoice_id}`);
