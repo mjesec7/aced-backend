@@ -359,29 +359,29 @@ app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 
   // ========================================
-  // 📅 SUBSCRIPTION EXPIRY CHECKER
+  // 📅 SUBSCRIPTION RECONCILIATION (auto-expire + auto-activate)
   // ========================================
-  const { checkExpiredSubscriptions } = require('./utils/subscriptionChecker');
+  const { reconcileAllSubscriptions } = require('./middlewares/subscriptionMiddleware');
 
   // Run once on startup (after DB connects)
   setTimeout(async () => {
     try {
-      const result = await checkExpiredSubscriptions();
-      console.log('📅 Subscription expiry check (startup):', result);
+      const stats = await reconcileAllSubscriptions();
+      console.log('📅 Subscription reconciliation (startup):', stats);
     } catch (err) {
-      console.error('❌ Startup subscription check failed:', err.message);
+      console.error('❌ Startup subscription reconciliation failed:', err.message);
     }
   }, 10000); // Wait 10s for DB connection
 
   // Run every hour
   setInterval(async () => {
     try {
-      const result = await checkExpiredSubscriptions();
-      if (result.expired > 0) {
-        console.log(`📅 Expired ${result.expired} subscription(s)`);
+      const stats = await reconcileAllSubscriptions();
+      if (stats.fixed > 0) {
+        console.log(`📅 Reconciled ${stats.fixed} subscription(s) — expired: ${stats.expired}, activated: ${stats.activated}`);
       }
     } catch (err) {
-      console.error('❌ Scheduled subscription check failed:', err.message);
+      console.error('❌ Scheduled subscription reconciliation failed:', err.message);
     }
   }, 60 * 60 * 1000); // Every 1 hour
 });
