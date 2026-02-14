@@ -140,7 +140,7 @@ const userSchema = new mongoose.Schema({
     },
     subscriptionDuration: {
         type: Number,
-        enum: [1, 3, 6, null],
+        enum: [0, 1, 3, 6, null],
         default: null
     },
     subscriptionActivatedAt: {
@@ -254,7 +254,9 @@ userSchema.methods.grantSubscription = async function (plan, durationInDays, sou
 
     // Calculate duration tier in months if not provided
     if (durationMonths === null || durationMonths === undefined) {
-        if (durationInDays <= 31) {
+        if (durationInDays <= 1) {
+            durationMonths = 0; // 1-day plan
+        } else if (durationInDays <= 31) {
             durationMonths = 1;
         } else if (durationInDays <= 95) {
             durationMonths = 3;

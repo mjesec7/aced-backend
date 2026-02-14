@@ -313,6 +313,10 @@ router.post('/save', verifyToken, async (req, res) => {
       }
     );
 
+    // Ensure subscription status is correct (auto-expire / auto-activate from payments)
+    const { ensureSubscriptionStatus } = require('../middlewares/subscriptionMiddleware');
+    await ensureSubscriptionStatus(user);
+
     // ✅ CRITICAL: Return all status fields
     const responseUser = {
       firebaseId: user.firebaseId,
@@ -326,6 +330,7 @@ router.post('/save', verifyToken, async (req, res) => {
       plan: user.subscriptionPlan,
       subscription: user.subscriptionPlan,
       status: user.subscriptionPlan,
+      subscriptionExpiryDate: user.subscriptionExpiryDate,
       studyList: user.studyList || [],
       progress: user.progress || {},
       totalPoints: user.totalPoints || 0,
@@ -568,8 +573,29 @@ async function makeAIRequest(userInput, imageUrl, lessonId) {
 }
 
 // ========================================
-// � ADMIN & MISC ROUTES (MOVED HERE - MUST BE BEFORE /:userId CATCH-ALL)
+// ADMIN & MISC ROUTES (MOVED HERE - MUST BE BEFORE /:userId CATCH-ALL)
 // ========================================
+
+// ✅ POST /api/users/admin/reconcile-subscriptions - Fix all subscription inconsistencies
+// Checks all users: expires overdue subscriptions, activates users who paid but weren't activated
+router.post('/admin/reconcile-subscriptions', verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const { reconcileAllSubscriptions } = require('../middlewares/subscriptionMiddleware');
+    const stats = await reconcileAllSubscriptions();
+
+    res.json({
+      success: true,
+      message: 'Subscription reconciliation complete',
+      stats
+    });
+  } catch (error) {
+    console.error('❌ Error reconciling subscriptions:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to reconcile subscriptions'
+    });
+  }
+});
 
 // ✅ NEW: POST /api/users/admin/:userId/reset-subscription - Reset subscription to free (admin)
 // 🔒 SECURITY: Added verifyAdmin middleware
@@ -1191,18 +1217,17 @@ router.get('/:userId', verifyToken, validateUserId, async (req, res) => {
     const authenticatedUserId = req.user.uid;
 
     // --- SECURITY FIX: IDOR PROTECTION ---
-    // Prevent users from accessing profiles that don't belong to them
     if (userId !== authenticatedUserId) {
       return res.status(403).json({ message: 'Forbidden: You can only access your own profile.' });
     }
-    // -------------------------------------
 
+    // Use non-lean query so ensureSubscriptionStatus can save if needed
     const user = await User.findOne({
       $or: [
         { firebaseId: userId },
         { _id: mongoose.Types.ObjectId.isValid(userId) ? userId : null }
       ]
-    }).lean();
+    });
 
     if (!user) {
       return res.status(404).json({
@@ -1211,8 +1236,14 @@ router.get('/:userId', verifyToken, validateUserId, async (req, res) => {
       });
     }
 
+    // Ensure subscription status is correct (auto-expire / auto-activate from payments)
+    const { ensureSubscriptionStatus } = require('../middlewares/subscriptionMiddleware');
+    await ensureSubscriptionStatus(user);
+
+    const userObj = user.toObject();
+
     // 🔒 SECURITY: Use sanitized user data instead of spreading full object
-    const safeUser = sanitizeUserData(user, {
+    const safeUser = sanitizeUserData(userObj, {
       includeEmail: true,
       includeSubscription: true,
       includeProgress: true
@@ -1220,11 +1251,14 @@ router.get('/:userId', verifyToken, validateUserId, async (req, res) => {
 
     const responseUser = {
       ...safeUser,
+      subscriptionExpiryDate: user.subscriptionExpiryDate,
+      subscriptionActivatedAt: user.subscriptionActivatedAt,
+      subscriptionSource: user.subscriptionSource,
+      subscriptionDuration: user.subscriptionDuration,
       serverFetch: true,
       fetchTime: new Date().toISOString(),
-      // Include usage data (non-sensitive)
       currentUsage: user.getCurrentMonthAIUsage ? user.getCurrentMonthAIUsage() :
-        (user.aiUsage?.currentMonth || { messages: 0, images: 0 }),
+        (userObj.aiUsage?.currentMonth || { messages: 0, images: 0 }),
       usageLimits: user.getUsageLimits ? user.getUsageLimits() :
         { messages: user.subscriptionPlan === 'free' ? 50 : -1, images: user.subscriptionPlan === 'free' ? 5 : -1 }
     };
@@ -1258,8 +1292,13 @@ router.get('/:firebaseId/status', validateFirebaseId, verifyToken, async (req, r
       });
     }
 
-    const user = await User.findOne({ firebaseId }).select('subscriptionPlan');
+    const user = await User.findOne({ firebaseId });
     if (!user) return res.status(404).json({ error: '❌ User not found' });
+
+    // Ensure subscription status is correct (auto-expire / auto-activate from payments)
+    const { ensureSubscriptionStatus } = require('../middlewares/subscriptionMiddleware');
+    await ensureSubscriptionStatus(user);
+
     res.json({ status: user.subscriptionPlan || 'free' });
   } catch (error) {
     console.error('❌ Error fetching user status:', error);
@@ -1328,10 +1367,6 @@ router.put('/:userId/status', validateUserId, verifyToken, async (req, res) => {
 
 // ✅ NEW: GET /api/users/:userId/subscription-status - Check subscription validity
 router.get('/:userId/subscription-status', validateUserId, verifyToken, async (req, res) => {
-  // Note: The original file used 'verifyOwnership' on a similar route.
-  // Adding it here based on the original file's pattern.
-  // If this route is for admins, remove verifyOwnership.
-  // For now, assuming user checks their own status.
   if (!req.user || req.user.uid !== req.params.userId) {
     return res.status(403).json({ error: '❌ Access denied: User mismatch' });
   }
@@ -1347,37 +1382,37 @@ router.get('/:userId/subscription-status', validateUserId, verifyToken, async (r
       });
     }
 
+    // Ensure subscription status is correct (auto-expire / auto-activate from payments)
+    const { ensureSubscriptionStatus } = require('../middlewares/subscriptionMiddleware');
+    await ensureSubscriptionStatus(user);
+
     const now = new Date();
-    let currentPlan = 'free';
     let isActive = false;
     let daysRemaining = 0;
-    let expiryDate = null;
+    let hoursRemaining = 0;
 
-    if (user.subscriptionExpiryDate && user.subscriptionPlan !== 'free') {
-      expiryDate = new Date(user.subscriptionExpiryDate);
-
+    if (user.subscriptionPlan !== 'free' && user.subscriptionExpiryDate) {
+      const expiryDate = new Date(user.subscriptionExpiryDate);
       if (now < expiryDate) {
-        currentPlan = user.subscriptionPlan;
         isActive = true;
-        daysRemaining = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
-      } else {
-
-        user.subscriptionPlan = 'free';
-        user.userStatus = 'free';
-        user.subscriptionExpiredAt = expiryDate;
-        await user.save();
+        const msRemaining = expiryDate - now;
+        daysRemaining = Math.ceil(msRemaining / (1000 * 60 * 60 * 24));
+        hoursRemaining = Math.ceil(msRemaining / (1000 * 60 * 60));
       }
     }
 
     res.json({
       success: true,
       subscription: {
-        plan: currentPlan,
-        isActive: isActive,
-        expiryDate: expiryDate,
-        daysRemaining: daysRemaining,
+        plan: user.subscriptionPlan,
+        isActive,
+        expiryDate: user.subscriptionExpiryDate,
+        daysRemaining,
+        hoursRemaining,
         activatedAt: user.subscriptionActivatedAt,
-        source: user.subscriptionSource
+        source: user.subscriptionSource,
+        duration: user.subscriptionDuration,
+        amount: user.subscriptionAmount
       }
     });
   } catch (error) {

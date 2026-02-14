@@ -1402,13 +1402,25 @@ const getUserStatus = async (req, res) => {
       });
     }
 
+    // Ensure subscription status is correct (auto-expire / auto-activate)
+    const { ensureSubscriptionStatus } = require('../middlewares/subscriptionMiddleware');
+    await ensureSubscriptionStatus(user);
+
+    const now = new Date();
+    const isActive = user.subscriptionPlan !== 'free' &&
+      user.subscriptionExpiryDate &&
+      now < new Date(user.subscriptionExpiryDate);
+
     res.json({
       status: user.subscriptionPlan || 'free',
       paymentStatus: user.paymentStatus || 'unpaid',
       subscriptionDetails: {
         plan: user.subscriptionPlan,
-        activatedAt: user.lastPaymentDate,
-        isActive: user.paymentStatus === 'paid'
+        expiryDate: user.subscriptionExpiryDate,
+        activatedAt: user.subscriptionActivatedAt || user.lastPaymentDate,
+        source: user.subscriptionSource,
+        duration: user.subscriptionDuration,
+        isActive
       }
     });
   } catch (error) {
@@ -1462,13 +1474,18 @@ const checkPaymentStatus = async (req, res) => {
       const user = await User.findById(userId);
 
       if (transaction.state === TransactionState.COMPLETED && user) {
-        const validAmounts = Object.values(PAYMENT_AMOUNTS);
-        const plan = validAmounts.includes(transaction.amount) ? 'pro' : 'free';
+        // If user doesn't have an active subscription, activate from this transaction
+        if (!user.hasActiveSubscription()) {
+          const { durationDays, durationMonths } = getDurationFromAmount(transaction.amount);
+          const performTime = transaction.perform_time || transaction.create_time;
+          const expiry = new Date(new Date(performTime).getTime() + (durationDays * 24 * 60 * 60 * 1000));
 
-        if (user.subscriptionPlan !== plan || user.paymentStatus !== 'paid') {
-          user.subscriptionPlan = plan;
-          user.paymentStatus = 'paid';
-          await user.save();
+          if (expiry > new Date()) {
+            await user.grantSubscription('pro', durationDays, 'payment', durationMonths);
+            user.subscriptionAmount = transaction.amount;
+            user.lastPaymentDate = new Date(performTime);
+            await user.save();
+          }
         }
       }
 
