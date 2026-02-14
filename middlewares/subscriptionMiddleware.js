@@ -2,6 +2,7 @@
 // Validates subscription status on authenticated requests.
 // - Expires subscriptions that have passed their expiryDate
 // - Reconciles users who paid but never got activated
+// - Stacks multiple payments (e.g. 3x 1-day = 3 days total)
 
 const User = require('../models/user');
 const PaymeTransaction = require('../models/paymeTransaction');
@@ -48,7 +49,7 @@ const validateSubscription = async (req, res, next) => {
  * Rules:
  * 1. If plan is non-free and expiryDate has passed -> revert to free
  * 2. If plan is non-free but no expiryDate -> revert to free
- * 3. If plan is free but there's a completed transaction that was never activated -> activate
+ * 3. If plan is free but there are completed transactions -> activate & stack all
  *
  * @param {Object} user - Mongoose User document
  * @returns {boolean} true if any changes were made and saved
@@ -89,8 +90,10 @@ async function ensureSubscriptionStatus(user) {
 }
 
 /**
- * Checks completed payment transactions for a free user and activates their
- * subscription if a valid, unused payment is found.
+ * Checks ALL completed payment transactions for a free user and activates their
+ * subscription by stacking all payment durations.
+ *
+ * Example: 3 completed 1-day payments on Feb 13 → expiry = Feb 13 + 3 days = Feb 16
  *
  * @param {Object} user - Mongoose User document (must be 'free')
  * @returns {boolean} true if subscription was activated
@@ -99,7 +102,10 @@ async function tryActivateFromPayments(user) {
   const firebaseId = user.firebaseId;
   const now = new Date();
 
-  // --- Check PayMe transactions ---
+  // Collect all completed transactions from both payment providers
+  const allTransactions = [];
+
+  // --- PayMe transactions ---
   const paymeCompleted = await PaymeTransaction.find({
     $or: [
       { user_id: firebaseId },
@@ -107,63 +113,75 @@ async function tryActivateFromPayments(user) {
       { 'metadata.account.Login': firebaseId }
     ],
     state: 2 // COMPLETED
-  }).sort({ perform_time: -1 }).limit(1).lean();
+  }).sort({ perform_time: 1 }).lean();
 
-  if (paymeCompleted.length > 0) {
-    const tx = paymeCompleted[0];
-    const { durationDays, durationMonths } = getDurationFromAmount(tx.amount);
-    const performTime = tx.perform_time || tx.create_time;
-
-    // Calculate what the expiry would be from this payment
-    const expiry = new Date(new Date(performTime).getTime() + (durationDays * 24 * 60 * 60 * 1000));
-
-    // Only activate if the subscription period hasn't passed yet
-    if (expiry > now) {
-      console.log(`[Subscription] Activating from PayMe tx ${tx.paycom_transaction_id} for ${firebaseId}`);
-      user.subscriptionPlan = 'pro';
-      user.subscriptionExpiryDate = expiry;
-      user.subscriptionActivatedAt = new Date(performTime);
-      user.subscriptionSource = 'payment';
-      user.subscriptionDuration = durationMonths;
-      user.subscriptionAmount = tx.amount;
-      user.lastPaymentDate = new Date(performTime);
-      user.paymentStatus = 'paid';
-      return true;
-    }
+  for (const tx of paymeCompleted) {
+    const { durationDays } = getDurationFromAmount(tx.amount);
+    allTransactions.push({
+      id: tx.paycom_transaction_id,
+      provider: 'payme',
+      paidAt: tx.perform_time || tx.create_time,
+      durationDays,
+      amount: tx.amount
+    });
   }
 
-  // --- Check Multicard transactions ---
-  // MulticardTransaction uses userId (ObjectId) and firebaseUserId (string)
+  // --- Multicard transactions ---
   const multicardCompleted = await MulticardTransaction.find({
     $or: [
       { firebaseUserId: firebaseId },
       { userId: user._id }
     ],
     status: 'paid'
-  }).sort({ paidAt: -1 }).limit(1).lean();
+  }).sort({ paidAt: 1 }).lean();
 
-  if (multicardCompleted.length > 0) {
-    const tx = multicardCompleted[0];
-    const { durationDays, durationMonths } = getDurationFromAmount(tx.amount);
-    const paidTime = tx.paidAt || tx.createdAt;
-
-    const expiry = new Date(new Date(paidTime).getTime() + (durationDays * 24 * 60 * 60 * 1000));
-
-    if (expiry > now) {
-      console.log(`[Subscription] Activating from Multicard tx ${tx.invoiceId} for ${firebaseId}`);
-      user.subscriptionPlan = tx.plan || 'pro';
-      user.subscriptionExpiryDate = expiry;
-      user.subscriptionActivatedAt = new Date(paidTime);
-      user.subscriptionSource = 'payment';
-      user.subscriptionDuration = durationMonths;
-      user.subscriptionAmount = tx.amount;
-      user.lastPaymentDate = new Date(paidTime);
-      user.paymentStatus = 'paid';
-      return true;
-    }
+  for (const tx of multicardCompleted) {
+    const { durationDays } = getDurationFromAmount(tx.amount);
+    allTransactions.push({
+      id: tx.invoiceId || tx.multicardUuid,
+      provider: 'multicard',
+      paidAt: tx.paidAt || tx.createdAt,
+      durationDays,
+      amount: tx.amount
+    });
   }
 
-  return false;
+  if (allTransactions.length === 0) return false;
+
+  // Sort all transactions by payment time (oldest first)
+  allTransactions.sort((a, b) => new Date(a.paidAt) - new Date(b.paidAt));
+
+  // Stack durations: each payment extends from where the previous one ends
+  const firstPayment = new Date(allTransactions[0].paidAt);
+  let expiry = firstPayment;
+
+  for (const tx of allTransactions) {
+    const txPaidAt = new Date(tx.paidAt);
+    // If this payment was made after the current running expiry, start from payment time
+    // Otherwise stack on top of the running expiry
+    const startFrom = txPaidAt > expiry ? txPaidAt : expiry;
+    expiry = new Date(startFrom.getTime() + (tx.durationDays * 24 * 60 * 60 * 1000));
+  }
+
+  // Only activate if the stacked expiry is still in the future
+  if (expiry <= now) return false;
+
+  // Use the last transaction for metadata
+  const lastTx = allTransactions[allTransactions.length - 1];
+  const { durationMonths } = getDurationFromAmount(lastTx.amount);
+
+  console.log(`[Subscription] Activating ${firebaseId} from ${allTransactions.length} transactions, expiry: ${expiry.toISOString()}`);
+
+  user.subscriptionPlan = 'pro';
+  user.subscriptionExpiryDate = expiry;
+  user.subscriptionActivatedAt = firstPayment;
+  user.subscriptionSource = 'payment';
+  user.subscriptionDuration = durationMonths;
+  user.subscriptionAmount = lastTx.amount;
+  user.lastPaymentDate = new Date(lastTx.paidAt);
+  user.paymentStatus = 'paid';
+
+  return true;
 }
 
 /**

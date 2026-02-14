@@ -150,6 +150,18 @@ const initiatePayment = async (req, res) => {
             ]
         });
 
+        // Block payment if user already has an active subscription
+        if (user && user.hasActiveSubscription()) {
+            const expiryDate = new Date(user.subscriptionExpiryDate);
+            return res.status(400).json({
+                success: false,
+                error: {
+                    code: 'ACTIVE_SUBSCRIPTION',
+                    details: `You already have an active ${user.subscriptionPlan} subscription until ${expiryDate.toISOString()}. You can renew after it expires.`
+                }
+            });
+        }
+
         // Auto-create user if they exist in Firebase but not in MongoDB
         // (request is already authenticated via Firebase auth middleware)
         if (!user) {

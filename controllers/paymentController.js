@@ -460,6 +460,14 @@ const handleCheckPerformTransaction = async (req, res, id, params) => {
     return res.status(200).json(createErrorResponse(id, PaymeErrorCode.INVALID_ACCOUNT, getAccountFieldName()));
   }
 
+  // Block if user already has an active subscription
+  const accountLogin = account.Login;
+  if (accountLogin && accountLogin.length >= 20) {
+    const existingUser = await User.findOne({ firebaseId: accountLogin });
+    if (existingUser && existingUser.hasActiveSubscription()) {
+      return res.status(200).json(createErrorResponse(id, PaymeErrorCode.UNABLE_TO_PERFORM_OPERATION));
+    }
+  }
 
   return res.status(200).json({
     jsonrpc: "2.0",
@@ -1051,6 +1059,16 @@ const initiatePaymePayment = async (req, res) => {
 
     if (!plan) {
       return safeErrorResponse(res, 400, 'Plan is required', 'Payment initiation');
+    }
+
+    // Block payment if user already has an active subscription
+    const existingUser = await User.findOne({ firebaseId: userId });
+    if (existingUser && existingUser.hasActiveSubscription()) {
+      const expiryDate = new Date(existingUser.subscriptionExpiryDate);
+      return safeErrorResponse(res, 400,
+        `You already have an active ${existingUser.subscriptionPlan} subscription until ${expiryDate.toISOString()}. You can renew after it expires.`,
+        'Payment initiation'
+      );
     }
 
     // Environment validation
