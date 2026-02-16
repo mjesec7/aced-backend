@@ -296,6 +296,12 @@ mountRoute('/api/voice', './routes/voiceRoutes', 'Voice Answer Verification rout
 mountRoute('/api/messages', './routes/messageRoutes', 'User inbox/messages routes');
 
 // ========================================
+// EXCHANGE RATE ROUTES
+// ========================================
+
+mountRoute('/api/exchange-rate', './routes/exchangeRateRoutes', 'Exchange rate routes');
+
+// ========================================
 // COURSES, GUIDES & BOOKS ROUTES
 // ========================================
 

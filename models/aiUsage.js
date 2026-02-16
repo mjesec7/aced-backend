@@ -293,19 +293,9 @@ class AIUsageService {
   
   static async getUserUsageStats(userId) {
     try {
-      const currentMonth = AIUsage.getCurrentMonth();
-      const usage = await AIUsage.findOne({
-        userId: userId,
-        currentMonth: currentMonth
-      });
-      
-      if (!usage) {
-        return {
-          success: false,
-          error: 'Usage record not found'
-        };
-      }
-      
+      // Use getOrCreateUsage to ensure a record always exists (fixes "limit reached" for new users)
+      const usage = await this.getOrCreateUsage(userId);
+
       const canSend = usage.canSendMessage();
       const limits = AIUsage.getUsageLimits(usage.subscriptionPlan);
       
