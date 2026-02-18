@@ -259,6 +259,7 @@ mountRoute('/api/games', './routes/gameRoutes', 'Game system routes');
 
 mountRoute('/api/homeworks', './routes/homeworkRoutes', 'Homework routes');
 mountRoute('/api/tests', './routes/testRoutes', 'Test routes');
+mountRoute('/api/ai-tests', './routes/aiTestRoutes', 'AI Test Generation routes (DeepSeek)');
 
 // ========================================
 // RATINGS ROUTES
